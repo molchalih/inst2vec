@@ -193,13 +193,56 @@ def section_music(session):
                 print(f"  {feat:<15}  {mean:>7.3f} ± {std:.3f}")
 
 
+def section_speech(session):
+    _header("SPEECH", "-")
+    n_with = session.query(func.count(Clip.pk)).filter(Clip.has_speech == 1).scalar()
+    n_without = session.query(func.count(Clip.pk)).filter(Clip.has_speech == 0).scalar()
+    total_resolved = n_with + n_without
+    print(f"\nWith speech: {n_with:,} / {total_resolved:,} ({_pct(n_with, total_resolved)})")
+    print(f"Silent:      {n_without:,} / {total_resolved:,} ({_pct(n_without, total_resolved)})")
+
+    lang_rows = (
+        session.query(Clip.speech_language, func.count(Clip.pk))
+        .filter(
+            Clip.has_speech == 1,
+            Clip.speech_language.is_not(None),
+            Clip.speech_language != "",
+        )
+        .group_by(Clip.speech_language)
+        .order_by(func.count(Clip.pk).desc())
+        .limit(10)
+        .all()
+    )
+    total_lang = sum(r[1] for r in lang_rows)
+    print("\nSpeech language distribution (top 10):")
+    for lang, cnt in lang_rows:
+        print(f"  {lang:<6}  {cnt:>6,}  ({_pct(cnt, total_lang)})")
+
+    quality_rows = session.query(
+        Clip.speech_confidence, Clip.speech_avg_logprob
+    ).filter(Clip.has_speech == 1, Clip.speech_confidence.is_not(None)).all()
+    if quality_rows:
+        conf_vals = [r[0] for r in quality_rows if r[0] is not None]
+        logprob_vals = [r[1] for r in quality_rows if r[1] is not None]
+        if conf_vals:
+            print(f"\nMean speech confidence:  {statistics.mean(conf_vals):.3f}")
+        if logprob_vals:
+            print(f"Mean speech avg logprob: {statistics.mean(logprob_vals):.3f}")
+
+
 def main():
     session = get_session()
     try:
+        print("=" * 52)
+        print("inst2vec — Dataset Analysis Report")
+        print("=" * 52)
         section_health(session)
+        _header("CONTENT STATISTICS")
         section_engagement(session)
         section_captions(session)
         section_music(session)
+        section_speech(session)
+        print()
     finally:
         session.close()
 
