@@ -19,4 +19,16 @@ __pycache__/
 
 data/inst2vec.db-journal
 
-models/
+.safetensors
+
+.DS_Store
+
+.vscode
+
+.idea
+
+.pytest_cache
+
+.ruff_cache
+
+.mypy_cache
