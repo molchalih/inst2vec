@@ -39,6 +39,13 @@ COMPRESSION_THRESHOLD = float(os.environ.get("SPEECH_COMPRESSION_THRESHOLD", "2.
 
 SCOPE_CLASSIFY = "classify_speech"
 SCOPE_TRANSLATE = "translate_speech"
+SCOPE_CLEAN = "clean_speech"
+
+# Substrings in speech_translation that indicate a hallucination / bad transcription.
+# Any clip whose translation matches one of these will have has_speech reset to 0.
+_HALLUCINATION_MARKERS = [
+    "DimaTorzok",
+]
 
 
 def _transcribe(model, path: str) -> tuple[str, str, float, float, float]:
@@ -65,6 +72,37 @@ def _transcribe(model, path: str) -> tuple[str, str, float, float, float]:
 
 
 # ── public API ─────────────────────────────────────────────────────────────────
+
+def clean_speech() -> None:
+    """Reset has_speech to 0 for clips whose speech_translation contains hallucination markers."""
+    from sqlalchemy import or_
+
+    session = get_session()
+    filter_conditions = [
+        Clip.speech_translation.contains(marker) for marker in _HALLUCINATION_MARKERS
+    ]
+    clips = (
+        session.query(Clip)
+        .filter(
+            Clip.has_speech == 1,
+            Clip.speech_translation.is_not(None),
+            or_(*filter_conditions),
+        )
+        .order_by(Clip.pk)
+        .all()
+    )
+    if not clips:
+        session.close()
+        return
+
+    for clip in clips:
+        clip.has_speech = 0
+        log(SCOPE_CLEAN, f"{clip.pk}: marked has_speech=0 (translation: \"{(clip.speech_translation or '')[:60]}\")")
+
+    session.commit()
+    session.close()
+    log(SCOPE_CLEAN, f"done — {len(clips)} clips cleared")
+
 
 def classify_speech() -> None:
     """Transcribe all unresolved clips with Whisper, tagging has_speech and speech_confidence.

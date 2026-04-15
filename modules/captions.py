@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import re
 
 from lingua import LanguageDetectorBuilder
 from sqlalchemy import func
@@ -19,6 +20,44 @@ CAPTION_TRANSLATE_MAX_NEW_TOKENS = int(os.environ.get("CAPTION_TRANSLATE_MAX_NEW
 
 SCOPE_DETECT = "detect_caption_language"
 SCOPE_TRANSLATE = "translate_captions"
+SCOPE_CLEAN = "clean_captions"
+
+_MENTION_RE = re.compile(r"@[\w.]+")
+
+
+def _clean(text: str) -> str:
+    return " ".join(_MENTION_RE.sub("", text).split())
+
+
+def clean_captions() -> None:
+    """Strip @mentions and collapse whitespace/newlines in caption_text."""
+    session = get_session()
+    clips = (
+        session.query(Clip)
+        .filter(
+            Clip.caption_text.is_not(None),
+            Clip.caption_text != "",
+            (Clip.caption_text.contains("@")) | (Clip.caption_text.contains("\n")),
+        )
+        .order_by(Clip.pk)
+        .all()
+    )
+    if not clips:
+        session.close()
+        return
+
+    cleaned = 0
+    for i, clip in enumerate(clips, 1):
+        result = _clean(clip.caption_text)
+        if result != clip.caption_text:
+            clip.caption_text = result
+            cleaned += 1
+        if i % COMMIT_EVERY == 0:
+            session.commit()
+
+    session.commit()
+    session.close()
+    log(SCOPE_CLEAN, f"done — {cleaned}/{len(clips)} captions updated")
 
 
 def detect_caption_language() -> None:
