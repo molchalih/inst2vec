@@ -33,6 +33,7 @@ __pycache__/
 # Claude Code / session state
 .claude/
 .remember/
+CLAUDE.md
 
 # Docs (working notes, not published)
 docs/
