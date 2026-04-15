@@ -119,11 +119,46 @@ def section_engagement(session):
         print(f"  {label:<18}  mean={mean:>10,.0f}  median={median:>10,.0f}  p90={p90:>10,.0f}")
 
 
+def section_captions(session):
+    _header("CAPTIONS", "-")
+    n_total = session.query(func.count(Clip.pk)).scalar()
+    n_empty = session.query(func.count(Clip.pk)).filter(
+        (Clip.caption_text.is_(None)) | (Clip.caption_text == "")
+    ).scalar()
+    print(f"\nNo caption: {n_empty:,} / {n_total:,} ({_pct(n_empty, n_total)})")
+
+    lengths = [
+        len(r[0])
+        for r in session.query(Clip.caption_text).filter(
+            Clip.caption_text.is_not(None), Clip.caption_text != ""
+        ).all()
+    ]
+    if lengths:
+        print(
+            f"Avg caption length: {statistics.mean(lengths):.0f} chars"
+            f"  (median {statistics.median(lengths):.0f})"
+        )
+
+    lang_rows = (
+        session.query(Clip.caption_language, func.count(Clip.pk))
+        .filter(Clip.caption_language.is_not(None), Clip.caption_language != "")
+        .group_by(Clip.caption_language)
+        .order_by(func.count(Clip.pk).desc())
+        .limit(10)
+        .all()
+    )
+    total_detected = sum(r[1] for r in lang_rows)
+    print("\nCaption language distribution (top 10):")
+    for lang, cnt in lang_rows:
+        print(f"  {lang:<6}  {cnt:>6,}  ({_pct(cnt, total_detected)})")
+
+
 def main():
     session = get_session()
     try:
         section_health(session)
         section_engagement(session)
+        section_captions(session)
     finally:
         session.close()
 
