@@ -153,12 +153,53 @@ def section_captions(session):
         print(f"  {lang:<6}  {cnt:>6,}  ({_pct(cnt, total_detected)})")
 
 
+def section_music(session):
+    _header("MUSIC", "-")
+    n_with = session.query(func.count(Clip.pk)).filter(Clip.has_music == 1).scalar()
+    n_without = session.query(func.count(Clip.pk)).filter(Clip.has_music == 0).scalar()
+    total_resolved = n_with + n_without
+    print(f"\nWith music: {n_with:,} / {total_resolved:,} ({_pct(n_with, total_resolved)})")
+    print(f"No music:   {n_without:,} / {total_resolved:,} ({_pct(n_without, total_resolved)})")
+
+    top_tracks = (
+        session.query(Music.artist, Music.track, func.count(Clip.pk))
+        .join(Clip, Clip.music_id == Music.id)
+        .group_by(Music.id)
+        .order_by(func.count(Clip.pk).desc())
+        .limit(10)
+        .all()
+    )
+    print("\nTop 10 tracks by clip count:")
+    for artist, track, cnt in top_tracks:
+        label = f"{artist} – {track}" if artist else track
+        print(f"  {cnt:>4}x  {label[:60]}")
+
+    feature_rows = (
+        session.query(
+            Music.tempo, Music.valence, Music.danceability, Music.energy, Music.acousticness
+        )
+        .join(Clip, Clip.music_id == Music.id)
+        .filter(Music.has_features == "yes")
+        .all()
+    )
+    feature_names = ["tempo", "valence", "danceability", "energy", "acousticness"]
+    if feature_rows:
+        print(f"\nAudio features (mean ± std, across {len(feature_rows)} clips with features):")
+        for i, feat in enumerate(feature_names):
+            vals = [r[i] for r in feature_rows if r[i] is not None]
+            if vals:
+                mean = statistics.mean(vals)
+                std = statistics.stdev(vals) if len(vals) > 1 else 0.0
+                print(f"  {feat:<15}  {mean:>7.3f} ± {std:.3f}")
+
+
 def main():
     session = get_session()
     try:
         section_health(session)
         section_engagement(session)
         section_captions(session)
+        section_music(session)
     finally:
         session.close()
 
