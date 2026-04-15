@@ -16,3 +16,7 @@ __pycache__/
 *.pyzwzw
 *.pyzwzwz
 *.pyzwzwzw
+
+data/inst2vec.db-journal
+
+models/
