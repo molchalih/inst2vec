@@ -96,10 +96,34 @@ def section_health(session):
     print(f"\nVideo download failures: {n_video_fail:>5,}")
 
 
+def section_engagement(session):
+    _header("ENGAGEMENT", "-")
+    rows = session.query(
+        Clip.like_count, Clip.play_count, Clip.comment_count, Clip.reshare_count
+    ).all()
+    if not rows:
+        print("No clip data.")
+        return
+
+    fields = [
+        (0, "like_count"),
+        (1, "play_count"),
+        (2, "comment_count"),
+        (3, "reshare_count"),
+    ]
+    for idx, label in fields:
+        vals = [r[idx] or 0 for r in rows]
+        mean = statistics.mean(vals)
+        median = statistics.median(vals)
+        p90 = _p90(vals)
+        print(f"  {label:<18}  mean={mean:>10,.0f}  median={median:>10,.0f}  p90={p90:>10,.0f}")
+
+
 def main():
     session = get_session()
     try:
         section_health(session)
+        section_engagement(session)
     finally:
         session.close()
 
