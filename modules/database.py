@@ -3,7 +3,7 @@ import os
 from urllib.parse import urlparse
 
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, Column, BigInteger, Integer, String, Boolean, ForeignKey, Text
+from sqlalchemy import create_engine, Column, BigInteger, Integer, Float, String, Boolean, ForeignKey, Text
 from sqlalchemy.orm import declarative_base, relationship, Session
 
 load_dotenv()
@@ -40,8 +40,21 @@ class Clip(Base):
     reshare_count = Column(Integer)
     like_count = Column(Integer)
     play_count = Column(Integer)
+    music_artist = Column(String)
+    music_track = Column(String)
+    music_confidence = Column(Float)
+    speech_transcription = Column(Text)
 
     user = relationship("User", back_populates="clips")
+
+
+class Download(Base):
+    __tablename__ = "downloads"
+
+    entity_pk = Column(BigInteger, primary_key=True)
+    file_type = Column(String, primary_key=True)
+    success = Column(Boolean)
+    parse_available = Column(Boolean, default=True)
 
 
 def init_db():
