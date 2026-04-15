@@ -34,3 +34,5 @@ data/inst2vec.db-journal
 .mypy_cache
 
 models/Qwen3VL-Embedding-8B/.cache/
+
+models/
