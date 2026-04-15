@@ -74,12 +74,11 @@ def fetch_profiles():
     failed = 0
 
     for i, user in enumerate(users, 1):
-        print(f"[{i}/{len(users)}] {user.username} — ", end="", flush=True)
-
         if _is_parsed(user):
-            print("skipped (already parsed)")
             skipped += 1
             continue
+
+        print(f"[{i}/{len(users)}] {user.username} — ", end="", flush=True)
 
         try:
             data = cl.user_by_username_v1(user.username)
