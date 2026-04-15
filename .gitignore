@@ -32,3 +32,5 @@ data/inst2vec.db-journal
 .ruff_cache
 
 .mypy_cache
+
+models/Qwen3VL-Embedding-8B/.cache/
