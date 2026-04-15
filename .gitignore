@@ -36,3 +36,6 @@ data/inst2vec.db-journal
 models/Qwen3VL-Embedding-8B/.cache/
 
 models/
+
+.claude/
+.remember/
