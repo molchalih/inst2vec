@@ -1,44 +1,38 @@
+# Environment
 .venv/
-
 .env
 
+# Data — large/generated files
 data/source/
+data/inst2vec.db-journal
+data/inst2vec.db.backup*
+data/inst2vec.db.half
+data/data.csv.backup
 
+# Model weights & checkpoints
+models/
+checkpoints/
+*.safetensors
+
+# Python bytecode
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
-*.pyw
-*.pyz
-*.pywz
-*.pyzw
-*.pyzwz
-*.pyzwzw
-*.pyzwzwz
-*.pyzwzwzw
 
-data/inst2vec.db-journal
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
 
-.safetensors
-
+# IDEs & OS
+.vscode/
+.idea/
 .DS_Store
 
-.vscode
-
-.idea
-
-.pytest_cache
-
-.ruff_cache
-
-.mypy_cache
-
-models/Qwen3VL-Embedding-8B/.cache/
-
-models/
-
+# Claude Code / session state
 .claude/
 .remember/
 
-docs/RESEARCH_PORPOSAL.md
-docs/RESEARCH_OLD.md
+# Docs (working notes, not published)
+docs/
