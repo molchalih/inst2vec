@@ -4,12 +4,12 @@ hikerapi
 httpx
 pyacrcloud
 openai-whisper
+lingua-language-detector
 huggingface_hub
-torch 
-transformers 
-accelerate 
+torch
+transformers
+accelerate
 pillow
 ninja
 flash-attn
-huggingface_hub
-deepl
+bitsandbytes

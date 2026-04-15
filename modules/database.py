@@ -18,6 +18,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import declarative_base, relationship, Session
 from sqlalchemy.sql import func
+from sqlalchemy import inspect, text
 
 load_dotenv()
 
@@ -47,6 +48,7 @@ class Clip(Base):
     thumbnail_url = Column(String)
     video_url = Column(String)
     caption_text = Column(Text)
+    caption_language = Column(Text, nullable=True)
     caption_translation = Column(Text)
     comment_count = Column(Integer)
     reshare_count = Column(Integer)
@@ -62,6 +64,7 @@ class Clip(Base):
     speech_compression_ratio = Column(Float, nullable=True)
     has_speech = Column(Integer, nullable=True)
     speech_translation = Column(Text)
+    clip_disqualified = Column(Integer, nullable=True)
 
     user = relationship("User", back_populates="clips")
     music = relationship("Music", back_populates="clips")
@@ -110,8 +113,23 @@ class Download(Base):
     parse_available = Column(Boolean, default=True)
 
 
+def _migrate_clips_table() -> None:
+    """Apply additive schema migrations for existing SQLite databases."""
+    inspector = inspect(engine)
+    if "clips" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("clips")}
+    if "caption_language" not in columns:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE clips ADD COLUMN caption_language TEXT"))
+    if "clip_disqualified" not in columns:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE clips ADD COLUMN clip_disqualified INTEGER"))
+
+
 def init_db():
     Base.metadata.create_all(engine)
+    _migrate_clips_table()
 
 
 def get_session() -> Session:

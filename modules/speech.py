@@ -1,7 +1,7 @@
 """Phase 2 – speech pipeline.
 
   classify_speech()  Whisper transcription → has_speech + speech_confidence.
-  translate_speech() DeepL translation     → speech_translation.
+  translate_speech() TranslateGemma        → speech_translation.
 """
 from __future__ import annotations
 
@@ -9,16 +9,19 @@ import os
 from typing import Optional
 
 import whisper
-from deepl import Translator
+from sqlalchemy import func
 
 from modules.database import Clip, get_session
+from modules.external.gemma_translate import GemmaTranslator
 from modules.services import log
 
 VIDEO_DIR = os.environ.get("VIDEO_DIR", "data/source/videos")
 WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "large-v3-turbo")
 COMMIT_EVERY = int(os.environ.get("SPEECH_COMMIT_EVERY", 50))
-DEEPL_TARGET_LANG = os.environ.get("DEEPL_TARGET_LANG", "EN")
-DEEPL_MAX_CHARS = int(os.environ.get("SPEECH_TRANSLATION_MAX_CHARS", 1000))
+SPEECH_TRANSLATE_MODEL = os.environ.get("SPEECH_TRANSLATE_MODEL", "google/translategemma-4b-it")
+SPEECH_TRANSLATE_TARGET_LANG = os.environ.get("SPEECH_TRANSLATE_TARGET_LANG", "en")
+SPEECH_TRANSLATION_MAX_CHARS = int(os.environ.get("SPEECH_TRANSLATION_MAX_CHARS", 1000))
+SPEECH_TRANSLATE_MAX_NEW_TOKENS = int(os.environ.get("SPEECH_TRANSLATE_MAX_NEW_TOKENS", 200))
 # Two complementary hallucination gates (both configurable via .env):
 #
 #   SPEECH_LOGPROB_THRESHOLD    — mean avg_logprob across segments.
@@ -143,12 +146,16 @@ def classify_speech() -> None:
 
 
 def translate_speech() -> None:
-    """Translate all speech clips that have no translation yet using DeepL."""
+    """Translate all non-empty transcriptions with missing translation using TranslateGemma."""
     session = get_session()
     clips = (
         session.query(Clip)
         .filter(
-            Clip.has_speech == 1,
+            Clip.speech_transcription.is_not(None),
+            Clip.speech_transcription != "",
+            Clip.speech_language.is_not(None),
+            Clip.speech_language != "",
+            func.lower(Clip.speech_language).notlike("en%"),
             (Clip.speech_translation.is_(None)) | (Clip.speech_translation == ""),
         )
         .order_by(Clip.pk)
@@ -160,21 +167,37 @@ def translate_speech() -> None:
 
     total = len(clips)
     log(SCOPE_TRANSLATE, f"{total} clips to translate")
-    translator = Translator(os.environ["DEEPL_API_KEY"])
+    translator = GemmaTranslator(model_id=SPEECH_TRANSLATE_MODEL)
+    log(SCOPE_TRANSLATE, f"loading {translator.model_id} on {translator.device}…")
     translated = 0
 
     for i, clip in enumerate(clips, 1):
-        source = (clip.speech_transcription or "").strip()[:DEEPL_MAX_CHARS]
+        source = (clip.speech_transcription or "").strip()[:SPEECH_TRANSLATION_MAX_CHARS]
+        source_lang = (clip.speech_language or "").strip().replace("_", "-")
         if not source:
             continue
+        if not source_lang or source_lang.lower().startswith("en"):
+            continue
+
         try:
-            clip.speech_translation = translator.translate_text(source, target_lang=DEEPL_TARGET_LANG).text
+            translation = translator.translate_text(
+                text=source,
+                source_lang_code=source_lang,
+                target_lang_code=SPEECH_TRANSLATE_TARGET_LANG,
+                max_new_tokens=SPEECH_TRANSLATE_MAX_NEW_TOKENS,
+            )
+            if not translation:
+                continue
+            clip.speech_translation = translation
             translated += 1
+            src_preview = source[:45] + ("…" if len(source) > 45 else "")
+            tr_preview = translation[:45] + ("…" if len(translation) > 45 else "")
+            log(SCOPE_TRANSLATE, f"{i}/{total} — {clip.pk}: \"{src_preview}\" -> \"{tr_preview}\"")
         except Exception:
             continue
         if i % COMMIT_EVERY == 0:
             session.commit()
-            log(SCOPE_TRANSLATE, f"{i}/{total} done")
+            log(SCOPE_TRANSLATE, f"{i}/{total} committed")
 
     session.commit()
     session.close()

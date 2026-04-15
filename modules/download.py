@@ -3,7 +3,7 @@ import time
 
 import httpx
 
-from modules.database import get_session, User, Download
+from modules.database import get_session, User, Clip, Download
 
 DIRS = {
     "profile_pic": "data/source/profile_pics",
@@ -36,6 +36,10 @@ def _try_download(session, entity_pk, file_type, url):
 
     if not url:
         session.add(Download(entity_pk=entity_pk, file_type=file_type, success=False, parse_available=False))
+        if file_type == "video":
+            clip = session.get(Clip, entity_pk)
+            if clip:
+                clip.clip_disqualified = 1
         return
 
     ext = "mp4" if file_type == "video" else "jpg"
@@ -43,6 +47,10 @@ def _try_download(session, entity_pk, file_type, url):
 
     if os.path.exists(path):
         session.add(Download(entity_pk=entity_pk, file_type=file_type, success=True, parse_available=True))
+        if file_type == "video":
+            clip = session.get(Clip, entity_pk)
+            if clip:
+                clip.clip_disqualified = 0
         return
 
     ok = _download(url, path)
@@ -50,6 +58,10 @@ def _try_download(session, entity_pk, file_type, url):
         entity_pk=entity_pk, file_type=file_type,
         success=ok, parse_available=ok,
     ))
+    if file_type == "video":
+        clip = session.get(Clip, entity_pk)
+        if clip:
+            clip.clip_disqualified = 0 if ok else 1
     print(f"  {'ok' if ok else 'FAILED'} {file_type}/{entity_pk}")
 
 
