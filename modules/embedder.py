@@ -50,8 +50,6 @@ def embed_clips():
         text_parts = []
         if clip.caption_text:
             text_parts.append(clip.caption_text)
-        if clip.music_artist and clip.music_track:
-            text_parts.append(f"{clip.music_artist} — {clip.music_track}")
         if clip.speech_transcription:
             text_parts.append(clip.speech_transcription)
 

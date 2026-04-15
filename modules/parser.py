@@ -45,7 +45,6 @@ def _fetch_clips(cl: Client, user: User, session) -> int:
             video_url=m.get("video_url"),
             caption_text=cap.get("text"),
             caption_translation=cap.get("text_translation"),
-            has_audio=m.get("has_audio"),
             comment_count=m.get("comment_count"),
             reshare_count=m.get("reshare_count"),
             like_count=m.get("like_count"),

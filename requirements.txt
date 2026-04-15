@@ -11,4 +11,5 @@ accelerate
 pillow
 ninja
 flash-attn
-huggingface-cli
+huggingface_hub
+deepl

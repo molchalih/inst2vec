@@ -3,8 +3,21 @@ import os
 from urllib.parse import urlparse
 
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, Column, BigInteger, Integer, Float, String, Boolean, ForeignKey, Text
+from sqlalchemy import (
+    create_engine,
+    Column,
+    BigInteger,
+    Integer,
+    Float,
+    String,
+    Boolean,
+    ForeignKey,
+    Text,
+    UniqueConstraint,
+    DateTime,
+)
 from sqlalchemy.orm import declarative_base, relationship, Session
+from sqlalchemy.sql import func
 
 load_dotenv()
 
@@ -35,17 +48,52 @@ class Clip(Base):
     video_url = Column(String)
     caption_text = Column(Text)
     caption_translation = Column(Text)
-    has_audio = Column(Boolean)
     comment_count = Column(Integer)
     reshare_count = Column(Integer)
     like_count = Column(Integer)
     play_count = Column(Integer)
-    music_artist = Column(String)
-    music_track = Column(String)
+    music_id = Column(Integer, ForeignKey("music.id"), nullable=True)
     music_confidence = Column(Float)
+    audio_type = Column(String, nullable=True)
     speech_transcription = Column(Text)
+    speech_translation = Column(Text)
 
     user = relationship("User", back_populates="clips")
+    music = relationship("Music", back_populates="clips")
+
+
+class Music(Base):
+    __tablename__ = "music"
+    __table_args__ = (
+        UniqueConstraint("artist", "track", name="uq_music_artist_track"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    artist = Column(String, nullable=False, default="")
+    track = Column(String, nullable=False, default="")
+    spotify_id = Column(String, nullable=True)
+    reccobeats_id = Column(String, nullable=True)
+    has_features = Column(String, nullable=True)
+    acousticness = Column(Float, nullable=True)
+    danceability = Column(Float, nullable=True)
+    energy = Column(Float, nullable=True)
+    instrumentalness = Column(Float, nullable=True)
+    key = Column(Integer, nullable=True)
+    liveness = Column(Float, nullable=True)
+    loudness = Column(Float, nullable=True)
+    mode = Column(Integer, nullable=True)
+    speechiness = Column(Float, nullable=True)
+    tempo = Column(Float, nullable=True)
+    valence = Column(Float, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    clips = relationship("Clip", back_populates="music")
 
 
 class Download(Base):
