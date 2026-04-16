@@ -30,6 +30,9 @@ __pycache__/
 .idea/
 .DS_Store
 
+# Worktrees
+.worktrees/
+
 # session state
 .claude/
 .remember/
