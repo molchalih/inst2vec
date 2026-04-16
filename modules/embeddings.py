@@ -2,7 +2,7 @@ import os
 import subprocess
 from sqlalchemy import or_
 
-from modules.database import Base, engine, get_session, Clip, ClipEmbedding, User
+from modules.database import Base, engine, get_session, Clip, ClipEmbedding, User, Music
 
 MODEL_PATH = "./models/Qwen3-VL-Embedding-8B"
 VIDEO_DIR = "data/source/videos"
@@ -103,13 +103,33 @@ def _video_path(clip_pk: int) -> str:
     return os.path.abspath(os.path.join(VIDEO_DIR, f"{clip_pk}.mp4"))
 
 
-def _text_parts(clip: Clip) -> list[str]:
+def _build_text(clip, music_map: dict) -> str | None:
     parts = []
-    if clip.caption_text:
-        parts.append(clip.caption_text)
-    if clip.speech_transcription:
-        parts.append(clip.speech_transcription)
-    return parts
+
+    cap = (
+        clip.caption_translation
+        if clip.caption_language not in ("en", None)
+        and clip.caption_translation
+        and clip.caption_translation.strip()
+        else (clip.caption_text or "")
+    )
+    if cap.strip():
+        parts.append(cap.strip())
+
+    speech = (
+        clip.speech_translation
+        if clip.speech_language not in ("en", None)
+        and clip.speech_translation
+        and clip.speech_translation.strip()
+        else (clip.speech_transcription or "")
+    )
+    if speech.strip():
+        parts.append(speech.strip())
+
+    if clip.music_id is not None and clip.music_id in music_map:
+        parts.append(verbalize_music(music_map[clip.music_id]))
+
+    return " | ".join(parts) if parts else None
 
 
 def _probe_duration_seconds(path: str) -> float | None:

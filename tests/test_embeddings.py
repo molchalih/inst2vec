@@ -2,7 +2,7 @@ import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from types import SimpleNamespace
-from modules.embeddings import verbalize_music
+from modules.embeddings import verbalize_music, _build_text
 
 
 def _music(**kwargs):
@@ -94,3 +94,76 @@ def test_verbalize_music_all_none_features():
     m = _music()  # all features are None
     result = verbalize_music(m)
     assert result == 'Music: "Test Track" by Test Artist — '
+
+
+def _clip(**kwargs):
+    defaults = dict(
+        caption_text=None, caption_language=None, caption_translation=None,
+        speech_transcription=None, speech_language=None, speech_translation=None,
+        music_id=None,
+    )
+    defaults.update(kwargs)
+    return SimpleNamespace(**defaults)
+
+
+def test_build_text_english_caption_and_speech():
+    clip = _clip(caption_text="Hello world", caption_language="en",
+                 speech_transcription="Welcome everyone", speech_language="en")
+    result = _build_text(clip, {})
+    assert result == "Hello world | Welcome everyone"
+
+
+def test_build_text_uses_caption_translation_for_non_english():
+    clip = _clip(caption_text="Привет мир", caption_language="ru",
+                 caption_translation="Hello world",
+                 speech_transcription=None)
+    result = _build_text(clip, {})
+    assert result == "Hello world"
+    assert "Привет" not in result
+
+
+def test_build_text_uses_speech_translation_for_non_english():
+    clip = _clip(caption_text=None,
+                 speech_transcription="Bonjour le monde", speech_language="fr",
+                 speech_translation="Hello world")
+    result = _build_text(clip, {})
+    assert result == "Hello world"
+
+
+def test_build_text_falls_back_to_raw_if_no_translation():
+    clip = _clip(caption_text="Привет мир", caption_language="ru",
+                 caption_translation=None,
+                 speech_transcription=None)
+    result = _build_text(clip, {})
+    assert result == "Привет мир"
+
+
+def test_build_text_appends_music():
+    m = _music(track="Test Track", artist="Test Artist",
+               energy=0.90, valence=0.79, acousticness=0.01,
+               instrumentalness=0.00, danceability=0.52,
+               speechiness=0.04, tempo=117.0, mode=1, key=9)
+    clip = _clip(caption_text="Great video", caption_language="en", music_id=42)
+    result = _build_text(clip, {42: m})
+    assert result.startswith("Great video | Music:")
+    assert "Test Track" in result
+    assert "Test Artist" in result
+
+
+def test_build_text_no_music_when_music_id_none():
+    clip = _clip(caption_text="Great video", caption_language="en", music_id=None)
+    result = _build_text(clip, {})
+    assert "Music:" not in result
+
+
+def test_build_text_returns_none_when_no_text():
+    clip = _clip(caption_text=None, caption_translation=None,
+                 speech_transcription=None, speech_translation=None,
+                 music_id=None)
+    assert _build_text(clip, {}) is None
+
+
+def test_build_text_skips_empty_strings():
+    clip = _clip(caption_text="  ", caption_language="en",
+                 speech_transcription="  ", speech_language="en")
+    assert _build_text(clip, {}) is None
