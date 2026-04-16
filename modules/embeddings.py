@@ -287,7 +287,7 @@ def embed_sandwich_clips():
             path = _video_path(clip.pk)
             if not os.path.exists(path):
                 continue
-            if not _text_parts(clip):
+            if _build_text(clip, {}) is None:
                 continue
             todo.append(clip)
 
@@ -306,7 +306,7 @@ def embed_sandwich_clips():
 
         for i, clip in enumerate(todo, 1):
             path = _video_path(clip.pk)
-            text = " | ".join(_text_parts(clip))
+            text = _build_text(clip, {})
             fps, max_frames, duration = _adaptive_video_sampling(path)
             dur_str = f"{duration:.1f}s" if duration is not None else "na"
             print(
