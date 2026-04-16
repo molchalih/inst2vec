@@ -1,9 +1,13 @@
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
+import pytest
+import numpy as np
 from types import SimpleNamespace
-from modules.embeddings import verbalize_music, _build_text
+from modules.embeddings import verbalize_music, _build_text, _bytes_to_array
 
+
+# ── helpers ──────────────────────────────────────────────────────────────────
 
 def _music(**kwargs):
     defaults = dict(
@@ -15,6 +19,18 @@ def _music(**kwargs):
     defaults.update(kwargs)
     return SimpleNamespace(**defaults)
 
+
+def _clip(**kwargs):
+    defaults = dict(
+        caption_text=None, caption_language=None, caption_translation=None,
+        speech_transcription=None, speech_language=None, speech_translation=None,
+        music_id=None,
+    )
+    defaults.update(kwargs)
+    return SimpleNamespace(**defaults)
+
+
+# ── verbalize_music ───────────────────────────────────────────────────────────
 
 def test_verbalize_music_prefix():
     m = _music(track="Laura Palmer's Theme", artist="Angelo Badalamenti",
@@ -91,20 +107,12 @@ def test_verbalize_music_fast_tempo():
 
 
 def test_verbalize_music_all_none_features():
-    m = _music()  # all features are None
+    m = _music()
     result = verbalize_music(m)
     assert result == 'Music: "Test Track" by Test Artist — '
 
 
-def _clip(**kwargs):
-    defaults = dict(
-        caption_text=None, caption_language=None, caption_translation=None,
-        speech_transcription=None, speech_language=None, speech_translation=None,
-        music_id=None,
-    )
-    defaults.update(kwargs)
-    return SimpleNamespace(**defaults)
-
+# ── _build_text ───────────────────────────────────────────────────────────────
 
 def test_build_text_english_caption_and_speech():
     clip = _clip(caption_text="Hello world", caption_language="en",
@@ -167,3 +175,28 @@ def test_build_text_skips_empty_strings():
     clip = _clip(caption_text="  ", caption_language="en",
                  speech_transcription="  ", speech_language="en")
     assert _build_text(clip, {}) is None
+
+
+# ── _bytes_to_array ───────────────────────────────────────────────────────────
+
+def test_bytes_to_array_roundtrip():
+    arr = np.array([0.1, 0.2, 0.3], dtype=np.float32)
+    blob = arr.tobytes()
+    result = _bytes_to_array(blob)
+    np.testing.assert_array_almost_equal(result, arr)
+
+
+def test_bytes_to_array_dtype_is_float32():
+    arr = np.array([1.0, 2.0], dtype=np.float32)
+    result = _bytes_to_array(arr.tobytes())
+    assert result.dtype == np.float32
+
+
+def test_bytes_to_array_returns_copy():
+    arr = np.array([1.0, 2.0, 3.0], dtype=np.float32)
+    blob = arr.tobytes()
+    result = _bytes_to_array(blob)
+    result[0] = 99.0
+    result2 = _bytes_to_array(blob)
+    assert result2[0] == pytest.approx(1.0)
+
