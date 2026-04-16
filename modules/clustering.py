@@ -5,6 +5,8 @@ import numpy as np
 import hdbscan
 from umap import UMAP
 
+from modules.database import Base, engine, get_session, UserEmbedding, UserCluster
+
 
 @dataclass
 class ClusterResult:
@@ -80,4 +82,55 @@ def compute_clusters(
         n_clusters=n_clusters,
         noise_ratio=noise_ratio,
         cluster_sizes=cluster_sizes,
+    )
+
+
+def load_user_matrix(embedding_case: str) -> tuple[np.ndarray, list[int]]:
+    """Load user embeddings from DB. Returns (matrix, user_pks) in matching order."""
+    session = get_session()
+    try:
+        rows = (
+            session.query(UserEmbedding.user_pk, UserEmbedding.embedding)
+            .filter(UserEmbedding.embedding_case == embedding_case)
+            .all()
+        )
+        if not rows:
+            return np.empty((0, 0), dtype=np.float32), []
+        user_pks = [r.user_pk for r in rows]
+        arrays = [np.frombuffer(r.embedding, dtype=np.float32).copy() for r in rows]
+        return np.stack(arrays), user_pks
+    finally:
+        session.close()
+
+
+def cluster_users(embedding_case: str, **params) -> None:
+    Base.metadata.create_all(engine)
+    matrix, user_pks = load_user_matrix(embedding_case)
+
+    if matrix.shape[0] == 0:
+        print(f"[cluster:{embedding_case}] nothing to do")
+        return
+
+    print(f"[cluster:{embedding_case}] {matrix.shape[0]} users — running UMAP + HDBSCAN")
+    result = compute_clusters(matrix, **params)
+
+    session = get_session()
+    try:
+        for i, user_pk in enumerate(user_pks):
+            row = UserCluster(
+                user_pk=user_pk,
+                embedding_case=embedding_case,
+                cluster_id=int(result.labels[i]),
+                umap_x=float(result.coords_2d[i, 0]),
+                umap_y=float(result.coords_2d[i, 1]),
+            )
+            session.merge(row)
+        session.commit()
+    finally:
+        session.close()
+
+    sizes_str = f"min={min(result.cluster_sizes)} median={int(np.median(result.cluster_sizes))} max={max(result.cluster_sizes)}" if result.cluster_sizes else "n/a"
+    print(
+        f"[cluster:{embedding_case}] {result.n_clusters} clusters, "
+        f"{result.noise_ratio:.1%} noise, sizes: {sizes_str}"
     )
