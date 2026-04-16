@@ -1,5 +1,6 @@
 import os
 import subprocess
+import numpy as np
 from sqlalchemy import or_
 
 from modules.database import Base, engine, get_session, Clip, ClipEmbedding, User, Music
@@ -85,6 +86,10 @@ def verbalize_music(music) -> str:
 
 def _to_bytes(tensor):
     return tensor.cpu().float().numpy().tobytes()
+
+
+def _bytes_to_array(blob: bytes) -> np.ndarray:
+    return np.frombuffer(blob, dtype=np.float32).copy()
 
 
 def _eligible_clips(session):
