@@ -157,6 +157,26 @@ class UserEmbedding(Base):
     user = relationship("User", back_populates="embeddings")
 
 
+class UserCluster(Base):
+    __tablename__ = "user_clusters"
+    __table_args__ = (
+        UniqueConstraint("user_pk", "embedding_case", name="uq_user_clusters_user_case"),
+    )
+
+    user_pk = Column(BigInteger, ForeignKey("users.pk"), primary_key=True)
+    embedding_case = Column(String, primary_key=True)
+    cluster_id = Column(Integer, nullable=False)
+    umap_x = Column(Float, nullable=False)
+    umap_y = Column(Float, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
 def _migrate_clips_table() -> None:
     """Apply additive schema migrations for existing SQLite databases."""
     inspector = inspect(engine)
