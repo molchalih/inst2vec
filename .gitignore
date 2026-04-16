@@ -30,10 +30,11 @@ __pycache__/
 .idea/
 .DS_Store
 
-# Claude Code / session state
+# session state
 .claude/
 .remember/
 CLAUDE.md
+AGENT.md
 
 # Docs (working notes, not published)
 docs/
