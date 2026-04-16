@@ -324,3 +324,10 @@ def test_build_audio_text_ignores_missing_music_id():
     clip = _clip(speech_transcription="Hello", speech_language="en", music_id=99)
     result = _build_audio_text(clip, {})   # music_id 99 not in map
     assert result == "Hello"
+
+
+def test_build_audio_text_speech_language_none_uses_raw():
+    clip = _clip(speech_transcription="Hello world", speech_language=None,
+                 speech_translation="Something else")
+    result = _build_audio_text(clip, {})
+    assert result == "Hello world"

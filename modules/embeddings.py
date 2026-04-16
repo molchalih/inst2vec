@@ -396,9 +396,66 @@ def embed_sandwich_clips():
         session.close()
 
 
+AUDIO_INSTRUCTION = (
+    "Represent the audio character of this video: its musical mood, energy, "
+    "and any spoken content."
+)
+
+
 def embed_audio_clips():
-    """Placeholder for future audio embedding case."""
-    print("[embed:audio] not implemented yet")
+    Base.metadata.create_all(engine)
+    session = get_session()
+    try:
+        done_audio = {
+            r.clip_pk
+            for r in session.query(ClipEmbedding.clip_pk)
+            .filter(ClipEmbedding.embedding_case == "audio")
+            .all()
+        }
+
+        music_map = {m.id: m for m in session.query(Music).all()}
+
+        clips = _eligible_clips(session)
+        todo = []
+        for clip in clips:
+            if clip.pk in done_audio:
+                continue
+            text = _build_audio_text(clip, music_map)
+            if text is None:
+                continue
+            todo.append((clip, text))
+
+        if not todo:
+            print("[embed:audio] nothing to do")
+            return
+
+        print(f"[embed:audio] {len(todo)} clips to embed ({len(done_audio)} already done)")
+        model = Qwen3VLEmbedder(
+            model_name_or_path=MODEL_PATH,
+            max_length=EMBED_MAX_LENGTH,
+        )
+
+        for i, (clip, text) in enumerate(todo, 1):
+            print(f"[embed:audio] ({i}/{len(todo)}) {clip.pk} (chars={len(text)})", end="", flush=True)
+            try:
+                embeddings = model.process([{"text": text, "instruction": AUDIO_INSTRUCTION}])
+                embedding = embeddings[0]
+                print(" ✓")
+            except Exception as e:
+                print(f" ✗ {e}")
+                continue
+
+            audio_row = ClipEmbedding(
+                clip_pk=clip.pk,
+                embedding_case="audio",
+                embedding=_to_bytes(embedding),
+            )
+            session.merge(audio_row)
+            session.commit()
+
+        print("[embed:audio] done")
+    finally:
+        session.close()
 
 
 def embed_user_clips(cases: list[str] | None = None):

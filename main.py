@@ -44,7 +44,7 @@ finalize_user_dataset(pass_name="B")
 # Phase 4 – embeddings (run sequentially by modality)
 embed_video_clips()
 embed_sandwich_clips()
-# embed_audio_clips()
+embed_audio_clips()
 
 # Phase 5 – user embeddings (mean-pool clip embeddings per user per case)
 embed_user_clips()
