@@ -4,7 +4,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 import pytest
 import numpy as np
 from types import SimpleNamespace
-from modules.embeddings import verbalize_music, _build_text, _bytes_to_array
+from modules.embeddings import verbalize_music, _build_text, _bytes_to_array, _aggregate_user_embeddings
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -28,6 +28,10 @@ def _clip(**kwargs):
     )
     defaults.update(kwargs)
     return SimpleNamespace(**defaults)
+
+
+def _make_blob(values: list[float]) -> bytes:
+    return np.array(values, dtype=np.float32).tobytes()
 
 
 # ── verbalize_music ───────────────────────────────────────────────────────────
@@ -200,3 +204,49 @@ def test_bytes_to_array_returns_copy():
     result2 = _bytes_to_array(blob)
     assert result2[0] == pytest.approx(1.0)
 
+
+# ── _aggregate_user_embeddings ────────────────────────────────────────────────
+
+def test_aggregate_single_clip_per_user():
+    rows = [
+        (_make_blob([1.0, 2.0, 3.0]), 101),
+        (_make_blob([4.0, 5.0, 6.0]), 102),
+    ]
+    result = _aggregate_user_embeddings(rows)
+    assert set(result.keys()) == {101, 102}
+    np.testing.assert_array_almost_equal(_bytes_to_array(result[101]), [1.0, 2.0, 3.0])
+    np.testing.assert_array_almost_equal(_bytes_to_array(result[102]), [4.0, 5.0, 6.0])
+
+
+def test_aggregate_mean_of_multiple_clips():
+    rows = [
+        (_make_blob([1.0, 3.0]), 101),
+        (_make_blob([3.0, 1.0]), 101),
+        (_make_blob([0.0, 0.0]), 101),
+    ]
+    result = _aggregate_user_embeddings(rows)
+    np.testing.assert_array_almost_equal(
+        _bytes_to_array(result[101]), [4.0 / 3.0, 4.0 / 3.0]
+    )
+
+
+def test_aggregate_output_dtype_is_float32():
+    rows = [(_make_blob([1.0, 2.0]), 101)]
+    result = _aggregate_user_embeddings(rows)
+    assert _bytes_to_array(result[101]).dtype == np.float32
+
+
+def test_aggregate_empty_rows_returns_empty_dict():
+    assert _aggregate_user_embeddings([]) == {}
+
+
+def test_aggregate_mixed_users():
+    rows = [
+        (_make_blob([2.0, 4.0]), 1),
+        (_make_blob([0.0, 0.0]), 1),
+        (_make_blob([10.0, 10.0]), 2),
+    ]
+    result = _aggregate_user_embeddings(rows)
+    assert set(result.keys()) == {1, 2}
+    np.testing.assert_array_almost_equal(_bytes_to_array(result[1]), [1.0, 2.0])
+    np.testing.assert_array_almost_equal(_bytes_to_array(result[2]), [10.0, 10.0])
