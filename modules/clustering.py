@@ -111,13 +111,12 @@ def cluster_users(embedding_case: str, **params) -> None:
         print(f"[cluster:{embedding_case}] nothing to do")
         return
 
-    min_required = params.get("umap_n_components", 15) + 1
-    if matrix.shape[0] < min_required:
-        print(f"[cluster:{embedding_case}] only {matrix.shape[0]} users — need at least {min_required} to cluster, skipping")
-        return
-
     print(f"[cluster:{embedding_case}] {matrix.shape[0]} users — running UMAP + HDBSCAN")
-    result = compute_clusters(matrix, **params)
+    try:
+        result = compute_clusters(matrix, **params)
+    except ValueError as exc:
+        print(f"[cluster:{embedding_case}] skipping — {exc}")
+        return
 
     session = get_session()
     try:

@@ -169,7 +169,6 @@ class UserCluster(Base):
     cluster_id = Column(Integer, nullable=False)
     umap_x = Column(Float, nullable=False)
     umap_y = Column(Float, nullable=False)
-    user = relationship("User", back_populates="clusters")
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(
         DateTime(timezone=True),
@@ -177,6 +176,7 @@ class UserCluster(Base):
         onupdate=func.now(),
         nullable=False,
     )
+    user = relationship("User", back_populates="clusters")
 
 
 def _migrate_clips_table() -> None:
