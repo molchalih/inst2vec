@@ -150,6 +150,26 @@ def _build_text(clip, music_map: dict) -> str | None:
     return " | ".join(parts) if parts else None
 
 
+def _build_audio_text(clip, music_map: dict) -> str | None:
+    # Order: speech first, music second — matches the audio embedding instruction priority.
+    parts = []
+
+    speech = (
+        clip.speech_translation
+        if clip.speech_language not in ("en", None)
+        and clip.speech_translation
+        and clip.speech_translation.strip()
+        else (clip.speech_transcription or "")
+    )
+    if speech.strip():
+        parts.append(speech.strip())
+
+    if clip.music_id is not None and clip.music_id in music_map:
+        parts.append(verbalize_music(music_map[clip.music_id]))
+
+    return " | ".join(parts) if parts else None
+
+
 def _probe_duration_seconds(path: str) -> float | None:
     """Return video duration in seconds via ffprobe, or None if unavailable."""
     try:

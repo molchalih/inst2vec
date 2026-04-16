@@ -4,7 +4,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 import pytest
 import numpy as np
 from types import SimpleNamespace
-from modules.embeddings import verbalize_music, _build_text, _bytes_to_array, _aggregate_user_embeddings
+from modules.embeddings import verbalize_music, _build_text, _build_audio_text, _bytes_to_array, _aggregate_user_embeddings
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -250,3 +250,77 @@ def test_aggregate_mixed_users():
     assert set(result.keys()) == {1, 2}
     np.testing.assert_array_almost_equal(_bytes_to_array(result[1]), [1.0, 2.0])
     np.testing.assert_array_almost_equal(_bytes_to_array(result[2]), [10.0, 10.0])
+
+
+# ── _build_audio_text ─────────────────────────────────────────────────────────
+
+def test_build_audio_text_music_only():
+    m = _music(track="Test Track", artist="Test Artist",
+               energy=0.90, valence=0.79, acousticness=0.01,
+               instrumentalness=0.00, danceability=0.52,
+               speechiness=0.04, tempo=117.0, mode=1, key=9)
+    clip = _clip(music_id=42)
+    result = _build_audio_text(clip, {42: m})
+    assert result is not None
+    assert result.startswith('Music: "Test Track" by Test Artist')
+    assert "caption" not in result.lower()
+
+
+def test_build_audio_text_speech_only_english():
+    clip = _clip(speech_transcription="Stay focused", speech_language="en")
+    result = _build_audio_text(clip, {})
+    assert result == "Stay focused"
+
+
+def test_build_audio_text_speech_only_uses_translation():
+    clip = _clip(speech_transcription="Bonjour le monde", speech_language="fr",
+                 speech_translation="Hello world")
+    result = _build_audio_text(clip, {})
+    assert result == "Hello world"
+
+
+def test_build_audio_text_speech_falls_back_to_raw_if_no_translation():
+    clip = _clip(speech_transcription="Bonjour le monde", speech_language="fr",
+                 speech_translation=None)
+    result = _build_audio_text(clip, {})
+    assert result == "Bonjour le monde"
+
+
+def test_build_audio_text_both_music_and_speech():
+    m = _music(track="T", artist="A", energy=0.5, valence=0.5,
+               acousticness=0.5, instrumentalness=0.0,
+               danceability=0.5, speechiness=0.1, tempo=100.0, mode=1, key=0)
+    clip = _clip(speech_transcription="Let's go", speech_language="en", music_id=1)
+    result = _build_audio_text(clip, {1: m})
+    assert result is not None
+    parts = result.split(" | ")
+    assert len(parts) == 2
+    assert parts[0] == "Let's go"
+    assert parts[1].startswith('Music: "T" by A')
+
+
+def test_build_audio_text_no_caption_included():
+    """Captions must never appear in audio text even when present on the clip."""
+    m = _music(track="T", artist="A", energy=0.5, valence=0.5,
+               acousticness=0.5, instrumentalness=0.0,
+               danceability=0.5, speechiness=0.1, tempo=100.0, mode=1, key=0)
+    clip = _clip(caption_text="Some caption", caption_language="en",
+                 speech_transcription="Hello", speech_language="en", music_id=1)
+    result = _build_audio_text(clip, {1: m})
+    assert "Some caption" not in result
+
+
+def test_build_audio_text_returns_none_when_neither():
+    clip = _clip()
+    assert _build_audio_text(clip, {}) is None
+
+
+def test_build_audio_text_skips_empty_speech():
+    clip = _clip(speech_transcription="  ", speech_language="en")
+    assert _build_audio_text(clip, {}) is None
+
+
+def test_build_audio_text_ignores_missing_music_id():
+    clip = _clip(speech_transcription="Hello", speech_language="en", music_id=99)
+    result = _build_audio_text(clip, {})   # music_id 99 not in map
+    assert result == "Hello"
