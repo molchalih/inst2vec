@@ -151,6 +151,7 @@ def _build_text(clip, music_map: dict) -> str | None:
 
 
 def _build_audio_text(clip, music_map: dict) -> str | None:
+    # Order: speech first, music second — matches the audio embedding instruction priority.
     parts = []
 
     speech = (
