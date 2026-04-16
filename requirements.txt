@@ -1,0 +1,15 @@
+sqlalchemy
+python-dotenv
+hikerapi
+httpx
+pyacrcloud
+openai-whisper
+lingua-language-detector
+huggingface_hub
+torch
+transformers
+accelerate
+pillow
+ninja
+flash-attn
+bitsandbytes

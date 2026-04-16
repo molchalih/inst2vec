@@ -1,0 +1,44 @@
+# Environment
+.venv/
+.env
+
+# Data — large/generated files
+data/source/
+data/inst2vec.db-journal
+data/inst2vec.db.backup*
+data/inst2vec.db.half
+data/data.csv.backup
+
+# Model weights & checkpoints
+models/
+checkpoints/
+*.safetensors
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# IDEs & OS
+.vscode/
+.idea/
+.DS_Store
+
+# Worktrees
+.worktrees/
+
+# session state
+.claude/
+.remember/
+CLAUDE.md
+AGENTS.md
+
+# Docs (working notes, not published)
+docs/
+notes/PHASE4_STAGE_NOTES.md
