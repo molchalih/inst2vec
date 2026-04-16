@@ -88,3 +88,9 @@ def test_verbalize_music_fast_tempo():
     result = verbalize_music(m)
     assert "fast (175 BPM)" in result
     assert "C major" in result
+
+
+def test_verbalize_music_all_none_features():
+    m = _music()  # all features are None
+    result = verbalize_music(m)
+    assert result == 'Music: "Test Track" by Test Artist — '

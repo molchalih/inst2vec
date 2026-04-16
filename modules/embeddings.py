@@ -72,13 +72,15 @@ def verbalize_music(music) -> str:
         else:
             descriptors.append(f"very slow ({bpm} BPM)")
 
-    if music.mode is not None and music.key is not None:
+    if music.mode is not None and music.key is not None and 0 <= int(music.key) <= 11:
         mode_str = "major" if music.mode == 1 else "minor"
         key_str = _KEY_NAMES[int(music.key)]
         descriptors.append(f"{key_str} {mode_str}")
 
     desc = ", ".join(descriptors)
-    return f'Music: "{music.track}" by {music.artist} — {desc}'
+    track = music.track or "Unknown Track"
+    artist = music.artist or "Unknown Artist"
+    return f'Music: "{track}" by {artist} — {desc}'
 
 
 def _to_bytes(tensor):
