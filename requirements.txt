@@ -13,3 +13,5 @@ pillow
 ninja
 flash-attn
 bitsandbytes
+umap-learn
+hdbscan
