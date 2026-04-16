@@ -6,6 +6,7 @@ from modules.speech import classify_speech, translate_speech, clean_speech
 from modules.captions import detect_caption_language, translate_captions, clean_captions
 from modules.finalize import finalize_user_dataset
 from modules.embeddings import embed_video_clips, embed_sandwich_clips, embed_audio_clips, embed_user_clips
+from modules.clustering import cluster_users
 
 # initialize database
 init_db()
@@ -48,3 +49,7 @@ embed_audio_clips()
 
 # Phase 5 – user embeddings (mean-pool clip embeddings per user per case)
 embed_user_clips()
+
+# Phase 6 – clustering (UMAP + HDBSCAN per embedding case)
+for case in ["video", "sandwich", "audio"]:
+    cluster_users(case)
