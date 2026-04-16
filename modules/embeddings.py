@@ -1,4 +1,5 @@
 import os
+import subprocess
 from sqlalchemy import or_
 
 from modules.database import Base, engine, get_session, Clip, ClipEmbedding, User
@@ -7,6 +8,8 @@ from modules.external.qwen3_vl_embedding import Qwen3VLEmbedder
 MODEL_PATH = "./models/Qwen3-VL-Embedding-8B"
 VIDEO_DIR = "data/source/videos"
 EXCLUDE_DISQUALIFIED_USERS = os.environ.get("EMBEDDINGS_EXCLUDE_DISQUALIFIED_USERS", "1") == "1"
+ADAPTIVE_MAX_FRAMES = 96
+ADAPTIVE_DEFAULT_FPS = 2.0
 
 
 def _to_bytes(tensor):
@@ -38,6 +41,51 @@ def _text_parts(clip: Clip) -> list[str]:
     return parts
 
 
+def _probe_duration_seconds(path: str) -> float | None:
+    """Return video duration in seconds via ffprobe, or None if unavailable."""
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                path,
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+    except Exception:
+        return None
+    if result.returncode != 0:
+        return None
+    raw = (result.stdout or "").strip()
+    if not raw:
+        return None
+    try:
+        duration = float(raw)
+    except ValueError:
+        return None
+    return duration if duration > 0 else None
+
+
+def _adaptive_video_sampling(path: str) -> tuple[float, int, float | None]:
+    """Choose fps/max_frames from clip duration."""
+    duration = _probe_duration_seconds(path)
+    if duration is None:
+        return ADAPTIVE_DEFAULT_FPS, ADAPTIVE_MAX_FRAMES, None
+    if duration < 15:
+        return 3.0, ADAPTIVE_MAX_FRAMES, duration
+    if duration <= 45:
+        return 2.0, ADAPTIVE_MAX_FRAMES, duration
+    return 1.0, ADAPTIVE_MAX_FRAMES, duration
+
+
 def embed_video_clips():
     Base.metadata.create_all(engine)
     session = get_session()
@@ -62,13 +110,23 @@ def embed_video_clips():
             return
 
         print(f"[embed:video] {len(todo)} clips to embed ({len(done_video)} already done)")
-        model = Qwen3VLEmbedder(model_name_or_path=MODEL_PATH, max_frames=16, fps=1)
+        model = Qwen3VLEmbedder(
+            model_name_or_path=MODEL_PATH,
+            max_frames=ADAPTIVE_MAX_FRAMES,
+            fps=ADAPTIVE_DEFAULT_FPS,
+        )
 
         for i, clip in enumerate(todo, 1):
             path = _video_path(clip.pk)
-            print(f"[embed:video] ({i}/{len(todo)}) {clip.pk}", end="", flush=True)
+            fps, max_frames, duration = _adaptive_video_sampling(path)
+            dur_str = f"{duration:.1f}s" if duration is not None else "na"
+            print(
+                f"[embed:video] ({i}/{len(todo)}) {clip.pk} (fps={fps:g}, max={max_frames}, dur={dur_str})",
+                end="",
+                flush=True,
+            )
             try:
-                embeddings = model.process([{"video": path}])
+                embeddings = model.process([{"video": path, "fps": fps, "max_frames": max_frames}])
             except Exception as e:
                 print(f" ✗ {e}")
                 continue
@@ -113,14 +171,26 @@ def embed_sandwich_clips():
             return
 
         print(f"[embed:sandwich] {len(todo)} clips to embed ({len(done_sandwich)} already done)")
-        model = Qwen3VLEmbedder(model_name_or_path=MODEL_PATH, max_frames=16, fps=1)
+        model = Qwen3VLEmbedder(
+            model_name_or_path=MODEL_PATH,
+            max_frames=ADAPTIVE_MAX_FRAMES,
+            fps=ADAPTIVE_DEFAULT_FPS,
+        )
 
         for i, clip in enumerate(todo, 1):
             path = _video_path(clip.pk)
             text = " | ".join(_text_parts(clip))
-            print(f"[embed:sandwich] ({i}/{len(todo)}) {clip.pk}", end="", flush=True)
+            fps, max_frames, duration = _adaptive_video_sampling(path)
+            dur_str = f"{duration:.1f}s" if duration is not None else "na"
+            print(
+                f"[embed:sandwich] ({i}/{len(todo)}) {clip.pk} (fps={fps:g}, max={max_frames}, dur={dur_str})",
+                end="",
+                flush=True,
+            )
             try:
-                embeddings = model.process([{"video": path}, {"text": text}])
+                embeddings = model.process(
+                    [{"video": path, "fps": fps, "max_frames": max_frames}, {"text": text}]
+                )
             except Exception as e:
                 print(f" ✗ {e}")
                 continue
