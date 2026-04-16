@@ -7,6 +7,7 @@ from modules.captions import detect_caption_language, translate_captions, clean_
 from modules.finalize import finalize_user_dataset
 from modules.embeddings import embed_video_clips, embed_sandwich_clips, embed_audio_clips, embed_user_clips
 from modules.clustering import cluster_users
+from modules.visualization import plot_clusters
 
 # initialize database
 init_db()
@@ -53,3 +54,6 @@ embed_user_clips()
 # Phase 6 – clustering (UMAP + HDBSCAN per embedding case)
 for case in ["video", "sandwich", "audio"]:
     cluster_users(case)
+
+# Phase 7 – visualization (save UMAP scatter plots to data/plots/)
+plot_clusters()
