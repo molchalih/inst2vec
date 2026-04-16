@@ -5,7 +5,7 @@ from modules.music import classify_music, extract_music_features
 from modules.speech import classify_speech, translate_speech, clean_speech
 from modules.captions import detect_caption_language, translate_captions, clean_captions
 from modules.finalize import finalize_user_dataset
-from modules.embeddings import embed_video_clips, embed_sandwich_clips, embed_audio_clips
+from modules.embeddings import embed_video_clips, embed_sandwich_clips, embed_audio_clips, embed_user_clips
 
 # initialize database
 init_db()
@@ -45,3 +45,6 @@ finalize_user_dataset(pass_name="B")
 embed_video_clips()
 embed_sandwich_clips()
 # embed_audio_clips()
+
+# Phase 5 – user embeddings (mean-pool clip embeddings per user per case)
+embed_user_clips()
