@@ -1,5 +1,6 @@
 import os
 import subprocess
+from collections import defaultdict
 import numpy as np
 from sqlalchemy import or_
 
@@ -94,7 +95,6 @@ def _bytes_to_array(blob: bytes) -> np.ndarray:
 
 def _aggregate_user_embeddings(rows: list[tuple[bytes, int]]) -> dict[int, bytes]:
     """Mean-pool clip embedding blobs by user. Returns {user_pk: mean_blob}."""
-    from collections import defaultdict
     user_arrays: dict[int, list[np.ndarray]] = defaultdict(list)
     for blob, user_pk in rows:
         user_arrays[user_pk].append(_bytes_to_array(blob))

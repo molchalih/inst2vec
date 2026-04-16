@@ -205,7 +205,13 @@ def test_bytes_to_array_returns_copy():
     assert result2[0] == pytest.approx(1.0)
 
 
+<<<<<<< HEAD
 # ── _aggregate_user_embeddings ────────────────────────────────────────────────
+=======
+def _make_blob(values: list[float]) -> bytes:
+    return np.array(values, dtype=np.float32).tobytes()
+
+>>>>>>> bf4545b (fix: move defaultdict import to top-level, consolidate test imports)
 
 def test_aggregate_single_clip_per_user():
     rows = [
