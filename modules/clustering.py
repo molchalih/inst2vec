@@ -1,3 +1,4 @@
+"""Pure clustering logic: two-pass UMAP + HDBSCAN → ClusterResult."""
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -29,6 +30,13 @@ def compute_clusters(
     hdbscan_metric: str = "euclidean",
     random_state: int = 42,
 ) -> ClusterResult:
+    min_required = umap_n_components + 1
+    if matrix.shape[0] < min_required:
+        raise ValueError(
+            f"compute_clusters requires at least {min_required} rows "
+            f"(umap_n_components={umap_n_components} + 1), got {matrix.shape[0]}"
+        )
+
     # Pass 1 — reduce to n_components for clustering
     reducer_nd = UMAP(
         n_components=umap_n_components,
@@ -58,11 +66,11 @@ def compute_clusters(
     )
     coords_2d = reducer_2d.fit_transform(matrix)
 
-    unique_labels = [l for l in set(labels) if l >= 0]
+    unique_labels = [lbl for lbl in set(labels) if lbl >= 0]
     n_clusters = len(unique_labels)
     noise_ratio = float(np.sum(labels == -1)) / len(labels)
     cluster_sizes = sorted(
-        [int(np.sum(labels == l)) for l in unique_labels],
+        [int(np.sum(labels == lbl)) for lbl in unique_labels],
         reverse=True,
     )
 
