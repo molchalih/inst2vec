@@ -276,8 +276,12 @@ def embed_sandwich_clips():
     try:
         done_sandwich = {
             r.clip_pk
-            for r in session.query(ClipEmbedding.clip_pk).filter(ClipEmbedding.embedding_case == "sandwich").all()
+            for r in session.query(ClipEmbedding.clip_pk)
+            .filter(ClipEmbedding.embedding_case == "sandwich")
+            .all()
         }
+
+        music_map = {m.id: m for m in session.query(Music).all()}
 
         clips = _eligible_clips(session)
         todo = []
@@ -287,7 +291,7 @@ def embed_sandwich_clips():
             path = _video_path(clip.pk)
             if not os.path.exists(path):
                 continue
-            if _build_text(clip, {}) is None:
+            if _build_text(clip, music_map) is None:
                 continue
             todo.append(clip)
 
@@ -306,33 +310,48 @@ def embed_sandwich_clips():
 
         for i, clip in enumerate(todo, 1):
             path = _video_path(clip.pk)
-            text = _build_text(clip, {})
+            text = _build_text(clip, music_map)
             fps, max_frames, duration = _adaptive_video_sampling(path)
             dur_str = f"{duration:.1f}s" if duration is not None else "na"
-            print(
-                f"[embed:sandwich] ({i}/{len(todo)}) {clip.pk} (fps={fps:g}, max={max_frames}, dur={dur_str})",
-                end="",
-                flush=True,
-            )
-            try:
-                embeddings = model.process(
-                    [{"video": path, "fps": fps, "max_frames": max_frames}, {"text": text}]
+            frame_caps = _frame_retry_schedule(max_frames)
+            embedding = None
+            last_error: Exception | None = None
+
+            for attempt_idx, frame_cap in enumerate(frame_caps):
+                prefix = (
+                    f"[embed:sandwich] ({i}/{len(todo)}) {clip.pk} "
+                    f"(fps={fps:g}, max={frame_cap}, dur={dur_str}, max_len={EMBED_MAX_LENGTH})"
                 )
-            except Exception as e:
-                print(f" ✗ {e}")
-                continue
-            if len(embeddings) < 2:
-                print(" ✗ missing sandwich embedding")
+                if attempt_idx > 0:
+                    prefix += " retry"
+                print(prefix, end="", flush=True)
+                try:
+                    embeddings = model.process(
+                        [{"video": path, "fps": fps, "max_frames": frame_cap, "text": text}]
+                    )
+                    embedding = embeddings[0]
+                    print(" ✓")
+                    break
+                except Exception as e:
+                    last_error = e
+                    if _is_token_mismatch_error(e) and attempt_idx < len(frame_caps) - 1:
+                        print(" ↻ token mismatch, reducing frames")
+                        continue
+                    print(f" ✗ {e}")
+                    break
+
+            if embedding is None:
+                if last_error is None:
+                    print(" ✗ failed without exception")
                 continue
 
             sandwich_row = ClipEmbedding(
                 clip_pk=clip.pk,
                 embedding_case="sandwich",
-                embedding=_to_bytes(embeddings[1]),
+                embedding=_to_bytes(embedding),
             )
             session.merge(sandwich_row)
             session.commit()
-            print(" ✓")
 
         print("[embed:sandwich] done")
     finally:
