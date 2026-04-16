@@ -4,7 +4,8 @@ from collections import defaultdict
 import numpy as np
 from sqlalchemy import or_
 
-from modules.database import Base, engine, get_session, Clip, ClipEmbedding, User, Music
+from modules.database import Base, engine, get_session, Clip, ClipEmbedding, User, Music, UserEmbedding
+from modules.external.qwen3_vl_embedding import Qwen3VLEmbedder
 
 MODEL_PATH = "./models/Qwen3-VL-Embedding-8B"
 VIDEO_DIR = "data/source/videos"
@@ -378,6 +379,52 @@ def embed_sandwich_clips():
 def embed_audio_clips():
     """Placeholder for future audio embedding case."""
     print("[embed:audio] not implemented yet")
+
+
+def embed_user_clips(cases: list[str] = ["video", "sandwich", "audio"]):
+    Base.metadata.create_all(engine)
+    session = get_session()
+    try:
+        for case in cases:
+            rows = (
+                session.query(ClipEmbedding.embedding, Clip.user_pk)
+                .join(Clip, ClipEmbedding.clip_pk == Clip.pk)
+                .filter(ClipEmbedding.embedding_case == case)
+                .all()
+            )
+
+            if not rows:
+                print(f"[embed:user:{case}] nothing to do")
+                continue
+
+            done = {
+                r.user_pk
+                for r in session.query(UserEmbedding.user_pk)
+                .filter(UserEmbedding.embedding_case == case)
+                .all()
+            }
+
+            todo_rows = [(blob, user_pk) for blob, user_pk in rows if user_pk not in done]
+
+            if not todo_rows:
+                print(f"[embed:user:{case}] nothing to do")
+                continue
+
+            aggregated = _aggregate_user_embeddings(todo_rows)
+            print(f"[embed:user:{case}] {len(aggregated)} users to embed ({len(done)} already done)")
+
+            for user_pk, mean_blob in aggregated.items():
+                row = UserEmbedding(
+                    user_pk=user_pk,
+                    embedding_case=case,
+                    embedding=mean_blob,
+                )
+                session.merge(row)
+                session.commit()
+
+            print(f"[embed:user:{case}] done")
+    finally:
+        session.close()
 
 
 def embed_clips():
