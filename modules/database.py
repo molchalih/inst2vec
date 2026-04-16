@@ -13,6 +13,7 @@ from sqlalchemy import (
     Boolean,
     ForeignKey,
     Text,
+    LargeBinary,
     UniqueConstraint,
     DateTime,
 )
@@ -36,8 +37,10 @@ class User(Base):
     profile_pic_url_hd = Column(String)
     following_count = Column(Integer)
     city_name = Column(String)
+    user_disqualified = Column(Integer, nullable=True)
 
     clips = relationship("Clip", back_populates="user")
+    embeddings = relationship("UserEmbedding", back_populates="user")
 
 
 class Clip(Base):
@@ -64,10 +67,11 @@ class Clip(Base):
     speech_compression_ratio = Column(Float, nullable=True)
     has_speech = Column(Integer, nullable=True)
     speech_translation = Column(Text)
-    clip_disqualified = Column(Integer, nullable=True)
+    disqualified = Column(Integer, nullable=True)
 
     user = relationship("User", back_populates="clips")
     music = relationship("Music", back_populates="clips")
+    embeddings = relationship("ClipEmbedding", back_populates="clip")
 
 
 class Music(Base):
@@ -113,6 +117,46 @@ class Download(Base):
     parse_available = Column(Boolean, default=True)
 
 
+class ClipEmbedding(Base):
+    __tablename__ = "clip_embeddings"
+    __table_args__ = (
+        UniqueConstraint("clip_pk", "embedding_case", name="uq_clip_embeddings_clip_case"),
+    )
+
+    clip_pk = Column(BigInteger, ForeignKey("clips.pk"), primary_key=True)
+    embedding_case = Column(String, primary_key=True)
+    embedding = Column(LargeBinary, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    clip = relationship("Clip", back_populates="embeddings")
+
+
+class UserEmbedding(Base):
+    __tablename__ = "user_embeddings"
+    __table_args__ = (
+        UniqueConstraint("user_pk", "embedding_case", name="uq_user_embeddings_user_case"),
+    )
+
+    user_pk = Column(BigInteger, ForeignKey("users.pk"), primary_key=True)
+    embedding_case = Column(String, primary_key=True)
+    embedding = Column(LargeBinary, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    user = relationship("User", back_populates="embeddings")
+
+
 def _migrate_clips_table() -> None:
     """Apply additive schema migrations for existing SQLite databases."""
     inspector = inspect(engine)
@@ -122,13 +166,25 @@ def _migrate_clips_table() -> None:
     if "caption_language" not in columns:
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE clips ADD COLUMN caption_language TEXT"))
-    if "clip_disqualified" not in columns:
+    if "disqualified" not in columns:
         with engine.begin() as conn:
-            conn.execute(text("ALTER TABLE clips ADD COLUMN clip_disqualified INTEGER"))
+            conn.execute(text("ALTER TABLE clips ADD COLUMN disqualified INTEGER"))
+
+
+def _migrate_users_table() -> None:
+    """Apply additive schema migrations for existing users table."""
+    inspector = inspect(engine)
+    if "users" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("users")}
+    if "user_disqualified" not in columns:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE users ADD COLUMN user_disqualified INTEGER"))
 
 
 def init_db():
     Base.metadata.create_all(engine)
+    _migrate_users_table()
     _migrate_clips_table()
 
 

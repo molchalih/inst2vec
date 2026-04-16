@@ -6,10 +6,11 @@
 from __future__ import annotations
 
 import os
+import re
 from typing import Optional
 
 import whisper
-from sqlalchemy import func
+from sqlalchemy import func, or_
 
 from modules.database import Clip, get_session
 from modules.external.gemma_translate import GemmaTranslator
@@ -36,6 +37,7 @@ SPEECH_TRANSLATE_MAX_NEW_TOKENS = int(os.environ.get("SPEECH_TRANSLATE_MAX_NEW_T
 # A clip is marked has_speech=0 if EITHER gate fires. Text is always stored regardless.
 LOGPROB_THRESHOLD = float(os.environ.get("SPEECH_LOGPROB_THRESHOLD", "-0.8"))
 COMPRESSION_THRESHOLD = float(os.environ.get("SPEECH_COMPRESSION_THRESHOLD", "2.4"))
+SPEECH_MIN_MEANINGFUL_CHARS = int(os.environ.get("SPEECH_MIN_MEANINGFUL_CHARS", "8"))
 
 SCOPE_CLASSIFY = "classify_speech"
 SCOPE_TRANSLATE = "translate_speech"
@@ -46,6 +48,8 @@ SCOPE_CLEAN = "clean_speech"
 _HALLUCINATION_MARKERS = [
     "DimaTorzok",
 ]
+
+_NON_LETTER_RE = re.compile(r"[^A-Za-zА-Яа-я\u00C0-\u024F\u0400-\u04FF]+")
 
 
 def _transcribe(model, path: str) -> tuple[str, str, float, float, float]:
@@ -71,12 +75,15 @@ def _transcribe(model, path: str) -> tuple[str, str, float, float, float]:
     return text, language, confidence, avg_logprob, compression_ratio
 
 
+def _has_meaningful_speech_text(text: str) -> bool:
+    cleaned = _NON_LETTER_RE.sub("", (text or "").strip())
+    return len(cleaned) >= SPEECH_MIN_MEANINGFUL_CHARS
+
+
 # ── public API ─────────────────────────────────────────────────────────────────
 
 def clean_speech() -> None:
     """Reset has_speech to 0 for clips whose speech_translation contains hallucination markers."""
-    from sqlalchemy import or_
-
     session = get_session()
     filter_conditions = [
         Clip.speech_translation.contains(marker) for marker in _HALLUCINATION_MARKERS
@@ -84,6 +91,7 @@ def clean_speech() -> None:
     clips = (
         session.query(Clip)
         .filter(
+            or_(Clip.disqualified.is_(None), Clip.disqualified == 0),
             Clip.has_speech == 1,
             Clip.speech_translation.is_not(None),
             or_(*filter_conditions),
@@ -107,11 +115,15 @@ def clean_speech() -> None:
 def classify_speech() -> None:
     """Transcribe all unresolved clips with Whisper, tagging has_speech and speech_confidence.
 
-    Clips that already have speech_transcription from a prior run get their flags resolved
-    without re-running Whisper. Clips with missing video files are skipped and retried next run.
+    Clips with missing video files are skipped and retried next run.
     """
     session = get_session()
-    clips = session.query(Clip).filter(Clip.has_speech.is_(None)).order_by(Clip.pk.desc()).all()
+    clips = (
+        session.query(Clip)
+        .filter(Clip.has_speech.is_(None), or_(Clip.disqualified.is_(None), Clip.disqualified == 0))
+        .order_by(Clip.pk.desc())
+        .all()
+    )
     if not clips:
         session.close()
         return
@@ -126,51 +138,45 @@ def classify_speech() -> None:
             missing += 1
             continue
 
-        if clip.speech_transcription is not None:
-            # flags not yet resolved but transcription already stored from a prior run;
-            # avg_logprob unavailable for legacy data — leave NULL, resolve flag only
-            has = 1 if clip.speech_transcription.strip() else 0
-            clip.has_speech = has
-            if has and clip.speech_confidence is None:
-                clip.speech_confidence = 1.0
-            has_speech += has
-            no_speech += 1 - has
+        if model is None:
+            log(SCOPE_CLASSIFY, f"loading {WHISPER_MODEL}…")
+            model = whisper.load_model(WHISPER_MODEL)
+        try:
+            text, language, conf, avg_logprob, compression_ratio = _transcribe(model, path)
+        except Exception:
+            text, language, conf, avg_logprob, compression_ratio = "", "", 0.0, 0.0, 0.0
+
+        # Always persist transcription and all quality metrics regardless of gate result.
+        clip.speech_transcription = text
+        clip.speech_language = language or None
+        clip.speech_confidence = conf if text else None
+        clip.speech_avg_logprob = avg_logprob if text else None
+        clip.speech_compression_ratio = compression_ratio if text else None
+
+        low_logprob = bool(text) and avg_logprob < LOGPROB_THRESHOLD
+        high_compression = bool(text) and compression_ratio > COMPRESSION_THRESHOLD
+        hallucination = low_logprob or high_compression
+
+        meaningful = _has_meaningful_speech_text(text)
+        if meaningful and not hallucination:
+            clip.has_speech = 1
+            has_speech += 1
+            preview = text[:60] + ("…" if len(text) > 60 else "")
+            log(SCOPE_CLASSIFY, f"{i}/{len(clips)} — {clip.pk}: \"{preview}\" (logprob {avg_logprob:.2f}, ratio {compression_ratio:.2f})")
         else:
-            if model is None:
-                log(SCOPE_CLASSIFY, f"loading {WHISPER_MODEL}…")
-                model = whisper.load_model(WHISPER_MODEL)
-            try:
-                text, language, conf, avg_logprob, compression_ratio = _transcribe(model, path)
-            except Exception:
-                text, language, conf, avg_logprob, compression_ratio = "", "", 0.0, 0.0, 0.0
-
-            # Always persist transcription and all quality metrics regardless of gate result.
-            clip.speech_transcription = text
-            clip.speech_language = language or None
-            clip.speech_confidence = conf if text else None
-            clip.speech_avg_logprob = avg_logprob if text else None
-            clip.speech_compression_ratio = compression_ratio if text else None
-
-            low_logprob = bool(text) and avg_logprob < LOGPROB_THRESHOLD
-            high_compression = bool(text) and compression_ratio > COMPRESSION_THRESHOLD
-            hallucination = low_logprob or high_compression
-
-            if text and not hallucination:
-                clip.has_speech = 1
-                has_speech += 1
-                preview = text[:60] + ("…" if len(text) > 60 else "")
-                log(SCOPE_CLASSIFY, f"{i}/{len(clips)} — {clip.pk}: \"{preview}\" (logprob {avg_logprob:.2f}, ratio {compression_ratio:.2f})")
-            else:
-                clip.has_speech = 0
-                no_speech += 1
-                if hallucination:
-                    reason = []
-                    if low_logprob:
-                        reason.append(f"logprob {avg_logprob:.2f}")
-                    if high_compression:
-                        reason.append(f"ratio {compression_ratio:.2f}")
-                    preview = text[:50] + ("…" if len(text) > 50 else "")
-                    log(SCOPE_CLASSIFY, f"{i}/{len(clips)} — {clip.pk}: hallucination [{', '.join(reason)}] \"{preview}\"")
+            clip.has_speech = 0
+            no_speech += 1
+            if text and not meaningful:
+                preview = text[:50] + ("…" if len(text) > 50 else "")
+                log(SCOPE_CLASSIFY, f"{i}/{len(clips)} — {clip.pk}: non-meaningful transcription \"{preview}\"")
+            elif hallucination:
+                reason = []
+                if low_logprob:
+                    reason.append(f"logprob {avg_logprob:.2f}")
+                if high_compression:
+                    reason.append(f"ratio {compression_ratio:.2f}")
+                preview = text[:50] + ("…" if len(text) > 50 else "")
+                log(SCOPE_CLASSIFY, f"{i}/{len(clips)} — {clip.pk}: hallucination [{', '.join(reason)}] \"{preview}\"")
 
         if i % COMMIT_EVERY == 0:
             session.commit()
@@ -189,6 +195,7 @@ def translate_speech() -> None:
     clips = (
         session.query(Clip)
         .filter(
+            or_(Clip.disqualified.is_(None), Clip.disqualified == 0),
             Clip.speech_transcription.is_not(None),
             Clip.speech_transcription != "",
             Clip.speech_language.is_not(None),

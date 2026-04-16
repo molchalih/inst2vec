@@ -11,10 +11,15 @@ BATCH_SIZE = int(os.environ.get("BATCH_SIZE", 5))
 
 
 def _is_parsed(user: User) -> bool:
-    return all([
+    # Some valid profiles can return nulls for individual fields.
+    # Treat user as parsed when we have any profile signal or clips already linked.
+    return any([
         user.full_name is not None,
         user.profile_pic_url is not None,
+        user.profile_pic_url_hd is not None,
         user.following_count is not None,
+        user.city_name is not None,
+        bool(user.clips),
     ])
 
 
@@ -64,7 +69,7 @@ def fetch_profiles():
     )
     users = (
         session.query(User)
-        .filter(~User.pk.in_(failed_pks))
+        .filter(~User.pk.in_(failed_pks), (User.user_disqualified.is_(None)) | (User.user_disqualified == 0))
         .limit(BATCH_SIZE)
         .all()
     )

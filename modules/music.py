@@ -14,7 +14,7 @@ from typing import Optional
 
 import httpx
 from acrcloud.recognizer import ACRCloudRecognizer
-from sqlalchemy import text
+from sqlalchemy import or_
 
 from modules.database import Clip, Music, get_session
 from modules.services import ReccoBeatsClient, SpotifyClient, log
@@ -74,7 +74,7 @@ def _get_or_create_music(session, artist: str, track: str) -> Music:
 def _pick_video(session, music_id: int) -> Optional[Path]:
     for (pk,) in (
         session.query(Clip.pk)
-        .filter(Clip.music_id == music_id)
+        .filter(Clip.music_id == music_id, or_(Clip.disqualified.is_(None), Clip.disqualified == 0))
         .order_by(Clip.play_count.desc(), Clip.pk.desc())
     ):
         p = VIDEO_DIR / f"{pk}.mp4"
@@ -111,21 +111,12 @@ def classify_music() -> None:
     """
     session = get_session()
 
-    # Legacy gap: migration set has_music=1 from music_id, but couldn't infer has_music=0
-    # for clips where ACR ran but found nothing (only stored in dropped audio_type column).
-    # Presence of speech data proves the old pipeline completed → safe to mark as no music.
-    n = session.execute(text(
-        """
-        UPDATE clips SET has_music = 0
-         WHERE music_id IS NULL AND has_music IS NULL
-           AND (has_speech IS NOT NULL OR speech_transcription IS NOT NULL)
-        """
-    )).rowcount
-    if n:
-        session.commit()
-        log(SCOPE_CLASSIFY, f"backfilled has_music=0 for {n} legacy clips (no re-fingerprint needed)")
-
-    clips = session.query(Clip).filter(Clip.has_music.is_(None)).order_by(Clip.pk.desc()).all()
+    clips = (
+        session.query(Clip)
+        .filter(Clip.has_music.is_(None), or_(Clip.disqualified.is_(None), Clip.disqualified == 0))
+        .order_by(Clip.pk.desc())
+        .all()
+    )
     if not clips:
         session.close()
         return
@@ -145,22 +136,21 @@ def classify_music() -> None:
             missing += 1
             continue
 
-        if clip.music_id is not None:
+        # Resolve from fresh fingerprinting for every unresolved clip.
+        clip.music_id = None
+        clip.music_confidence = None
+        result = _fingerprint(acr, str(path))
+        if result:
+            artist, track, confidence = result
+            music = _get_or_create_music(session, artist, track)
+            clip.music_id = music.id
+            clip.music_confidence = confidence
             clip.has_music = 1
             matched += 1
+            log(SCOPE_CLASSIFY, f"{i}/{len(clips)} — {clip.pk}: {artist} – {track} ({confidence:.0%})")
         else:
-            result = _fingerprint(acr, str(path))
-            if result:
-                artist, track, confidence = result
-                music = _get_or_create_music(session, artist, track)
-                clip.music_id = music.id
-                clip.music_confidence = confidence
-                clip.has_music = 1
-                matched += 1
-                log(SCOPE_CLASSIFY, f"{i}/{len(clips)} — {clip.pk}: {artist} – {track} ({confidence:.0%})")
-            else:
-                clip.has_music = 0
-                no_match += 1
+            clip.has_music = 0
+            no_match += 1
 
         if i % COMMIT_EVERY == 0:
             session.commit()
@@ -252,6 +242,7 @@ def extract_music_features() -> None:
             session.query(Music)
             .join(Clip, Clip.music_id == Music.id)
             .filter(
+                or_(Clip.disqualified.is_(None), Clip.disqualified == 0),
                 (Music.reccobeats_id.is_(None)) | (Music.reccobeats_id == _NO_MATCH),
                 (Music.has_features.is_(None)) | (Music.has_features != "yes"),
             )

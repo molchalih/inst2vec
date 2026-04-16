@@ -3,7 +3,7 @@ import time
 
 import httpx
 
-from modules.database import get_session, User, Clip, Download
+from modules.database import get_session, User, Download
 
 DIRS = {
     "profile_pic": "data/source/profile_pics",
@@ -36,10 +36,6 @@ def _try_download(session, entity_pk, file_type, url):
 
     if not url:
         session.add(Download(entity_pk=entity_pk, file_type=file_type, success=False, parse_available=False))
-        if file_type == "video":
-            clip = session.get(Clip, entity_pk)
-            if clip:
-                clip.clip_disqualified = 1
         return
 
     ext = "mp4" if file_type == "video" else "jpg"
@@ -47,10 +43,6 @@ def _try_download(session, entity_pk, file_type, url):
 
     if os.path.exists(path):
         session.add(Download(entity_pk=entity_pk, file_type=file_type, success=True, parse_available=True))
-        if file_type == "video":
-            clip = session.get(Clip, entity_pk)
-            if clip:
-                clip.clip_disqualified = 0
         return
 
     ok = _download(url, path)
@@ -58,10 +50,6 @@ def _try_download(session, entity_pk, file_type, url):
         entity_pk=entity_pk, file_type=file_type,
         success=ok, parse_available=ok,
     ))
-    if file_type == "video":
-        clip = session.get(Clip, entity_pk)
-        if clip:
-            clip.clip_disqualified = 0 if ok else 1
     print(f"  {'ok' if ok else 'FAILED'} {file_type}/{entity_pk}")
 
 
@@ -71,12 +59,19 @@ def download_files():
 
     session = get_session()
     done_pks = session.query(Download.entity_pk).filter(Download.file_type == "profile_pic")
-    users = session.query(User).filter(~User.pk.in_(done_pks)).limit(BATCH_SIZE).all()
+    users = (
+        session.query(User)
+        .filter(~User.pk.in_(done_pks), (User.user_disqualified.is_(None)) | (User.user_disqualified == 0))
+        .limit(BATCH_SIZE)
+        .all()
+    )
 
     for user in users:
         print(f"[download] {user.username}")
         _try_download(session, user.pk, "profile_pic", user.profile_pic_url)
         for clip in user.clips[:MAX_CLIPS or None]:
+            if clip.disqualified == 1:
+                continue
             _try_download(session, clip.pk, "thumbnail", clip.thumbnail_url)
             _try_download(session, clip.pk, "video", clip.video_url)
         session.commit()

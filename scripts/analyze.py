@@ -38,7 +38,7 @@ def section_health(session):
     # Totals
     n_users = session.query(func.count(User.pk)).scalar()
     n_clips = session.query(func.count(Clip.pk)).scalar()
-    n_disq = session.query(func.count(Clip.pk)).filter(Clip.clip_disqualified == 1).scalar()
+    n_disq = session.query(func.count(Clip.pk)).filter(Clip.disqualified == 1).scalar()
     print(f"\nUsers:              {n_users:>8,}")
     print(f"Clips total:        {n_clips:>8,}")
     print(f"Clips disqualified: {n_disq:>8,}  ({_pct(n_disq, n_clips)})")
