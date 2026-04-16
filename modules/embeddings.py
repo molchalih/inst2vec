@@ -381,7 +381,9 @@ def embed_audio_clips():
     print("[embed:audio] not implemented yet")
 
 
-def embed_user_clips(cases: list[str] = ["video", "sandwich", "audio"]):
+def embed_user_clips(cases: list[str] | None = None):
+    if cases is None:
+        cases = ["video", "sandwich", "audio"]
     Base.metadata.create_all(engine)
     session = get_session()
     try:
@@ -397,21 +399,8 @@ def embed_user_clips(cases: list[str] = ["video", "sandwich", "audio"]):
                 print(f"[embed:user:{case}] nothing to do")
                 continue
 
-            done = {
-                r.user_pk
-                for r in session.query(UserEmbedding.user_pk)
-                .filter(UserEmbedding.embedding_case == case)
-                .all()
-            }
-
-            todo_rows = [(blob, user_pk) for blob, user_pk in rows if user_pk not in done]
-
-            if not todo_rows:
-                print(f"[embed:user:{case}] nothing to do")
-                continue
-
-            aggregated = _aggregate_user_embeddings(todo_rows)
-            print(f"[embed:user:{case}] {len(aggregated)} users to embed ({len(done)} already done)")
+            aggregated = _aggregate_user_embeddings(rows)
+            print(f"[embed:user:{case}] {len(aggregated)} users to embed")
 
             for user_pk, mean_blob in aggregated.items():
                 row = UserEmbedding(
