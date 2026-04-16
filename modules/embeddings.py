@@ -3,7 +3,6 @@ import subprocess
 from sqlalchemy import or_
 
 from modules.database import Base, engine, get_session, Clip, ClipEmbedding, User
-from modules.external.qwen3_vl_embedding import Qwen3VLEmbedder
 
 MODEL_PATH = "./models/Qwen3-VL-Embedding-8B"
 VIDEO_DIR = "data/source/videos"
@@ -11,6 +10,75 @@ EXCLUDE_DISQUALIFIED_USERS = os.environ.get("EMBEDDINGS_EXCLUDE_DISQUALIFIED_USE
 EMBED_MAX_LENGTH = 32768
 ADAPTIVE_MAX_FRAMES = 96
 ADAPTIVE_DEFAULT_FPS = 2.0
+
+_KEY_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+
+
+def verbalize_music(music) -> str:
+    descriptors = []
+
+    if music.energy is not None:
+        if music.energy >= 0.80:
+            descriptors.append("very high energy")
+        elif music.energy >= 0.55:
+            descriptors.append("high energy")
+        elif music.energy >= 0.30:
+            descriptors.append("moderate energy")
+        else:
+            descriptors.append("low energy")
+
+    if music.valence is not None:
+        if music.valence >= 0.75:
+            descriptors.append("very upbeat")
+        elif music.valence >= 0.50:
+            descriptors.append("positive")
+        elif music.valence >= 0.25:
+            descriptors.append("bittersweet")
+        else:
+            descriptors.append("dark and melancholic")
+
+    if music.acousticness is not None:
+        if music.acousticness >= 0.75:
+            descriptors.append("acoustic")
+        elif music.acousticness <= 0.20:
+            descriptors.append("electronic")
+
+    if music.instrumentalness is not None:
+        if music.instrumentalness >= 0.50:
+            descriptors.append("instrumental")
+        else:
+            descriptors.append("vocal")
+
+    if music.danceability is not None:
+        if music.danceability >= 0.75:
+            descriptors.append("highly danceable")
+        elif music.danceability <= 0.25:
+            descriptors.append("not danceable")
+
+    if music.speechiness is not None and music.speechiness >= 0.33:
+        if music.speechiness >= 0.66:
+            descriptors.append("spoken word")
+        else:
+            descriptors.append("rap or speech-heavy")
+
+    if music.tempo is not None:
+        bpm = int(round(music.tempo))
+        if music.tempo >= 150:
+            descriptors.append(f"fast ({bpm} BPM)")
+        elif music.tempo >= 110:
+            descriptors.append(f"moderate tempo ({bpm} BPM)")
+        elif music.tempo >= 75:
+            descriptors.append(f"slow ({bpm} BPM)")
+        else:
+            descriptors.append(f"very slow ({bpm} BPM)")
+
+    if music.mode is not None and music.key is not None:
+        mode_str = "major" if music.mode == 1 else "minor"
+        key_str = _KEY_NAMES[int(music.key)]
+        descriptors.append(f"{key_str} {mode_str}")
+
+    desc = ", ".join(descriptors)
+    return f'Music: "{music.track}" by {music.artist} — {desc}'
 
 
 def _to_bytes(tensor):
@@ -128,6 +196,7 @@ def embed_video_clips():
             return
 
         print(f"[embed:video] {len(todo)} clips to embed ({len(done_video)} already done)")
+        from modules.external.qwen3_vl_embedding import Qwen3VLEmbedder
         model = Qwen3VLEmbedder(
             model_name_or_path=MODEL_PATH,
             max_length=EMBED_MAX_LENGTH,
@@ -205,6 +274,7 @@ def embed_sandwich_clips():
             return
 
         print(f"[embed:sandwich] {len(todo)} clips to embed ({len(done_sandwich)} already done)")
+        from modules.external.qwen3_vl_embedding import Qwen3VLEmbedder
         model = Qwen3VLEmbedder(
             model_name_or_path=MODEL_PATH,
             max_length=EMBED_MAX_LENGTH,
