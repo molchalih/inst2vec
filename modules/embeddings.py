@@ -8,6 +8,7 @@ from modules.external.qwen3_vl_embedding import Qwen3VLEmbedder
 MODEL_PATH = "./models/Qwen3-VL-Embedding-8B"
 VIDEO_DIR = "data/source/videos"
 EXCLUDE_DISQUALIFIED_USERS = os.environ.get("EMBEDDINGS_EXCLUDE_DISQUALIFIED_USERS", "1") == "1"
+EMBED_MAX_LENGTH = 32768
 ADAPTIVE_MAX_FRAMES = 96
 ADAPTIVE_DEFAULT_FPS = 2.0
 
@@ -86,6 +87,23 @@ def _adaptive_video_sampling(path: str) -> tuple[float, int, float | None]:
     return 1.0, ADAPTIVE_MAX_FRAMES, duration
 
 
+def _frame_retry_schedule(initial_max_frames: int) -> list[int]:
+    """Return descending retry caps for frame count."""
+    caps = [initial_max_frames, 64, 48, 32, 24, 16]
+    unique = []
+    seen = set()
+    for c in caps:
+        if c <= initial_max_frames and c not in seen:
+            unique.append(c)
+            seen.add(c)
+    return unique
+
+
+def _is_token_mismatch_error(exc: Exception) -> bool:
+    msg = str(exc)
+    return "Mismatch in `video` token count" in msg or "Likely due to `truncation='max_length'" in msg
+
+
 def embed_video_clips():
     Base.metadata.create_all(engine)
     session = get_session()
@@ -112,6 +130,7 @@ def embed_video_clips():
         print(f"[embed:video] {len(todo)} clips to embed ({len(done_video)} already done)")
         model = Qwen3VLEmbedder(
             model_name_or_path=MODEL_PATH,
+            max_length=EMBED_MAX_LENGTH,
             max_frames=ADAPTIVE_MAX_FRAMES,
             fps=ADAPTIVE_DEFAULT_FPS,
         )
@@ -120,15 +139,31 @@ def embed_video_clips():
             path = _video_path(clip.pk)
             fps, max_frames, duration = _adaptive_video_sampling(path)
             dur_str = f"{duration:.1f}s" if duration is not None else "na"
-            print(
-                f"[embed:video] ({i}/{len(todo)}) {clip.pk} (fps={fps:g}, max={max_frames}, dur={dur_str})",
-                end="",
-                flush=True,
-            )
-            try:
-                embeddings = model.process([{"video": path, "fps": fps, "max_frames": max_frames}])
-            except Exception as e:
-                print(f" ✗ {e}")
+            frame_caps = _frame_retry_schedule(max_frames)
+            embeddings = None
+            last_error: Exception | None = None
+            for attempt_idx, frame_cap in enumerate(frame_caps):
+                prefix = (
+                    f"[embed:video] ({i}/{len(todo)}) {clip.pk} "
+                    f"(fps={fps:g}, max={frame_cap}, dur={dur_str}, max_len={EMBED_MAX_LENGTH})"
+                )
+                if attempt_idx > 0:
+                    prefix += " retry"
+                print(prefix, end="", flush=True)
+                try:
+                    embeddings = model.process([{"video": path, "fps": fps, "max_frames": frame_cap}])
+                    print(" ✓")
+                    break
+                except Exception as e:
+                    last_error = e
+                    if _is_token_mismatch_error(e) and attempt_idx < len(frame_caps) - 1:
+                        print(" ↻ token mismatch, reducing frames")
+                        continue
+                    print(f" ✗ {e}")
+                    break
+            if embeddings is None:
+                if last_error is None:
+                    print(" ✗ failed without exception")
                 continue
 
             video_row = ClipEmbedding(
@@ -138,7 +173,6 @@ def embed_video_clips():
             )
             session.merge(video_row)
             session.commit()
-            print(" ✓")
 
         print("[embed:video] done")
     finally:
@@ -173,6 +207,7 @@ def embed_sandwich_clips():
         print(f"[embed:sandwich] {len(todo)} clips to embed ({len(done_sandwich)} already done)")
         model = Qwen3VLEmbedder(
             model_name_or_path=MODEL_PATH,
+            max_length=EMBED_MAX_LENGTH,
             max_frames=ADAPTIVE_MAX_FRAMES,
             fps=ADAPTIVE_DEFAULT_FPS,
         )
