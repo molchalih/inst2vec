@@ -291,9 +291,10 @@ def embed_sandwich_clips():
             path = _video_path(clip.pk)
             if not os.path.exists(path):
                 continue
-            if _build_text(clip, music_map) is None:
+            text = _build_text(clip, music_map)
+            if text is None:
                 continue
-            todo.append(clip)
+            todo.append((clip, text))
 
         if not todo:
             print("[embed:sandwich] nothing to do")
@@ -308,9 +309,8 @@ def embed_sandwich_clips():
             fps=ADAPTIVE_DEFAULT_FPS,
         )
 
-        for i, clip in enumerate(todo, 1):
+        for i, (clip, text) in enumerate(todo, 1):
             path = _video_path(clip.pk)
-            text = _build_text(clip, music_map)
             fps, max_frames, duration = _adaptive_video_sampling(path)
             dur_str = f"{duration:.1f}s" if duration is not None else "na"
             frame_caps = _frame_retry_schedule(max_frames)
@@ -364,5 +364,5 @@ def embed_audio_clips():
 
 
 def embed_clips():
-    """Backwards-compatible entrypoint."""
+    """Backwards-compatible entrypoint. Runs video embeddings only; call embed_sandwich_clips() separately for sandwich embeddings."""
     embed_video_clips()
