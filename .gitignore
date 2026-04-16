@@ -4,6 +4,7 @@
 
 # Data — large/generated files
 data/source/
+data/inst2vec.db
 data/inst2vec.db-journal
 data/inst2vec.db.backup*
 data/inst2vec.db.half
