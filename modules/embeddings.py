@@ -436,7 +436,7 @@ def embed_audio_clips():
         )
 
         for i, (clip, text) in enumerate(todo, 1):
-            print(f"[embed:audio] ({i}/{len(todo)}) {clip.pk}", end="", flush=True)
+            print(f"[embed:audio] ({i}/{len(todo)}) {clip.pk} (chars={len(text)})", end="", flush=True)
             try:
                 embeddings = model.process([{"text": text, "instruction": AUDIO_INSTRUCTION}])
                 embedding = embeddings[0]
