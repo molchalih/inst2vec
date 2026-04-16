@@ -42,7 +42,7 @@ def main():
     parser.add_argument("--hdbscan-min-samples", type=int, default=None)
     parser.add_argument("--hdbscan-cluster-selection-method", type=str, default="eom", choices=["eom", "leaf"])
     parser.add_argument("--hdbscan-metric", type=str, default="euclidean")
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--random-state", type=int, default=42)
     args = parser.parse_args()
 
     params = dict(
@@ -57,7 +57,7 @@ def main():
         hdbscan_min_samples=args.hdbscan_min_samples,
         hdbscan_cluster_selection_method=args.hdbscan_cluster_selection_method,
         hdbscan_metric=args.hdbscan_metric,
-        random_state=args.seed,
+        random_state=args.random_state,
     )
 
     print(
@@ -93,8 +93,8 @@ def main():
         f"{result.noise_ratio:.1%} noise, sizes: {sizes_str}"
     )
 
-    write_header = not os.path.exists(CSV_PATH)
     with open(CSV_PATH, "a", newline="") as f:
+        write_header = f.tell() == 0
         writer = csv.DictWriter(f, fieldnames=CSV_FIELDS)
         if write_header:
             writer.writeheader()
@@ -112,7 +112,7 @@ def main():
             "hdbscan_min_samples": args.hdbscan_min_samples,
             "hdbscan_cluster_selection_method": args.hdbscan_cluster_selection_method,
             "hdbscan_metric": args.hdbscan_metric,
-            "random_state": args.seed,
+            "random_state": args.random_state,
             "n_clusters": result.n_clusters,
             "noise_ratio": round(result.noise_ratio, 4),
             "min_size": min_size,
