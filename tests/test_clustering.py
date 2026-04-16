@@ -1,4 +1,5 @@
-import sys, os
+import sys
+import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from modules.database import UserCluster
@@ -13,3 +14,4 @@ def test_user_cluster_columns():
     assert "umap_y" in cols
     assert "created_at" in cols
     assert "updated_at" in cols
+    assert UserCluster.__tablename__ == "user_clusters"
