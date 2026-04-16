@@ -92,6 +92,18 @@ def _bytes_to_array(blob: bytes) -> np.ndarray:
     return np.frombuffer(blob, dtype=np.float32).copy()
 
 
+def _aggregate_user_embeddings(rows: list[tuple[bytes, int]]) -> dict[int, bytes]:
+    """Mean-pool clip embedding blobs by user. Returns {user_pk: mean_blob}."""
+    from collections import defaultdict
+    user_arrays: dict[int, list[np.ndarray]] = defaultdict(list)
+    for blob, user_pk in rows:
+        user_arrays[user_pk].append(_bytes_to_array(blob))
+    return {
+        user_pk: np.stack(arrays).mean(axis=0).astype(np.float32).tobytes()
+        for user_pk, arrays in user_arrays.items()
+    }
+
+
 def _eligible_clips(session):
     clips_q = session.query(Clip).filter(or_(Clip.disqualified.is_(None), Clip.disqualified == 0))
     if EXCLUDE_DISQUALIFIED_USERS:
