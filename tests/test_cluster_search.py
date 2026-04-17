@@ -1,4 +1,7 @@
-import sys, os
+import sys
+import os
+from unittest.mock import patch
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from modules.database import ClusterRun
@@ -30,10 +33,6 @@ def test_cluster_run_unique_constraint():
 def test_cluster_run_hdbscan_min_samples_nullable():
     col = ClusterRun.__table__.c["hdbscan_min_samples"]
     assert col.nullable is True
-
-
-import os
-from unittest.mock import patch
 
 
 def test_parse_ints():

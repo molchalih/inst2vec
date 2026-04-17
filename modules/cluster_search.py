@@ -2,12 +2,6 @@
 import os
 from itertools import product
 
-import numpy as np
-from sqlalchemy.exc import IntegrityError
-
-from modules.database import Base, engine, get_session, ClusterRun
-from modules.clustering import compute_clusters, load_user_matrix
-
 
 def _parse_ints(val: str) -> list[int]:
     return [int(x) for x in val.split()]
@@ -22,7 +16,11 @@ def _parse_strs(val: str) -> list[str]:
 
 
 def _load_grid() -> list[dict]:
-    """Build cartesian product of hyperparameter combos from env vars."""
+    """Build cartesian product of hyperparameter combos from env vars.
+
+    umap2d_n_neighbors and umap2d_min_dist are fixed scalars (not swept);
+    umap2d_metric is swept independently as a list.
+    """
     umap_n_components  = _parse_ints(os.environ.get("CLUSTERING_UMAP_N_COMPONENTS", "15"))
     umap_n_neighbors   = _parse_ints(os.environ.get("CLUSTERING_UMAP_N_NEIGHBORS", "15"))
     umap_min_dist      = _parse_floats(os.environ.get("CLUSTERING_UMAP_MIN_DIST", "0.0"))
@@ -64,4 +62,4 @@ def run_cluster_search() -> None:
 
 
 def validate_clustering() -> dict[str, dict]:
-    pass  # implemented in Task 3
+    raise NotImplementedError("validate_clustering() not yet implemented")
