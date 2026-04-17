@@ -66,6 +66,26 @@ def main() -> None:
 
             session = get_session()
             try:
+                # SQLite treats NULL as distinct in UNIQUE constraints, so IntegrityError
+                # is never raised for rows where hdbscan_min_samples=None. Pre-check first.
+                exists = session.query(ClusterRun).filter_by(
+                    embedding_case=run.embedding_case,
+                    umap_n_components=run.umap_n_components,
+                    umap_n_neighbors=run.umap_n_neighbors,
+                    umap_min_dist=run.umap_min_dist,
+                    umap_metric=run.umap_metric,
+                    umap2d_n_neighbors=run.umap2d_n_neighbors,
+                    umap2d_min_dist=run.umap2d_min_dist,
+                    umap2d_metric=run.umap2d_metric,
+                    hdbscan_min_cluster_size=run.hdbscan_min_cluster_size,
+                    hdbscan_min_samples=run.hdbscan_min_samples,
+                    hdbscan_cluster_selection_method=run.hdbscan_cluster_selection_method,
+                    hdbscan_metric=run.hdbscan_metric,
+                    random_state=run.random_state,
+                ).first()
+                if exists:
+                    skipped += 1
+                    continue
                 session.add(run)
                 session.commit()
                 inserted += 1
