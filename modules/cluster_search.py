@@ -2,6 +2,12 @@
 import os
 from itertools import product
 
+import numpy as np
+from sqlalchemy.exc import IntegrityError
+
+from modules.database import Base, engine, get_session, ClusterRun
+from modules.clustering import compute_clusters, load_user_matrix
+
 
 def _parse_ints(val: str) -> list[int]:
     return [int(x) for x in val.split()]
@@ -58,8 +64,83 @@ def _load_grid() -> list[dict]:
 
 
 def run_cluster_search() -> None:
-    pass  # implemented in Task 3
+    """Run grid search over all hyperparameter combos from env; save metrics to ClusterRun.
+
+    Idempotent: skips any combo already present in the DB. Groups combos by
+    embedding_case so the user embedding matrix is loaded once per case.
+    """
+    Base.metadata.create_all(engine)
+    combos = _load_grid()
+
+    combos_by_case: dict[str, list[dict]] = {}
+    for combo in combos:
+        combos_by_case.setdefault(combo["embedding_case"], []).append(combo)
+
+    total_new = 0
+    total_skipped = 0
+
+    for case, case_combos in combos_by_case.items():
+        matrix, _ = load_user_matrix(case)
+        if matrix.shape[0] == 0:
+            print(f"[cluster_search:{case}] no embeddings — skipping {len(case_combos)} combos")
+            total_skipped += len(case_combos)
+            continue
+
+        for combo in case_combos:
+            session = get_session()
+            try:
+                if session.query(ClusterRun).filter_by(**combo).first():
+                    total_skipped += 1
+                    continue
+            finally:
+                session.close()
+
+            params = {k: v for k, v in combo.items() if k != "embedding_case"}
+            try:
+                result = compute_clusters(matrix, **params)
+            except ValueError as exc:
+                print(f"[cluster_search:{case}] skipping — {exc}")
+                total_skipped += 1
+                continue
+
+            sizes = result.cluster_sizes
+            row = ClusterRun(
+                **combo,
+                n_clusters=result.n_clusters,
+                noise_ratio=round(result.noise_ratio, 4),
+                min_size=min(sizes) if sizes else 0,
+                median_size=int(np.median(sizes)) if sizes else 0,
+                max_size=max(sizes) if sizes else 0,
+            )
+            session = get_session()
+            try:
+                session.add(row)
+                session.commit()
+                total_new += 1
+            except IntegrityError:
+                session.rollback()
+                total_skipped += 1
+            finally:
+                session.close()
+
+    print(f"[cluster_search] done — {total_new} new, {total_skipped} skipped")
 
 
 def validate_clustering() -> dict[str, dict]:
-    raise NotImplementedError("validate_clustering() not yet implemented")
+    """Select best clustering params per embedding_case from ClusterRun results.
+
+    Contract (not yet implemented):
+    - Query ClusterRun for all completed runs.
+    - For each embedding_case, select the param combo with the lowest noise_ratio
+      where n_clusters falls within a configurable target range.
+    - Return {embedding_case: params_dict} where params_dict is suitable for
+      passing directly as **kwargs to cluster_users().
+
+    Implement this once run_cluster_search() has populated enough ClusterRun rows
+    to make a meaningful selection.
+    """
+    raise NotImplementedError(
+        "validate_clustering() is not implemented. "
+        "Run run_cluster_search() first to populate ClusterRun, "
+        "then implement selection logic here and pass best params to cluster_users()."
+    )
