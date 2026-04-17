@@ -277,7 +277,7 @@ def validate_clustering() -> None:
     """Phase 6b entry point. Runs all 5 validation phases per embedding case."""
     for case in ["video", "sandwich", "audio"]:
         print(f"[validate:{case}] starting")
-        matrix, user_pks = load_user_matrix(case)
+        matrix, _ = load_user_matrix(case)
         if matrix.shape[0] == 0:
             print(f"[validate:{case}] no embeddings — skipping")
             continue
