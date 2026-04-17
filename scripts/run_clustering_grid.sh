@@ -13,8 +13,13 @@
 # usage:
 #   ./scripts/run_clustering_grid.sh
 #   ./scripts/run_clustering_grid.sh --embedding-case video
+#   GRID_JOBS=4 ./scripts/run_clustering_grid.sh
 #   OUT_CSV=/tmp/runs.csv ./scripts/run_clustering_grid.sh
 #   nohup ./scripts/run_clustering_grid.sh >data/grid_overnight.log 2>&1 &
+#
+# concurrent runs (default GRID_JOBS=1 = sequential). with GRID_JOBS>1, tune_clustering
+# uses file locking on the csv; optional: cap blas threads per process to avoid
+# oversubscription, e.g. OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1
 #
 set -euo pipefail
 
@@ -34,7 +39,7 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     -h|--help)
-      sed -n '1,24p' "$0"
+      sed -n '1,32p' "$0"
       exit 0
       ;;
     *)
@@ -54,6 +59,7 @@ case "$EMBED" in
 esac
 
 OUT_CSV="${OUT_CSV:-${ROOT}/scripts/clustering_results.csv}"
+GRID_JOBS="${GRID_JOBS:-1}"
 mkdir -p "$(dirname "$OUT_CSV")"
 
 # --- edit these ---
@@ -72,9 +78,12 @@ UMAP2D_N_NEIGHBORS=15
 UMAP2D_MIN_DIST=0.1
 # ---
 
+export OUT_CSV PYTHON TUNE UMAP2D_N_NEIGHBORS UMAP2D_MIN_DIST GRID_JOBS
+
 total=$((${#CASES[@]} * ${#UMAP_N_COMPONENTS[@]} * ${#UMAP_N_NEIGHBORS[@]} * ${#UMAP_MIN_DIST[@]} * ${#HDBSCAN_MIN_CLUSTER_SIZE[@]} * ${#HDBSCAN_SELECTION[@]} * ${#UMAP_METRICS[@]} * ${#UMAP2D_METRICS[@]} * ${#HDBSCAN_METRICS[@]}))
 
 echo "[grid] output: $OUT_CSV"
+echo "[grid] GRID_JOBS=$GRID_JOBS (set GRID_JOBS=N for N concurrent workers)"
 echo "[grid] runs: $total  (cases: ${CASES[*]})"
 echo "[grid] umap_n_components=${UMAP_N_COMPONENTS[*]}"
 echo "[grid] umap_n_neighbors=${UMAP_N_NEIGHBORS[*]} min_dist=${UMAP_MIN_DIST[*]}"
@@ -82,7 +91,6 @@ echo "[grid] hdbscan_min_cluster_size=${HDBSCAN_MIN_CLUSTER_SIZE[*]} selection=$
 echo "[grid] umap_metric=${UMAP_METRICS[*]} | umap2d_metric=${UMAP2D_METRICS[*]} (2d nn=$UMAP2D_N_NEIGHBORS min_dist=$UMAP2D_MIN_DIST) | hdbscan_metric=${HDBSCAN_METRICS[*]}"
 echo
 
-run=0
 for case in "${CASES[@]}"; do
   for ucomp in "${UMAP_N_COMPONENTS[@]}"; do
     for nn in "${UMAP_N_NEIGHBORS[@]}"; do
@@ -92,21 +100,7 @@ for case in "${CASES[@]}"; do
             for um in "${UMAP_METRICS[@]}"; do
               for u2m in "${UMAP2D_METRICS[@]}"; do
                 for hm in "${HDBSCAN_METRICS[@]}"; do
-                  ((++run)) || true
-                  echo "[grid] $run/$total  $case  ucomp=$ucomp nn=$nn md=$md mcs=$mcs sel=$sel | umap=$um umap2d=$u2m hdbscan_m=$hm"
-                  "$PYTHON" "$TUNE" \
-                    --embedding-case "$case" \
-                    --csv "$OUT_CSV" \
-                    --umap-n-components "$ucomp" \
-                    --umap-n-neighbors "$nn" \
-                    --umap-min-dist "$md" \
-                    --umap-metric "$um" \
-                    --umap2d-n-neighbors "$UMAP2D_N_NEIGHBORS" \
-                    --umap2d-min-dist "$UMAP2D_MIN_DIST" \
-                    --umap2d-metric "$u2m" \
-                    --hdbscan-min-cluster-size "$mcs" \
-                    --hdbscan-cluster-selection-method "$sel" \
-                    --hdbscan-metric "$hm"
+                  echo "$case" "$ucomp" "$nn" "$md" "$mcs" "$sel" "$um" "$u2m" "$hm"
                 done
               done
             done
@@ -115,7 +109,22 @@ for case in "${CASES[@]}"; do
       done
     done
   done
-done
+done | xargs -r -P "$GRID_JOBS" -n 9 bash -c '
+  echo "[grid] $1  ucomp=$2 nn=$3 md=$4 mcs=$5 sel=$6 | umap=$7 umap2d=$8 hdbscan_m=$9"
+  "$PYTHON" "$TUNE" \
+    --embedding-case "$1" \
+    --csv "$OUT_CSV" \
+    --umap-n-components "$2" \
+    --umap-n-neighbors "$3" \
+    --umap-min-dist "$4" \
+    --umap-metric "$7" \
+    --umap2d-n-neighbors "$UMAP2D_N_NEIGHBORS" \
+    --umap2d-min-dist "$UMAP2D_MIN_DIST" \
+    --umap2d-metric "$8" \
+    --hdbscan-min-cluster-size "$5" \
+    --hdbscan-cluster-selection-method "$6" \
+    --hdbscan-metric "$9"
+' _
 
 echo
 echo "========== summary: $OUT_CSV =========="

@@ -6,6 +6,7 @@ Usage:
     python scripts/tune_clustering.py --embedding-case video --hdbscan-min-cluster-size 20
     python scripts/tune_clustering.py --embedding-case audio --csv /tmp/batch.csv
 """
+import fcntl
 import sys
 import os
 import argparse
@@ -126,32 +127,39 @@ def main():
         f"{result.noise_ratio:.1%} noise, sizes: {sizes_str}"
     )
 
-    with open(args.csv_path, "a", newline="") as f:
-        write_header = f.tell() == 0
-        writer = csv.DictWriter(f, fieldnames=CSV_FIELDS)
-        if write_header:
-            writer.writeheader()
-        writer.writerow({
-            "timestamp": datetime.now().isoformat(timespec="seconds"),
-            "embedding_case": args.embedding_case,
-            "umap_n_components": args.umap_n_components,
-            "umap_n_neighbors": args.umap_n_neighbors,
-            "umap_min_dist": args.umap_min_dist,
-            "umap_metric": args.umap_metric,
-            "umap2d_n_neighbors": u2_n,
-            "umap2d_min_dist": u2_md,
-            "umap2d_metric": u2_m,
-            "hdbscan_min_cluster_size": args.hdbscan_min_cluster_size,
-            "hdbscan_min_samples": args.hdbscan_min_samples,
-            "hdbscan_cluster_selection_method": args.hdbscan_cluster_selection_method,
-            "hdbscan_metric": args.hdbscan_metric,
-            "random_state": args.random_state,
-            "n_clusters": result.n_clusters,
-            "noise_ratio": round(result.noise_ratio, 4),
-            "min_size": min_size,
-            "median_size": median_size,
-            "max_size": max_size,
-        })
+    row = {
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "embedding_case": args.embedding_case,
+        "umap_n_components": args.umap_n_components,
+        "umap_n_neighbors": args.umap_n_neighbors,
+        "umap_min_dist": args.umap_min_dist,
+        "umap_metric": args.umap_metric,
+        "umap2d_n_neighbors": u2_n,
+        "umap2d_min_dist": u2_md,
+        "umap2d_metric": u2_m,
+        "hdbscan_min_cluster_size": args.hdbscan_min_cluster_size,
+        "hdbscan_min_samples": args.hdbscan_min_samples,
+        "hdbscan_cluster_selection_method": args.hdbscan_cluster_selection_method,
+        "hdbscan_metric": args.hdbscan_metric,
+        "random_state": args.random_state,
+        "n_clusters": result.n_clusters,
+        "noise_ratio": round(result.noise_ratio, 4),
+        "min_size": min_size,
+        "median_size": median_size,
+        "max_size": max_size,
+    }
+
+    with open(args.csv_path, "a+", newline="") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        try:
+            f.seek(0, os.SEEK_END)
+            write_header = f.tell() == 0
+            writer = csv.DictWriter(f, fieldnames=CSV_FIELDS)
+            if write_header:
+                writer.writeheader()
+            writer.writerow(row)
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
 
     print(f"[tune] appended to {args.csv_path}")
 
