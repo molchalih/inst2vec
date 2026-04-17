@@ -198,3 +198,4 @@ def test_phase_score_skips_already_scored_rows():
         _phase_score(s, "video", matrix)
         updated = s.get(ClusterRun, row_id)
         assert updated.dbcv == pytest.approx(0.99)  # unchanged
+        assert updated.silhouette == pytest.approx(0.88)  # unchanged

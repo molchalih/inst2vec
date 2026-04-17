@@ -72,6 +72,8 @@ def _phase_score(session: Session, case: str, matrix: np.ndarray) -> None:
             result = compute_clusters(matrix, return_nd_matrix=True, **params)
         except ValueError as exc:
             print(f"[validate:{case}] score skip id={row.id} — {exc}")
+            row.disqualified = 1
+            session.commit()
             continue
 
         X_nd = result.matrix_nd.astype(np.float64)
@@ -82,7 +84,10 @@ def _phase_score(session: Session, case: str, matrix: np.ndarray) -> None:
                 X_nd, labels, metric=row.hdbscan_metric
             ))
         except Exception:
-            row.dbcv = float("nan")
+            print(f"[validate:{case}] dbcv failed id={row.id} — disqualifying")
+            row.disqualified = 1
+            session.commit()
+            continue
 
         non_noise = labels != -1
         unique_clusters = np.unique(labels[non_noise])
@@ -90,13 +95,13 @@ def _phase_score(session: Session, case: str, matrix: np.ndarray) -> None:
             try:
                 row.silhouette = float(silhouette_score(X_nd[non_noise], labels[non_noise]))
             except Exception:
-                row.silhouette = float("nan")
+                row.silhouette = 0.0
         else:
-            row.silhouette = float("nan")
+            row.silhouette = 0.0
 
         session.commit()
-        dbcv_str = f"{row.dbcv:.4f}" if row.dbcv is not None else "nan"
-        sil_str = f"{row.silhouette:.4f}" if row.silhouette is not None else "nan"
+        dbcv_str = f"{row.dbcv:.4f}"
+        sil_str = f"{row.silhouette:.4f}"
         print(
             f"[validate:{case}] scored {i + 1}/{len(rows)} id={row.id}"
             f" dbcv={dbcv_str} sil={sil_str}"
