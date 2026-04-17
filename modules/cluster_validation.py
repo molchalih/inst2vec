@@ -130,3 +130,55 @@ def _phase_composite(session: Session, case: str) -> None:
         row.composite_score = round(0.5 * dn + 0.2 * sn + 0.3 * stn, 6)
     session.commit()
     print(f"[validate:{case}] composite — updated {len(rows)} rows")
+
+
+def _ari_non_noise(labels_a: np.ndarray, labels_b: np.ndarray) -> float:
+    mask = (labels_a != -1) & (labels_b != -1)
+    if mask.sum() < 2:
+        return 0.0
+    return float(adjusted_rand_score(labels_a[mask], labels_b[mask]))
+
+
+def _phase_bootstrap(session: Session, case: str, matrix: np.ndarray, user_pks: list[int]) -> None:
+    top_n = int(os.environ.get("VALIDATION_TOP_N_BOOTSTRAP", "20"))
+    n_runs = int(os.environ.get("VALIDATION_BOOTSTRAP_N", "30"))
+
+    rows = (
+        session.query(ClusterRun)
+        .filter(
+            ClusterRun.embedding_case == case,
+            ClusterRun.disqualified == 0,
+            ClusterRun.dbcv.isnot(None),
+            ClusterRun.bootstrap_stability.is_(None),
+        )
+        .order_by(ClusterRun.dbcv.desc())
+        .limit(top_n)
+        .all()
+    )
+
+    rng = np.random.default_rng(42)
+
+    for row_i, row in enumerate(rows):
+        params = _row_to_params(row)
+        try:
+            original = compute_clusters(matrix, **params)
+        except ValueError as exc:
+            print(f"[validate:{case}] bootstrap skip id={row.id} — {exc}")
+            continue
+
+        aris = []
+        for _ in range(n_runs):
+            idx = rng.integers(0, len(user_pks), size=len(user_pks))
+            try:
+                boot = compute_clusters(matrix[idx], **params)
+            except ValueError:
+                continue
+            aris.append(_ari_non_noise(original.labels[idx], boot.labels))
+
+        row.bootstrap_stability = float(np.mean(aris)) if aris else 0.0
+        row.bootstrap_n_runs = len(aris)
+        session.commit()
+        print(
+            f"[validate:{case}] bootstrap {row_i + 1}/{len(rows)} id={row.id}"
+            f" stability={row.bootstrap_stability:.4f} ({row.bootstrap_n_runs} runs)"
+        )

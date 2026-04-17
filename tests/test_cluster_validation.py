@@ -255,3 +255,74 @@ def test_phase_composite_incorporates_bootstrap_stability():
         assert r1_updated.composite_score > r2_updated.composite_score
         assert r1_updated.composite_score == pytest.approx(0.3, abs=1e-5)
         assert r2_updated.composite_score == pytest.approx(0.0, abs=1e-5)
+
+
+# --- Phase 4: bootstrap ---
+
+def test_ari_non_noise_excludes_noise_from_both():
+    from modules.cluster_validation import _ari_non_noise
+    # Points 0,1,2 non-noise in both; point 3 noise in a; point 4 noise in b
+    a = np.array([0, 0, 1, -1,  1])
+    b = np.array([0, 0, 1,  1, -1])
+    # Only indices 0,1,2 count (non-noise in BOTH)
+    ari = _ari_non_noise(a, b)
+    assert ari == pytest.approx(1.0)  # perfect agreement on non-noise subset
+
+
+def test_ari_non_noise_returns_zero_when_no_non_noise_overlap():
+    from modules.cluster_validation import _ari_non_noise
+    a = np.array([-1, -1, -1])
+    b = np.array([0, 1, 2])
+    assert _ari_non_noise(a, b) == pytest.approx(0.0)
+
+
+def test_phase_bootstrap_populates_stability():
+    eng = _make_engine()
+    rng = np.random.default_rng(0)
+    matrix = np.vstack([
+        rng.normal(8.0, 0.2, (40, 30)).astype(np.float32),
+        rng.normal(-8.0, 0.2, (40, 30)).astype(np.float32),
+    ])
+    user_pks = list(range(80))
+
+    with Session(eng) as s:
+        row = _insert_run(s, disqualified=0, noise_ratio=0.0, n_clusters=2,
+                          umap_n_components=5, hdbscan_min_cluster_size=10)
+        row.dbcv = 0.9
+        row.composite_score = 0.8
+        s.commit()
+        row_id = row.id
+
+    env = {"VALIDATION_TOP_N_BOOTSTRAP": "5", "VALIDATION_BOOTSTRAP_N": "3"}
+    from modules.cluster_validation import _phase_bootstrap
+    with patch.dict(os.environ, env):
+        with Session(eng) as s:
+            _phase_bootstrap(s, "video", matrix, user_pks)
+            updated = s.get(ClusterRun, row_id)
+            assert updated.bootstrap_stability is not None
+            assert 0.0 <= updated.bootstrap_stability <= 1.0
+            assert updated.bootstrap_n_runs == 3
+
+
+def test_phase_bootstrap_skips_already_set():
+    eng = _make_engine()
+    matrix = np.ones((80, 30), dtype=np.float32)
+    user_pks = list(range(80))
+
+    with Session(eng) as s:
+        row = _insert_run(s, disqualified=0, noise_ratio=0.0, n_clusters=2,
+                          umap_n_components=5, hdbscan_min_cluster_size=10)
+        row.dbcv = 0.9
+        row.bootstrap_stability = 0.75
+        row.bootstrap_n_runs = 10
+        s.commit()
+        row_id = row.id
+
+    env = {"VALIDATION_TOP_N_BOOTSTRAP": "5", "VALIDATION_BOOTSTRAP_N": "3"}
+    from modules.cluster_validation import _phase_bootstrap
+    with patch.dict(os.environ, env):
+        with Session(eng) as s:
+            _phase_bootstrap(s, "video", matrix, user_pks)
+            updated = s.get(ClusterRun, row_id)
+            assert updated.bootstrap_stability == pytest.approx(0.75)  # unchanged
+            assert updated.bootstrap_n_runs == 10  # unchanged
