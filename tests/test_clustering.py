@@ -89,3 +89,19 @@ def test_compute_clusters_large_min_cluster_size_yields_noise():
     assert result.n_clusters == 0
     assert result.noise_ratio == pytest.approx(1.0)
     assert result.cluster_sizes == []
+
+
+def test_compute_clusters_matrix_nd_none_by_default():
+    matrix = _two_cluster_matrix()
+    result = compute_clusters(matrix, umap_n_components=5, hdbscan_min_cluster_size=10, random_state=0)
+    assert result.matrix_nd is None
+
+
+def test_compute_clusters_matrix_nd_returned_when_requested():
+    matrix = _two_cluster_matrix()
+    result = compute_clusters(
+        matrix, umap_n_components=5, hdbscan_min_cluster_size=10, random_state=0,
+        return_nd_matrix=True,
+    )
+    assert result.matrix_nd is not None
+    assert result.matrix_nd.shape == (80, 5)  # n_rows × umap_n_components
