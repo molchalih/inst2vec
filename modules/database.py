@@ -179,6 +179,42 @@ class UserCluster(Base):
     user = relationship("User", back_populates="clusters")
 
 
+class ClusterRun(Base):
+    __tablename__ = "cluster_runs"
+    __table_args__ = (
+        UniqueConstraint(
+            "embedding_case",
+            "umap_n_components", "umap_n_neighbors", "umap_min_dist", "umap_metric",
+            "umap2d_n_neighbors", "umap2d_min_dist", "umap2d_metric",
+            "hdbscan_min_cluster_size", "hdbscan_min_samples",
+            "hdbscan_cluster_selection_method", "hdbscan_metric",
+            "random_state",
+            name="uq_cluster_runs_params",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    embedding_case = Column(String, nullable=False)
+    umap_n_components = Column(Integer, nullable=False)
+    umap_n_neighbors = Column(Integer, nullable=False)
+    umap_min_dist = Column(Float, nullable=False)
+    umap_metric = Column(String, nullable=False)
+    umap2d_n_neighbors = Column(Integer, nullable=False)
+    umap2d_min_dist = Column(Float, nullable=False)
+    umap2d_metric = Column(String, nullable=False)
+    hdbscan_min_cluster_size = Column(Integer, nullable=False)
+    hdbscan_min_samples = Column(Integer, nullable=True)
+    hdbscan_cluster_selection_method = Column(String, nullable=False)
+    hdbscan_metric = Column(String, nullable=False)
+    random_state = Column(Integer, nullable=False)
+    n_clusters = Column(Integer, nullable=False)
+    noise_ratio = Column(Float, nullable=False)
+    min_size = Column(Integer, nullable=False)
+    median_size = Column(Integer, nullable=False)
+    max_size = Column(Integer, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 def _migrate_clips_table() -> None:
     """Apply additive schema migrations for existing SQLite databases."""
     inspector = inspect(engine)
