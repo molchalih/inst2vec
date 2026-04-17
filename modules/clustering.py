@@ -15,6 +15,7 @@ class ClusterResult:
     n_clusters: int
     noise_ratio: float
     cluster_sizes: list[int] = field(default_factory=list)
+    matrix_nd: np.ndarray | None = None
 
 
 def resolve_umap2d_params(
@@ -46,6 +47,7 @@ def compute_clusters(
     hdbscan_cluster_selection_method: str = "eom",
     hdbscan_metric: str = "euclidean",
     random_state: int = 42,
+    return_nd_matrix: bool = False,
 ) -> ClusterResult:
     min_required = umap_n_components + 1
     if matrix.shape[0] < min_required:
@@ -118,6 +120,7 @@ def compute_clusters(
         n_clusters=n_clusters,
         noise_ratio=noise_ratio,
         cluster_sizes=cluster_sizes,
+        matrix_nd=matrix_nd if return_nd_matrix else None,
     )
 
 
