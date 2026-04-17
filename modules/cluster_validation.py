@@ -192,3 +192,86 @@ def _phase_bootstrap(session: Session, case: str, matrix: np.ndarray) -> None:
             f"[validate:{case}] bootstrap {row_i + 1}/{len(rows)} id={row.id}"
             f" stability={row.bootstrap_stability:.4f} ({row.bootstrap_n_runs} runs)"
         )
+
+
+_NUMERIC_PARAM_COLS = [
+    "umap_n_components", "umap_n_neighbors", "umap_min_dist",
+    "umap2d_n_neighbors", "umap2d_min_dist",
+    "hdbscan_min_cluster_size", "hdbscan_min_samples", "random_state",
+]
+_CATEGORICAL_PARAM_COLS = [
+    "umap_metric", "umap2d_metric",
+    "hdbscan_cluster_selection_method", "hdbscan_metric",
+]
+
+
+def _find_param_neighbors(target: ClusterRun, candidates: list[ClusterRun]) -> list[ClusterRun]:
+    all_rows = [target] + candidates
+    distinct: dict[str, list] = {}
+    for col in _NUMERIC_PARAM_COLS:
+        vals = sorted(set(getattr(r, col) for r in all_rows if getattr(r, col) is not None))
+        distinct[col] = vals
+
+    neighbors = []
+    for cand in candidates:
+        if cand.id == target.id:
+            continue
+        n_diffs = 0
+        valid = True
+        for col in _PARAM_COLS:
+            tv, cv = getattr(target, col), getattr(cand, col)
+            if tv == cv:
+                continue
+            n_diffs += 1
+            if n_diffs > 1:
+                valid = False
+                break
+            if col in _NUMERIC_PARAM_COLS:
+                vals = distinct[col]
+                if tv not in vals or cv not in vals:
+                    valid = False
+                    break
+                if abs(vals.index(tv) - vals.index(cv)) != 1:
+                    valid = False
+                    break
+            # categorical: any other value counts as adjacent
+        if valid and n_diffs == 1:
+            neighbors.append(cand)
+    return neighbors
+
+
+def _phase_plateau(session: Session, case: str) -> None:
+    top_n = int(os.environ.get("VALIDATION_TOP_N_PLATEAU", "20"))
+
+    top_rows = (
+        session.query(ClusterRun)
+        .filter(
+            ClusterRun.embedding_case == case,
+            ClusterRun.disqualified == 0,
+            ClusterRun.composite_score.isnot(None),
+            ClusterRun.param_plateau_score.is_(None),
+        )
+        .order_by(ClusterRun.composite_score.desc())
+        .limit(top_n)
+        .all()
+    )
+    if not top_rows:
+        print(f"[validate:{case}] plateau — nothing to do")
+        return
+
+    all_rows = (
+        session.query(ClusterRun)
+        .filter(
+            ClusterRun.embedding_case == case,
+            ClusterRun.disqualified == 0,
+            ClusterRun.composite_score.isnot(None),
+        )
+        .all()
+    )
+
+    for row in top_rows:
+        neighbors = _find_param_neighbors(row, all_rows)
+        scores = [n.composite_score for n in neighbors if n.composite_score is not None]
+        row.param_plateau_score = float(np.mean(scores)) if scores else 0.0
+    session.commit()
+    print(f"[validate:{case}] plateau — scored {len(top_rows)} top rows")

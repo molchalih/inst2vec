@@ -323,3 +323,68 @@ def test_phase_bootstrap_skips_already_set():
             updated = s.get(ClusterRun, row_id)
             assert updated.bootstrap_stability == pytest.approx(0.75)  # unchanged
             assert updated.bootstrap_n_runs == 10  # unchanged
+
+
+# --- Phase 5: plateau ---
+
+def test_find_param_neighbors_one_step_difference():
+    from modules.cluster_validation import _find_param_neighbors
+    eng = _make_engine()
+
+    with Session(eng) as s:
+        target = _insert_run(s, umap_n_components=10, umap_n_neighbors=15, random_state=1)
+        neighbor = _insert_run(s, umap_n_components=15, umap_n_neighbors=15, random_state=1)
+        non_neighbor = _insert_run(s, umap_n_components=20, umap_n_neighbors=10, random_state=1)
+        two_away = _insert_run(s, umap_n_components=20, umap_n_neighbors=15, random_state=1)
+
+        result = _find_param_neighbors(target, [neighbor, non_neighbor, two_away])
+        result_ids = {r.id for r in result}
+        # neighbor differs only in umap_n_components by one step (10→15 in [10,15,20])
+        assert neighbor.id in result_ids
+        # non_neighbor differs in two params
+        assert non_neighbor.id not in result_ids
+        # two_away differs only in umap_n_components but by two steps (10→20)
+        assert two_away.id not in result_ids
+
+
+def test_find_param_neighbors_categorical_any_other_value():
+    from modules.cluster_validation import _find_param_neighbors
+    eng = _make_engine()
+
+    with Session(eng) as s:
+        target = _insert_run(s, umap_metric="cosine", random_state=1)
+        neighbor = _insert_run(s, umap_metric="euclidean", random_state=1)
+        # differs in umap_metric (categorical) AND umap_n_components → not a neighbor
+        non_neighbor = _insert_run(s, umap_metric="euclidean", umap_n_components=10, random_state=1)
+
+        result = _find_param_neighbors(target, [neighbor, non_neighbor])
+        result_ids = {r.id for r in result}
+        assert neighbor.id in result_ids
+        assert non_neighbor.id not in result_ids
+
+
+def test_phase_plateau_populates_top_rows():
+    eng = _make_engine()
+
+    with Session(eng) as s:
+        # Two rows that are neighbors (differ only in umap_n_components)
+        r1 = _insert_run(s, disqualified=0, noise_ratio=0.1, n_clusters=5,
+                         umap_n_components=10, random_state=1)
+        r1.composite_score = 0.9
+        r2 = _insert_run(s, disqualified=0, noise_ratio=0.1, n_clusters=5,
+                         umap_n_components=15, random_state=1)
+        r2.composite_score = 0.7
+        s.commit()
+        id1, id2 = r1.id, r2.id
+
+    env = {"VALIDATION_TOP_N_PLATEAU": "5"}
+    from modules.cluster_validation import _phase_plateau
+    with patch.dict(os.environ, env):
+        with Session(eng) as s:
+            _phase_plateau(s, "video")
+            updated1 = s.get(ClusterRun, id1)
+            updated2 = s.get(ClusterRun, id2)
+            # r1's only neighbor is r2 (score=0.7)
+            assert updated1.param_plateau_score == pytest.approx(0.7, abs=1e-5)
+            # r2's only neighbor is r1 (score=0.9)
+            assert updated2.param_plateau_score == pytest.approx(0.9, abs=1e-5)
