@@ -212,6 +212,13 @@ class ClusterRun(Base):
     min_size = Column(Integer, nullable=False)
     median_size = Column(Integer, nullable=False)
     max_size = Column(Integer, nullable=False)
+    disqualified = Column(Integer, nullable=True)
+    dbcv = Column(Float, nullable=True)
+    silhouette = Column(Float, nullable=True)
+    composite_score = Column(Float, nullable=True)
+    bootstrap_stability = Column(Float, nullable=True)
+    bootstrap_n_runs = Column(Integer, nullable=True)
+    param_plateau_score = Column(Float, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
@@ -240,10 +247,32 @@ def _migrate_users_table() -> None:
             conn.execute(text("ALTER TABLE users ADD COLUMN user_disqualified INTEGER"))
 
 
+def _migrate_cluster_runs_table() -> None:
+    """Apply additive schema migrations for existing cluster_runs table."""
+    inspector = inspect(engine)
+    if "cluster_runs" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("cluster_runs")}
+    new_cols = {
+        "disqualified": "INTEGER",
+        "dbcv": "REAL",
+        "silhouette": "REAL",
+        "composite_score": "REAL",
+        "bootstrap_stability": "REAL",
+        "bootstrap_n_runs": "INTEGER",
+        "param_plateau_score": "REAL",
+    }
+    for col, col_type in new_cols.items():
+        if col not in columns:
+            with engine.begin() as conn:
+                conn.execute(text(f"ALTER TABLE cluster_runs ADD COLUMN {col} {col_type}"))
+
+
 def init_db():
     Base.metadata.create_all(engine)
     _migrate_users_table()
     _migrate_clips_table()
+    _migrate_cluster_runs_table()
 
 
 def get_session() -> Session:

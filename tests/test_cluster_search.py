@@ -27,6 +27,8 @@ def test_cluster_run_columns():
         "random_state",
         "n_clusters", "noise_ratio", "min_size", "median_size", "max_size",
         "created_at",
+        "disqualified", "dbcv", "silhouette", "composite_score",
+        "bootstrap_stability", "bootstrap_n_runs", "param_plateau_score",
     }
 
 
@@ -220,7 +222,3 @@ def test_run_cluster_search_idempotent(mem_engine, monkeypatch):
     assert count == 3  # still 3, not 6
 
 
-def test_validate_clustering_raises():
-    from modules.cluster_search import validate_clustering
-    with pytest.raises(NotImplementedError):
-        validate_clustering()

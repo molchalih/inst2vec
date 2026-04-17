@@ -7,6 +7,7 @@ from modules.captions import detect_caption_language, translate_captions, clean_
 from modules.finalize import finalize_user_dataset
 from modules.embeddings import embed_video_clips, embed_sandwich_clips, embed_audio_clips, embed_user_clips
 from modules.cluster_search import run_cluster_search
+from modules.cluster_validation import validate_clustering
 from modules.clustering import cluster_users
 from modules.visualization import plot_clusters
 
@@ -55,13 +56,12 @@ embed_user_clips()
 # Phase 6a – cluster search (grid sweep → ClusterRun table, idempotent)
 run_cluster_search()
 
-# Phase 6b – validation (select best params per case) [NOT IMPLEMENTED]
-# best = validate_clustering()
-# cluster_users() calls below use hardcoded defaults until 6b is implemented
+# Phase 6b – validation (filter, score, bootstrap, plateau → ClusterRun columns)
+validate_clustering()
 
-# Phase 6c – clustering (final run with selected params → UserCluster per-user rows)
-for case in ["video", "sandwich", "audio"]:
-    cluster_users(case)
+# Phase 6c – clustering (commented out pending 6b results review)
+# for case in ["video", "sandwich", "audio"]:
+#     cluster_users(case)
 
 # Phase 7 – visualization (save UMAP scatter plots to data/plots/)
 plot_clusters()
