@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from modules.database import ClusterRun
+from modules.database import Base, ClusterRun
 
 
 def test_cluster_run_tablename():
@@ -127,8 +127,6 @@ def test_load_grid_umap2d_fixed_values():
         assert combo["umap2d_n_neighbors"] == 20
         assert combo["umap2d_min_dist"] == 0.2
 
-
-from modules.database import Base, ClusterRun
 from modules.clustering import ClusterResult
 
 
@@ -178,7 +176,6 @@ def test_run_cluster_search_inserts_rows(mem_engine, monkeypatch):
         "CLUSTERING_HDBSCAN_SELECTION": "eom",
         "CLUSTERING_HDBSCAN_METRICS": "euclidean",
         "CLUSTERING_RANDOM_STATE": "42",
-        "CLUSTERING_JOBS": "1",
     }
     monkeypatch.setattr("modules.cluster_search.load_user_matrix",
                         lambda case: (_fake_matrix(), list(range(80))))
@@ -207,7 +204,6 @@ def test_run_cluster_search_idempotent(mem_engine, monkeypatch):
         "CLUSTERING_HDBSCAN_SELECTION": "eom",
         "CLUSTERING_HDBSCAN_METRICS": "euclidean",
         "CLUSTERING_RANDOM_STATE": "42",
-        "CLUSTERING_JOBS": "1",
     }
     monkeypatch.setattr("modules.cluster_search.load_user_matrix",
                         lambda case: (_fake_matrix(), list(range(80))))
