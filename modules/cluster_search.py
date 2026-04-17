@@ -87,33 +87,32 @@ def run_cluster_search() -> None:
             continue
 
         for combo in case_combos:
+            params = {k: v for k, v in combo.items() if k != "embedding_case"}
             session = get_session()
             try:
+                # SQLite UniqueConstraint treats NULL as distinct, so hdbscan_min_samples=None
+                # won't be caught by IntegrityError for duplicate runs. The pre-check here is
+                # the effective guard for that case.
                 if session.query(ClusterRun).filter_by(**combo).first():
                     total_skipped += 1
                     continue
-            finally:
-                session.close()
 
-            params = {k: v for k, v in combo.items() if k != "embedding_case"}
-            try:
-                result = compute_clusters(matrix, **params)
-            except ValueError as exc:
-                print(f"[cluster_search:{case}] skipping — {exc}")
-                total_skipped += 1
-                continue
+                try:
+                    result = compute_clusters(matrix, **params)
+                except ValueError as exc:
+                    print(f"[cluster_search:{case}] skipping — {exc}")
+                    total_skipped += 1
+                    continue
 
-            sizes = result.cluster_sizes
-            row = ClusterRun(
-                **combo,
-                n_clusters=result.n_clusters,
-                noise_ratio=round(result.noise_ratio, 4),
-                min_size=min(sizes) if sizes else 0,
-                median_size=int(np.median(sizes)) if sizes else 0,
-                max_size=max(sizes) if sizes else 0,
-            )
-            session = get_session()
-            try:
+                sizes = result.cluster_sizes
+                row = ClusterRun(
+                    **combo,
+                    n_clusters=result.n_clusters,
+                    noise_ratio=round(result.noise_ratio, 4),
+                    min_size=min(sizes) if sizes else 0,
+                    median_size=int(np.median(sizes)) if sizes else 0,
+                    max_size=max(sizes) if sizes else 0,
+                )
                 session.add(row)
                 session.commit()
                 total_new += 1
