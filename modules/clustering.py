@@ -120,7 +120,7 @@ def compute_clusters(
         n_clusters=n_clusters,
         noise_ratio=noise_ratio,
         cluster_sizes=cluster_sizes,
-        matrix_nd=matrix_nd if return_nd_matrix else None,
+        matrix_nd=matrix_nd.astype(np.float32) if return_nd_matrix else None,
     )
 
 
