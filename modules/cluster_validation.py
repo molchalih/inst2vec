@@ -106,3 +106,33 @@ def _phase_score(session: Session, case: str, matrix: np.ndarray) -> None:
             f"[validate:{case}] scored {i + 1}/{len(rows)} id={row.id}"
             f" dbcv={dbcv_str} sil={sil_str}"
         )
+
+
+def _phase_composite(session: Session, case: str) -> None:
+    rows = (
+        session.query(ClusterRun)
+        .filter(
+            ClusterRun.embedding_case == case,
+            ClusterRun.disqualified == 0,
+            ClusterRun.dbcv.isnot(None),
+        )
+        .all()
+    )
+    if not rows:
+        return
+
+    if len(rows) == 1:
+        rows[0].composite_score = 1.0
+        session.commit()
+        print(f"[validate:{case}] composite — updated 1 rows")
+        return
+
+    dbcv_norm = _minmax([r.dbcv for r in rows])
+    sil_norm = _minmax([r.silhouette if r.silhouette is not None else float("nan") for r in rows])
+    stab_vals = [r.bootstrap_stability if r.bootstrap_stability is not None else 0.0 for r in rows]
+    stab_norm = _minmax(stab_vals)
+
+    for row, dn, sn, stn in zip(rows, dbcv_norm, sil_norm, stab_norm):
+        row.composite_score = round(0.5 * dn + 0.2 * sn + 0.3 * stn, 6)
+    session.commit()
+    print(f"[validate:{case}] composite — updated {len(rows)} rows")
