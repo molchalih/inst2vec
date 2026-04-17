@@ -30,3 +30,95 @@ def test_cluster_run_unique_constraint():
 def test_cluster_run_hdbscan_min_samples_nullable():
     col = ClusterRun.__table__.c["hdbscan_min_samples"]
     assert col.nullable is True
+
+
+import os
+from unittest.mock import patch
+
+
+def test_parse_ints():
+    from modules.cluster_search import _parse_ints
+    assert _parse_ints("10 15 30") == [10, 15, 30]
+    assert _parse_ints("42") == [42]
+
+
+def test_parse_floats():
+    from modules.cluster_search import _parse_floats
+    assert _parse_floats("0.0 0.05") == [0.0, 0.05]
+    assert _parse_floats("0.1") == [0.1]
+
+
+def test_parse_strs():
+    from modules.cluster_search import _parse_strs
+    assert _parse_strs("cosine euclidean") == ["cosine", "euclidean"]
+    assert _parse_strs("eom") == ["eom"]
+
+
+def test_load_grid_combo_count():
+    from modules.cluster_search import _load_grid
+    env = {
+        "CLUSTERING_UMAP_N_COMPONENTS": "10 15",
+        "CLUSTERING_UMAP_N_NEIGHBORS": "10",
+        "CLUSTERING_UMAP_MIN_DIST": "0.0",
+        "CLUSTERING_UMAP_METRICS": "cosine",
+        "CLUSTERING_UMAP2D_N_NEIGHBORS": "15",
+        "CLUSTERING_UMAP2D_MIN_DIST": "0.1",
+        "CLUSTERING_UMAP2D_METRICS": "cosine euclidean",
+        "CLUSTERING_HDBSCAN_MIN_CLUSTER_SIZE": "10",
+        "CLUSTERING_HDBSCAN_SELECTION": "eom",
+        "CLUSTERING_HDBSCAN_METRICS": "euclidean",
+        "CLUSTERING_RANDOM_STATE": "42",
+    }
+    with patch.dict(os.environ, env, clear=False):
+        combos = _load_grid()
+    # 3 cases × 2 umap_n_components × 1 nn × 1 md × 1 umap_metric
+    # × 2 umap2d_metrics × 1 mcs × 1 selection × 1 hdbscan_metric = 12
+    assert len(combos) == 12
+
+
+def test_load_grid_combo_keys():
+    from modules.cluster_search import _load_grid
+    env = {
+        "CLUSTERING_UMAP_N_COMPONENTS": "10",
+        "CLUSTERING_UMAP_N_NEIGHBORS": "15",
+        "CLUSTERING_UMAP_MIN_DIST": "0.0",
+        "CLUSTERING_UMAP_METRICS": "cosine",
+        "CLUSTERING_UMAP2D_N_NEIGHBORS": "15",
+        "CLUSTERING_UMAP2D_MIN_DIST": "0.1",
+        "CLUSTERING_UMAP2D_METRICS": "cosine",
+        "CLUSTERING_HDBSCAN_MIN_CLUSTER_SIZE": "10",
+        "CLUSTERING_HDBSCAN_SELECTION": "eom",
+        "CLUSTERING_HDBSCAN_METRICS": "euclidean",
+        "CLUSTERING_RANDOM_STATE": "42",
+    }
+    with patch.dict(os.environ, env, clear=False):
+        combos = _load_grid()
+    expected_keys = {
+        "embedding_case", "umap_n_components", "umap_n_neighbors", "umap_min_dist",
+        "umap_metric", "umap2d_n_neighbors", "umap2d_min_dist", "umap2d_metric",
+        "hdbscan_min_cluster_size", "hdbscan_min_samples",
+        "hdbscan_cluster_selection_method", "hdbscan_metric", "random_state",
+    }
+    assert set(combos[0].keys()) == expected_keys
+
+
+def test_load_grid_umap2d_fixed_values():
+    from modules.cluster_search import _load_grid
+    env = {
+        "CLUSTERING_UMAP_N_COMPONENTS": "10",
+        "CLUSTERING_UMAP_N_NEIGHBORS": "15",
+        "CLUSTERING_UMAP_MIN_DIST": "0.0",
+        "CLUSTERING_UMAP_METRICS": "cosine",
+        "CLUSTERING_UMAP2D_N_NEIGHBORS": "20",
+        "CLUSTERING_UMAP2D_MIN_DIST": "0.2",
+        "CLUSTERING_UMAP2D_METRICS": "cosine",
+        "CLUSTERING_HDBSCAN_MIN_CLUSTER_SIZE": "10",
+        "CLUSTERING_HDBSCAN_SELECTION": "eom",
+        "CLUSTERING_HDBSCAN_METRICS": "euclidean",
+        "CLUSTERING_RANDOM_STATE": "42",
+    }
+    with patch.dict(os.environ, env, clear=False):
+        combos = _load_grid()
+    for combo in combos:
+        assert combo["umap2d_n_neighbors"] == 20
+        assert combo["umap2d_min_dist"] == 0.2
