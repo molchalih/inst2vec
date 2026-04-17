@@ -388,3 +388,22 @@ def test_phase_plateau_populates_top_rows():
             assert updated1.param_plateau_score == pytest.approx(0.7, abs=1e-5)
             # r2's only neighbor is r1 (score=0.9)
             assert updated2.param_plateau_score == pytest.approx(0.9, abs=1e-5)
+
+
+def test_phase_plateau_skips_already_set():
+    eng = _make_engine()
+
+    with Session(eng) as s:
+        row = _insert_run(s, disqualified=0, noise_ratio=0.1, n_clusters=5,
+                          umap_n_components=10, random_state=1)
+        row.composite_score = 0.9
+        row.param_plateau_score = 0.5  # already set — should not be overwritten
+        s.commit()
+        row_id = row.id
+
+    env = {"VALIDATION_TOP_N_PLATEAU": "5"}
+    from modules.cluster_validation import _phase_plateau
+    with patch.dict(os.environ, env):
+        with Session(eng) as s:
+            _phase_plateau(s, "video")
+            assert s.get(ClusterRun, row_id).param_plateau_score == pytest.approx(0.5)  # unchanged
