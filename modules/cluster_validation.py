@@ -139,9 +139,10 @@ def _ari_non_noise(labels_a: np.ndarray, labels_b: np.ndarray) -> float:
     return float(adjusted_rand_score(labels_a[mask], labels_b[mask]))
 
 
-def _phase_bootstrap(session: Session, case: str, matrix: np.ndarray, user_pks: list[int]) -> None:
+def _phase_bootstrap(session: Session, case: str, matrix: np.ndarray) -> None:
     top_n = int(os.environ.get("VALIDATION_TOP_N_BOOTSTRAP", "20"))
     n_runs = int(os.environ.get("VALIDATION_BOOTSTRAP_N", "30"))
+    n_rows = matrix.shape[0]
 
     rows = (
         session.query(ClusterRun)
@@ -155,6 +156,9 @@ def _phase_bootstrap(session: Session, case: str, matrix: np.ndarray, user_pks: 
         .limit(top_n)
         .all()
     )
+    if not rows:
+        print(f"[validate:{case}] bootstrap — nothing to do")
+        return
 
     rng = np.random.default_rng(42)
 
@@ -168,14 +172,20 @@ def _phase_bootstrap(session: Session, case: str, matrix: np.ndarray, user_pks: 
 
         aris = []
         for _ in range(n_runs):
-            idx = rng.integers(0, len(user_pks), size=len(user_pks))
+            idx = rng.integers(0, n_rows, size=n_rows)
             try:
                 boot = compute_clusters(matrix[idx], **params)
             except ValueError:
                 continue
             aris.append(_ari_non_noise(original.labels[idx], boot.labels))
 
-        row.bootstrap_stability = float(np.mean(aris)) if aris else 0.0
+        if not aris:
+            print(f"[validate:{case}] bootstrap all-failed id={row.id} — disqualifying")
+            row.disqualified = 1
+            session.commit()
+            continue
+
+        row.bootstrap_stability = float(np.mean(aris))
         row.bootstrap_n_runs = len(aris)
         session.commit()
         print(

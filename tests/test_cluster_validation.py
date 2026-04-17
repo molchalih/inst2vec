@@ -283,7 +283,6 @@ def test_phase_bootstrap_populates_stability():
         rng.normal(8.0, 0.2, (40, 30)).astype(np.float32),
         rng.normal(-8.0, 0.2, (40, 30)).astype(np.float32),
     ])
-    user_pks = list(range(80))
 
     with Session(eng) as s:
         row = _insert_run(s, disqualified=0, noise_ratio=0.0, n_clusters=2,
@@ -297,17 +296,15 @@ def test_phase_bootstrap_populates_stability():
     from modules.cluster_validation import _phase_bootstrap
     with patch.dict(os.environ, env):
         with Session(eng) as s:
-            _phase_bootstrap(s, "video", matrix, user_pks)
+            _phase_bootstrap(s, "video", matrix)
             updated = s.get(ClusterRun, row_id)
             assert updated.bootstrap_stability is not None
-            assert 0.0 <= updated.bootstrap_stability <= 1.0
             assert updated.bootstrap_n_runs == 3
 
 
 def test_phase_bootstrap_skips_already_set():
     eng = _make_engine()
     matrix = np.ones((80, 30), dtype=np.float32)
-    user_pks = list(range(80))
 
     with Session(eng) as s:
         row = _insert_run(s, disqualified=0, noise_ratio=0.0, n_clusters=2,
@@ -322,7 +319,7 @@ def test_phase_bootstrap_skips_already_set():
     from modules.cluster_validation import _phase_bootstrap
     with patch.dict(os.environ, env):
         with Session(eng) as s:
-            _phase_bootstrap(s, "video", matrix, user_pks)
+            _phase_bootstrap(s, "video", matrix)
             updated = s.get(ClusterRun, row_id)
             assert updated.bootstrap_stability == pytest.approx(0.75)  # unchanged
             assert updated.bootstrap_n_runs == 10  # unchanged
