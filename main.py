@@ -6,6 +6,7 @@ from modules.speech import classify_speech, translate_speech, clean_speech
 from modules.captions import detect_caption_language, translate_captions, clean_captions
 from modules.finalize import finalize_user_dataset
 from modules.embeddings import embed_video_clips, embed_sandwich_clips, embed_audio_clips, embed_user_clips
+from modules.cluster_search import run_cluster_search
 from modules.clustering import cluster_users
 from modules.visualization import plot_clusters
 
@@ -51,7 +52,14 @@ embed_audio_clips()
 # Phase 5 – user embeddings (mean-pool clip embeddings per user per case)
 embed_user_clips()
 
-# Phase 6 – clustering (UMAP + HDBSCAN per embedding case)
+# Phase 6a – cluster search (grid sweep → ClusterRun table, idempotent)
+run_cluster_search()
+
+# Phase 6b – validation (select best params per case) [NOT IMPLEMENTED]
+# best = validate_clustering()
+# cluster_users() calls below use hardcoded defaults until 6b is implemented
+
+# Phase 6c – clustering (final run with selected params → UserCluster per-user rows)
 for case in ["video", "sandwich", "audio"]:
     cluster_users(case)
 
