@@ -123,23 +123,3 @@ def run_cluster_search() -> None:
                 session.close()
 
     print(f"[cluster_search] done — {total_new} new, {total_skipped} skipped")
-
-
-def validate_clustering() -> dict[str, dict]:
-    """Select best clustering params per embedding_case from ClusterRun results.
-
-    Contract (not yet implemented):
-    - Query ClusterRun for all completed runs.
-    - For each embedding_case, select the param combo with the lowest noise_ratio
-      where n_clusters falls within a configurable target range.
-    - Return {embedding_case: params_dict} where params_dict is suitable for
-      passing directly as **kwargs to cluster_users().
-
-    Implement this once run_cluster_search() has populated enough ClusterRun rows
-    to make a meaningful selection.
-    """
-    raise NotImplementedError(
-        "validate_clustering() is not implemented. "
-        "Run run_cluster_search() first to populate ClusterRun, "
-        "then implement selection logic here and pass best params to cluster_users()."
-    )

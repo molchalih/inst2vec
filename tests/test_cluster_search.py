@@ -222,7 +222,3 @@ def test_run_cluster_search_idempotent(mem_engine, monkeypatch):
     assert count == 3  # still 3, not 6
 
 
-def test_validate_clustering_raises():
-    from modules.cluster_search import validate_clustering
-    with pytest.raises(NotImplementedError):
-        validate_clustering()

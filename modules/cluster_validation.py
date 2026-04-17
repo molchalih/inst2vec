@@ -7,7 +7,7 @@ import hdbscan.validity
 from sklearn.metrics import silhouette_score, adjusted_rand_score
 from sqlalchemy.orm import Session
 
-from modules.database import ClusterRun
+from modules.database import ClusterRun, get_session
 from modules.clustering import compute_clusters, load_user_matrix
 
 
@@ -271,3 +271,24 @@ def _phase_plateau(session: Session, case: str) -> None:
         row.param_plateau_score = float(np.mean(scores)) if scores else 0.0
     session.commit()
     print(f"[validate:{case}] plateau — scored {len(top_rows)} top rows")
+
+
+def validate_clustering() -> None:
+    """Phase 6b entry point. Runs all 5 validation phases per embedding case."""
+    for case in ["video", "sandwich", "audio"]:
+        print(f"[validate:{case}] starting")
+        matrix, user_pks = load_user_matrix(case)
+        if matrix.shape[0] == 0:
+            print(f"[validate:{case}] no embeddings — skipping")
+            continue
+        session = get_session()
+        try:
+            _phase_filter(session, case)
+            _phase_score(session, case, matrix)
+            _phase_composite(session, case)
+            _phase_bootstrap(session, case, matrix)
+            _phase_composite(session, case)  # recompute with real stability weights
+            _phase_plateau(session, case)
+        finally:
+            session.close()
+        print(f"[validate:{case}] done")
