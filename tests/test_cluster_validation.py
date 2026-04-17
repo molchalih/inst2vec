@@ -199,3 +199,49 @@ def test_phase_score_skips_already_scored_rows():
         updated = s.get(ClusterRun, row_id)
         assert updated.dbcv == pytest.approx(0.99)  # unchanged
         assert updated.silhouette == pytest.approx(0.88)  # unchanged
+
+
+# --- Phase 3: composite ---
+
+def test_phase_composite_weights():
+    eng = _make_engine()
+
+    with Session(eng) as s:
+        r1 = _insert_run(s, disqualified=0, noise_ratio=0.1, n_clusters=5,
+                         umap_n_components=10, random_state=1)
+        r1.dbcv = 1.0
+        r1.silhouette = 1.0
+        r2 = _insert_run(s, disqualified=0, noise_ratio=0.1, n_clusters=5,
+                         umap_n_components=15, random_state=1)
+        r2.dbcv = 0.0
+        r2.silhouette = 0.0
+        s.commit()
+        id1, id2 = r1.id, r2.id
+
+    from modules.cluster_validation import _phase_composite
+    with Session(eng) as s:
+        _phase_composite(s, "video")
+        top = s.get(ClusterRun, id1)
+        bottom = s.get(ClusterRun, id2)
+        # No bootstrap yet → stability=0 for both; top should score 0.5*1 + 0.2*1 + 0.3*0 = 0.7
+        assert top.composite_score == pytest.approx(0.7, abs=1e-5)
+        assert bottom.composite_score == pytest.approx(0.0, abs=1e-5)
+
+
+def test_phase_composite_reruns_to_update_stability():
+    eng = _make_engine()
+
+    with Session(eng) as s:
+        row = _insert_run(s, disqualified=0, noise_ratio=0.1, n_clusters=5)
+        row.dbcv = 1.0
+        row.silhouette = 1.0
+        row.bootstrap_stability = 0.8
+        s.commit()
+        row_id = row.id
+
+    from modules.cluster_validation import _phase_composite
+    with Session(eng) as s:
+        _phase_composite(s, "video")
+        updated = s.get(ClusterRun, row_id)
+        # Single row: all norms = 1.0 → 0.5*1 + 0.2*1 + 0.3*1 = 1.0
+        assert updated.composite_score == pytest.approx(1.0, abs=1e-5)
