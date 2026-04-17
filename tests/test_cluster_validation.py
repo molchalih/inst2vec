@@ -132,3 +132,69 @@ def test_filter_skips_already_set_rows():
         with Session(eng) as s:
             _phase_filter(s, "video")
             assert s.get(ClusterRun, row_id).disqualified == 0  # unchanged
+
+
+# --- Phase 2: score helpers ---
+
+def test_minmax_normalizes_range():
+    from modules.cluster_validation import _minmax
+    result = _minmax([0.0, 0.5, 1.0])
+    assert result == pytest.approx([0.0, 0.5, 1.0])
+
+
+def test_minmax_all_same_returns_zeros():
+    from modules.cluster_validation import _minmax
+    result = _minmax([0.4, 0.4, 0.4])
+    assert result == [0.0, 0.0, 0.0]
+
+
+def test_minmax_nan_treated_as_zero():
+    from modules.cluster_validation import _minmax
+    result = _minmax([float("nan"), 0.0, 1.0])
+    assert result[0] == pytest.approx(0.0)
+    assert result[1] == pytest.approx(0.0)
+    assert result[2] == pytest.approx(1.0)
+
+
+def test_phase_score_populates_dbcv_and_silhouette():
+    eng = _make_engine()
+    rng = np.random.default_rng(0)
+    matrix = np.vstack([
+        rng.normal(8.0, 0.2, (40, 30)).astype(np.float32),
+        rng.normal(-8.0, 0.2, (40, 30)).astype(np.float32),
+    ])
+
+    with Session(eng) as s:
+        row = _insert_run(s, noise_ratio=0.0, n_clusters=2, disqualified=0,
+                          umap_n_components=5, hdbscan_min_cluster_size=10)
+        row_id = row.id
+
+    from modules.cluster_validation import _phase_score
+    with Session(eng) as s:
+        _phase_score(s, "video", matrix)
+        updated = s.get(ClusterRun, row_id)
+        assert updated.dbcv is not None
+        assert updated.silhouette is not None
+
+
+def test_phase_score_skips_already_scored_rows():
+    eng = _make_engine()
+    rng = np.random.default_rng(0)
+    matrix = np.vstack([
+        rng.normal(8.0, 0.2, (40, 30)).astype(np.float32),
+        rng.normal(-8.0, 0.2, (40, 30)).astype(np.float32),
+    ])
+
+    with Session(eng) as s:
+        row = _insert_run(s, noise_ratio=0.0, n_clusters=2, disqualified=0,
+                          umap_n_components=5, hdbscan_min_cluster_size=10)
+        row.dbcv = 0.99
+        row.silhouette = 0.88
+        s.commit()
+        row_id = row.id
+
+    from modules.cluster_validation import _phase_score
+    with Session(eng) as s:
+        _phase_score(s, "video", matrix)
+        updated = s.get(ClusterRun, row_id)
+        assert updated.dbcv == pytest.approx(0.99)  # unchanged

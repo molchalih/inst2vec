@@ -53,3 +53,51 @@ def _phase_filter(session: Session, case: str) -> None:
     session.commit()
 
     print(f"[validate:{case}] filter — {n_pass} passed, {len(rows) - n_pass} disqualified")
+
+
+def _phase_score(session: Session, case: str, matrix: np.ndarray) -> None:
+    rows = (
+        session.query(ClusterRun)
+        .filter(
+            ClusterRun.embedding_case == case,
+            ClusterRun.disqualified == 0,
+            ClusterRun.dbcv.is_(None),
+        )
+        .all()
+    )
+
+    for i, row in enumerate(rows):
+        params = _row_to_params(row)
+        try:
+            result = compute_clusters(matrix, return_nd_matrix=True, **params)
+        except ValueError as exc:
+            print(f"[validate:{case}] score skip id={row.id} — {exc}")
+            continue
+
+        X_nd = result.matrix_nd.astype(np.float64)
+        labels = result.labels
+
+        try:
+            row.dbcv = float(hdbscan.validity.validity_index(
+                X_nd, labels, metric=row.hdbscan_metric
+            ))
+        except Exception:
+            row.dbcv = float("nan")
+
+        non_noise = labels != -1
+        unique_clusters = np.unique(labels[non_noise])
+        if len(unique_clusters) >= 2:
+            try:
+                row.silhouette = float(silhouette_score(X_nd[non_noise], labels[non_noise]))
+            except Exception:
+                row.silhouette = float("nan")
+        else:
+            row.silhouette = float("nan")
+
+        session.commit()
+        dbcv_str = f"{row.dbcv:.4f}" if row.dbcv is not None else "nan"
+        sil_str = f"{row.silhouette:.4f}" if row.silhouette is not None else "nan"
+        print(
+            f"[validate:{case}] scored {i + 1}/{len(rows)} id={row.id}"
+            f" dbcv={dbcv_str} sil={sil_str}"
+        )
