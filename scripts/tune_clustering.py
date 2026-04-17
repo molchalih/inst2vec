@@ -1,9 +1,10 @@
 """
 Parameter search tool for clustering. Runs compute_clusters with given params,
-prints stats, and appends one row to scripts/clustering_results.csv.
+prints stats, and appends one row to a CSV (default: scripts/clustering_results.csv).
 
 Usage:
     python scripts/tune_clustering.py --embedding-case video --hdbscan-min-cluster-size 20
+    python scripts/tune_clustering.py --embedding-case audio --csv /tmp/batch.csv
 """
 import sys
 import os
@@ -14,7 +15,7 @@ from datetime import datetime
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import numpy as np
-from modules.clustering import compute_clusters, load_user_matrix
+from modules.clustering import compute_clusters, load_user_matrix, resolve_umap2d_params
 
 CSV_PATH = os.path.join(os.path.dirname(__file__), "clustering_results.csv")
 CSV_FIELDS = [
@@ -35,15 +36,46 @@ def main():
     parser.add_argument("--umap-n-neighbors", type=int, default=15)
     parser.add_argument("--umap-min-dist", type=float, default=0.0)
     parser.add_argument("--umap-metric", type=str, default="cosine")
-    parser.add_argument("--umap2d-n-neighbors", type=int, default=15)
-    parser.add_argument("--umap2d-min-dist", type=float, default=0.1)
-    parser.add_argument("--umap2d-metric", type=str, default="cosine")
+    parser.add_argument(
+        "--umap2d-n-neighbors",
+        type=int,
+        default=None,
+        help="2D UMAP n_neighbors; default: same as pass-1",
+    )
+    parser.add_argument(
+        "--umap2d-min-dist",
+        type=float,
+        default=None,
+        help="2D UMAP min_dist; default: same as pass-1",
+    )
+    parser.add_argument(
+        "--umap2d-metric",
+        type=str,
+        default=None,
+        help="2D UMAP metric; default: same as pass-1",
+    )
     parser.add_argument("--hdbscan-min-cluster-size", type=int, default=15)
     parser.add_argument("--hdbscan-min-samples", type=int, default=None)
     parser.add_argument("--hdbscan-cluster-selection-method", type=str, default="eom", choices=["eom", "leaf"])
     parser.add_argument("--hdbscan-metric", type=str, default="euclidean")
     parser.add_argument("--random-state", type=int, default=42)
+    parser.add_argument(
+        "--csv",
+        dest="csv_path",
+        default=CSV_PATH,
+        metavar="PATH",
+        help=f"append results to this CSV (default: {CSV_PATH})",
+    )
     args = parser.parse_args()
+
+    u2_n, u2_md, u2_m = resolve_umap2d_params(
+        args.umap_n_neighbors,
+        args.umap_min_dist,
+        args.umap_metric,
+        args.umap2d_n_neighbors,
+        args.umap2d_min_dist,
+        args.umap2d_metric,
+    )
 
     params = dict(
         umap_n_components=args.umap_n_components,
@@ -64,8 +96,9 @@ def main():
         f"[tune] {args.embedding_case} | "
         f"umap_n_components={args.umap_n_components} n_neighbors={args.umap_n_neighbors} "
         f"min_dist={args.umap_min_dist} metric={args.umap_metric} | "
+        f"umap2d_n_neighbors={u2_n} min_dist={u2_md} metric={u2_m} | "
         f"hdbscan_min_cluster_size={args.hdbscan_min_cluster_size} "
-        f"method={args.hdbscan_cluster_selection_method}"
+        f"selection={args.hdbscan_cluster_selection_method} metric={args.hdbscan_metric}"
     )
 
     matrix, user_pks = load_user_matrix(args.embedding_case)
@@ -93,7 +126,7 @@ def main():
         f"{result.noise_ratio:.1%} noise, sizes: {sizes_str}"
     )
 
-    with open(CSV_PATH, "a", newline="") as f:
+    with open(args.csv_path, "a", newline="") as f:
         write_header = f.tell() == 0
         writer = csv.DictWriter(f, fieldnames=CSV_FIELDS)
         if write_header:
@@ -105,9 +138,9 @@ def main():
             "umap_n_neighbors": args.umap_n_neighbors,
             "umap_min_dist": args.umap_min_dist,
             "umap_metric": args.umap_metric,
-            "umap2d_n_neighbors": args.umap2d_n_neighbors,
-            "umap2d_min_dist": args.umap2d_min_dist,
-            "umap2d_metric": args.umap2d_metric,
+            "umap2d_n_neighbors": u2_n,
+            "umap2d_min_dist": u2_md,
+            "umap2d_metric": u2_m,
             "hdbscan_min_cluster_size": args.hdbscan_min_cluster_size,
             "hdbscan_min_samples": args.hdbscan_min_samples,
             "hdbscan_cluster_selection_method": args.hdbscan_cluster_selection_method,
@@ -120,7 +153,7 @@ def main():
             "max_size": max_size,
         })
 
-    print(f"[tune] appended to {CSV_PATH}")
+    print(f"[tune] appended to {args.csv_path}")
 
 
 if __name__ == "__main__":

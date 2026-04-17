@@ -5,7 +5,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 import numpy as np
 import pytest
 from modules.database import UserCluster
-from modules.clustering import compute_clusters, ClusterResult
+from modules.clustering import compute_clusters, ClusterResult, resolve_umap2d_params
+
+
+def test_resolve_umap2d_params_mirrors_pass1():
+    assert resolve_umap2d_params(10, 0.05, "cosine", None, None, None) == (10, 0.05, "cosine")
+    assert resolve_umap2d_params(10, 0.05, "cosine", 20, None, None) == (20, 0.05, "cosine")
+    assert resolve_umap2d_params(10, 0.05, "cosine", None, 0.2, None) == (10, 0.2, "cosine")
+    assert resolve_umap2d_params(10, 0.05, "cosine", None, None, "euclidean") == (10, 0.05, "euclidean")
 
 
 def test_user_cluster_columns():
