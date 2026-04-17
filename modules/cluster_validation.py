@@ -199,10 +199,6 @@ _NUMERIC_PARAM_COLS = [
     "umap2d_n_neighbors", "umap2d_min_dist",
     "hdbscan_min_cluster_size", "hdbscan_min_samples", "random_state",
 ]
-_CATEGORICAL_PARAM_COLS = [
-    "umap_metric", "umap2d_metric",
-    "hdbscan_cluster_selection_method", "hdbscan_metric",
-]
 
 
 def _find_param_neighbors(target: ClusterRun, candidates: list[ClusterRun]) -> list[ClusterRun]:
