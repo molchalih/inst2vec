@@ -6,6 +6,10 @@ from modules.speech import classify_speech, translate_speech, clean_speech
 from modules.captions import detect_caption_language, translate_captions, clean_captions
 from modules.finalize import finalize_user_dataset
 from modules.embeddings import embed_video_clips, embed_sandwich_clips, embed_audio_clips, embed_user_clips
+from modules.cluster_search import run_cluster_search
+from modules.cluster_validation import validate_clustering
+from modules.clustering import cluster_users
+from modules.visualization import plot_clusters
 
 # initialize database
 init_db()
@@ -48,3 +52,19 @@ embed_audio_clips()
 
 # Phase 5 – user embeddings (mean-pool clip embeddings per user per case)
 embed_user_clips()
+
+# Phase 6a – cluster search (grid sweep → ClusterRun table, idempotent)
+run_cluster_search()
+
+# Phase 6b – validation (filter, score, bootstrap, plateau → ClusterRun columns)
+best_params = validate_clustering()
+
+# Phase 6c – clustering with best params from validation
+for case, params in best_params.items():
+    if params is None:
+        print(f"[cluster:{case}] no valid run — skipping")
+        continue
+    cluster_users(case, **params)
+
+# Phase 7 – visualization (save UMAP scatter plots to data/plots/)
+plot_clusters()

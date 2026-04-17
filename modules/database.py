@@ -41,6 +41,7 @@ class User(Base):
 
     clips = relationship("Clip", back_populates="user")
     embeddings = relationship("UserEmbedding", back_populates="user")
+    clusters = relationship("UserCluster", back_populates="user")
 
 
 class Clip(Base):
@@ -157,6 +158,70 @@ class UserEmbedding(Base):
     user = relationship("User", back_populates="embeddings")
 
 
+class UserCluster(Base):
+    __tablename__ = "user_clusters"
+    __table_args__ = (
+        UniqueConstraint("user_pk", "embedding_case", name="uq_user_clusters_user_case"),
+    )
+
+    user_pk = Column(BigInteger, ForeignKey("users.pk"), primary_key=True)
+    embedding_case = Column(String, primary_key=True)
+    cluster_id = Column(Integer, nullable=False)
+    umap_x = Column(Float, nullable=False)
+    umap_y = Column(Float, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+    user = relationship("User", back_populates="clusters")
+
+
+class ClusterRun(Base):
+    __tablename__ = "cluster_runs"
+    __table_args__ = (
+        UniqueConstraint(
+            "embedding_case",
+            "umap_n_components", "umap_n_neighbors", "umap_min_dist", "umap_metric",
+            "umap2d_n_neighbors", "umap2d_min_dist", "umap2d_metric",
+            "hdbscan_min_cluster_size", "hdbscan_min_samples",
+            "hdbscan_cluster_selection_method", "hdbscan_metric",
+            "random_state",
+            name="uq_cluster_runs_params",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    embedding_case = Column(String, nullable=False)
+    umap_n_components = Column(Integer, nullable=False)
+    umap_n_neighbors = Column(Integer, nullable=False)
+    umap_min_dist = Column(Float, nullable=False)
+    umap_metric = Column(String, nullable=False)
+    umap2d_n_neighbors = Column(Integer, nullable=False)
+    umap2d_min_dist = Column(Float, nullable=False)
+    umap2d_metric = Column(String, nullable=False)
+    hdbscan_min_cluster_size = Column(Integer, nullable=False)
+    hdbscan_min_samples = Column(Integer, nullable=True)
+    hdbscan_cluster_selection_method = Column(String, nullable=False)
+    hdbscan_metric = Column(String, nullable=False)
+    random_state = Column(Integer, nullable=False)
+    n_clusters = Column(Integer, nullable=False)
+    noise_ratio = Column(Float, nullable=False)
+    min_size = Column(Integer, nullable=False)
+    median_size = Column(Integer, nullable=False)
+    max_size = Column(Integer, nullable=False)
+    disqualified = Column(Integer, nullable=True)
+    dbcv = Column(Float, nullable=True)
+    silhouette = Column(Float, nullable=True)
+    composite_score = Column(Float, nullable=True)
+    bootstrap_stability = Column(Float, nullable=True)
+    bootstrap_n_runs = Column(Integer, nullable=True)
+    param_plateau_score = Column(Float, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 def _migrate_clips_table() -> None:
     """Apply additive schema migrations for existing SQLite databases."""
     inspector = inspect(engine)
@@ -182,10 +247,32 @@ def _migrate_users_table() -> None:
             conn.execute(text("ALTER TABLE users ADD COLUMN user_disqualified INTEGER"))
 
 
+def _migrate_cluster_runs_table() -> None:
+    """Apply additive schema migrations for existing cluster_runs table."""
+    inspector = inspect(engine)
+    if "cluster_runs" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("cluster_runs")}
+    new_cols = {
+        "disqualified": "INTEGER",
+        "dbcv": "REAL",
+        "silhouette": "REAL",
+        "composite_score": "REAL",
+        "bootstrap_stability": "REAL",
+        "bootstrap_n_runs": "INTEGER",
+        "param_plateau_score": "REAL",
+    }
+    for col, col_type in new_cols.items():
+        if col not in columns:
+            with engine.begin() as conn:
+                conn.execute(text(f"ALTER TABLE cluster_runs ADD COLUMN {col} {col_type}"))
+
+
 def init_db():
     Base.metadata.create_all(engine)
     _migrate_users_table()
     _migrate_clips_table()
+    _migrate_cluster_runs_table()
 
 
 def get_session() -> Session:
