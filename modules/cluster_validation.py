@@ -5,8 +5,9 @@ import os
 import numpy as np
 import hdbscan.validity
 from sklearn.metrics import silhouette_score, adjusted_rand_score
+from sqlalchemy.orm import Session
 
-from modules.database import get_session, ClusterRun
+from modules.database import ClusterRun
 from modules.clustering import compute_clusters, load_user_matrix
 
 
@@ -31,7 +32,7 @@ def _minmax(values: list[float]) -> list[float]:
     return [0.0 if math.isnan(v) else (v - lo) / (hi - lo) for v in values]
 
 
-def _phase_filter(session, case: str) -> None:
+def _phase_filter(session: Session, case: str) -> None:
     max_noise = float(os.environ.get("VALIDATION_MAX_NOISE_RATIO", "0.3"))
     min_clusters = int(os.environ.get("VALIDATION_MIN_CLUSTERS", "3"))
     max_clusters = int(os.environ.get("VALIDATION_MAX_CLUSTERS", "20"))
@@ -41,14 +42,14 @@ def _phase_filter(session, case: str) -> None:
         .filter(ClusterRun.embedding_case == case, ClusterRun.disqualified.is_(None))
         .all()
     )
+    n_pass = 0
     for row in rows:
         passes = (
             row.noise_ratio <= max_noise
             and min_clusters <= row.n_clusters <= max_clusters
         )
         row.disqualified = 0 if passes else 1
+        n_pass += int(passes)
     session.commit()
 
-    n_pass = sum(1 for r in rows if r.disqualified == 0)
-    n_fail = len(rows) - n_pass
-    print(f"[validate:{case}] filter — {n_pass} passed, {n_fail} disqualified")
+    print(f"[validate:{case}] filter — {n_pass} passed, {len(rows) - n_pass} disqualified")
