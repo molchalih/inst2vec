@@ -144,16 +144,26 @@ def _phase_bootstrap(session: Session, case: str, matrix: np.ndarray) -> None:
     n_runs = int(os.environ.get("VALIDATION_BOOTSTRAP_N", "30"))
     n_rows = matrix.shape[0]
 
+    top_ids = [
+        r.id
+        for r in (
+            session.query(ClusterRun.id)
+            .filter(
+                ClusterRun.embedding_case == case,
+                ClusterRun.disqualified == 0,
+                ClusterRun.dbcv.isnot(None),
+            )
+            .order_by(ClusterRun.dbcv.desc())
+            .limit(top_n)
+            .all()
+        )
+    ]
     rows = (
         session.query(ClusterRun)
         .filter(
-            ClusterRun.embedding_case == case,
-            ClusterRun.disqualified == 0,
-            ClusterRun.dbcv.isnot(None),
+            ClusterRun.id.in_(top_ids),
             ClusterRun.bootstrap_stability.is_(None),
         )
-        .order_by(ClusterRun.dbcv.desc())
-        .limit(top_n)
         .all()
     )
     if not rows:
