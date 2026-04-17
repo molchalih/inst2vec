@@ -228,20 +228,30 @@ def test_phase_composite_weights():
         assert bottom.composite_score == pytest.approx(0.0, abs=1e-5)
 
 
-def test_phase_composite_reruns_to_update_stability():
+def test_phase_composite_incorporates_bootstrap_stability():
     eng = _make_engine()
 
     with Session(eng) as s:
-        row = _insert_run(s, disqualified=0, noise_ratio=0.1, n_clusters=5)
-        row.dbcv = 1.0
-        row.silhouette = 1.0
-        row.bootstrap_stability = 0.8
+        r1 = _insert_run(s, disqualified=0, noise_ratio=0.1, n_clusters=5,
+                         umap_n_components=10, random_state=1)
+        r1.dbcv = 0.8
+        r1.silhouette = 0.8
+        r1.bootstrap_stability = 1.0  # high stability
+        r2 = _insert_run(s, disqualified=0, noise_ratio=0.1, n_clusters=5,
+                         umap_n_components=15, random_state=1)
+        r2.dbcv = 0.8
+        r2.silhouette = 0.8
+        r2.bootstrap_stability = 0.0  # no stability
         s.commit()
-        row_id = row.id
+        id1, id2 = r1.id, r2.id
 
     from modules.cluster_validation import _phase_composite
     with Session(eng) as s:
         _phase_composite(s, "video")
-        updated = s.get(ClusterRun, row_id)
-        # Single row: all norms = 1.0 → 0.5*1 + 0.2*1 + 0.3*1 = 1.0
-        assert updated.composite_score == pytest.approx(1.0, abs=1e-5)
+        r1_updated = s.get(ClusterRun, id1)
+        r2_updated = s.get(ClusterRun, id2)
+        # dbcv and silhouette are equal → norm=0 for both; only stability differs
+        # stab_norm: r1=1.0, r2=0.0 → composite: r1=0.3, r2=0.0
+        assert r1_updated.composite_score > r2_updated.composite_score
+        assert r1_updated.composite_score == pytest.approx(0.3, abs=1e-5)
+        assert r2_updated.composite_score == pytest.approx(0.0, abs=1e-5)

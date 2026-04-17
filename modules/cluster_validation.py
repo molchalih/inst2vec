@@ -121,12 +121,6 @@ def _phase_composite(session: Session, case: str) -> None:
     if not rows:
         return
 
-    if len(rows) == 1:
-        rows[0].composite_score = 1.0
-        session.commit()
-        print(f"[validate:{case}] composite — updated 1 rows")
-        return
-
     dbcv_norm = _minmax([r.dbcv for r in rows])
     sil_norm = _minmax([r.silhouette if r.silhouette is not None else float("nan") for r in rows])
     stab_vals = [r.bootstrap_stability if r.bootstrap_stability is not None else 0.0 for r in rows]
