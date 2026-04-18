@@ -407,3 +407,82 @@ def test_phase_plateau_skips_already_set():
         with Session(eng) as s:
             _phase_plateau(s, "video")
             assert s.get(ClusterRun, row_id).param_plateau_score == pytest.approx(0.5)  # unchanged
+
+
+# --- _select_best ---
+
+def test_select_best_picks_highest_final_score():
+    eng = _make_engine()
+    with Session(eng) as s:
+        r1 = _insert_run(s, disqualified=0, noise_ratio=0.1, n_clusters=5,
+                         umap_n_components=10, random_state=1)
+        r1.composite_score = 0.8
+        r1.param_plateau_score = 0.6  # final = 0.7*0.8 + 0.3*0.6 = 0.74
+        r2 = _insert_run(s, disqualified=0, noise_ratio=0.1, n_clusters=5,
+                         umap_n_components=15, random_state=1)
+        r2.composite_score = 0.6
+        r2.param_plateau_score = 0.9  # final = 0.7*0.6 + 0.3*0.9 = 0.69
+        s.commit()
+        id1 = r1.id
+
+    from modules.cluster_validation import _select_best
+    with Session(eng) as s:
+        result = _select_best(s, "video")
+        assert result is not None
+        assert result.id == id1
+
+
+def test_select_best_returns_none_when_no_eligible_runs():
+    eng = _make_engine()
+    with Session(eng) as s:
+        _insert_run(s, disqualified=0, noise_ratio=0.1, n_clusters=5)
+        # no composite_score set → not eligible
+
+    from modules.cluster_validation import _select_best
+    with Session(eng) as s:
+        assert _select_best(s, "video") is None
+
+
+def test_select_best_ignores_disqualified():
+    eng = _make_engine()
+    with Session(eng) as s:
+        row = _insert_run(s, disqualified=1, noise_ratio=0.1, n_clusters=5,
+                          umap_n_components=10, random_state=1)
+        row.composite_score = 0.9
+        row.param_plateau_score = 0.9
+        s.commit()
+
+    from modules.cluster_validation import _select_best
+    with Session(eng) as s:
+        assert _select_best(s, "video") is None
+
+
+def test_select_best_env_override(monkeypatch):
+    eng = _make_engine()
+    with Session(eng) as s:
+        r1 = _insert_run(s, disqualified=0, noise_ratio=0.1, n_clusters=5,
+                         umap_n_components=10, random_state=1)
+        r1.composite_score = 0.9
+        r1.param_plateau_score = 0.9  # best by score
+        r2 = _insert_run(s, disqualified=0, noise_ratio=0.1, n_clusters=5,
+                         umap_n_components=15, random_state=1)
+        r2.composite_score = 0.1
+        r2.param_plateau_score = 0.1  # worst by score
+        s.commit()
+        id2 = r2.id
+
+    monkeypatch.setenv("CLUSTER_OVERRIDE_VIDEO", str(id2))
+    from modules.cluster_validation import _select_best
+    with Session(eng) as s:
+        result = _select_best(s, "video")
+        assert result is not None
+        assert result.id == id2  # forced, not the best-scoring
+
+
+def test_select_best_env_override_missing_id_raises(monkeypatch):
+    eng = _make_engine()
+    monkeypatch.setenv("CLUSTER_OVERRIDE_VIDEO", "99999")
+    from modules.cluster_validation import _select_best
+    with Session(eng) as s:
+        with pytest.raises(ValueError, match="CLUSTER_OVERRIDE_VIDEO"):
+            _select_best(s, "video")
