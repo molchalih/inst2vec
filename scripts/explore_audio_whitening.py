@@ -177,3 +177,120 @@ def _run_one(
         "dbcv": round(dbcv, 4) if dbcv is not None else None,
         "silhouette": round(sil, 4) if sil is not None else None,
     }
+
+
+def _print_summary(csv_path: str) -> None:
+    """Print top-10 runs by DBCV (fallback: noise_ratio ASC), grouped by whitening."""
+    if not Path(csv_path).exists():
+        print("No results file found.")
+        return
+
+    with open(csv_path, newline="") as f:
+        rows = list(csv.DictReader(f))
+
+    if not rows:
+        print("No results to summarise.")
+        return
+
+    def sort_key(r: dict):
+        dbcv = r.get("dbcv") or ""
+        try:
+            return (-float(dbcv), float(r.get("noise_ratio") or 1.0))
+        except ValueError:
+            return (0.0, float(r.get("noise_ratio") or 1.0))
+
+    ranked = sorted(rows, key=sort_key)[:10]
+
+    # Group by whitening strategy
+    by_strategy: dict[str, list[dict]] = {}
+    for r in ranked:
+        by_strategy.setdefault(r["whitening"], []).append(r)
+
+    print("\n── Top-10 runs by DBCV ────────────────────────────────────────────────")
+    fmt = "{:<20} {:>10} {:>10} {:>8} {:>10} {:>12}"
+    print(fmt.format("whitening", "n_clusters", "noise_ratio", "dbcv", "silhouette", "umap_metric"))
+    print("─" * 74)
+    for strategy, strategy_rows in by_strategy.items():
+        for r in strategy_rows:
+            print(fmt.format(
+                strategy,
+                r.get("n_clusters", ""),
+                r.get("noise_ratio", ""),
+                r.get("dbcv") or "n/a",
+                r.get("silhouette") or "n/a",
+                r.get("umap_metric", ""),
+            ))
+    print("─" * 74)
+    print(f"Full results: {csv_path}\n")
+
+
+def main() -> None:
+    from modules.clustering import load_user_matrix
+
+    matrix, user_pks = load_user_matrix("audio")
+    if matrix.shape[0] == 0:
+        print("No audio embeddings found in database.")
+        sys.exit(1)
+
+    print(f"Loaded audio matrix: {matrix.shape[0]} users × {matrix.shape[1]} dims")
+
+    with open(PARAMS_CSV, newline="") as f:
+        param_rows = list(csv.DictReader(f))
+    print(f"Param combos: {len(param_rows)}  |  Whitening variants: {len(WHITENING_SPECS)}")
+
+    # Build full work list
+    all_tasks = [
+        (spec_id, n_comp, use_sc, params)
+        for spec_id, n_comp, use_sc in WHITENING_SPECS
+        for params in param_rows
+    ]
+    total = len(all_tasks)
+
+    # Resume: skip already-done
+    done = _load_done(str(OUTPUT_CSV), PARAM_COLS)
+    tasks = [
+        t for t in all_tasks
+        if (t[0],) + tuple(t[3][c] for c in PARAM_COLS) not in done
+    ]
+    skipped = total - len(tasks)
+    if skipped:
+        print(f"Resuming: {skipped}/{total} runs already done, {len(tasks)} remaining")
+
+    if not tasks:
+        print("All runs complete.")
+        _print_summary(str(OUTPUT_CSV))
+        return
+
+    completed = skipped
+
+    print(f"Running {len(tasks)} tasks with {MAX_WORKERS} workers...\n")
+
+    with ProcessPoolExecutor(max_workers=MAX_WORKERS, initializer=_init_worker, initargs=(matrix,)) as pool:
+        futures = {
+            pool.submit(_run_one, spec_id, n_comp, use_sc, params): (spec_id, params)
+            for spec_id, n_comp, use_sc, params in tasks
+        }
+        for future in as_completed(futures):
+            spec_id, params = futures[future]
+            completed += 1
+            try:
+                row = future.result()
+            except Exception as exc:
+                print(f"[{spec_id}] WORKER ERROR: {exc}", flush=True)
+                continue
+
+            error = row.pop("_error", None)
+            _append_row(str(OUTPUT_CSV), row)
+
+            status = f"n_clusters={row['n_clusters']} noise={float(row['noise_ratio']):.1%}"
+            if row['dbcv'] is not None:
+                status += f" dbcv={row['dbcv']}"
+            if error:
+                status += f" ERROR={error}"
+            print(f"[{spec_id} | {completed}/{total}] {status}", flush=True)
+
+    _print_summary(str(OUTPUT_CSV))
+
+
+if __name__ == "__main__":
+    main()
