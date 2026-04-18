@@ -52,14 +52,10 @@ WHITENING_SPECS: list[tuple[str, int | None, bool]] = [
     ("whiten_64", 64, False),
     ("whiten_128", 128, False),
     ("whiten_256", 256, False),
-    ("whiten_512", 512, False),
-    ("whiten_1024", 1024, False),
     ("scale_whiten_32", 32, True),
     ("scale_whiten_64", 64, True),
     ("scale_whiten_128", 128, True),
     ("scale_whiten_256", 256, True),
-    ("scale_whiten_512", 512, True),
-    ("scale_whiten_1024", 1024, True),
 ]
 
 
