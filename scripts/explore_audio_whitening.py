@@ -10,6 +10,7 @@ Usage:
 from __future__ import annotations
 
 import csv
+import multiprocessing
 import sys
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
@@ -20,6 +21,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import silhouette_score
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent))
 
 OUTPUT_CSV = Path(__file__).parent / "audio_whitening_results.csv"
 PARAMS_CSV = Path(__file__).parent / "audio_best_params.csv"
@@ -268,7 +270,11 @@ def main() -> None:
 
     print(f"Running {len(tasks)} tasks with {MAX_WORKERS} workers...\n")
 
-    with ProcessPoolExecutor(max_workers=MAX_WORKERS, initializer=_init_worker, initargs=(matrix,)) as pool:
+    # Use fork so workers inherit the parent's memory space — avoids spawn's
+    # requirement for the __main__ module to be importable from a file, which
+    # breaks when running from a stdin script or via importlib.exec_module.
+    _mp_ctx = multiprocessing.get_context("fork")
+    with ProcessPoolExecutor(max_workers=MAX_WORKERS, mp_context=_mp_ctx, initializer=_init_worker, initargs=(matrix,)) as pool:
         futures = {
             pool.submit(_run_one, spec_id, n_comp, use_sc, params): (spec_id, params)
             for spec_id, n_comp, use_sc, params in tasks
