@@ -99,3 +99,78 @@ def _append_row(csv_path: str, row: dict) -> None:
         if write_header:
             writer.writeheader()
         writer.writerow(row)
+
+
+# Module-level global populated by worker initializer
+_WORKER_MATRIX: np.ndarray | None = None
+
+
+def _init_worker(matrix: np.ndarray) -> None:
+    global _WORKER_MATRIX
+    _WORKER_MATRIX = matrix
+
+
+def _run_one(
+    whitening_id: str,
+    n_components: int | None,
+    use_scaler: bool,
+    params: dict,
+) -> dict:
+    """Worker task: whiten matrix, run clustering, compute metrics, return row dict."""
+    from hdbscan import validity as hdbscan_validity
+    from modules.clustering import compute_clusters
+
+    matrix = _build_whitened_matrix(_WORKER_MATRIX, n_components, use_scaler)
+
+    # Cast params to correct types for compute_clusters
+    typed: dict = {
+        "umap_n_components": int(params["umap_n_components"]),
+        "umap_n_neighbors": int(params["umap_n_neighbors"]),
+        "umap_min_dist": float(params["umap_min_dist"]),
+        "umap_metric": params["umap_metric"],
+        "hdbscan_min_cluster_size": int(params["hdbscan_min_cluster_size"]),
+        "hdbscan_cluster_selection_method": params["hdbscan_cluster_selection_method"],
+        "hdbscan_metric": params["hdbscan_metric"],
+    }
+
+    try:
+        result = compute_clusters(matrix, return_nd_matrix=True, **typed)
+    except Exception as exc:
+        return {
+            **params,
+            "whitening": whitening_id,
+            "n_clusters": 0,
+            "noise_ratio": 1.0,
+            "dbcv": None,
+            "silhouette": None,
+            "_error": str(exc),
+        }
+
+    labels = result.labels
+    matrix_nd = result.matrix_nd.astype(np.float64)
+
+    # DBCV
+    dbcv = None
+    if result.n_clusters >= 2:
+        try:
+            dbcv = float(hdbscan_validity.validity_index(matrix_nd, labels))
+        except Exception:
+            dbcv = None
+
+    # Silhouette on non-noise points
+    sil = None
+    non_noise_mask = labels != -1
+    if result.n_clusters >= 2 and non_noise_mask.sum() > result.n_clusters:
+        try:
+            sil = float(silhouette_score(matrix_nd[non_noise_mask], labels[non_noise_mask]))
+        except Exception:
+            sil = None
+
+    return {
+        **params,
+        "whitening": whitening_id,
+        "n_clusters": result.n_clusters,
+        "noise_ratio": round(result.noise_ratio, 4),
+        "dbcv": round(dbcv, 4) if dbcv is not None else None,
+        "silhouette": round(sil, 4) if sil is not None else None,
+    }
