@@ -283,13 +283,53 @@ def _phase_plateau(session: Session, case: str) -> None:
     print(f"[validate:{case}] plateau — scored {len(top_rows)} top rows")
 
 
-def validate_clustering() -> None:
-    """Phase 6b entry point. Runs all 5 validation phases per embedding case."""
+def _select_best(session: Session, case: str) -> ClusterRun | None:
+    override = os.environ.get(f"CLUSTER_OVERRIDE_{case.upper()}")
+    if override:
+        row = session.get(ClusterRun, int(override))
+        if row is None:
+            raise ValueError(
+                f"CLUSTER_OVERRIDE_{case.upper()}={override} but no ClusterRun with that id"
+            )
+        print(f"[validate:{case}] override — using run id={row.id} (forced via env var)")
+        return row
+
+    rows = (
+        session.query(ClusterRun)
+        .filter(
+            ClusterRun.embedding_case == case,
+            ClusterRun.disqualified == 0,
+            ClusterRun.composite_score.isnot(None),
+            ClusterRun.param_plateau_score.isnot(None),
+        )
+        .all()
+    )
+    if not rows:
+        print(f"[validate:{case}] select — no eligible runs")
+        return None
+
+    best = max(rows, key=lambda r: 0.7 * r.composite_score + 0.3 * r.param_plateau_score)
+    final = 0.7 * best.composite_score + 0.3 * best.param_plateau_score
+    print(
+        f"[validate:{case}] selected run id={best.id} final={final:.4f}"
+        f" composite={best.composite_score:.4f} plateau={best.param_plateau_score:.4f}"
+    )
+    return best
+
+
+def validate_clustering() -> dict[str, dict | None]:
+    """Phase 6b entry point. Runs all 5 validation phases per embedding case.
+
+    Returns best params per case (ready to splat into cluster_users), or None
+    if no eligible run exists for that case.
+    """
+    result: dict[str, dict | None] = {}
     for case in ["video", "sandwich", "audio"]:
         print(f"[validate:{case}] starting")
         matrix, _ = load_user_matrix(case)
         if matrix.shape[0] == 0:
             print(f"[validate:{case}] no embeddings — skipping")
+            result[case] = None
             continue
         session = get_session()
         try:
@@ -297,8 +337,11 @@ def validate_clustering() -> None:
             _phase_score(session, case, matrix)
             _phase_composite(session, case)
             _phase_bootstrap(session, case, matrix)
-            _phase_composite(session, case)  # recompute with real stability weights
+            _phase_composite(session, case)
             _phase_plateau(session, case)
+            best = _select_best(session, case)
+            result[case] = _row_to_params(best) if best is not None else None
         finally:
             session.close()
         print(f"[validate:{case}] done")
+    return result
