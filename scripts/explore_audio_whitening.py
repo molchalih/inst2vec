@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import csv
 import sys
-import os
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
@@ -233,6 +232,10 @@ def main() -> None:
         sys.exit(1)
 
     print(f"Loaded audio matrix: {matrix.shape[0]} users × {matrix.shape[1]} dims")
+
+    if not PARAMS_CSV.exists():
+        print(f"Params CSV not found: {PARAMS_CSV}")
+        sys.exit(1)
 
     with open(PARAMS_CSV, newline="") as f:
         param_rows = list(csv.DictReader(f))
