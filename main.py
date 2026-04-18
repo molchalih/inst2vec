@@ -57,11 +57,14 @@ embed_user_clips()
 run_cluster_search()
 
 # Phase 6b – validation (filter, score, bootstrap, plateau → ClusterRun columns)
-validate_clustering()
+best_params = validate_clustering()
 
-# Phase 6c – clustering (commented out pending 6b results review)
-# for case in ["video", "sandwich", "audio"]:
-#     cluster_users(case)
+# Phase 6c – clustering with best params from validation
+for case, params in best_params.items():
+    if params is None:
+        print(f"[cluster:{case}] no valid run — skipping")
+        continue
+    cluster_users(case, **params)
 
 # Phase 7 – visualization (save UMAP scatter plots to data/plots/)
 plot_clusters()
