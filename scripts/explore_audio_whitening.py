@@ -124,8 +124,6 @@ def _run_one(
     from hdbscan import validity as hdbscan_validity
     from modules.clustering import compute_clusters
 
-    matrix = _build_whitened_matrix(_WORKER_MATRIX, n_components, use_scaler)
-
     # Cast params to correct types for compute_clusters
     typed: dict = {
         "umap_n_components": int(params["umap_n_components"]),
@@ -138,6 +136,7 @@ def _run_one(
     }
 
     try:
+        matrix = _build_whitened_matrix(_WORKER_MATRIX, n_components, use_scaler)
         result = compute_clusters(matrix, return_nd_matrix=True, **typed)
     except Exception as exc:
         return {
@@ -194,11 +193,12 @@ def _print_summary(csv_path: str) -> None:
         return
 
     def sort_key(r: dict):
-        dbcv = r.get("dbcv") or ""
+        dbcv_str = r.get("dbcv") or ""
         try:
-            return (-float(dbcv), float(r.get("noise_ratio") or 1.0))
+            dbcv_val = float(dbcv_str)
         except ValueError:
-            return (0.0, float(r.get("noise_ratio") or 1.0))
+            dbcv_val = -float("inf")
+        return (-dbcv_val, float(r.get("noise_ratio") or 1.0))
 
     ranked = sorted(rows, key=sort_key)[:10]
 
