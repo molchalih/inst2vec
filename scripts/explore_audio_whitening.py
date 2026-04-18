@@ -14,7 +14,6 @@ import sys
 import os
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
-from threading import Lock
 
 import numpy as np
 from sklearn.decomposition import PCA
@@ -91,18 +90,12 @@ def _load_done(csv_path: str, param_cols: list[str]) -> frozenset[tuple]:
     return frozenset(done)
 
 
-def _append_row(
-    csv_path: str,
-    row: dict,
-    fieldnames: list[str],
-    lock: Lock,
-) -> None:
-    """Thread-safe single-row append to CSV (writes header if file is new)."""
+def _append_row(csv_path: str, row: dict) -> None:
+    """Append one row to CSV; writes header if file is new or empty."""
     p = Path(csv_path)
-    with lock:
-        write_header = not p.exists() or p.stat().st_size == 0
-        with open(p, "a", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
-            if write_header:
-                writer.writeheader()
-            writer.writerow(row)
+    write_header = not p.exists() or p.stat().st_size == 0
+    with open(p, "a", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=FIELDNAMES)
+        if write_header:
+            writer.writeheader()
+        writer.writerow(row)
