@@ -66,11 +66,13 @@ def compute_clusters(
     )
 
     # Pass 1 — reduce to n_components for clustering
+    # spectral init often warns/fails on tight eigengaps (then falls back to random); skip it
     reducer_nd = UMAP(
         n_components=umap_n_components,
         n_neighbors=umap_n_neighbors,
         min_dist=umap_min_dist,
         metric=umap_metric,
+        init="random",
         random_state=random_state,
         n_jobs=1,
     )
@@ -101,6 +103,7 @@ def compute_clusters(
         n_neighbors=u2_n,
         min_dist=u2_md,
         metric=u2_metric,
+        init="random",
         random_state=random_state,
         n_jobs=1,
     )
