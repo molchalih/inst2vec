@@ -76,3 +76,33 @@ def _build_whitened_matrix(
         X = StandardScaler().fit_transform(X)
     X = PCA(n_components=n_components, whiten=True).fit_transform(X)
     return X.astype(np.float32)
+
+
+def _load_done(csv_path: str, param_cols: list[str]) -> frozenset[tuple]:
+    """Return set of (whitening, *param_values) tuples already in the CSV."""
+    p = Path(csv_path)
+    if not p.exists():
+        return frozenset()
+    done = set()
+    with open(p, newline="") as f:
+        for row in csv.DictReader(f):
+            key = (row["whitening"],) + tuple(row[c] for c in param_cols)
+            done.add(key)
+    return frozenset(done)
+
+
+def _append_row(
+    csv_path: str,
+    row: dict,
+    fieldnames: list[str],
+    lock: Lock,
+) -> None:
+    """Thread-safe single-row append to CSV (writes header if file is new)."""
+    p = Path(csv_path)
+    with lock:
+        write_header = not p.exists() or p.stat().st_size == 0
+        with open(p, "a", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            if write_header:
+                writer.writeheader()
+            writer.writerow(row)
