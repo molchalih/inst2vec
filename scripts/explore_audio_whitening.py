@@ -95,7 +95,7 @@ def _append_row(csv_path: str, row: dict) -> None:
     p = Path(csv_path)
     write_header = not p.exists() or p.stat().st_size == 0
     with open(p, "a", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=FIELDNAMES)
+        writer = csv.DictWriter(f, fieldnames=FIELDNAMES, extrasaction='ignore')
         if write_header:
             writer.writeheader()
         writer.writerow(row)
@@ -117,6 +117,9 @@ def _run_one(
     params: dict,
 ) -> dict:
     """Worker task: whiten matrix, run clustering, compute metrics, return row dict."""
+    if _WORKER_MATRIX is None:
+        raise RuntimeError("_WORKER_MATRIX not initialized — must be called via ProcessPoolExecutor with initializer=_init_worker")
+
     from hdbscan import validity as hdbscan_validity
     from modules.clustering import compute_clusters
 
@@ -153,7 +156,7 @@ def _run_one(
     dbcv = None
     if result.n_clusters >= 2:
         try:
-            dbcv = float(hdbscan_validity.validity_index(matrix_nd, labels))
+            dbcv = float(hdbscan_validity.validity_index(matrix_nd, labels, metric=typed["hdbscan_metric"]))
         except Exception:
             dbcv = None
 
@@ -162,7 +165,7 @@ def _run_one(
     non_noise_mask = labels != -1
     if result.n_clusters >= 2 and non_noise_mask.sum() > result.n_clusters:
         try:
-            sil = float(silhouette_score(matrix_nd[non_noise_mask], labels[non_noise_mask]))
+            sil = float(silhouette_score(matrix_nd[non_noise_mask], labels[non_noise_mask], metric=typed["hdbscan_metric"]))
         except Exception:
             sil = None
 
