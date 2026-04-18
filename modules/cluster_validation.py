@@ -39,7 +39,7 @@ def _phase_filter(session: Session, case: str) -> None:
 
     rows = (
         session.query(ClusterRun)
-        .filter(ClusterRun.embedding_case == case, ClusterRun.disqualified.is_(None))
+        .filter(ClusterRun.embedding_case == case)
         .all()
     )
     n_pass = 0
