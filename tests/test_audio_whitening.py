@@ -2,6 +2,7 @@ import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import csv
+import functools
 import io
 import numpy as np
 import pytest
@@ -12,6 +13,7 @@ import pytest
 # For now, define the expected contracts so the tests drive the implementation.
 
 
+@functools.lru_cache(maxsize=1)
 def _import():
     import importlib.util, pathlib
     spec = importlib.util.spec_from_file_location(
@@ -102,6 +104,9 @@ def test_load_done_parses_existing_rows(tmp_path):
     }
     p.write_text(_make_csv([row]))
     done = mod._load_done(str(p), PARAM_COLS)
+    # key order: (whitening, umap_n_components, umap_n_neighbors, umap_min_dist,
+    #              umap_metric, hdbscan_min_cluster_size, hdbscan_cluster_selection_method,
+    #              hdbscan_metric)
     key = ("whiten_128", "15", "10", "0.0", "cosine", "10", "eom", "euclidean")
     assert key in done
 
