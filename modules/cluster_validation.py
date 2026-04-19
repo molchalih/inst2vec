@@ -196,7 +196,11 @@ def _phase_bootstrap(session: Session, case: str, matrix: np.ndarray) -> None:
         row.bootstrap_stability = float(np.mean(aris))
         row.bootstrap_n_runs = len(aris)
         session.commit()
-        log(f"validate:{case}", f"bootstrap {row_i + 1}/{len(rows)} id={row.id} stability={row.bootstrap_stability:.4f} ({row.bootstrap_n_runs} runs)")
+        msg = (
+            f"bootstrap {row_i + 1}/{len(rows)} id={row.id}"
+            f" stability={row.bootstrap_stability:.4f} ({row.bootstrap_n_runs} runs)"
+        )
+        log(f"validate:{case}", msg)
 
 
 _NUMERIC_PARAM_COLS = [
@@ -305,7 +309,11 @@ def _select_best(session: Session, case: str) -> ClusterRun | None:
 
     best = max(rows, key=lambda r: 0.7 * r.composite_score + 0.3 * r.param_plateau_score)
     final = 0.7 * best.composite_score + 0.3 * best.param_plateau_score
-    log(f"validate:{case}", f"selected run id={best.id} final={final:.4f} composite={best.composite_score:.4f} plateau={best.param_plateau_score:.4f}", level="ok")
+    msg = (
+        f"selected run id={best.id} final={final:.4f}"
+        f" composite={best.composite_score:.4f} plateau={best.param_plateau_score:.4f}"
+    )
+    log(f"validate:{case}", msg, level="ok")
     return best
 
 
