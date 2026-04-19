@@ -6,6 +6,7 @@ import hdbscan
 from umap import UMAP
 
 from modules.database import Base, engine, get_session, UserEmbedding, UserCluster
+from modules.services import log
 
 
 @dataclass
@@ -150,14 +151,14 @@ def cluster_users(embedding_case: str, **params) -> None:
     matrix, user_pks = load_user_matrix(embedding_case)
 
     if matrix.shape[0] == 0:
-        print(f"[cluster:{embedding_case}] nothing to do")
+        log(f"cluster:{embedding_case}", "nothing to do")
         return
 
-    print(f"[cluster:{embedding_case}] {matrix.shape[0]} users — running UMAP + HDBSCAN")
+    log(f"cluster:{embedding_case}", f"{matrix.shape[0]} users — running UMAP + HDBSCAN")
     try:
         result = compute_clusters(matrix, **params)
     except ValueError as exc:
-        print(f"[cluster:{embedding_case}] skipping — {exc}")
+        log(f"cluster:{embedding_case}", f"skipping — {exc}", level="warn")
         return
 
     session = get_session()
@@ -176,7 +177,8 @@ def cluster_users(embedding_case: str, **params) -> None:
         session.close()
 
     sizes_str = f"min={min(result.cluster_sizes)} median={int(np.median(result.cluster_sizes))} max={max(result.cluster_sizes)}" if result.cluster_sizes else "n/a"
-    print(
-        f"[cluster:{embedding_case}] {result.n_clusters} clusters, "
-        f"{result.noise_ratio:.1%} noise, sizes: {sizes_str}"
+    log(
+        f"cluster:{embedding_case}",
+        f"{result.n_clusters} clusters, {result.noise_ratio:.1%} noise, sizes: {sizes_str}",
+        level="ok",
     )
