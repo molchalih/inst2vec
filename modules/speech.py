@@ -15,6 +15,7 @@ from sqlalchemy import func, or_
 from modules.database import Clip, get_session
 from modules.external.gemma_translate import GemmaTranslator
 from modules.services import log
+from modules.console import progress
 
 VIDEO_DIR = os.environ.get("VIDEO_DIR", "data/source/videos")
 WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "large-v3-turbo")
@@ -132,61 +133,52 @@ def classify_speech() -> None:
     model: Optional[whisper.Whisper] = None
     has_speech = no_speech = missing = 0
 
-    for i, clip in enumerate(clips, 1):
-        path = f"{VIDEO_DIR}/{clip.pk}.mp4"
-        if not os.path.exists(path):
-            missing += 1
-            continue
+    with progress(len(clips), "Transcribing") as advance:
+        for i, clip in enumerate(clips, 1):
+            path = f"{VIDEO_DIR}/{clip.pk}.mp4"
+            if not os.path.exists(path):
+                missing += 1
+                advance()
+                continue
 
-        if model is None:
-            log(SCOPE_CLASSIFY, f"loading {WHISPER_MODEL}…")
-            model = whisper.load_model(WHISPER_MODEL)
-        try:
-            text, language, conf, avg_logprob, compression_ratio = _transcribe(model, path)
-        except Exception:
-            text, language, conf, avg_logprob, compression_ratio = "", "", 0.0, 0.0, 0.0
+            if model is None:
+                log(SCOPE_CLASSIFY, f"loading {WHISPER_MODEL}…")
+                model = whisper.load_model(WHISPER_MODEL)
+            try:
+                text, language, conf, avg_logprob, compression_ratio = _transcribe(model, path)
+            except Exception:
+                text, language, conf, avg_logprob, compression_ratio = "", "", 0.0, 0.0, 0.0
 
-        # Always persist transcription and all quality metrics regardless of gate result.
-        clip.speech_transcription = text
-        clip.speech_language = language or None
-        clip.speech_confidence = conf if text else None
-        clip.speech_avg_logprob = avg_logprob if text else None
-        clip.speech_compression_ratio = compression_ratio if text else None
+            clip.speech_transcription = text
+            clip.speech_language = language or None
+            clip.speech_confidence = conf if text else None
+            clip.speech_avg_logprob = avg_logprob if text else None
+            clip.speech_compression_ratio = compression_ratio if text else None
 
-        low_logprob = bool(text) and avg_logprob < LOGPROB_THRESHOLD
-        high_compression = bool(text) and compression_ratio > COMPRESSION_THRESHOLD
-        hallucination = low_logprob or high_compression
+            low_logprob = bool(text) and avg_logprob < LOGPROB_THRESHOLD
+            high_compression = bool(text) and compression_ratio > COMPRESSION_THRESHOLD
+            hallucination = low_logprob or high_compression
+            meaningful = _has_meaningful_speech_text(text)
 
-        meaningful = _has_meaningful_speech_text(text)
-        if meaningful and not hallucination:
-            clip.has_speech = 1
-            has_speech += 1
-            preview = text[:60] + ("…" if len(text) > 60 else "")
-            log(SCOPE_CLASSIFY, f"{i}/{len(clips)} — {clip.pk}: \"{preview}\" (logprob {avg_logprob:.2f}, ratio {compression_ratio:.2f})")
-        else:
-            clip.has_speech = 0
-            no_speech += 1
-            if text and not meaningful:
-                preview = text[:50] + ("…" if len(text) > 50 else "")
-                log(SCOPE_CLASSIFY, f"{i}/{len(clips)} — {clip.pk}: non-meaningful transcription \"{preview}\"")
-            elif hallucination:
-                reason = []
-                if low_logprob:
-                    reason.append(f"logprob {avg_logprob:.2f}")
-                if high_compression:
-                    reason.append(f"ratio {compression_ratio:.2f}")
-                preview = text[:50] + ("…" if len(text) > 50 else "")
-                log(SCOPE_CLASSIFY, f"{i}/{len(clips)} — {clip.pk}: hallucination [{', '.join(reason)}] \"{preview}\"")
+            if meaningful and not hallucination:
+                clip.has_speech = 1
+                has_speech += 1
+                preview = text[:60] + ("…" if len(text) > 60 else "")
+                advance(detail=f'{clip.pk}: "{preview}"')
+            else:
+                clip.has_speech = 0
+                no_speech += 1
+                advance()
 
-        if i % COMMIT_EVERY == 0:
-            session.commit()
+            if i % COMMIT_EVERY == 0:
+                session.commit()
 
     session.commit()
     session.close()
     parts = [f"{has_speech} with speech", f"{no_speech} silent"]
     if missing:
         parts.append(f"{missing} skipped (video not downloaded yet)")
-    log(SCOPE_CLASSIFY, f"done — {', '.join(parts)}")
+    log(SCOPE_CLASSIFY, f"done — {', '.join(parts)}", level="ok")
 
 
 def translate_speech() -> None:
@@ -216,34 +208,36 @@ def translate_speech() -> None:
     log(SCOPE_TRANSLATE, f"loading {translator.model_id} on {translator.device}…")
     translated = 0
 
-    for i, clip in enumerate(clips, 1):
-        source = (clip.speech_transcription or "").strip()[:SPEECH_TRANSLATION_MAX_CHARS]
-        source_lang = (clip.speech_language or "").strip().replace("_", "-")
-        if not source:
-            continue
-        if not source_lang or source_lang.lower().startswith("en"):
-            continue
-
-        try:
-            translation = translator.translate_text(
-                text=source,
-                source_lang_code=source_lang,
-                target_lang_code=SPEECH_TRANSLATE_TARGET_LANG,
-                max_new_tokens=SPEECH_TRANSLATE_MAX_NEW_TOKENS,
-            )
-            if not translation:
+    with progress(total, "Translating speech") as advance:
+        for i, clip in enumerate(clips, 1):
+            source = (clip.speech_transcription or "").strip()[:SPEECH_TRANSLATION_MAX_CHARS]
+            source_lang = (clip.speech_language or "").strip().replace("_", "-")
+            if not source or not source_lang or source_lang.lower().startswith("en"):
+                advance()
                 continue
-            clip.speech_translation = translation
-            translated += 1
-            src_preview = source[:45] + ("…" if len(source) > 45 else "")
-            tr_preview = translation[:45] + ("…" if len(translation) > 45 else "")
-            log(SCOPE_TRANSLATE, f"{i}/{total} — {clip.pk}: \"{src_preview}\" -> \"{tr_preview}\"")
-        except Exception:
-            continue
-        if i % COMMIT_EVERY == 0:
-            session.commit()
-            log(SCOPE_TRANSLATE, f"{i}/{total} committed")
+
+            try:
+                translation = translator.translate_text(
+                    text=source,
+                    source_lang_code=source_lang,
+                    target_lang_code=SPEECH_TRANSLATE_TARGET_LANG,
+                    max_new_tokens=SPEECH_TRANSLATE_MAX_NEW_TOKENS,
+                )
+                if not translation:
+                    advance()
+                    continue
+                clip.speech_translation = translation
+                translated += 1
+                src_preview = source[:45] + ("…" if len(source) > 45 else "")
+                tr_preview = translation[:45] + ("…" if len(translation) > 45 else "")
+                advance(detail=f'{clip.pk}: "{src_preview}" → "{tr_preview}"')
+            except Exception:
+                advance()
+                continue
+
+            if i % COMMIT_EVERY == 0:
+                session.commit()
 
     session.commit()
     session.close()
-    log(SCOPE_TRANSLATE, f"done — {translated}/{total} translated")
+    log(SCOPE_TRANSLATE, f"done — {translated}/{total} translated", level="ok")
