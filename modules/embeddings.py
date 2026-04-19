@@ -267,18 +267,16 @@ def embed_video_clips():
         )
 
         with progress(len(todo), "Embedding video") as advance:
-            for i, clip in enumerate(todo, 1):
+            for _, clip in enumerate(todo, 1):
                 path = _video_path(clip.pk)
                 fps, max_frames, duration = _adaptive_video_sampling(path)
                 frame_caps = _frame_retry_schedule(max_frames)
                 embeddings = None
-                last_error: Exception | None = None
                 for attempt_idx, frame_cap in enumerate(frame_caps):
                     try:
                         embeddings = model.process([{"video": path, "fps": fps, "max_frames": frame_cap}])
                         break
                     except Exception as e:
-                        last_error = e
                         if _is_token_mismatch_error(e) and attempt_idx < len(frame_caps) - 1:
                             continue
                         break
@@ -340,12 +338,11 @@ def embed_sandwich_clips():
         )
 
         with progress(len(todo), "Embedding sandwich") as advance:
-            for i, (clip, text) in enumerate(todo, 1):
+            for _, (clip, text) in enumerate(todo, 1):
                 path = _video_path(clip.pk)
                 fps, max_frames, duration = _adaptive_video_sampling(path)
                 frame_caps = _frame_retry_schedule(max_frames)
                 embedding = None
-                last_error: Exception | None = None
                 for attempt_idx, frame_cap in enumerate(frame_caps):
                     try:
                         embeddings = model.process(
@@ -354,7 +351,6 @@ def embed_sandwich_clips():
                         embedding = embeddings[0]
                         break
                     except Exception as e:
-                        last_error = e
                         if _is_token_mismatch_error(e) and attempt_idx < len(frame_caps) - 1:
                             continue
                         break
@@ -417,7 +413,7 @@ def embed_audio_clips():
         )
 
         with progress(len(todo), "Embedding audio") as advance:
-            for i, (clip, text) in enumerate(todo, 1):
+            for _, (clip, text) in enumerate(todo, 1):
                 try:
                     embeddings = model.process([{"text": text, "instruction": AUDIO_INSTRUCTION}])
                     embedding = embeddings[0]
