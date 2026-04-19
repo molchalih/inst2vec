@@ -25,7 +25,7 @@ def _fmt(val: float | None) -> str:
     return f"{val:.4f}" if val is not None else "    —"
 
 
-def show(case: str, top: int) -> None:
+def show(case: str, num: int = 10) -> None:
     with Session(engine) as session:
         rows = (
             session.query(ClusterRun)
@@ -42,9 +42,9 @@ def show(case: str, top: int) -> None:
         key=lambda r: 0.7 * r.composite_score + 0.3 * r.param_plateau_score,
         reverse=True,
     )
-    rows = rows[:top]
+    rows = rows[:num]
 
-    print(f"\nTop {top} cluster runs — case={case}\n")
+    print(f"\nTop {num} cluster runs — case={case}\n")
     print(_HEADER)
     print(_SEP)
     for rank, r in enumerate(rows, 1):
@@ -69,10 +69,10 @@ def main() -> None:
     )
     parser.add_argument("--case", required=True, choices=CASES,
                         help="Embedding case to inspect (video, sandwich, audio)")
-    parser.add_argument("--top", type=int, default=10,
+    parser.add_argument("--num", type=int, default=10,
                         help="Number of top runs to show (default: 10)")
     args = parser.parse_args()
-    show(args.case, args.top)
+    show(args.case, args.num)
 
 
 if __name__ == "__main__":

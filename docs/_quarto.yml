@@ -1,0 +1,5 @@
+format:
+  html:
+    fig-format: retina
+  typst:
+    fig-format: png

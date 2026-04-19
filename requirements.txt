@@ -17,3 +17,4 @@ umap-learn
 hdbscan
 matplotlib
 rich
+quarto

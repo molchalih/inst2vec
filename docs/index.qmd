@@ -1,0 +1,39 @@
+---
+title: "Fields of Visibility"
+subtitle: Mapping Aesthetic Communities on Instagram Reels
+format:
+  typst:
+    toc: true
+    section-numbering: 1.1.a
+    columns: 2
+author: "Georgii Bezridnyi"
+bibliography: references.bib
+---
+
+```{python}
+#| echo: false
+import pandas as pd
+df = pd.read_csv("data/cluster_data.csv")
+```
+
+## Introduction
+
+We analyze ...
+
+## Results
+
+```{python}
+#| echo: false
+import quarto
+ojs_define(cluster_data=df.to_dict(orient="records"))
+```
+
+``` {javascript}
+//| echo: false
+Plot.dot(transpose(cluster_data), {
+  x: "umap_x",
+  y: "umap_y",
+  fill: "cluster_label",
+  r: d => Math.sqrt(d.avg_plays) / 100
+}).plot({ color: { scheme: "tableau10" } })
+```
