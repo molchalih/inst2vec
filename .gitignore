@@ -42,6 +42,7 @@ __pycache__/
 .remember/
 CLAUDE.md
 AGENTS.md
+TODO.md
 
 # Docs (working notes, not published)
 docs/.quarto
