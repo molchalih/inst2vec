@@ -53,7 +53,7 @@ def log(scope: str, msg: str, level: Literal["info", "ok", "warn", "err"] = "inf
 @contextmanager
 def progress(
     total: int, description: str
-) -> Generator[Callable[[int, str], None], None, None]:
+) -> Generator[Callable[..., None], None, None]:
     """Context manager yielding advance(n=1, detail="").
 
     Renders a live rich progress bar for the duration of the block.
