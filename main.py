@@ -1,3 +1,7 @@
+import os
+
+from modules.console import phase, startup
+from modules.services import log
 from modules.database import init_db, load_usernames_from_csv
 from modules.parse import fetch_profiles
 from modules.download import download_files
@@ -11,60 +15,60 @@ from modules.cluster_validation import validate_clustering
 from modules.clustering import cluster_users
 from modules.visualization import plot_clusters
 
-# initialize database
-init_db()
+startup(os.environ.get("DATABASE_URL", "data/inst2vec.db"))
 
-# load usernames from csv
+phase("Database")
+init_db()
 load_usernames_from_csv()
 
-# data parsing
+phase("Profile Parsing")
 fetch_profiles()
 
-# dataset filtering pass A (post-parse)
+phase("Dataset Filtering — Pass A")
 finalize_user_dataset(pass_name="A")
 
-# data download
+phase("Download")
 download_files()
 
-# Phase 1 – music
+phase("Music Classification")
 classify_music()
 
-# music features extraction via Spotify and ReccoBeats
+phase("Music Feature Extraction")
 extract_music_features()
 
-# Phase 2 – speech
+phase("Speech")
 classify_speech()
 translate_speech()
 clean_speech()
 
-# Phase 3 – captions
+phase("Captions")
 clean_captions()
 detect_caption_language()
 translate_captions()
 
-# dataset filtering pass B (pre-embedding)
+phase("Dataset Filtering — Pass B")
 finalize_user_dataset(pass_name="B")
 
-# Phase 4 – embeddings (run sequentially by modality)
+phase("Video Embeddings")
 embed_video_clips()
 embed_sandwich_clips()
 embed_audio_clips()
 
-# Phase 5 – user embeddings (mean-pool clip embeddings per user per case)
+phase("User Embeddings")
 embed_user_clips()
 
-# Phase 6a – cluster search (grid sweep → ClusterRun table, idempotent)
+phase("Cluster Search")
 run_cluster_search()
 
-# Phase 6b – validation (filter, score, bootstrap, plateau → ClusterRun columns)
+phase("Cluster Validation")
 best_params = validate_clustering()
 
-# Phase 6c – clustering with best params from validation
+phase("Clustering")
 for case, params in best_params.items():
     if params is None:
-        print(f"[cluster:{case}] no valid run — skipping")
+        log("cluster", f"{case}: no valid run — skipping", level="warn")
         continue
     cluster_users(case, **params)
 
-# Phase 7 – visualization (save UMAP scatter plots to data/plots/)
+phase("Visualization")
 plot_clusters()
