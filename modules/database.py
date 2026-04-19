@@ -20,6 +20,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import declarative_base, relationship, Session
 from sqlalchemy.sql import func
 from sqlalchemy import inspect, text
+
 from modules.services import log
 
 load_dotenv()
