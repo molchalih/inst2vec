@@ -7,6 +7,7 @@ from sqlalchemy.exc import IntegrityError
 
 from modules.database import Base, engine, get_session, ClusterRun
 from modules.clustering import compute_clusters, load_user_matrix
+from modules.services import log
 
 
 def _parse_ints(val: str) -> list[int]:
@@ -82,7 +83,7 @@ def run_cluster_search() -> None:
     for case, case_combos in combos_by_case.items():
         matrix, _ = load_user_matrix(case)
         if matrix.shape[0] == 0:
-            print(f"[cluster_search:{case}] no embeddings — skipping {len(case_combos)} combos")
+            log(f"cluster_search:{case}", f"no embeddings — skipping {len(case_combos)} combos", level="warn")
             total_skipped += len(case_combos)
             continue
 
@@ -100,7 +101,7 @@ def run_cluster_search() -> None:
                 try:
                     result = compute_clusters(matrix, **params)
                 except ValueError as exc:
-                    print(f"[cluster_search:{case}] skipping — {exc}")
+                    log(f"cluster_search:{case}", f"skipping — {exc}", level="warn")
                     total_skipped += 1
                     continue
 
@@ -122,4 +123,4 @@ def run_cluster_search() -> None:
             finally:
                 session.close()
 
-    print(f"[cluster_search] done — {total_new} new, {total_skipped} skipped")
+    log("cluster_search", f"done — {total_new} new, {total_skipped} skipped", level="ok")

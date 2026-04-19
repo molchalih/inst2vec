@@ -17,6 +17,7 @@ from acrcloud.recognizer import ACRCloudRecognizer
 from sqlalchemy import or_
 
 from modules.database import Clip, Music, get_session
+from modules.console import progress
 from modules.services import ReccoBeatsClient, SpotifyClient, log
 
 VIDEO_DIR = Path(os.environ.get("VIDEO_DIR", "data/source/videos"))
@@ -130,37 +131,39 @@ def classify_music() -> None:
     log(SCOPE_CLASSIFY, f"{len(clips)} clips to fingerprint")
     matched = no_match = missing = 0
 
-    for i, clip in enumerate(clips, 1):
-        path = VIDEO_DIR / f"{clip.pk}.mp4"
-        if not path.exists():
-            missing += 1
-            continue
+    with progress(len(clips), "Fingerprinting") as advance:
+        for i, clip in enumerate(clips, 1):
+            path = VIDEO_DIR / f"{clip.pk}.mp4"
+            if not path.exists():
+                missing += 1
+                advance()
+                continue
 
-        # Resolve from fresh fingerprinting for every unresolved clip.
-        clip.music_id = None
-        clip.music_confidence = None
-        result = _fingerprint(acr, str(path))
-        if result:
-            artist, track, confidence = result
-            music = _get_or_create_music(session, artist, track)
-            clip.music_id = music.id
-            clip.music_confidence = confidence
-            clip.has_music = 1
-            matched += 1
-            log(SCOPE_CLASSIFY, f"{i}/{len(clips)} — {clip.pk}: {artist} – {track} ({confidence:.0%})")
-        else:
-            clip.has_music = 0
-            no_match += 1
+            clip.music_id = None
+            clip.music_confidence = None
+            result = _fingerprint(acr, str(path))
+            if result:
+                artist, track, confidence = result
+                music = _get_or_create_music(session, artist, track)
+                clip.music_id = music.id
+                clip.music_confidence = confidence
+                clip.has_music = 1
+                matched += 1
+                advance(detail=f"{clip.pk}: {artist} – {track} ({confidence:.0%})")
+            else:
+                clip.has_music = 0
+                no_match += 1
+                advance()
 
-        if i % COMMIT_EVERY == 0:
-            session.commit()
+            if i % COMMIT_EVERY == 0:
+                session.commit()
 
     session.commit()
     session.close()
     parts = [f"{matched} matched", f"{no_match} no match"]
     if missing:
         parts.append(f"{missing} skipped (video not downloaded yet)")
-    log(SCOPE_CLASSIFY, f"done — {', '.join(parts)}")
+    log(SCOPE_CLASSIFY, f"done — {', '.join(parts)}", level="ok")
 
 
 def extract_music_features() -> None:
@@ -183,16 +186,17 @@ def extract_music_features() -> None:
             total = len(rows)
             log(SCOPE_FEATURES, f"spotify: resolving {total} tracks")
             found = 0
-            for i, row in enumerate(rows, 1):
-                sid = spotify.search_id(row.artist, row.track)
-                row.spotify_id = sid or _NO_MATCH
-                if sid:
-                    found += 1
-                if i % COMMIT_EVERY == 0:
-                    session.commit()
-                    log(SCOPE_FEATURES, f"spotify: {i}/{total} done")
+            with progress(total, "Spotify lookup") as advance:
+                for i, row in enumerate(rows, 1):
+                    sid = spotify.search_id(row.artist, row.track)
+                    row.spotify_id = sid or _NO_MATCH
+                    if sid:
+                        found += 1
+                    if i % COMMIT_EVERY == 0:
+                        session.commit()
+                    advance(detail=f"{row.artist} – {row.track}")
             session.commit()
-            log(SCOPE_FEATURES, f"spotify: done — {found} found, {total - found} no match")
+            log(SCOPE_FEATURES, f"spotify: done — {found} found, {total - found} no match", level="ok")
 
         # 2. ReccoBeats track IDs — batched lookup by Spotify ID
         rows = session.query(Music).filter(
@@ -252,36 +256,37 @@ def extract_music_features() -> None:
             total = len(rows)
             log(SCOPE_FEATURES, f"upload fallback: {total} tracks without catalog coverage")
             enriched = 0
-            for i, row in enumerate(rows, 1):
-                video = _pick_video(session, row.id)
-                if not video:
-                    row.has_features = "none"
-                    log(SCOPE_FEATURES, f"upload fallback: {i}/{total} — {row.artist} – {row.track} → no video")
-                    continue
-
-                with tempfile.TemporaryDirectory(prefix="rb-audio-") as tmp:
-                    audio = _extract_audio_sample(video, Path(tmp))
-                    if not audio:
+            with progress(total, "Upload fallback") as advance:
+                for i, row in enumerate(rows, 1):
+                    video = _pick_video(session, row.id)
+                    if not video:
                         row.has_features = "none"
-                        log(SCOPE_FEATURES, f"upload fallback: {i}/{total} — {row.artist} – {row.track} → audio extraction failed")
+                        advance(detail=f"{row.artist} – {row.track} (no video)")
                         continue
-                    feats = rb.upload_features(audio)
 
-                if feats and any(f in feats for f in UPLOAD_FIELDS):
-                    for f in UPLOAD_FIELDS:
-                        if f in feats:
-                            setattr(row, f, feats[f])
-                    row.has_features = "yes"
-                    enriched += 1
-                    log(SCOPE_FEATURES, f"upload fallback: {i}/{total} — {row.artist} – {row.track} → ok")
-                else:
-                    row.has_features = "none"
-                    log(SCOPE_FEATURES, f"upload fallback: {i}/{total} — {row.artist} – {row.track} → no features returned")
+                    with tempfile.TemporaryDirectory(prefix="rb-audio-") as tmp:
+                        audio = _extract_audio_sample(video, Path(tmp))
+                        if not audio:
+                            row.has_features = "none"
+                            advance(detail=f"{row.artist} – {row.track} (audio extract failed)")
+                            continue
+                        feats = rb.upload_features(audio)
 
-                if i % COMMIT_EVERY == 0:
-                    session.commit()
+                    if feats and any(f in feats for f in UPLOAD_FIELDS):
+                        for f in UPLOAD_FIELDS:
+                            if f in feats:
+                                setattr(row, f, feats[f])
+                        row.has_features = "yes"
+                        enriched += 1
+                        advance(detail=f"{row.artist} – {row.track} (ok)")
+                    else:
+                        row.has_features = "none"
+                        advance(detail=f"{row.artist} – {row.track} (no features)")
+
+                    if i % COMMIT_EVERY == 0:
+                        session.commit()
 
             session.commit()
-            log(SCOPE_FEATURES, f"upload fallback: done — {enriched}/{total} enriched")
+            log(SCOPE_FEATURES, f"upload fallback: done — {enriched}/{total} enriched", level="ok")
 
     session.close()

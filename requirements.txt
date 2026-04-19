@@ -16,3 +16,4 @@ bitsandbytes
 umap-learn
 hdbscan
 matplotlib
+rich

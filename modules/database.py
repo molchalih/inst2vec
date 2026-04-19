@@ -21,6 +21,8 @@ from sqlalchemy.orm import declarative_base, relationship, Session
 from sqlalchemy.sql import func
 from sqlalchemy import inspect, text
 
+from modules.services import log
+
 load_dotenv()
 
 engine = create_engine(os.environ["DATABASE_URL"])
@@ -305,5 +307,5 @@ def load_usernames_from_csv(csv_path: str = "data/data.csv"):
             loaded += 1
     session.commit()
     already_in_db = unique - loaded
-    print(f"Loaded {loaded} usernames ({duplicates_in_csv} duplicates in csv, {already_in_db} already in db)")
+    log("database", f"loaded {loaded} usernames ({duplicates_in_csv} duplicates in csv, {already_in_db} already in db)")
     session.close()

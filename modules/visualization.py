@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from modules.database import get_session, UserCluster
+from modules.services import log
 
 PLOTS_DIR = "data/plots"
 
@@ -70,6 +71,6 @@ def plot_clusters() -> None:
             plt.close(fig)
             n_clusters = len({r.cluster_id for r in rows if r.cluster_id >= 0})
             noise = sum(1 for r in rows if r.cluster_id == -1)
-            print(f"[viz] saved {path} ({n_clusters} clusters, {noise} noise points)")
+            log("viz", f"saved {path} ({n_clusters} clusters, {noise} noise points)", level="ok")
     finally:
         session.close()

@@ -4,6 +4,10 @@ import time
 import httpx
 
 from modules.database import get_session, User, Download
+from modules.console import progress
+from modules.services import log
+
+SCOPE = "download"
 
 DIRS = {
     "profile_pic": "data/source/profile_pics",
@@ -50,7 +54,6 @@ def _try_download(session, entity_pk, file_type, url):
         entity_pk=entity_pk, file_type=file_type,
         success=ok, parse_available=ok,
     ))
-    print(f"  {'ok' if ok else 'FAILED'} {file_type}/{entity_pk}")
 
 
 def download_files():
@@ -66,14 +69,20 @@ def download_files():
         .all()
     )
 
-    for user in users:
-        print(f"[download] {user.username}")
-        _try_download(session, user.pk, "profile_pic", user.profile_pic_url)
-        for clip in user.clips[:MAX_CLIPS or None]:
-            if clip.disqualified == 1:
-                continue
-            _try_download(session, clip.pk, "thumbnail", clip.thumbnail_url)
-            _try_download(session, clip.pk, "video", clip.video_url)
-        session.commit()
+    if not users:
+        session.close()
+        return
+
+    log(SCOPE, f"{len(users)} users to download")
+    with progress(len(users), "Downloading") as advance:
+        for user in users:
+            _try_download(session, user.pk, "profile_pic", user.profile_pic_url)
+            for clip in user.clips[:MAX_CLIPS or None]:
+                if clip.disqualified == 1:
+                    continue
+                _try_download(session, clip.pk, "thumbnail", clip.thumbnail_url)
+                _try_download(session, clip.pk, "video", clip.video_url)
+            session.commit()
+            advance(detail=user.username)
 
     session.close()
