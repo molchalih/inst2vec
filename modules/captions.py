@@ -10,6 +10,7 @@ from sqlalchemy import func, or_
 from modules.database import Clip, get_session
 from modules.external.gemma_translate import GemmaTranslator
 from modules.services import log
+from modules.console import progress
 
 
 COMMIT_EVERY = int(os.environ.get("CAPTIONS_COMMIT_EVERY", 50))
@@ -84,25 +85,27 @@ def detect_caption_language() -> None:
     detector = LanguageDetectorBuilder.from_all_languages().build()
     detected = 0
 
-    for i, clip in enumerate(clips, 1):
-        text = (clip.caption_text or "").strip()
-        if not text:
-            continue
-        lang = detector.detect_language_of(text)
-        iso = getattr(lang, "iso_code_639_1", None) if lang else None
-        if iso is None:
-            continue
-        # Keep language code format aligned with Whisper (e.g. "en", "ru").
-        clip.caption_language = iso.name.lower()
-        detected += 1
+    with progress(total, "Detecting languages") as advance:
+        for i, clip in enumerate(clips, 1):
+            text = (clip.caption_text or "").strip()
+            if not text:
+                advance()
+                continue
+            lang = detector.detect_language_of(text)
+            iso = getattr(lang, "iso_code_639_1", None) if lang else None
+            if iso is None:
+                advance()
+                continue
+            clip.caption_language = iso.name.lower()
+            detected += 1
+            advance(detail=f"{clip.pk}: {clip.caption_language}")
 
-        if i % COMMIT_EVERY == 0:
-            session.commit()
-            log(SCOPE_DETECT, f"{i}/{total} committed")
+            if i % COMMIT_EVERY == 0:
+                session.commit()
 
     session.commit()
     session.close()
-    log(SCOPE_DETECT, f"done — {detected}/{total} detected")
+    log(SCOPE_DETECT, f"done — {detected}/{total} detected", level="ok")
 
 
 def translate_captions() -> None:
@@ -132,34 +135,36 @@ def translate_captions() -> None:
     log(SCOPE_TRANSLATE, f"loading {translator.model_id} on {translator.device}…")
     translated = 0
 
-    for i, clip in enumerate(clips, 1):
-        source = (clip.caption_text or "").strip()[:CAPTION_TRANSLATION_MAX_CHARS]
-        source_lang = (clip.caption_language or "").strip().replace("_", "-")
-        if not source or not source_lang or source_lang.lower().startswith("en"):
-            continue
-
-        try:
-            translation = translator.translate_text(
-                text=source,
-                source_lang_code=source_lang,
-                target_lang_code=CAPTION_TRANSLATE_TARGET_LANG,
-                max_new_tokens=CAPTION_TRANSLATE_MAX_NEW_TOKENS,
-            )
-            if not translation:
+    with progress(total, "Translating captions") as advance:
+        for i, clip in enumerate(clips, 1):
+            source = (clip.caption_text or "").strip()[:CAPTION_TRANSLATION_MAX_CHARS]
+            source_lang = (clip.caption_language or "").strip().replace("_", "-")
+            if not source or not source_lang or source_lang.lower().startswith("en"):
+                advance()
                 continue
-            clip.caption_translation = translation
-            translated += 1
 
-            src_preview = source[:45] + ("…" if len(source) > 45 else "")
-            tr_preview = translation[:45] + ("…" if len(translation) > 45 else "")
-            log(SCOPE_TRANSLATE, f"{i}/{total} — {clip.pk}: \"{src_preview}\" -> \"{tr_preview}\"")
-        except Exception:
-            continue
+            try:
+                translation = translator.translate_text(
+                    text=source,
+                    source_lang_code=source_lang,
+                    target_lang_code=CAPTION_TRANSLATE_TARGET_LANG,
+                    max_new_tokens=CAPTION_TRANSLATE_MAX_NEW_TOKENS,
+                )
+                if not translation:
+                    advance()
+                    continue
+                clip.caption_translation = translation
+                translated += 1
+                src_preview = source[:45] + ("…" if len(source) > 45 else "")
+                tr_preview = translation[:45] + ("…" if len(translation) > 45 else "")
+                advance(detail=f'{clip.pk}: "{src_preview}" → "{tr_preview}"')
+            except Exception:
+                advance()
+                continue
 
-        if i % COMMIT_EVERY == 0:
-            session.commit()
-            log(SCOPE_TRANSLATE, f"{i}/{total} committed")
+            if i % COMMIT_EVERY == 0:
+                session.commit()
 
     session.commit()
     session.close()
-    log(SCOPE_TRANSLATE, f"done — {translated}/{total} translated")
+    log(SCOPE_TRANSLATE, f"done — {translated}/{total} translated", level="ok")
