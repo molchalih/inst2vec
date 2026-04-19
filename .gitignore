@@ -30,6 +30,7 @@ __pycache__/
 
 # IDEs & OS
 .vscode/
+.cursor/
 .idea/
 .DS_Store
 
