@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from modules.database import ClusterRun, get_session
 from modules.clustering import compute_clusters, load_user_matrix
+from modules.services import log
 
 
 _PARAM_COLS = [
@@ -52,7 +53,7 @@ def _phase_filter(session: Session, case: str) -> None:
         n_pass += int(passes)
     session.commit()
 
-    print(f"[validate:{case}] filter — {n_pass} passed, {len(rows) - n_pass} disqualified")
+    log(f"validate:{case}", f"filter — {n_pass} passed, {len(rows) - n_pass} disqualified")
 
 
 def _phase_score(session: Session, case: str, matrix: np.ndarray) -> None:
@@ -71,7 +72,7 @@ def _phase_score(session: Session, case: str, matrix: np.ndarray) -> None:
         try:
             result = compute_clusters(matrix, return_nd_matrix=True, **params)
         except ValueError as exc:
-            print(f"[validate:{case}] score skip id={row.id} — {exc}")
+            log(f"validate:{case}", f"score skip id={row.id} — {exc}", level="warn")
             row.disqualified = 1
             session.commit()
             continue
@@ -84,7 +85,7 @@ def _phase_score(session: Session, case: str, matrix: np.ndarray) -> None:
                 X_nd, labels, metric=row.hdbscan_metric
             ))
         except Exception:
-            print(f"[validate:{case}] dbcv failed id={row.id} — disqualifying")
+            log(f"validate:{case}", f"dbcv failed id={row.id} — disqualifying", level="err")
             row.disqualified = 1
             session.commit()
             continue
@@ -102,10 +103,7 @@ def _phase_score(session: Session, case: str, matrix: np.ndarray) -> None:
         session.commit()
         dbcv_str = f"{row.dbcv:.4f}"
         sil_str = f"{row.silhouette:.4f}"
-        print(
-            f"[validate:{case}] scored {i + 1}/{len(rows)} id={row.id}"
-            f" dbcv={dbcv_str} sil={sil_str}"
-        )
+        log(f"validate:{case}", f"scored {i + 1}/{len(rows)} id={row.id} dbcv={dbcv_str} sil={sil_str}")
 
 
 def _phase_composite(session: Session, case: str) -> None:
@@ -129,7 +127,7 @@ def _phase_composite(session: Session, case: str) -> None:
     for row, dn, sn, stn in zip(rows, dbcv_norm, sil_norm, stab_norm):
         row.composite_score = round(0.5 * dn + 0.2 * sn + 0.3 * stn, 6)
     session.commit()
-    print(f"[validate:{case}] composite — updated {len(rows)} rows")
+    log(f"validate:{case}", f"composite — updated {len(rows)} rows")
 
 
 def _ari_non_noise(labels_a: np.ndarray, labels_b: np.ndarray) -> float:
@@ -167,7 +165,7 @@ def _phase_bootstrap(session: Session, case: str, matrix: np.ndarray) -> None:
         .all()
     )
     if not rows:
-        print(f"[validate:{case}] bootstrap — nothing to do")
+        log(f"validate:{case}", "bootstrap — nothing to do")
         return
 
     rng = np.random.default_rng(42)
@@ -177,7 +175,7 @@ def _phase_bootstrap(session: Session, case: str, matrix: np.ndarray) -> None:
         try:
             original = compute_clusters(matrix, **params)
         except ValueError as exc:
-            print(f"[validate:{case}] bootstrap skip id={row.id} — {exc}")
+            log(f"validate:{case}", f"bootstrap skip id={row.id} — {exc}", level="warn")
             continue
 
         aris = []
@@ -190,7 +188,7 @@ def _phase_bootstrap(session: Session, case: str, matrix: np.ndarray) -> None:
             aris.append(_ari_non_noise(original.labels[idx], boot.labels))
 
         if not aris:
-            print(f"[validate:{case}] bootstrap all-failed id={row.id} — disqualifying")
+            log(f"validate:{case}", f"bootstrap all-failed id={row.id} — disqualifying", level="err")
             row.disqualified = 1
             session.commit()
             continue
@@ -198,10 +196,7 @@ def _phase_bootstrap(session: Session, case: str, matrix: np.ndarray) -> None:
         row.bootstrap_stability = float(np.mean(aris))
         row.bootstrap_n_runs = len(aris)
         session.commit()
-        print(
-            f"[validate:{case}] bootstrap {row_i + 1}/{len(rows)} id={row.id}"
-            f" stability={row.bootstrap_stability:.4f} ({row.bootstrap_n_runs} runs)"
-        )
+        log(f"validate:{case}", f"bootstrap {row_i + 1}/{len(rows)} id={row.id} stability={row.bootstrap_stability:.4f} ({row.bootstrap_n_runs} runs)")
 
 
 _NUMERIC_PARAM_COLS = [
@@ -262,7 +257,7 @@ def _phase_plateau(session: Session, case: str) -> None:
         .all()
     )
     if not top_rows:
-        print(f"[validate:{case}] plateau — nothing to do")
+        log(f"validate:{case}", "plateau — nothing to do")
         return
 
     all_rows = (
@@ -280,7 +275,7 @@ def _phase_plateau(session: Session, case: str) -> None:
         scores = [n.composite_score for n in neighbors if n.composite_score is not None]
         row.param_plateau_score = float(np.mean(scores)) if scores else 0.0
     session.commit()
-    print(f"[validate:{case}] plateau — scored {len(top_rows)} top rows")
+    log(f"validate:{case}", f"plateau — scored {len(top_rows)} top rows")
 
 
 def _select_best(session: Session, case: str) -> ClusterRun | None:
@@ -291,7 +286,7 @@ def _select_best(session: Session, case: str) -> ClusterRun | None:
             raise ValueError(
                 f"CLUSTER_OVERRIDE_{case.upper()}={override} but no ClusterRun with that id"
             )
-        print(f"[validate:{case}] override — using run id={row.id} (forced via env var)")
+        log(f"validate:{case}", f"override — using run id={row.id} (forced via env var)")
         return row
 
     rows = (
@@ -305,15 +300,12 @@ def _select_best(session: Session, case: str) -> ClusterRun | None:
         .all()
     )
     if not rows:
-        print(f"[validate:{case}] select — no eligible runs")
+        log(f"validate:{case}", "select — no eligible runs", level="warn")
         return None
 
     best = max(rows, key=lambda r: 0.7 * r.composite_score + 0.3 * r.param_plateau_score)
     final = 0.7 * best.composite_score + 0.3 * best.param_plateau_score
-    print(
-        f"[validate:{case}] selected run id={best.id} final={final:.4f}"
-        f" composite={best.composite_score:.4f} plateau={best.param_plateau_score:.4f}"
-    )
+    log(f"validate:{case}", f"selected run id={best.id} final={final:.4f} composite={best.composite_score:.4f} plateau={best.param_plateau_score:.4f}", level="ok")
     return best
 
 
@@ -325,10 +317,10 @@ def validate_clustering() -> dict[str, dict | None]:
     """
     result: dict[str, dict | None] = {}
     for case in ["video", "sandwich", "audio"]:
-        print(f"[validate:{case}] starting")
+        log(f"validate:{case}", "starting")
         matrix, _ = load_user_matrix(case)
         if matrix.shape[0] == 0:
-            print(f"[validate:{case}] no embeddings — skipping")
+            log(f"validate:{case}", "no embeddings — skipping", level="warn")
             result[case] = None
             continue
         session = get_session()
@@ -343,5 +335,5 @@ def validate_clustering() -> dict[str, dict | None]:
             result[case] = _row_to_params(best) if best is not None else None
         finally:
             session.close()
-        print(f"[validate:{case}] done")
+        log(f"validate:{case}", "done", level="ok")
     return result
