@@ -6,6 +6,8 @@ from sqlalchemy import or_
 
 from modules.database import Base, engine, get_session, Clip, ClipEmbedding, User, Music, UserEmbedding
 from modules.external.qwen3_vl_embedding import Qwen3VLEmbedder
+from modules.console import progress
+from modules.services import log
 
 MODEL_PATH = "./models/Qwen3-VL-Embedding-8B"
 VIDEO_DIR = "data/source/videos"
@@ -252,10 +254,10 @@ def embed_video_clips():
             todo.append(clip)
 
         if not todo:
-            print("[embed:video] nothing to do")
+            log("embed:video", "nothing to do")
             return
 
-        print(f"[embed:video] {len(todo)} clips to embed ({len(done_video)} already done)")
+        log("embed:video", f"{len(todo)} clips to embed ({len(done_video)} already done)")
         from modules.external.qwen3_vl_embedding import Qwen3VLEmbedder
         model = Qwen3VLEmbedder(
             model_name_or_path=MODEL_PATH,
@@ -264,46 +266,36 @@ def embed_video_clips():
             fps=ADAPTIVE_DEFAULT_FPS,
         )
 
-        for i, clip in enumerate(todo, 1):
-            path = _video_path(clip.pk)
-            fps, max_frames, duration = _adaptive_video_sampling(path)
-            dur_str = f"{duration:.1f}s" if duration is not None else "na"
-            frame_caps = _frame_retry_schedule(max_frames)
-            embeddings = None
-            last_error: Exception | None = None
-            for attempt_idx, frame_cap in enumerate(frame_caps):
-                prefix = (
-                    f"[embed:video] ({i}/{len(todo)}) {clip.pk} "
-                    f"(fps={fps:g}, max={frame_cap}, dur={dur_str}, max_len={EMBED_MAX_LENGTH})"
+        with progress(len(todo), "Embedding video") as advance:
+            for i, clip in enumerate(todo, 1):
+                path = _video_path(clip.pk)
+                fps, max_frames, duration = _adaptive_video_sampling(path)
+                frame_caps = _frame_retry_schedule(max_frames)
+                embeddings = None
+                last_error: Exception | None = None
+                for attempt_idx, frame_cap in enumerate(frame_caps):
+                    try:
+                        embeddings = model.process([{"video": path, "fps": fps, "max_frames": frame_cap}])
+                        break
+                    except Exception as e:
+                        last_error = e
+                        if _is_token_mismatch_error(e) and attempt_idx < len(frame_caps) - 1:
+                            continue
+                        break
+                if embeddings is None:
+                    advance(detail=f"✗ {clip.pk}")
+                    continue
+
+                video_row = ClipEmbedding(
+                    clip_pk=clip.pk,
+                    embedding_case="video",
+                    embedding=_to_bytes(embeddings[0]),
                 )
-                if attempt_idx > 0:
-                    prefix += " retry"
-                print(prefix, end="", flush=True)
-                try:
-                    embeddings = model.process([{"video": path, "fps": fps, "max_frames": frame_cap}])
-                    print(" ✓")
-                    break
-                except Exception as e:
-                    last_error = e
-                    if _is_token_mismatch_error(e) and attempt_idx < len(frame_caps) - 1:
-                        print(" ↻ token mismatch, reducing frames")
-                        continue
-                    print(f" ✗ {e}")
-                    break
-            if embeddings is None:
-                if last_error is None:
-                    print(" ✗ failed without exception")
-                continue
+                session.merge(video_row)
+                session.commit()
+                advance(detail=f"✓ {clip.pk}")
 
-            video_row = ClipEmbedding(
-                clip_pk=clip.pk,
-                embedding_case="video",
-                embedding=_to_bytes(embeddings[0]),
-            )
-            session.merge(video_row)
-            session.commit()
-
-        print("[embed:video] done")
+        log("embed:video", "done", level="ok")
     finally:
         session.close()
 
@@ -335,10 +327,10 @@ def embed_sandwich_clips():
             todo.append((clip, text))
 
         if not todo:
-            print("[embed:sandwich] nothing to do")
+            log("embed:sandwich", "nothing to do")
             return
 
-        print(f"[embed:sandwich] {len(todo)} clips to embed ({len(done_sandwich)} already done)")
+        log("embed:sandwich", f"{len(todo)} clips to embed ({len(done_sandwich)} already done)")
         from modules.external.qwen3_vl_embedding import Qwen3VLEmbedder
         model = Qwen3VLEmbedder(
             model_name_or_path=MODEL_PATH,
@@ -347,51 +339,40 @@ def embed_sandwich_clips():
             fps=ADAPTIVE_DEFAULT_FPS,
         )
 
-        for i, (clip, text) in enumerate(todo, 1):
-            path = _video_path(clip.pk)
-            fps, max_frames, duration = _adaptive_video_sampling(path)
-            dur_str = f"{duration:.1f}s" if duration is not None else "na"
-            frame_caps = _frame_retry_schedule(max_frames)
-            embedding = None
-            last_error: Exception | None = None
+        with progress(len(todo), "Embedding sandwich") as advance:
+            for i, (clip, text) in enumerate(todo, 1):
+                path = _video_path(clip.pk)
+                fps, max_frames, duration = _adaptive_video_sampling(path)
+                frame_caps = _frame_retry_schedule(max_frames)
+                embedding = None
+                last_error: Exception | None = None
+                for attempt_idx, frame_cap in enumerate(frame_caps):
+                    try:
+                        embeddings = model.process(
+                            [{"video": path, "fps": fps, "max_frames": frame_cap, "text": text}]
+                        )
+                        embedding = embeddings[0]
+                        break
+                    except Exception as e:
+                        last_error = e
+                        if _is_token_mismatch_error(e) and attempt_idx < len(frame_caps) - 1:
+                            continue
+                        break
 
-            for attempt_idx, frame_cap in enumerate(frame_caps):
-                prefix = (
-                    f"[embed:sandwich] ({i}/{len(todo)}) {clip.pk} "
-                    f"(fps={fps:g}, max={frame_cap}, dur={dur_str}, max_len={EMBED_MAX_LENGTH})"
+                if embedding is None:
+                    advance(detail=f"✗ {clip.pk}")
+                    continue
+
+                sandwich_row = ClipEmbedding(
+                    clip_pk=clip.pk,
+                    embedding_case="sandwich",
+                    embedding=_to_bytes(embedding),
                 )
-                if attempt_idx > 0:
-                    prefix += " retry"
-                print(prefix, end="", flush=True)
-                try:
-                    embeddings = model.process(
-                        [{"video": path, "fps": fps, "max_frames": frame_cap, "text": text}]
-                    )
-                    embedding = embeddings[0]
-                    print(" ✓")
-                    break
-                except Exception as e:
-                    last_error = e
-                    if _is_token_mismatch_error(e) and attempt_idx < len(frame_caps) - 1:
-                        print(" ↻ token mismatch, reducing frames")
-                        continue
-                    print(f" ✗ {e}")
-                    break
+                session.merge(sandwich_row)
+                session.commit()
+                advance(detail=f"✓ {clip.pk}")
 
-            if embedding is None:
-                if last_error is None:
-                    print(" ✗ failed without exception")
-                continue
-
-            sandwich_row = ClipEmbedding(
-                clip_pk=clip.pk,
-                embedding_case="sandwich",
-                embedding=_to_bytes(embedding),
-            )
-            session.merge(sandwich_row)
-            session.commit()
-
-        print("[embed:sandwich] done")
+        log("embed:sandwich", "done", level="ok")
     finally:
         session.close()
 
@@ -426,34 +407,34 @@ def embed_audio_clips():
             todo.append((clip, text))
 
         if not todo:
-            print("[embed:audio] nothing to do")
+            log("embed:audio", "nothing to do")
             return
 
-        print(f"[embed:audio] {len(todo)} clips to embed ({len(done_audio)} already done)")
+        log("embed:audio", f"{len(todo)} clips to embed ({len(done_audio)} already done)")
         model = Qwen3VLEmbedder(
             model_name_or_path=MODEL_PATH,
             max_length=EMBED_MAX_LENGTH,
         )
 
-        for i, (clip, text) in enumerate(todo, 1):
-            print(f"[embed:audio] ({i}/{len(todo)}) {clip.pk} (chars={len(text)})", end="", flush=True)
-            try:
-                embeddings = model.process([{"text": text, "instruction": AUDIO_INSTRUCTION}])
-                embedding = embeddings[0]
-                print(" ✓")
-            except Exception as e:
-                print(f" ✗ {e}")
-                continue
+        with progress(len(todo), "Embedding audio") as advance:
+            for i, (clip, text) in enumerate(todo, 1):
+                try:
+                    embeddings = model.process([{"text": text, "instruction": AUDIO_INSTRUCTION}])
+                    embedding = embeddings[0]
+                except Exception as e:
+                    advance(detail=f"✗ {clip.pk}")
+                    continue
 
-            audio_row = ClipEmbedding(
-                clip_pk=clip.pk,
-                embedding_case="audio",
-                embedding=_to_bytes(embedding),
-            )
-            session.merge(audio_row)
-            session.commit()
+                audio_row = ClipEmbedding(
+                    clip_pk=clip.pk,
+                    embedding_case="audio",
+                    embedding=_to_bytes(embedding),
+                )
+                session.merge(audio_row)
+                session.commit()
+                advance(detail=f"✓ {clip.pk}")
 
-        print("[embed:audio] done")
+        log("embed:audio", "done", level="ok")
     finally:
         session.close()
 
@@ -473,11 +454,11 @@ def embed_user_clips(cases: list[str] | None = None):
             )
 
             if not rows:
-                print(f"[embed:user:{case}] nothing to do")
+                log(f"embed:user:{case}", "nothing to do")
                 continue
 
             aggregated = _aggregate_user_embeddings(rows)
-            print(f"[embed:user:{case}] {len(aggregated)} users to embed")
+            log(f"embed:user:{case}", f"{len(aggregated)} users to embed")
 
             for user_pk, mean_blob in aggregated.items():
                 row = UserEmbedding(
@@ -488,7 +469,7 @@ def embed_user_clips(cases: list[str] | None = None):
                 session.merge(row)
                 session.commit()
 
-            print(f"[embed:user:{case}] done")
+            log(f"embed:user:{case}", "done", level="ok")
     finally:
         session.close()
 
