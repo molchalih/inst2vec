@@ -12,9 +12,7 @@ import httpx
 
 # ── logging ───────────────────────────────────────────────────────────────────
 
-def log(scope: str, msg: str) -> None:
-    """Single output hook for all pipeline steps. Replace here for richer formatting."""
-    print(f"[{scope}] {msg}", flush=True)
+from modules.console import log  # noqa: F401 — re-exported for existing callers
 
 
 # ── utilities ─────────────────────────────────────────────────────────────────
