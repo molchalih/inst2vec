@@ -30,6 +30,7 @@ __pycache__/
 
 # IDEs & OS
 .vscode/
+.cursor/
 .idea/
 .DS_Store
 
@@ -43,5 +44,11 @@ CLAUDE.md
 AGENTS.md
 
 # Docs (working notes, not published)
-docs/
+docs/.quarto
+docs/index_files
+docs/refs
+docs/superpowers
 notes/PHASE4_STAGE_NOTES.md
+
+/.quarto/
+**/*.quarto_ipynb*

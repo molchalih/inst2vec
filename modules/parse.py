@@ -5,6 +5,10 @@ from hikerapi import Client
 from httpx import ConnectError, TimeoutException
 
 from modules.database import get_session, User, Clip, Download
+from modules.console import progress
+from modules.services import log
+
+SCOPE = "fetch_profiles"
 
 HIKER_TOKEN = os.environ.get("HIKER_API_KEY", "")
 BATCH_SIZE = int(os.environ.get("BATCH_SIZE", 5))
@@ -74,46 +78,49 @@ def fetch_profiles():
         .all()
     )
 
-    parsed = 0
-    skipped = 0
-    failed = 0
+    parsed = skipped = failed = 0
 
-    for i, user in enumerate(users, 1):
-        if _is_parsed(user):
-            skipped += 1
-            continue
+    if not users:
+        session.close()
+        return
 
-        print(f"[{i}/{len(users)}] {user.username} — ", end="", flush=True)
+    log(SCOPE, f"{len(users)} users to process")
+    with progress(len(users), "Fetching profiles") as advance:
+        for user in users:
+            if _is_parsed(user):
+                skipped += 1
+                advance()
+                continue
 
-        try:
-            data = cl.user_by_username_v1(user.username)
-            info = data.get("user", data)
+            try:
+                data = cl.user_by_username_v1(user.username)
+                info = data.get("user", data)
 
-            user.pk = info["pk"]
-            user.full_name = info.get("full_name")
-            user.profile_pic_url = info.get("profile_pic_url")
-            user.profile_pic_url_hd = info.get("profile_pic_url_hd")
-            user.following_count = info.get("following_count")
-            user.city_name = info.get("city_name")
+                user.pk = info["pk"]
+                user.full_name = info.get("full_name")
+                user.profile_pic_url = info.get("profile_pic_url")
+                user.profile_pic_url_hd = info.get("profile_pic_url_hd")
+                user.following_count = info.get("following_count")
+                user.city_name = info.get("city_name")
 
-            clips_count = _fetch_clips(cl, user, session)
-            print(f"ok ({user.full_name}, {user.following_count} following, {clips_count} clips)")
-            parsed += 1
+                clips_count = _fetch_clips(cl, user, session)
+                parsed += 1
+                advance(detail=f"{user.username} ({user.full_name}, {clips_count} clips)")
 
-        except (ConnectError, TimeoutException) as e:
-            print(f"network error ({e})")
-            session.merge(Download(entity_pk=user.pk, file_type="profile_pic", parse_available=False))
-            failed += 1
+            except (ConnectError, TimeoutException) as e:
+                session.merge(Download(entity_pk=user.pk, file_type="profile_pic", parse_available=False))
+                failed += 1
+                advance(detail=f"{user.username} — network error")
 
-        except Exception as e:
-            print(f"error ({e})")
-            session.merge(Download(entity_pk=user.pk, file_type="profile_pic", parse_available=False))
-            failed += 1
+            except Exception as e:
+                session.merge(Download(entity_pk=user.pk, file_type="profile_pic", parse_available=False))
+                failed += 1
+                advance(detail=f"{user.username} — error")
 
-        time.sleep(0.3)
+            time.sleep(0.3)
 
     session.commit()
     session.close()
 
     total = parsed + skipped + failed
-    print(f"\nDone — total: {total}, parsed: {parsed}, skipped: {skipped}, failed: {failed}")
+    log(SCOPE, f"done — total: {total}, parsed: {parsed}, skipped: {skipped}, failed: {failed}", level="ok")
