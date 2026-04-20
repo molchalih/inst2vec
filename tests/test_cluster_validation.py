@@ -785,40 +785,41 @@ def test_invalidate_stale_rows_only_affects_matching_case():
 
 
 def test_validate_clustering_calls_invalidation_before_phases(monkeypatch):
-    """_invalidate_stale_rows must be called once per case before any phase runs."""
-    calls = []
+    """_invalidate_stale_rows must be called before any phase for non-empty cases."""
+    from unittest.mock import MagicMock
+    sequence = []
 
     def fake_invalidate(session, case, current_hash):
-        calls.append((case, current_hash))
+        sequence.append(("invalidate", case, current_hash))
 
-    def fake_load_matrix_video(case):
+    def fake_load_matrix(case):
         if case == "video":
             return (np.ones((5, 10), dtype=np.float32), list(range(5)))
         return (np.zeros((0, 10), dtype=np.float32), [])
 
     def fake_phase_filter(session, case):
-        pass
+        sequence.append(("filter", case))
 
     def fake_phase_score(session, case, matrix):
-        pass
+        sequence.append(("score", case))
 
     def fake_phase_composite(session, case):
-        pass
+        sequence.append(("composite", case))
 
     def fake_phase_bootstrap(session, case, matrix):
-        pass
+        sequence.append(("bootstrap", case))
 
     def fake_phase_plateau(session, case):
-        pass
+        sequence.append(("plateau", case))
 
     def fake_phase_composite_final(session, case):
-        pass
+        sequence.append(("composite_final", case))
 
     def fake_select_best(session, case):
         return None
 
     monkeypatch.setattr("modules.cluster_validation._invalidate_stale_rows", fake_invalidate)
-    monkeypatch.setattr("modules.cluster_validation.load_user_matrix", fake_load_matrix_video)
+    monkeypatch.setattr("modules.cluster_validation.load_user_matrix", fake_load_matrix)
     monkeypatch.setattr("modules.cluster_validation._phase_filter", fake_phase_filter)
     monkeypatch.setattr("modules.cluster_validation._phase_score", fake_phase_score)
     monkeypatch.setattr("modules.cluster_validation._phase_composite", fake_phase_composite)
@@ -826,11 +827,21 @@ def test_validate_clustering_calls_invalidation_before_phases(monkeypatch):
     monkeypatch.setattr("modules.cluster_validation._phase_plateau", fake_phase_plateau)
     monkeypatch.setattr("modules.cluster_validation._phase_composite_final", fake_phase_composite_final)
     monkeypatch.setattr("modules.cluster_validation._select_best", fake_select_best)
+    monkeypatch.setattr("modules.cluster_validation.get_session", lambda: MagicMock())
 
     from modules.cluster_validation import validate_clustering
     validate_clustering()
 
-    assert any(case == "video" for case, _ in calls), "invalidation not called for video case"
-    video_hash = next(h for c, h in calls if c == "video")
+    video_seq = [(op, c) for op, c, *_ in sequence if c == "video"]
+    assert video_seq, "no calls recorded for video case"
+    assert video_seq[0] == ("invalidate", "video"), (
+        f"invalidation must be first for video, got: {video_seq}"
+    )
+    assert ("filter", "video") in video_seq
+    invalidate_idx = video_seq.index(("invalidate", "video"))
+    filter_idx = video_seq.index(("filter", "video"))
+    assert invalidate_idx < filter_idx, "invalidation must come before filter"
+
+    video_hash = next(h for op, c, h in sequence if c == "video" and op == "invalidate")
     assert len(video_hash) == 16
-    assert all(c in "0123456789abcdef" for c in video_hash)
+    assert all(ch in "0123456789abcdef" for ch in video_hash)
