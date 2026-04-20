@@ -9,20 +9,8 @@ from sqlalchemy.exc import IntegrityError
 
 from modules.console import progress
 from modules.database import Base, engine, get_session, ClusterRun
-from modules.clustering import compute_clusters, load_user_matrix
+from modules.clustering import compute_clusters, env_positive_int, load_user_matrix
 from modules.services import log
-
-
-def _parse_ints(val: str) -> list[int]:
-    return [int(x) for x in val.split()]
-
-
-def _parse_floats(val: str) -> list[float]:
-    return [float(x) for x in val.split()]
-
-
-def _parse_strs(val: str) -> list[str]:
-    return val.split()
 
 
 _PARAM_KEYS = (
@@ -57,16 +45,16 @@ def _load_grid() -> list[dict]:
     umap2d_n_neighbors and umap2d_min_dist are fixed scalars (not swept);
     umap2d_metric is swept independently as a list.
     """
-    umap_n_components  = _parse_ints(os.environ.get("CLUSTERING_UMAP_N_COMPONENTS", "15"))
-    umap_n_neighbors   = _parse_ints(os.environ.get("CLUSTERING_UMAP_N_NEIGHBORS", "15"))
-    umap_min_dist      = _parse_floats(os.environ.get("CLUSTERING_UMAP_MIN_DIST", "0.0"))
-    umap_metrics       = _parse_strs(os.environ.get("CLUSTERING_UMAP_METRICS", "cosine"))
+    umap_n_components  = [int(x) for x in os.environ.get("CLUSTERING_UMAP_N_COMPONENTS", "15").split()]
+    umap_n_neighbors   = [int(x) for x in os.environ.get("CLUSTERING_UMAP_N_NEIGHBORS", "15").split()]
+    umap_min_dist      = [float(x) for x in os.environ.get("CLUSTERING_UMAP_MIN_DIST", "0.0").split()]
+    umap_metrics       = os.environ.get("CLUSTERING_UMAP_METRICS", "cosine").split()
     umap2d_n_neighbors = int(os.environ.get("CLUSTERING_UMAP2D_N_NEIGHBORS", "15"))
     umap2d_min_dist    = float(os.environ.get("CLUSTERING_UMAP2D_MIN_DIST", "0.1"))
-    umap2d_metrics     = _parse_strs(os.environ.get("CLUSTERING_UMAP2D_METRICS", "cosine"))
-    hdbscan_min_sizes  = _parse_ints(os.environ.get("CLUSTERING_HDBSCAN_MIN_CLUSTER_SIZE", "15"))
-    hdbscan_selection  = _parse_strs(os.environ.get("CLUSTERING_HDBSCAN_SELECTION", "eom"))
-    hdbscan_metrics    = _parse_strs(os.environ.get("CLUSTERING_HDBSCAN_METRICS", "euclidean"))
+    umap2d_metrics     = os.environ.get("CLUSTERING_UMAP2D_METRICS", "cosine").split()
+    hdbscan_min_sizes  = [int(x) for x in os.environ.get("CLUSTERING_HDBSCAN_MIN_CLUSTER_SIZE", "15").split()]
+    hdbscan_selection  = os.environ.get("CLUSTERING_HDBSCAN_SELECTION", "eom").split()
+    hdbscan_metrics    = os.environ.get("CLUSTERING_HDBSCAN_METRICS", "euclidean").split()
     random_state       = int(os.environ.get("CLUSTERING_RANDOM_STATE", "42"))
     cases              = ["video", "sandwich", "audio"]
 
@@ -93,24 +81,6 @@ def _load_grid() -> list[dict]:
     return combos
 
 
-def _clustering_jobs() -> int:
-    raw = os.environ.get("CLUSTERING_JOBS", "1").strip()
-    try:
-        n = int(raw)
-    except ValueError:
-        n = 1
-    return max(1, n)
-
-
-def _clustering_grid_workers() -> int:
-    raw = os.environ.get("CLUSTERING_GRID_WORKERS", "1").strip()
-    try:
-        n = int(raw)
-    except ValueError:
-        n = 1
-    return max(1, n)
-
-
 def run_cluster_search() -> None:
     """Run grid search over all hyperparameter combos from env; save metrics to ClusterRun.
 
@@ -123,8 +93,8 @@ def run_cluster_search() -> None:
     """
     Base.metadata.create_all(engine)
     combos = _load_grid()
-    umap_n_jobs = _clustering_jobs()
-    grid_workers = _clustering_grid_workers()
+    umap_n_jobs = env_positive_int("CLUSTERING_JOBS")
+    grid_workers = env_positive_int("CLUSTERING_GRID_WORKERS")
 
     combos_by_case: dict[str, list[dict]] = {}
     for combo in combos:
