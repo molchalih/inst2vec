@@ -605,3 +605,55 @@ def test_cluster_run_has_validation_config_hash_field():
         s.commit()
         s.refresh(row)
         assert row.validation_config_hash == "abc123def456abcd"
+
+
+# --- Config hash ---
+
+def test_compute_validation_config_hash_is_deterministic():
+    from modules.cluster_validation import _compute_validation_config_hash
+    env = {
+        "VALIDATION_MAX_NOISE_RATIO": "0.3",
+        "VALIDATION_MIN_CLUSTERS": "3",
+        "VALIDATION_MAX_CLUSTERS": "20",
+        "VALIDATION_TOP_N_BOOTSTRAP": "20",
+        "VALIDATION_BOOTSTRAP_N": "30",
+        "VALIDATION_TOP_N_PLATEAU": "20",
+    }
+    with patch.dict(os.environ, env, clear=False):
+        h1 = _compute_validation_config_hash()
+        h2 = _compute_validation_config_hash()
+    assert h1 == h2
+    assert len(h1) == 16
+
+
+def test_compute_validation_config_hash_changes_with_env():
+    from modules.cluster_validation import _compute_validation_config_hash
+    base_env = {
+        "VALIDATION_MAX_NOISE_RATIO": "0.3",
+        "VALIDATION_MIN_CLUSTERS": "3",
+        "VALIDATION_MAX_CLUSTERS": "20",
+        "VALIDATION_TOP_N_BOOTSTRAP": "20",
+        "VALIDATION_BOOTSTRAP_N": "30",
+        "VALIDATION_TOP_N_PLATEAU": "20",
+    }
+    changed_env = {**base_env, "VALIDATION_MAX_NOISE_RATIO": "0.5"}
+    with patch.dict(os.environ, base_env, clear=False):
+        h_base = _compute_validation_config_hash()
+    with patch.dict(os.environ, changed_env, clear=False):
+        h_changed = _compute_validation_config_hash()
+    assert h_base != h_changed
+
+
+def test_compute_validation_config_hash_uses_defaults_when_env_absent():
+    from modules.cluster_validation import _compute_validation_config_hash
+    keys = [
+        "VALIDATION_MAX_NOISE_RATIO", "VALIDATION_MIN_CLUSTERS", "VALIDATION_MAX_CLUSTERS",
+        "VALIDATION_TOP_N_BOOTSTRAP", "VALIDATION_BOOTSTRAP_N", "VALIDATION_TOP_N_PLATEAU",
+    ]
+    original = {k: os.environ.pop(k) for k in keys if k in os.environ}
+    try:
+        h1 = _compute_validation_config_hash()
+        h2 = _compute_validation_config_hash()
+        assert h1 == h2
+    finally:
+        os.environ.update(original)

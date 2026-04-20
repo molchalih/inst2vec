@@ -1,4 +1,6 @@
 """Phase 6b — clustering validation: filter, score, composite, bootstrap, plateau."""
+import hashlib
+import json
 import math
 import os
 
@@ -19,6 +21,18 @@ _PARAM_COLS = [
     "hdbscan_cluster_selection_method", "hdbscan_metric",
     "random_state",
 ]
+
+
+def _compute_validation_config_hash() -> str:
+    config = {
+        "max_noise": os.environ.get("VALIDATION_MAX_NOISE_RATIO", "0.3"),
+        "min_clusters": os.environ.get("VALIDATION_MIN_CLUSTERS", "3"),
+        "max_clusters": os.environ.get("VALIDATION_MAX_CLUSTERS", "20"),
+        "top_n_bootstrap": os.environ.get("VALIDATION_TOP_N_BOOTSTRAP", "20"),
+        "bootstrap_n": os.environ.get("VALIDATION_BOOTSTRAP_N", "30"),
+        "top_n_plateau": os.environ.get("VALIDATION_TOP_N_PLATEAU", "20"),
+    }
+    return hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()[:16]
 
 
 def _row_to_params(row: ClusterRun) -> dict:
