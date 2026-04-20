@@ -35,9 +35,12 @@ def startup(db_path: str = "") -> None:
 
 
 def phase(name: str) -> None:
-    """Print a bold section header ruling the full terminal width."""
+    """Print a section header: bold title with a dim prefix, no full-width rules."""
     _console.print()
-    _console.rule(name)
+    title = Text()
+    title.append("▸ ", style="dim cyan")
+    title.append(name, style="bold")
+    _console.print(title)
     _console.print()
 
 

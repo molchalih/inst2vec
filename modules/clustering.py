@@ -1,12 +1,23 @@
 """Pure clustering logic: two-pass UMAP + HDBSCAN → ClusterResult."""
 from dataclasses import dataclass, field
+import os
 
 import numpy as np
 import hdbscan
 from umap import UMAP
 
+from modules.console import progress
 from modules.database import Base, engine, get_session, UserEmbedding, UserCluster
 from modules.services import log
+
+
+def env_positive_int(key: str, default: str = "1") -> int:
+    raw = os.environ.get(key, default).strip()
+    try:
+        n = int(raw)
+    except ValueError:
+        n = int(default)
+    return max(1, n)
 
 
 @dataclass
@@ -49,6 +60,7 @@ def compute_clusters(
     hdbscan_metric: str = "euclidean",
     random_state: int = 42,
     return_nd_matrix: bool = False,
+    umap_n_jobs: int = 1,
 ) -> ClusterResult:
     min_required = umap_n_components + 1
     if matrix.shape[0] < min_required:
@@ -75,7 +87,7 @@ def compute_clusters(
         metric=umap_metric,
         init="random",
         random_state=random_state,
-        n_jobs=1,
+        n_jobs=umap_n_jobs,
     )
     matrix_nd = reducer_nd.fit_transform(matrix)
 
@@ -106,7 +118,7 @@ def compute_clusters(
         metric=u2_metric,
         init="random",
         random_state=random_state,
-        n_jobs=1,
+        n_jobs=umap_n_jobs,
     )
     coords_2d = reducer_2d.fit_transform(matrix)
 
@@ -146,6 +158,10 @@ def load_user_matrix(embedding_case: str) -> tuple[np.ndarray, list[int]]:
         session.close()
 
 
+def _clustering_jobs_env() -> int:
+    return env_positive_int("CLUSTERING_JOBS")
+
+
 def cluster_users(embedding_case: str, **params) -> None:
     Base.metadata.create_all(engine)
     matrix, user_pks = load_user_matrix(embedding_case)
@@ -154,24 +170,30 @@ def cluster_users(embedding_case: str, **params) -> None:
         log(f"cluster:{embedding_case}", "nothing to do")
         return
 
-    log(f"cluster:{embedding_case}", f"{matrix.shape[0]} users — running UMAP + HDBSCAN")
-    try:
-        result = compute_clusters(matrix, **params)
-    except ValueError as exc:
-        log(f"cluster:{embedding_case}", f"skipping — {exc}", level="warn")
-        return
+    n_users = matrix.shape[0]
+    log(f"cluster:{embedding_case}", f"{n_users} users — running UMAP + HDBSCAN")
+    with progress(1, f"cluster fit · {embedding_case}") as advance:
+        advance(0, detail="UMAP + HDBSCAN (may take a while)")
+        try:
+            result = compute_clusters(matrix, umap_n_jobs=_clustering_jobs_env(), **params)
+        except ValueError as exc:
+            log(f"cluster:{embedding_case}", f"skipping — {exc}", level="warn")
+            return
+        advance(1, detail=f"{result.n_clusters} clusters, {result.noise_ratio:.1%} noise")
 
     session = get_session()
     try:
-        for i, user_pk in enumerate(user_pks):
-            row = UserCluster(
-                user_pk=user_pk,
-                embedding_case=embedding_case,
-                cluster_id=int(result.labels[i]),
-                umap_x=float(result.coords_2d[i, 0]),
-                umap_y=float(result.coords_2d[i, 1]),
-            )
-            session.merge(row)
+        with progress(len(user_pks), f"cluster save · {embedding_case}") as advance:
+            for i, user_pk in enumerate(user_pks):
+                row = UserCluster(
+                    user_pk=user_pk,
+                    embedding_case=embedding_case,
+                    cluster_id=int(result.labels[i]),
+                    umap_x=float(result.coords_2d[i, 0]),
+                    umap_y=float(result.coords_2d[i, 1]),
+                )
+                session.merge(row)
+                advance(1, detail=f"{i + 1}/{len(user_pks)}")
         session.commit()
     finally:
         session.close()

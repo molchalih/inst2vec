@@ -4,6 +4,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import numpy as np
 import pytest
+from unittest.mock import patch, MagicMock
 from modules.database import UserCluster
 from modules.clustering import compute_clusters, ClusterResult, resolve_umap2d_params
 
@@ -105,3 +106,31 @@ def test_compute_clusters_matrix_nd_returned_when_requested():
     )
     assert result.matrix_nd is not None
     assert result.matrix_nd.shape == (80, 5)  # n_rows × umap_n_components
+
+
+@patch("modules.clustering.hdbscan.HDBSCAN")
+@patch("modules.clustering.UMAP")
+def test_compute_clusters_passes_umap_n_jobs_to_both_umap_instances(mock_umap, mock_hdbscan):
+    """Both UMAP passes receive the same n_jobs as umap_n_jobs."""
+    inst_nd = MagicMock()
+    inst_nd.fit_transform.side_effect = lambda x: np.zeros((x.shape[0], 5), dtype=np.float32)
+    inst_2d = MagicMock()
+    inst_2d.fit_transform.side_effect = lambda x: np.zeros((x.shape[0], 2), dtype=np.float32)
+    mock_umap.side_effect = [inst_nd, inst_2d]
+
+    mock_clusterer = MagicMock()
+    mock_clusterer.fit_predict.return_value = np.array([0] * 40 + [1] * 40)
+    mock_hdbscan.return_value = mock_clusterer
+
+    matrix = _two_cluster_matrix()
+    compute_clusters(
+        matrix,
+        umap_n_components=5,
+        hdbscan_min_cluster_size=10,
+        random_state=0,
+        umap_n_jobs=4,
+    )
+
+    assert mock_umap.call_count == 2
+    assert mock_umap.call_args_list[0].kwargs["n_jobs"] == 4
+    assert mock_umap.call_args_list[1].kwargs["n_jobs"] == 4

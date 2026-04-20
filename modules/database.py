@@ -217,10 +217,10 @@ class ClusterRun(Base):
     disqualified = Column(Integer, nullable=True)
     dbcv = Column(Float, nullable=True)
     silhouette = Column(Float, nullable=True)
-    composite_score = Column(Float, nullable=True)
-    bootstrap_stability = Column(Float, nullable=True)
-    bootstrap_n_runs = Column(Integer, nullable=True)
     param_plateau_score = Column(Float, nullable=True)
+    in_current_grid = Column(Integer, nullable=True)   # 1=current, 0=stale
+    dataset_fingerprint = Column(String, nullable=True) # SHA-256 of sorted user PKs
+    validation_config_hash = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
@@ -259,10 +259,10 @@ def _migrate_cluster_runs_table() -> None:
         "disqualified": "INTEGER",
         "dbcv": "REAL",
         "silhouette": "REAL",
-        "composite_score": "REAL",
-        "bootstrap_stability": "REAL",
-        "bootstrap_n_runs": "INTEGER",
         "param_plateau_score": "REAL",
+        "in_current_grid": "INTEGER",
+        "dataset_fingerprint": "TEXT",
+        "validation_config_hash": "TEXT",
     }
     for col, col_type in new_cols.items():
         if col not in columns:
@@ -270,11 +270,33 @@ def _migrate_cluster_runs_table() -> None:
                 conn.execute(text(f"ALTER TABLE cluster_runs ADD COLUMN {col} {col_type}"))
 
 
+# legacy column drops run during init_db; no separate migrate script needed for these.
+def _migrate_cluster_runs_drop_legacy_columns() -> None:
+    """Drop unused legacy columns from cluster_runs (SQLite 3.35+ ALTER DROP COLUMN)."""
+    inspector = inspect(engine)
+    if "cluster_runs" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("cluster_runs")}
+    for col in ("composite_score", "bootstrap_stability", "bootstrap_n_runs"):
+        if col not in columns:
+            continue
+        try:
+            with engine.begin() as conn:
+                conn.execute(text(f"ALTER TABLE cluster_runs DROP COLUMN {col}"))
+        except Exception as exc:
+            log(
+                "database",
+                f"could not drop cluster_runs.{col} (needs sqlite 3.35+): {exc}",
+                level="warn",
+            )
+
+
 def init_db():
     Base.metadata.create_all(engine)
     _migrate_users_table()
     _migrate_clips_table()
     _migrate_cluster_runs_table()
+    _migrate_cluster_runs_drop_legacy_columns()
 
 
 def get_session() -> Session:
