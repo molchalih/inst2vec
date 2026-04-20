@@ -657,3 +657,126 @@ def test_compute_validation_config_hash_uses_defaults_when_env_absent():
         assert h1 == h2
     finally:
         os.environ.update(original)
+
+
+# --- Stale row invalidation ---
+
+def test_invalidate_stale_rows_nulls_config_dependent_fields_when_hash_differs():
+    eng = _make_engine()
+    with Session(eng) as s:
+        row = _insert_run(s, noise_ratio=0.1, n_clusters=5)
+        row.in_current_grid = 1
+        row.validation_config_hash = "oldhash00000000"
+        row.bootstrap_stability = 0.8
+        row.bootstrap_n_runs = 30
+        row.param_plateau_score = 0.7
+        row.composite_score = 0.6
+        row.dbcv = 0.9
+        row.silhouette = 0.85
+        s.commit()
+        row_id = row.id
+
+    from modules.cluster_validation import _invalidate_stale_rows
+    with Session(eng) as s:
+        _invalidate_stale_rows(s, "video", "newhash00000000")
+        updated = s.get(ClusterRun, row_id)
+        assert updated.bootstrap_stability is None
+        assert updated.bootstrap_n_runs is None
+        assert updated.param_plateau_score is None
+        assert updated.composite_score is None
+        assert updated.dbcv == pytest.approx(0.9)
+        assert updated.silhouette == pytest.approx(0.85)
+        assert updated.validation_config_hash == "newhash00000000"
+
+
+def test_invalidate_stale_rows_treats_null_hash_as_stale():
+    eng = _make_engine()
+    with Session(eng) as s:
+        row = _insert_run(s, noise_ratio=0.1, n_clusters=5)
+        row.in_current_grid = 1
+        row.validation_config_hash = None
+        row.bootstrap_stability = 0.5
+        row.bootstrap_n_runs = 10
+        row.param_plateau_score = 0.4
+        row.composite_score = 0.3
+        s.commit()
+        row_id = row.id
+
+    from modules.cluster_validation import _invalidate_stale_rows
+    with Session(eng) as s:
+        _invalidate_stale_rows(s, "video", "currenthash0000")
+        updated = s.get(ClusterRun, row_id)
+        assert updated.bootstrap_stability is None
+        assert updated.param_plateau_score is None
+        assert updated.composite_score is None
+        assert updated.validation_config_hash == "currenthash0000"
+
+
+def test_invalidate_stale_rows_skips_matching_hash():
+    eng = _make_engine()
+    with Session(eng) as s:
+        row = _insert_run(s, noise_ratio=0.1, n_clusters=5)
+        row.in_current_grid = 1
+        row.validation_config_hash = "currenthash0000"
+        row.bootstrap_stability = 0.8
+        row.bootstrap_n_runs = 30
+        row.param_plateau_score = 0.7
+        row.composite_score = 0.6
+        s.commit()
+        row_id = row.id
+
+    from modules.cluster_validation import _invalidate_stale_rows
+    with Session(eng) as s:
+        _invalidate_stale_rows(s, "video", "currenthash0000")
+        updated = s.get(ClusterRun, row_id)
+        assert updated.bootstrap_stability == pytest.approx(0.8)
+        assert updated.param_plateau_score == pytest.approx(0.7)
+        assert updated.composite_score == pytest.approx(0.6)
+
+
+def test_invalidate_stale_rows_ignores_non_current_grid_rows():
+    eng = _make_engine()
+    with Session(eng) as s:
+        row = _insert_run(s, noise_ratio=0.1, n_clusters=5)
+        row.in_current_grid = 0
+        row.validation_config_hash = "oldhash00000000"
+        row.bootstrap_stability = 0.8
+        row.param_plateau_score = 0.7
+        row.composite_score = 0.6
+        s.commit()
+        row_id = row.id
+
+    from modules.cluster_validation import _invalidate_stale_rows
+    with Session(eng) as s:
+        _invalidate_stale_rows(s, "video", "newhash00000000")
+        updated = s.get(ClusterRun, row_id)
+        assert updated.bootstrap_stability == pytest.approx(0.8)
+        assert updated.param_plateau_score == pytest.approx(0.7)
+        assert updated.composite_score == pytest.approx(0.6)
+        assert updated.validation_config_hash == "oldhash00000000"
+
+
+def test_invalidate_stale_rows_only_affects_matching_case():
+    eng = _make_engine()
+    with Session(eng) as s:
+        video_row = _insert_run(s, embedding_case="video", noise_ratio=0.1, n_clusters=5,
+                                umap_n_components=10, random_state=1)
+        video_row.in_current_grid = 1
+        video_row.validation_config_hash = "oldhash00000000"
+        video_row.bootstrap_stability = 0.8
+
+        audio_row = _insert_run(s, embedding_case="audio", noise_ratio=0.1, n_clusters=5,
+                                umap_n_components=10, random_state=1)
+        audio_row.in_current_grid = 1
+        audio_row.validation_config_hash = "oldhash00000000"
+        audio_row.bootstrap_stability = 0.9
+        s.commit()
+        vid_id, aud_id = video_row.id, audio_row.id
+
+    from modules.cluster_validation import _invalidate_stale_rows
+    with Session(eng) as s:
+        _invalidate_stale_rows(s, "video", "newhash00000000")
+        vid = s.get(ClusterRun, vid_id)
+        aud = s.get(ClusterRun, aud_id)
+        assert vid.bootstrap_stability is None
+        assert aud.bootstrap_stability == pytest.approx(0.9)

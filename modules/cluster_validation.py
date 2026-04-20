@@ -7,6 +7,7 @@ import os
 import numpy as np
 import hdbscan.validity
 from sklearn.metrics import silhouette_score, adjusted_rand_score
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from modules.database import ClusterRun, get_session
@@ -33,6 +34,30 @@ def _compute_validation_config_hash() -> str:
         "top_n_plateau": os.environ.get("VALIDATION_TOP_N_PLATEAU", "20"),
     }
     return hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()[:16]
+
+
+def _invalidate_stale_rows(session: Session, case: str, current_hash: str) -> None:
+    stale = (
+        session.query(ClusterRun)
+        .filter(
+            ClusterRun.embedding_case == case,
+            ClusterRun.in_current_grid == 1,
+            or_(
+                ClusterRun.validation_config_hash.is_(None),
+                ClusterRun.validation_config_hash != current_hash,
+            ),
+        )
+        .all()
+    )
+    for row in stale:
+        row.bootstrap_stability = None
+        row.bootstrap_n_runs = None
+        row.param_plateau_score = None
+        row.composite_score = None
+        row.validation_config_hash = current_hash
+    if stale:
+        session.commit()
+        log(f"validate:{case}", f"invalidated {len(stale)} stale rows (config hash changed)")
 
 
 def _row_to_params(row: ClusterRun) -> dict:
