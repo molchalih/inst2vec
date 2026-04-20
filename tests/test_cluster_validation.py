@@ -782,3 +782,55 @@ def test_invalidate_stale_rows_only_affects_matching_case():
         aud = s.get(ClusterRun, aud_id)
         assert vid.bootstrap_stability is None
         assert aud.bootstrap_stability == pytest.approx(0.9)
+
+
+def test_validate_clustering_calls_invalidation_before_phases(monkeypatch):
+    """_invalidate_stale_rows must be called once per case before any phase runs."""
+    calls = []
+
+    def fake_invalidate(session, case, current_hash):
+        calls.append((case, current_hash))
+
+    def fake_load_matrix_video(case):
+        if case == "video":
+            return (np.ones((5, 10), dtype=np.float32), list(range(5)))
+        return (np.zeros((0, 10), dtype=np.float32), [])
+
+    def fake_phase_filter(session, case):
+        pass
+
+    def fake_phase_score(session, case, matrix):
+        pass
+
+    def fake_phase_composite(session, case):
+        pass
+
+    def fake_phase_bootstrap(session, case, matrix):
+        pass
+
+    def fake_phase_plateau(session, case):
+        pass
+
+    def fake_phase_composite_final(session, case):
+        pass
+
+    def fake_select_best(session, case):
+        return None
+
+    monkeypatch.setattr("modules.cluster_validation._invalidate_stale_rows", fake_invalidate)
+    monkeypatch.setattr("modules.cluster_validation.load_user_matrix", fake_load_matrix_video)
+    monkeypatch.setattr("modules.cluster_validation._phase_filter", fake_phase_filter)
+    monkeypatch.setattr("modules.cluster_validation._phase_score", fake_phase_score)
+    monkeypatch.setattr("modules.cluster_validation._phase_composite", fake_phase_composite)
+    monkeypatch.setattr("modules.cluster_validation._phase_bootstrap", fake_phase_bootstrap)
+    monkeypatch.setattr("modules.cluster_validation._phase_plateau", fake_phase_plateau)
+    monkeypatch.setattr("modules.cluster_validation._phase_composite_final", fake_phase_composite_final)
+    monkeypatch.setattr("modules.cluster_validation._select_best", fake_select_best)
+
+    from modules.cluster_validation import validate_clustering
+    validate_clustering()
+
+    assert any(case == "video" for case, _ in calls), "invalidation not called for video case"
+    video_hash = next(h for c, h in calls if c == "video")
+    assert len(video_hash) == 16
+    assert all(c in "0123456789abcdef" for c in video_hash)

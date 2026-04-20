@@ -396,6 +396,7 @@ def validate_clustering() -> dict[str, dict | None]:
     Returns best params per case (ready to splat into cluster_users), or None
     if no eligible run exists for that case.
     """
+    current_hash = _compute_validation_config_hash()
     result: dict[str, dict | None] = {}
     for case in ["video", "sandwich", "audio"]:
         log(f"validate:{case}", "starting")
@@ -406,6 +407,7 @@ def validate_clustering() -> dict[str, dict | None]:
             continue
         session = get_session()
         try:
+            _invalidate_stale_rows(session, case, current_hash)
             _phase_filter(session, case)
             _phase_score(session, case, matrix)
             _phase_composite(session, case)
