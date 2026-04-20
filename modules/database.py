@@ -218,8 +218,6 @@ class ClusterRun(Base):
     dbcv = Column(Float, nullable=True)
     silhouette = Column(Float, nullable=True)
     composite_score = Column(Float, nullable=True)
-    bootstrap_stability = Column(Float, nullable=True)
-    bootstrap_n_runs = Column(Integer, nullable=True)
     param_plateau_score = Column(Float, nullable=True)
     in_current_grid = Column(Integer, nullable=True)   # 1=current, 0=stale
     dataset_fingerprint = Column(String, nullable=True) # SHA-256 of sorted user PKs
@@ -263,8 +261,6 @@ def _migrate_cluster_runs_table() -> None:
         "dbcv": "REAL",
         "silhouette": "REAL",
         "composite_score": "REAL",
-        "bootstrap_stability": "REAL",
-        "bootstrap_n_runs": "INTEGER",
         "param_plateau_score": "REAL",
         "in_current_grid": "INTEGER",
         "dataset_fingerprint": "TEXT",

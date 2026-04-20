@@ -208,8 +208,6 @@ def run_cluster_search() -> None:
                         stale_row.dbcv = None
                         stale_row.silhouette = None
                         stale_row.composite_score = None
-                        stale_row.bootstrap_stability = None
-                        stale_row.bootstrap_n_runs = None
                         stale_row.param_plateau_score = None
                         session.commit()
                         total_new += 1
