@@ -149,6 +149,15 @@ def load_user_matrix(embedding_case: str) -> tuple[np.ndarray, list[int]]:
         session.close()
 
 
+def _clustering_jobs_env() -> int:
+    raw = os.environ.get("CLUSTERING_JOBS", "1").strip()
+    try:
+        n = int(raw)
+    except ValueError:
+        n = 1
+    return max(1, n)
+
+
 def cluster_users(embedding_case: str, **params) -> None:
     Base.metadata.create_all(engine)
     matrix, user_pks = load_user_matrix(embedding_case)
@@ -162,7 +171,7 @@ def cluster_users(embedding_case: str, **params) -> None:
     with progress(1, f"cluster fit · {embedding_case}") as advance:
         advance(0, detail="UMAP + HDBSCAN (may take a while)")
         try:
-            result = compute_clusters(matrix, **params)
+            result = compute_clusters(matrix, umap_n_jobs=_clustering_jobs_env(), **params)
         except ValueError as exc:
             log(f"cluster:{embedding_case}", f"skipping — {exc}", level="warn")
             return
