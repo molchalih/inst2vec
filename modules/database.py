@@ -223,6 +223,7 @@ class ClusterRun(Base):
     param_plateau_score = Column(Float, nullable=True)
     in_current_grid = Column(Integer, nullable=True)   # 1=current, 0=stale
     dataset_fingerprint = Column(String, nullable=True) # SHA-256 of sorted user PKs
+    validation_config_hash = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
@@ -267,6 +268,7 @@ def _migrate_cluster_runs_table() -> None:
         "param_plateau_score": "REAL",
         "in_current_grid": "INTEGER",
         "dataset_fingerprint": "TEXT",
+        "validation_config_hash": "TEXT",
     }
     for col, col_type in new_cols.items():
         if col not in columns:
