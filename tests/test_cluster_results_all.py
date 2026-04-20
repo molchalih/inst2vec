@@ -1,6 +1,7 @@
 import os
 import sys
 
+from IPython.display import Markdown
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
@@ -52,67 +53,7 @@ def _run_row(
     )
 
 
-def test_summarize_audio_fixed_format():
-    eng = _make_engine()
-    with Session(eng) as s:
-        s.add(
-            _run_row(
-                embedding_case="audio",
-                umap_n_neighbors=10,
-                dbcv=0.2,
-                silhouette=-0.5,
-                n_clusters=2,
-                noise_ratio=0.1,
-            )
-        )
-        s.add(
-            _run_row(
-                embedding_case="audio",
-                umap_n_neighbors=11,
-                dbcv=0.0,
-                silhouette=0.1,
-                n_clusters=3,
-                noise_ratio=0.2,
-            )
-        )
-        s.add(
-            _run_row(
-                embedding_case="video",
-                umap_n_neighbors=12,
-                dbcv=0.9,
-                silhouette=0.5,
-                n_clusters=5,
-                noise_ratio=0.0,
-            )
-        )
-        s.commit()
-
-    from generators.cluster_results_all import summarize_to_lines
-
-    lines = summarize_to_lines(eng, case="audio", include_filtered=True)
-    out = "\n".join(lines) + "\n"
-    expected = """case: audio
-n_runs: 2
-dbcv_mean: 0.100
-dbcv_std: 0.141
-dbcv_min: 0.000
-dbcv_max: 0.200
-silhouette_mean: -0.200
-silhouette_std: 0.424
-k_mean: 2.500
-k_median: 2.500
-pct_k_le_2: 50.0
-pct_k_le_3: 100.0
-noise_pct_mean: 15.000
-noise_pct_std: 7.071
-pct_negative_silhouette: 50.0
-pct_dbcv_lt_0_1: 50.0
-pct_dbcv_lt_0: 0.0
-"""
-    assert out == expected
-
-
-def test_exclude_filtered_drops_rows():
+def test_summarize_all_to_markdown_unified_table():
     eng = _make_engine()
     with Session(eng) as s:
         s.add(
@@ -121,6 +62,61 @@ def test_exclude_filtered_drops_rows():
                 umap_n_neighbors=10,
                 dbcv=0.5,
                 silhouette=0.0,
+                n_clusters=2,
+                noise_ratio=0.1,
+                disqualified=0,
+                in_current_grid=1,
+            )
+        )
+        s.add(
+            _run_row(
+                embedding_case="video",
+                umap_n_neighbors=11,
+                dbcv=0.9,
+                silhouette=0.3,
+                n_clusters=4,
+                noise_ratio=0.0,
+                disqualified=0,
+                in_current_grid=1,
+            )
+        )
+        s.add(
+            _run_row(
+                embedding_case="sandwich",
+                umap_n_neighbors=12,
+                dbcv=0.7,
+                silhouette=0.2,
+                n_clusters=3,
+                noise_ratio=0.05,
+                disqualified=0,
+                in_current_grid=1,
+            )
+        )
+        s.commit()
+
+    from generators.cluster_results_all import summarize_all_to_markdown
+
+    out = summarize_all_to_markdown(
+        eng,
+        cases=("audio", "video", "sandwich"),
+    )
+
+    assert "| Metric | audio | video | sandwich |" in out
+    assert "| $n_{\\mathrm{runs}}$ | 1 | 1 | 1 |" in out
+    assert "| $n_{\\mathrm{filtered}}$ | 1 | 1 | 1 |" in out
+    assert "| $\\mu_{\\mathrm{dbcv}}$ | 0.500 | 0.900 | 0.700 |" in out
+    assert "| $\\mu_{\\mathrm{sil}}$ | 0.000 | 0.300 | 0.200 |" in out
+
+
+def test_summarize_all_to_markdown_reports_total_and_filtered_counts():
+    eng = _make_engine()
+    with Session(eng) as s:
+        s.add(
+            _run_row(
+                embedding_case="audio",
+                umap_n_neighbors=10,
+                dbcv=0.2,
+                silhouette=-0.5,
                 n_clusters=2,
                 noise_ratio=0.1,
                 disqualified=0,
@@ -153,9 +149,102 @@ def test_exclude_filtered_drops_rows():
         )
         s.commit()
 
-    from generators.cluster_results_all import summarize_to_lines
+    from generators.cluster_results_all import summarize_all_to_markdown
 
-    all_lines = summarize_to_lines(eng, case="audio", include_filtered=True)
-    filt_lines = summarize_to_lines(eng, case="audio", include_filtered=False)
-    assert any("n_runs: 3" in ln for ln in all_lines)
-    assert any("n_runs: 1" in ln for ln in filt_lines)
+    out = summarize_all_to_markdown(eng, cases=("audio",))
+
+    assert "| $n_{\\mathrm{runs}}$ | 3 |" in out
+    assert "| $n_{\\mathrm{filtered}}$ | 1 |" in out
+    assert "| $\\mu_{\\mathrm{dbcv}}$ | 0.400 |" in out
+    assert "| $\\sigma_{\\mathrm{dbcv}}$ | 0.436 |" in out
+    assert "| $\\mu_{\\mathrm{sil}}$ | -0.167 |" in out
+    assert "| $\\tilde{k}$ | 2.000 |" in out
+    assert "| $\\mu_{\\mathrm{noise}}$ (%) | 10.000 |" in out
+
+
+def test_render_clustering_summary_returns_markdown_object():
+    eng = _make_engine()
+    with Session(eng) as s:
+        s.add(
+            _run_row(
+                embedding_case="audio",
+                umap_n_neighbors=10,
+                dbcv=0.5,
+                silhouette=0.1,
+                n_clusters=2,
+                noise_ratio=0.1,
+                disqualified=0,
+                in_current_grid=1,
+            )
+        )
+        s.add(
+            _run_row(
+                embedding_case="video",
+                umap_n_neighbors=11,
+                dbcv=0.9,
+                silhouette=0.3,
+                n_clusters=4,
+                noise_ratio=0.0,
+                disqualified=0,
+                in_current_grid=1,
+            )
+        )
+        s.add(
+            _run_row(
+                embedding_case="sandwich",
+                umap_n_neighbors=12,
+                dbcv=0.7,
+                silhouette=0.2,
+                n_clusters=3,
+                noise_ratio=0.05,
+                disqualified=0,
+                in_current_grid=1,
+            )
+        )
+        s.commit()
+
+    from docs.quarto_helpers import render_clustering_summary
+    from generators.cluster_results_all import summarize_all_to_markdown
+
+    rendered = render_clustering_summary(eng=eng)
+
+    assert isinstance(rendered, Markdown)
+    assert rendered.data == summarize_all_to_markdown(
+        eng,
+        cases=("audio", "video", "sandwich"),
+    )
+
+
+def test_summarize_all_to_markdown_raises_on_empty_cases():
+    eng = _make_engine()
+
+    from generators.cluster_results_all import summarize_all_to_markdown
+
+    try:
+        summarize_all_to_markdown(eng, cases=())
+    except ValueError as exc:
+        assert str(exc) == "cases must contain at least one embedding case"
+    else:
+        raise AssertionError("Expected ValueError for empty cases tuple")
+
+
+def test_summarize_all_to_markdown_delegates_summary(monkeypatch):
+    def fake_summary(session, case):
+        return {
+            "n_runs": "1",
+            "n_filtered": "1",
+            "dbcv_mean": "0.500",
+            "dbcv_std": "0.000",
+            "silhouette_mean": "0.100",
+            "k_median": "2.000",
+            "noise_pct_mean": "10.000",
+        }
+
+    monkeypatch.setattr("generators.cluster_results_all.summarize_case_for_markdown", fake_summary)
+
+    from generators.cluster_results_all import summarize_all_to_markdown
+
+    eng = _make_engine()
+    out = summarize_all_to_markdown(eng, cases=("audio",))
+
+    assert "| $n_{\\mathrm{runs}}$ | 1 |" in out
