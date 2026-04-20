@@ -11,6 +11,15 @@ from modules.database import Base, engine, get_session, UserEmbedding, UserClust
 from modules.services import log
 
 
+def env_positive_int(key: str, default: str = "1") -> int:
+    raw = os.environ.get(key, default).strip()
+    try:
+        n = int(raw)
+    except ValueError:
+        n = int(default)
+    return max(1, n)
+
+
 @dataclass
 class ClusterResult:
     labels: np.ndarray
@@ -150,12 +159,7 @@ def load_user_matrix(embedding_case: str) -> tuple[np.ndarray, list[int]]:
 
 
 def _clustering_jobs_env() -> int:
-    raw = os.environ.get("CLUSTERING_JOBS", "1").strip()
-    try:
-        n = int(raw)
-    except ValueError:
-        n = 1
-    return max(1, n)
+    return env_positive_int("CLUSTERING_JOBS")
 
 
 def cluster_users(embedding_case: str, **params) -> None:
