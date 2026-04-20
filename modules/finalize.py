@@ -137,13 +137,32 @@ def finalize_user_dataset(pass_name: str = "A") -> None:
             continue
         parsed_users.append(user)
 
+    # Pass A: pre-gate users with too few raw clips before computing stats
+    pre_gate_users: list[User] = []
+    pre_gated_clip_pks: set[int] = set()  # Track clips disqualified in pre-gate for later deduplication
+    if is_pass_a:
+        for user in parsed_users:
+            if len(user.clips) < TARGET_CLIPS_PER_USER:
+                user.user_disqualified = 1
+                disq_count += 1
+                reason_counts["clip_count"] += 1
+                for clip in user.clips:
+                    clip.disqualified = 1
+                    clip_disq += 1
+                    clip_reason_counts["user_disqualified"] += 1
+                    pre_gated_clip_pks.add(clip.pk)
+            else:
+                pre_gate_users.append(user)
+    else:
+        pre_gate_users = parsed_users  # Pass B: no pre-gate
+
     # pass A: apply statistical clip first then user-level cascade
     global_floor = 0
     creator_outlier_ids: set[int] = set()
     if is_pass_a:
         all_play_counts = [
             int(clip.play_count)
-            for user in parsed_users
+            for user in pre_gate_users
             for clip in user.clips
             if (
                 clip.play_count is not None
@@ -153,11 +172,11 @@ def finalize_user_dataset(pass_name: str = "A") -> None:
         percentile_floor = _quantile_int(all_play_counts, GLOBAL_MIN_PLAYS_PERCENTILE)
         global_floor = max(GLOBAL_MIN_PLAYS, percentile_floor)
         creator_outlier_ids = _creator_relative_low_outliers(
-            parsed_users,
+            pre_gate_users,
             only_active_clips=not PASS_A_RECOMPUTE_FROM_SCRATCH,
         )
 
-    for user in parsed_users:
+    for user in (pre_gate_users if is_pass_a else parsed_users):
         if is_pass_a:
             active_clip_ids: list[int] = []
             stat_disq_by_clip: dict[int, bool] = {}
@@ -193,22 +212,30 @@ def finalize_user_dataset(pass_name: str = "A") -> None:
                 reason_counts["text_count"] += 1
 
         for clip in user.clips:
+            was_pre_gated = clip.pk in pre_gated_clip_pks
             should_disqualify_clip = disqualified or stat_disq_by_clip.get(clip.pk, False)
             clip.disqualified = 1 if should_disqualify_clip else 0
 
             if should_disqualify_clip:
-                clip_disq += 1
+                # Only count this clip if it wasn't already counted in pre-gate
+                if not was_pre_gated:
+                    clip_disq += 1
                 if disqualified:
-                    clip_reason_counts["user_disqualified"] += 1
+                    # Count user_disqualified reason even if clip was pre-gated
+                    # (the user re-gate is what's disqualifying it now, even if stat-disq did too)
+                    if not was_pre_gated:
+                        clip_reason_counts["user_disqualified"] += 1
                 if is_pass_a:
                     if (
                         global_floor > 0
                         and clip.play_count is not None
                         and int(clip.play_count) < global_floor
                     ):
-                        clip_reason_counts["global_low_plays"] += 1
+                        if not was_pre_gated:
+                            clip_reason_counts["global_low_plays"] += 1
                     if clip.pk in creator_outlier_ids:
-                        clip_reason_counts["creator_low_outlier"] += 1
+                        if not was_pre_gated:
+                            clip_reason_counts["creator_low_outlier"] += 1
             else:
                 clip_kept += 1
 

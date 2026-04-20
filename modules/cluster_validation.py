@@ -40,7 +40,10 @@ def _phase_filter(session: Session, case: str) -> None:
 
     rows = (
         session.query(ClusterRun)
-        .filter(ClusterRun.embedding_case == case)
+        .filter(
+            ClusterRun.embedding_case == case,
+            ClusterRun.in_current_grid == 1,
+        )
         .all()
     )
     n_pass = 0
@@ -128,6 +131,38 @@ def _phase_composite(session: Session, case: str) -> None:
         row.composite_score = round(0.5 * dn + 0.2 * sn + 0.3 * stn, 6)
     session.commit()
     log(f"validate:{case}", f"composite — updated {len(rows)} rows")
+
+
+def _phase_composite_final(session: Session, case: str) -> None:
+    """Recompute composite_score using the full 4-factor formula after plateau is available.
+
+    composite = 0.35*dbcv_norm + 0.15*sil_norm + 0.20*bootstrap_norm + 0.30*plateau_norm
+
+    Only current-grid rows with param_plateau_score set are considered. bootstrap_stability=None → 0.0.
+    """
+    rows = (
+        session.query(ClusterRun)
+        .filter(
+            ClusterRun.embedding_case == case,
+            ClusterRun.disqualified == 0,
+            ClusterRun.in_current_grid == 1,
+            ClusterRun.param_plateau_score.isnot(None),
+        )
+        .all()
+    )
+    if not rows:
+        return
+
+    dbcv_norm = _minmax([r.dbcv if r.dbcv is not None else float("nan") for r in rows])
+    sil_norm = _minmax([r.silhouette if r.silhouette is not None else float("nan") for r in rows])
+    stab_vals = [r.bootstrap_stability if r.bootstrap_stability is not None else 0.0 for r in rows]
+    stab_norm = _minmax(stab_vals)
+    plateau_norm = _minmax([r.param_plateau_score for r in rows])
+
+    for row, dn, sn, stn, pn in zip(rows, dbcv_norm, sil_norm, stab_norm, plateau_norm):
+        row.composite_score = round(0.35 * dn + 0.15 * sn + 0.20 * stn + 0.30 * pn, 6)
+    session.commit()
+    log(f"validate:{case}", f"composite_final — updated {len(rows)} rows")
 
 
 def _ari_non_noise(labels_a: np.ndarray, labels_b: np.ndarray) -> float:
@@ -307,11 +342,10 @@ def _select_best(session: Session, case: str) -> ClusterRun | None:
         log(f"validate:{case}", "select — no eligible runs", level="warn")
         return None
 
-    best = max(rows, key=lambda r: 0.7 * r.composite_score + 0.3 * r.param_plateau_score)
-    final = 0.7 * best.composite_score + 0.3 * best.param_plateau_score
+    best = max(rows, key=lambda r: r.composite_score)
     msg = (
-        f"selected run id={best.id} final={final:.4f}"
-        f" composite={best.composite_score:.4f} plateau={best.param_plateau_score:.4f}"
+        f"selected run id={best.id} composite={best.composite_score:.4f}"
+        f" plateau={best.param_plateau_score:.4f}"
     )
     log(f"validate:{case}", msg, level="ok")
     return best
@@ -339,6 +373,7 @@ def validate_clustering() -> dict[str, dict | None]:
             _phase_bootstrap(session, case, matrix)
             _phase_composite(session, case)
             _phase_plateau(session, case)
+            _phase_composite_final(session, case)
             best = _select_best(session, case)
             result[case] = _row_to_params(best) if best is not None else None
         finally:
