@@ -707,6 +707,7 @@ def test_invalidate_stale_rows_treats_null_hash_as_stale():
         _invalidate_stale_rows(s, "video", "currenthash0000")
         updated = s.get(ClusterRun, row_id)
         assert updated.bootstrap_stability is None
+        assert updated.bootstrap_n_runs is None
         assert updated.param_plateau_score is None
         assert updated.composite_score is None
         assert updated.validation_config_hash == "currenthash0000"
@@ -730,6 +731,7 @@ def test_invalidate_stale_rows_skips_matching_hash():
         _invalidate_stale_rows(s, "video", "currenthash0000")
         updated = s.get(ClusterRun, row_id)
         assert updated.bootstrap_stability == pytest.approx(0.8)
+        assert updated.bootstrap_n_runs == 30
         assert updated.param_plateau_score == pytest.approx(0.7)
         assert updated.composite_score == pytest.approx(0.6)
 
