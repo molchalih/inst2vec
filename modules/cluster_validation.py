@@ -2,6 +2,7 @@
 import hashlib
 import json
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import numpy as np
 import hdbscan.validity
@@ -11,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from modules.console import progress
 from modules.database import ClusterRun, get_session
-from modules.clustering import compute_clusters, load_user_matrix
+from modules.clustering import compute_clusters, env_positive_int, load_user_matrix
 from modules.services import log
 
 
@@ -65,6 +66,36 @@ def _row_to_params(row: ClusterRun) -> dict:
     return {col: getattr(row, col) for col in _PARAM_COLS}
 
 
+def _compute_row_scores(matrix: np.ndarray, params: dict) -> tuple[float, float] | str:
+    """Run clustering and metrics for one param set. Returns (dbcv, silhouette) or error token."""
+    try:
+        result = compute_clusters(matrix, return_nd_matrix=True, **params)
+    except ValueError:
+        return "value_error"
+
+    X_nd = result.matrix_nd.astype(np.float64)
+    labels = result.labels
+
+    try:
+        dbcv = float(hdbscan.validity.validity_index(
+            X_nd, labels, metric=params["hdbscan_metric"]
+        ))
+    except Exception:
+        return "dbcv_fail"
+
+    non_noise = labels != -1
+    unique_clusters = np.unique(labels[non_noise])
+    if len(unique_clusters) >= 2:
+        try:
+            sil = float(silhouette_score(X_nd[non_noise], labels[non_noise]))
+        except Exception:
+            sil = 0.0
+    else:
+        sil = 0.0
+
+    return dbcv, sil
+
+
 def _phase_filter(session: Session, case: str) -> None:
     max_noise = float(os.environ.get("VALIDATION_MAX_NOISE_RATIO", "0.3"))
     min_clusters = int(os.environ.get("VALIDATION_MIN_CLUSTERS", "3"))
@@ -106,45 +137,77 @@ def _phase_score(session: Session, case: str, matrix: np.ndarray) -> None:
     if not rows:
         return
 
-    with progress(len(rows), f"validate score · {case}") as advance:
-        for i, row in enumerate(rows):
-            params = _row_to_params(row)
-            advance(0, detail=f"id={row.id} ({i + 1}/{len(rows)})")
-            try:
-                result = compute_clusters(matrix, return_nd_matrix=True, **params)
-            except ValueError as exc:
-                log(f"validate:{case}", f"score skip id={row.id} — {exc}", level="warn")
+    workers = env_positive_int("CLUSTERING_GRID_WORKERS")
+
+    def persist_row_result(row_id: int, outcome) -> None:
+        sess = get_session()
+        try:
+            row = sess.get(ClusterRun, row_id)
+            if row is None:
+                return
+            if outcome == "value_error":
+                log(f"validate:{case}", f"score skip id={row_id} — ValueError", level="warn")
                 row.disqualified = 1
-                session.commit()
-                advance(1, detail=f"id={row.id} skip")
-                continue
-
-            X_nd = result.matrix_nd.astype(np.float64)
-            labels = result.labels
-
-            try:
-                row.dbcv = float(hdbscan.validity.validity_index(
-                    X_nd, labels, metric=row.hdbscan_metric
-                ))
-            except Exception:
-                log(f"validate:{case}", f"dbcv failed id={row.id} — disqualifying", level="err")
+            elif outcome == "dbcv_fail":
+                log(f"validate:{case}", f"dbcv failed id={row_id} — disqualifying", level="err")
                 row.disqualified = 1
-                session.commit()
-                advance(1, detail=f"id={row.id} dbcv fail")
-                continue
-
-            non_noise = labels != -1
-            unique_clusters = np.unique(labels[non_noise])
-            if len(unique_clusters) >= 2:
-                try:
-                    row.silhouette = float(silhouette_score(X_nd[non_noise], labels[non_noise]))
-                except Exception:
-                    row.silhouette = 0.0
             else:
-                row.silhouette = 0.0
+                dbcv, sil = outcome
+                row.dbcv = dbcv
+                row.silhouette = sil
+            sess.commit()
+        finally:
+            sess.close()
 
-            session.commit()
-            advance(1, detail=f"id={row.id} dbcv={row.dbcv:.4f} sil={row.silhouette:.4f}")
+    with progress(len(rows), f"validate score · {case}") as advance:
+        if workers == 1:
+            for i, row in enumerate(rows):
+                params = _row_to_params(row)
+                advance(0, detail=f"id={row.id} ({i + 1}/{len(rows)})")
+                outcome = _compute_row_scores(matrix, params)
+                if outcome == "value_error":
+                    log(f"validate:{case}", f"score skip id={row.id} — ValueError", level="warn")
+                    row.disqualified = 1
+                elif outcome == "dbcv_fail":
+                    log(f"validate:{case}", f"dbcv failed id={row.id} — disqualifying", level="err")
+                    row.disqualified = 1
+                else:
+                    dbcv, sil = outcome
+                    row.dbcv = dbcv
+                    row.silhouette = sil
+                session.commit()
+                advance(
+                    1,
+                    detail=(
+                        f"id={row.id} dbcv={row.dbcv:.4f} sil={row.silhouette:.4f}"
+                        if row.dbcv is not None
+                        else f"id={row.id} skip"
+                    ),
+                )
+        else:
+            def work(item: tuple[int, dict]) -> tuple[int, object]:
+                rid, params = item
+                return rid, _compute_row_scores(matrix, params)
+
+            payload = [(row.id, _row_to_params(row)) for row in rows]
+            with ThreadPoolExecutor(max_workers=workers) as ex:
+                futures = {ex.submit(work, p): p[0] for p in payload}
+                for fut in as_completed(futures):
+                    row_id = futures[fut]
+                    short = f"id={row_id}"
+                    advance(0, detail=short)
+                    try:
+                        rid, outcome = fut.result()
+                    except Exception as exc:
+                        log(f"validate:{case}", f"score skip id={row_id} — {exc}", level="warn")
+                        persist_row_result(row_id, "value_error")
+                        advance(1, detail=f"{short} skip")
+                        continue
+                    persist_row_result(rid, outcome)
+                    advance(1, detail=f"{short} done")
+
+    if workers > 1:
+        session.expire_all()
 
 
 def _find_param_neighbors(target: ClusterRun, candidates: list[ClusterRun]) -> list[ClusterRun]:
