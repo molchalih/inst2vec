@@ -1,6 +1,7 @@
 """Grid search over UMAP + HDBSCAN hyperparameters; saves aggregate metrics to ClusterRun."""
 import hashlib
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from itertools import product
 
 import numpy as np
@@ -92,6 +93,24 @@ def _load_grid() -> list[dict]:
     return combos
 
 
+def _clustering_jobs() -> int:
+    raw = os.environ.get("CLUSTERING_JOBS", "1").strip()
+    try:
+        n = int(raw)
+    except ValueError:
+        n = 1
+    return max(1, n)
+
+
+def _clustering_grid_workers() -> int:
+    raw = os.environ.get("CLUSTERING_GRID_WORKERS", "1").strip()
+    try:
+        n = int(raw)
+    except ValueError:
+        n = 1
+    return max(1, n)
+
+
 def run_cluster_search() -> None:
     """Run grid search over all hyperparameter combos from env; save metrics to ClusterRun.
 
@@ -104,6 +123,8 @@ def run_cluster_search() -> None:
     """
     Base.metadata.create_all(engine)
     combos = _load_grid()
+    umap_n_jobs = _clustering_jobs()
+    grid_workers = _clustering_grid_workers()
 
     combos_by_case: dict[str, list[dict]] = {}
     for combo in combos:
@@ -144,7 +165,26 @@ def run_cluster_search() -> None:
             session.close()
 
         with progress(len(case_combos), f"cluster search · {case}") as advance:
+            pending: list[dict] = []
             for combo in case_combos:
+                short = (
+                    f"nc={combo['umap_n_components']} nn={combo['umap_n_neighbors']} "
+                    f"mcs={combo['hdbscan_min_cluster_size']}"
+                )
+                session = get_session()
+                try:
+                    if session.query(ClusterRun).filter_by(**combo).filter(
+                        ClusterRun.dataset_fingerprint == fingerprint
+                    ).first():
+                        total_skipped += 1
+                        advance(1, detail=f"{short} | cached")
+                    else:
+                        pending.append(combo)
+                finally:
+                    session.close()
+
+            def persist_result(combo: dict, result) -> None:
+                nonlocal total_new, total_skipped
                 short = (
                     f"nc={combo['umap_n_components']} nn={combo['umap_n_neighbors']} "
                     f"mcs={combo['hdbscan_min_cluster_size']}"
@@ -152,22 +192,12 @@ def run_cluster_search() -> None:
                 params = {k: v for k, v in combo.items() if k != "embedding_case"}
                 session = get_session()
                 try:
-                    # Skip if already computed for the current fingerprint
                     if session.query(ClusterRun).filter_by(**combo).filter(
                         ClusterRun.dataset_fingerprint == fingerprint
                     ).first():
                         total_skipped += 1
                         advance(1, detail=f"{short} | cached")
-                        continue
-
-                    try:
-                        result = compute_clusters(matrix, **params)
-                    except ValueError as exc:
-                        log(f"cluster_search:{case}", f"skipping — {exc}", level="warn")
-                        total_skipped += 1
-                        advance(1, detail=f"{short} | skip {str(exc)[:48]}")
-                        continue
-
+                        return
                     sizes = result.cluster_sizes
                     row = ClusterRun(
                         **combo,
@@ -185,17 +215,15 @@ def run_cluster_search() -> None:
                     advance(1, detail=f"{short} | k={result.n_clusters} new")
                 except IntegrityError:
                     session.rollback()
-                    # A stale row with the same hyperparams exists (non-None hdbscan_min_samples
-                    # case — SQLite unique constraint fires). Update it in-place instead.
                     stale_row = session.query(ClusterRun).filter_by(**combo).first()
                     if stale_row is not None:
                         try:
-                            result = compute_clusters(matrix, **params)
+                            result = compute_clusters(matrix, umap_n_jobs=umap_n_jobs, **params)
                         except ValueError as exc:
                             log(f"cluster_search:{case}", f"update-skip — {exc}", level="warn")
                             total_skipped += 1
                             advance(1, detail=f"{short} | upd-skip {str(exc)[:40]}")
-                            continue
+                            return
                         sizes = result.cluster_sizes
                         stale_row.n_clusters = result.n_clusters
                         stale_row.noise_ratio = round(result.noise_ratio, 4)
@@ -217,5 +245,42 @@ def run_cluster_search() -> None:
                         advance(1, detail=f"{short} | integrity skip")
                 finally:
                     session.close()
+
+            def run_one_combo(c: dict):
+                p = {k: v for k, v in c.items() if k != "embedding_case"}
+                return c, compute_clusters(matrix, umap_n_jobs=umap_n_jobs, **p)
+
+            if grid_workers == 1:
+                for combo in pending:
+                    short = (
+                        f"nc={combo['umap_n_components']} nn={combo['umap_n_neighbors']} "
+                        f"mcs={combo['hdbscan_min_cluster_size']}"
+                    )
+                    params = {k: v for k, v in combo.items() if k != "embedding_case"}
+                    try:
+                        result = compute_clusters(matrix, umap_n_jobs=umap_n_jobs, **params)
+                    except ValueError as exc:
+                        log(f"cluster_search:{case}", f"skipping — {exc}", level="warn")
+                        total_skipped += 1
+                        advance(1, detail=f"{short} | skip {str(exc)[:48]}")
+                        continue
+                    persist_result(combo, result)
+            else:
+                with ThreadPoolExecutor(max_workers=grid_workers) as ex:
+                    futures = {ex.submit(run_one_combo, c): c for c in pending}
+                    for fut in as_completed(futures):
+                        combo = futures[fut]
+                        short = (
+                            f"nc={combo['umap_n_components']} nn={combo['umap_n_neighbors']} "
+                            f"mcs={combo['hdbscan_min_cluster_size']}"
+                        )
+                        try:
+                            combo_done, result = fut.result()
+                        except ValueError as exc:
+                            log(f"cluster_search:{case}", f"skipping — {exc}", level="warn")
+                            total_skipped += 1
+                            advance(1, detail=f"{short} | skip {str(exc)[:48]}")
+                            continue
+                        persist_result(combo_done, result)
 
     log("cluster_search", f"done — {total_new} new, {total_skipped} skipped", level="ok")

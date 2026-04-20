@@ -345,6 +345,81 @@ def test_run_cluster_search_invalidates_rows_on_dataset_change(mem_engine, monke
         assert len(current) == 3  # new rows inserted
 
 
+def test_run_cluster_search_passes_umap_n_jobs_from_env(mem_engine, monkeypatch):
+    received = {}
+
+    def capture_compute(matrix, **kw):
+        received["umap_n_jobs"] = kw.get("umap_n_jobs")
+        return _fake_result()
+
+    env = {
+        "CLUSTERING_JOBS": "3",
+        "CLUSTERING_UMAP_N_COMPONENTS": "5",
+        "CLUSTERING_UMAP_N_NEIGHBORS": "5",
+        "CLUSTERING_UMAP_MIN_DIST": "0.0",
+        "CLUSTERING_UMAP_METRICS": "cosine",
+        "CLUSTERING_UMAP2D_N_NEIGHBORS": "5",
+        "CLUSTERING_UMAP2D_MIN_DIST": "0.1",
+        "CLUSTERING_UMAP2D_METRICS": "cosine",
+        "CLUSTERING_HDBSCAN_MIN_CLUSTER_SIZE": "10",
+        "CLUSTERING_HDBSCAN_SELECTION": "eom",
+        "CLUSTERING_HDBSCAN_METRICS": "euclidean",
+        "CLUSTERING_RANDOM_STATE": "42",
+    }
+    monkeypatch.setattr("modules.cluster_search.load_user_matrix",
+                        lambda case: (_fake_matrix(), list(range(80))))
+    monkeypatch.setattr("modules.cluster_search.compute_clusters", capture_compute)
+
+    from modules.cluster_search import run_cluster_search
+    with patch.dict(os.environ, env, clear=False):
+        run_cluster_search()
+
+    assert received["umap_n_jobs"] == 3
+
+
+def test_run_cluster_search_parallel_workers_uses_thread_pool(mem_engine, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+
+    env = {
+        "CLUSTERING_GRID_WORKERS": "3",
+        "CLUSTERING_JOBS": "1",
+        "CLUSTERING_UMAP_N_COMPONENTS": "5 6",
+        "CLUSTERING_UMAP_N_NEIGHBORS": "5",
+        "CLUSTERING_UMAP_MIN_DIST": "0.0",
+        "CLUSTERING_UMAP_METRICS": "cosine",
+        "CLUSTERING_UMAP2D_N_NEIGHBORS": "5",
+        "CLUSTERING_UMAP2D_MIN_DIST": "0.1",
+        "CLUSTERING_UMAP2D_METRICS": "cosine",
+        "CLUSTERING_HDBSCAN_MIN_CLUSTER_SIZE": "10",
+        "CLUSTERING_HDBSCAN_SELECTION": "eom",
+        "CLUSTERING_HDBSCAN_METRICS": "euclidean",
+        "CLUSTERING_RANDOM_STATE": "42",
+    }
+    max_workers_seen: list[int | None] = []
+
+    class RecordingPool(ThreadPoolExecutor):
+        def __init__(self, *args, max_workers=None, **kwargs):
+            max_workers_seen.append(max_workers)
+            super().__init__(*args, max_workers=max_workers, **kwargs)
+
+    def tracking_compute(matrix, **kw):
+        assert kw.get("umap_n_jobs") == 1
+        return _fake_result()
+
+    monkeypatch.setattr("modules.cluster_search.ThreadPoolExecutor", RecordingPool)
+    monkeypatch.setattr("modules.cluster_search.load_user_matrix",
+                        lambda case: (_fake_matrix(), list(range(80))))
+    monkeypatch.setattr("modules.cluster_search.compute_clusters", tracking_compute)
+
+    from modules.cluster_search import run_cluster_search
+    with patch.dict(os.environ, env, clear=False):
+        run_cluster_search()
+
+    with Session(mem_engine) as s:
+        assert s.query(ClusterRun).count() == 6
+    assert max_workers_seen == [3, 3, 3]
+
+
 def test_run_cluster_search_new_rows_have_fingerprint_and_in_current_grid(mem_engine, monkeypatch):
     env = {
         "CLUSTERING_UMAP_N_COMPONENTS": "5",
