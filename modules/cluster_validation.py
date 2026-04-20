@@ -1,12 +1,11 @@
-"""Phase 6b — clustering validation: filter, score, composite, bootstrap, plateau."""
+"""Phase 6b — clustering validation: filter, score, plateau, select."""
 import hashlib
 import json
-import math
 import os
 
 import numpy as np
 import hdbscan.validity
-from sklearn.metrics import silhouette_score, adjusted_rand_score
+from sklearn.metrics import silhouette_score
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
@@ -24,15 +23,19 @@ _PARAM_COLS = [
     "random_state",
 ]
 
+_NUMERIC_PARAM_COLS = [
+    "umap_n_components", "umap_n_neighbors", "umap_min_dist",
+    "umap2d_n_neighbors", "umap2d_min_dist",
+    "hdbscan_min_cluster_size", "hdbscan_min_samples", "random_state",
+]
+
 
 def _compute_validation_config_hash() -> str:
     config = {
         "max_noise": os.environ.get("VALIDATION_MAX_NOISE_RATIO", "0.3"),
         "min_clusters": os.environ.get("VALIDATION_MIN_CLUSTERS", "3"),
         "max_clusters": os.environ.get("VALIDATION_MAX_CLUSTERS", "20"),
-        "top_n_bootstrap": os.environ.get("VALIDATION_TOP_N_BOOTSTRAP", "20"),
-        "bootstrap_n": os.environ.get("VALIDATION_BOOTSTRAP_N", "30"),
-        "top_n_plateau": os.environ.get("VALIDATION_TOP_N_PLATEAU", "20"),
+        "plateau_drop_threshold": os.environ.get("VALIDATION_PLATEAU_DROP_THRESHOLD", "0.05"),
     }
     return hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()[:16]
 
@@ -51,10 +54,7 @@ def _invalidate_stale_rows(session: Session, case: str, current_hash: str) -> No
         .all()
     )
     for row in stale:
-        row.bootstrap_stability = None
-        row.bootstrap_n_runs = None
         row.param_plateau_score = None
-        row.composite_score = None
         row.validation_config_hash = current_hash
     if stale:
         session.commit()
@@ -63,33 +63,6 @@ def _invalidate_stale_rows(session: Session, case: str, current_hash: str) -> No
 
 def _row_to_params(row: ClusterRun) -> dict:
     return {col: getattr(row, col) for col in _PARAM_COLS}
-
-
-def _minmax(values: list[float]) -> list[float]:
-    finite = [v for v in values if not math.isnan(v)]
-    if not finite or max(finite) == min(finite):
-        return [0.0 for _ in values]
-    lo, hi = min(finite), max(finite)
-    return [0.0 if math.isnan(v) else (v - lo) / (hi - lo) for v in values]
-
-
-def _weights_composite_intermediate() -> tuple[float, float, float]:
-    """dbcv, silhouette, bootstrap (min-max norms) — used before plateau exists."""
-    return (
-        float(os.environ.get("VALIDATION_COMPOSITE_DBCV", "0.5")),
-        float(os.environ.get("VALIDATION_COMPOSITE_SILHOUETTE", "0.2")),
-        float(os.environ.get("VALIDATION_COMPOSITE_BOOTSTRAP", "0.3")),
-    )
-
-
-def _weights_composite_final() -> tuple[float, float, float, float]:
-    """dbcv, silhouette, bootstrap, plateau — full formula after plateau is set."""
-    return (
-        float(os.environ.get("VALIDATION_COMPOSITE_FINAL_DBCV", "0.35")),
-        float(os.environ.get("VALIDATION_COMPOSITE_FINAL_SILHOUETTE", "0.15")),
-        float(os.environ.get("VALIDATION_COMPOSITE_FINAL_BOOTSTRAP", "0.20")),
-        float(os.environ.get("VALIDATION_COMPOSITE_FINAL_PLATEAU", "0.30")),
-    )
 
 
 def _phase_filter(session: Session, case: str) -> None:
@@ -117,7 +90,6 @@ def _phase_filter(session: Session, case: str) -> None:
                 n_pass += int(passes)
                 advance(1)
     session.commit()
-
     log(f"validate:{case}", f"filter — {n_pass} passed, {len(rows) - n_pass} disqualified")
 
 
@@ -131,7 +103,6 @@ def _phase_score(session: Session, case: str, matrix: np.ndarray) -> None:
         )
         .all()
     )
-
     if not rows:
         return
 
@@ -173,154 +144,7 @@ def _phase_score(session: Session, case: str, matrix: np.ndarray) -> None:
                 row.silhouette = 0.0
 
             session.commit()
-            dbcv_str = f"{row.dbcv:.4f}"
-            sil_str = f"{row.silhouette:.4f}"
-            advance(1, detail=f"id={row.id} dbcv={dbcv_str} sil={sil_str}")
-
-
-def _phase_composite(session: Session, case: str) -> None:
-    rows = (
-        session.query(ClusterRun)
-        .filter(
-            ClusterRun.embedding_case == case,
-            ClusterRun.disqualified == 0,
-            ClusterRun.dbcv.isnot(None),
-        )
-        .all()
-    )
-    if not rows:
-        return
-
-    dbcv_norm = _minmax([r.dbcv for r in rows])
-    sil_norm = _minmax([r.silhouette if r.silhouette is not None else float("nan") for r in rows])
-    stab_vals = [r.bootstrap_stability if r.bootstrap_stability is not None else 0.0 for r in rows]
-    stab_norm = _minmax(stab_vals)
-
-    w_d, w_s, w_b = _weights_composite_intermediate()
-    for row, dn, sn, stn in zip(rows, dbcv_norm, sil_norm, stab_norm):
-        row.composite_score = round(w_d * dn + w_s * sn + w_b * stn, 6)
-    session.commit()
-    log(f"validate:{case}", f"composite — updated {len(rows)} rows")
-
-
-def _phase_composite_final(session: Session, case: str) -> None:
-    """Recompute composite_score using the full 4-factor formula after plateau is available.
-
-    Weights: VALIDATION_COMPOSITE_FINAL_DBCV, _SILHOUETTE, _BOOTSTRAP, _PLATEAU (defaults 0.35, 0.15, 0.20, 0.30).
-
-    Only current-grid rows with param_plateau_score set are considered. bootstrap_stability=None → 0.0.
-    """
-    rows = (
-        session.query(ClusterRun)
-        .filter(
-            ClusterRun.embedding_case == case,
-            ClusterRun.disqualified == 0,
-            ClusterRun.in_current_grid == 1,
-            ClusterRun.param_plateau_score.isnot(None),
-        )
-        .all()
-    )
-    if not rows:
-        return
-
-    dbcv_norm = _minmax([r.dbcv if r.dbcv is not None else float("nan") for r in rows])
-    sil_norm = _minmax([r.silhouette if r.silhouette is not None else float("nan") for r in rows])
-    stab_vals = [r.bootstrap_stability if r.bootstrap_stability is not None else 0.0 for r in rows]
-    stab_norm = _minmax(stab_vals)
-    plateau_norm = _minmax([r.param_plateau_score for r in rows])
-
-    w_d, w_s, w_b, w_p = _weights_composite_final()
-    for row, dn, sn, stn, pn in zip(rows, dbcv_norm, sil_norm, stab_norm, plateau_norm):
-        row.composite_score = round(w_d * dn + w_s * sn + w_b * stn + w_p * pn, 6)
-    session.commit()
-    log(f"validate:{case}", f"composite_final — updated {len(rows)} rows")
-
-
-def _ari_non_noise(labels_a: np.ndarray, labels_b: np.ndarray) -> float:
-    mask = (labels_a != -1) & (labels_b != -1)
-    if mask.sum() < 2:
-        return 0.0
-    return float(adjusted_rand_score(labels_a[mask], labels_b[mask]))
-
-
-def _phase_bootstrap(session: Session, case: str, matrix: np.ndarray) -> None:
-    top_n = int(os.environ.get("VALIDATION_TOP_N_BOOTSTRAP", "20"))
-    n_runs = int(os.environ.get("VALIDATION_BOOTSTRAP_N", "30"))
-    n_rows = matrix.shape[0]
-
-    top_ids = [
-        r.id
-        for r in (
-            session.query(ClusterRun.id)
-            .filter(
-                ClusterRun.embedding_case == case,
-                ClusterRun.disqualified == 0,
-                ClusterRun.dbcv.isnot(None),
-            )
-            .order_by(ClusterRun.dbcv.desc())
-            .limit(top_n)
-            .all()
-        )
-    ]
-    rows = (
-        session.query(ClusterRun)
-        .filter(
-            ClusterRun.id.in_(top_ids),
-            ClusterRun.bootstrap_stability.is_(None),
-        )
-        .all()
-    )
-    if not rows:
-        log(f"validate:{case}", "bootstrap — nothing to do")
-        return
-
-    rng = np.random.default_rng(42)
-
-    with progress(len(rows), f"validate bootstrap · {case}") as advance:
-        for row_i, row in enumerate(rows):
-            params = _row_to_params(row)
-            advance(0, detail=f"id={row.id} ({row_i + 1}/{len(rows)}) fit")
-            try:
-                original = compute_clusters(matrix, **params)
-            except ValueError as exc:
-                log(f"validate:{case}", f"bootstrap skip id={row.id} — {exc}", level="warn")
-                advance(1, detail=f"id={row.id} skip")
-                continue
-
-            aris = []
-            for run_i in range(n_runs):
-                advance(0, detail=f"id={row.id} run {run_i + 1}/{n_runs}")
-                idx = rng.integers(0, n_rows, size=n_rows)
-                try:
-                    boot = compute_clusters(matrix[idx], **params)
-                except ValueError:
-                    continue
-                aris.append(_ari_non_noise(original.labels[idx], boot.labels))
-
-            if not aris:
-                log(f"validate:{case}", f"bootstrap all-failed id={row.id} — disqualifying", level="err")
-                row.disqualified = 1
-                session.commit()
-                advance(1, detail=f"id={row.id} all-failed")
-                continue
-
-            row.bootstrap_stability = float(np.mean(aris))
-            row.bootstrap_n_runs = len(aris)
-            session.commit()
-            advance(
-                1,
-                detail=(
-                    f"id={row.id} stab={row.bootstrap_stability:.4f} "
-                    f"({row.bootstrap_n_runs} runs)"
-                ),
-            )
-
-
-_NUMERIC_PARAM_COLS = [
-    "umap_n_components", "umap_n_neighbors", "umap_min_dist",
-    "umap2d_n_neighbors", "umap2d_min_dist",
-    "hdbscan_min_cluster_size", "hdbscan_min_samples", "random_state",
-]
+            advance(1, detail=f"id={row.id} dbcv={row.dbcv:.4f} sil={row.silhouette:.4f}")
 
 
 def _find_param_neighbors(target: ClusterRun, candidates: list[ClusterRun]) -> list[ClusterRun]:
@@ -359,42 +183,34 @@ def _find_param_neighbors(target: ClusterRun, candidates: list[ClusterRun]) -> l
 
 
 def _phase_plateau(session: Session, case: str) -> None:
-    top_n = int(os.environ.get("VALIDATION_TOP_N_PLATEAU", "20"))
-
-    top_rows = (
+    """Compute local DBCV neighborhood mean for every qualifying run in the current grid."""
+    all_scored = (
         session.query(ClusterRun)
         .filter(
             ClusterRun.embedding_case == case,
+            ClusterRun.in_current_grid == 1,
             ClusterRun.disqualified == 0,
-            ClusterRun.composite_score.isnot(None),
-            ClusterRun.param_plateau_score.is_(None),
+            ClusterRun.dbcv.isnot(None),
         )
-        .order_by(ClusterRun.composite_score.desc())
-        .limit(top_n)
         .all()
     )
-    if not top_rows:
+    needs_plateau = [r for r in all_scored if r.param_plateau_score is None]
+    if not needs_plateau:
         log(f"validate:{case}", "plateau — nothing to do")
         return
 
-    all_rows = (
-        session.query(ClusterRun)
-        .filter(
-            ClusterRun.embedding_case == case,
-            ClusterRun.disqualified == 0,
-            ClusterRun.composite_score.isnot(None),
-        )
-        .all()
-    )
-
-    with progress(len(top_rows), f"validate plateau · {case}") as advance:
-        for row in top_rows:
-            neighbors = _find_param_neighbors(row, all_rows)
-            scores = [n.composite_score for n in neighbors if n.composite_score is not None]
-            row.param_plateau_score = float(np.mean(scores)) if scores else 0.0
-            advance(1, detail=f"id={row.id} plateau={row.param_plateau_score:.4f}")
+    with progress(len(needs_plateau), f"validate plateau · {case}") as advance:
+        for row in needs_plateau:
+            neighbors = _find_param_neighbors(row, all_scored)
+            dbcv_vals = [n.dbcv for n in neighbors if n.dbcv is not None]
+            # No neighbors → fallback to own dbcv so drop = 0 (neutral, not rejected)
+            row.param_plateau_score = float(np.mean(dbcv_vals)) if dbcv_vals else row.dbcv
+            advance(
+                1,
+                detail=f"id={row.id} plateau={row.param_plateau_score:.4f} ({len(dbcv_vals)} neighbors)",
+            )
     session.commit()
-    log(f"validate:{case}", f"plateau — scored {len(top_rows)} top rows")
+    log(f"validate:{case}", f"plateau — scored {len(needs_plateau)} rows")
 
 
 def _select_best(session: Session, case: str) -> ClusterRun | None:
@@ -408,12 +224,15 @@ def _select_best(session: Session, case: str) -> ClusterRun | None:
         log(f"validate:{case}", f"override — using run id={row.id} (forced via env var)")
         return row
 
+    threshold = float(os.environ.get("VALIDATION_PLATEAU_DROP_THRESHOLD", "0.05"))
+
     rows = (
         session.query(ClusterRun)
         .filter(
             ClusterRun.embedding_case == case,
+            ClusterRun.in_current_grid == 1,
             ClusterRun.disqualified == 0,
-            ClusterRun.composite_score.isnot(None),
+            ClusterRun.dbcv.isnot(None),
             ClusterRun.param_plateau_score.isnot(None),
         )
         .all()
@@ -422,21 +241,26 @@ def _select_best(session: Session, case: str) -> ClusterRun | None:
         log(f"validate:{case}", "select — no eligible runs", level="warn")
         return None
 
-    best = max(rows, key=lambda r: r.composite_score)
-    msg = (
-        f"selected run id={best.id} composite={best.composite_score:.4f}"
-        f" plateau={best.param_plateau_score:.4f}"
+    survivors = [r for r in rows if r.dbcv - r.param_plateau_score <= threshold]
+    if not survivors:
+        log(
+            f"validate:{case}",
+            f"plateau filter rejected all {len(rows)} runs — falling back to DBCV rank",
+            level="warn",
+        )
+        survivors = rows
+
+    best = max(survivors, key=lambda r: r.dbcv)
+    log(
+        f"validate:{case}",
+        f"selected run id={best.id} dbcv={best.dbcv:.4f} plateau={best.param_plateau_score:.4f}",
+        level="ok",
     )
-    log(f"validate:{case}", msg, level="ok")
     return best
 
 
 def validate_clustering() -> dict[str, dict | None]:
-    """Phase 6b entry point. Runs all 5 validation phases per embedding case.
-
-    Returns best params per case (ready to splat into cluster_users), or None
-    if no eligible run exists for that case.
-    """
+    """Phase 6b entry point: filter → score → plateau → select, per embedding case."""
     current_hash = _compute_validation_config_hash()
     result: dict[str, dict | None] = {}
     for case in ["video", "sandwich", "audio"]:
@@ -451,11 +275,7 @@ def validate_clustering() -> dict[str, dict | None]:
             _invalidate_stale_rows(session, case, current_hash)
             _phase_filter(session, case)
             _phase_score(session, case, matrix)
-            _phase_composite(session, case)
-            _phase_bootstrap(session, case, matrix)
-            _phase_composite(session, case)
             _phase_plateau(session, case)
-            _phase_composite_final(session, case)
             best = _select_best(session, case)
             result[case] = _row_to_params(best) if best is not None else None
         finally:

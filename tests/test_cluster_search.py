@@ -28,7 +28,7 @@ def test_cluster_run_columns():
         "n_clusters", "noise_ratio", "min_size", "median_size", "max_size",
         "created_at",
         "disqualified", "dbcv", "silhouette", "composite_score",
-        "bootstrap_stability", "bootstrap_n_runs", "param_plateau_score",
+        "param_plateau_score",
         "in_current_grid", "dataset_fingerprint", "validation_config_hash",
     }
 
