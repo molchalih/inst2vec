@@ -51,6 +51,8 @@ def test_filter_passes_run_within_bounds():
     }
     with Session(eng) as s:
         row = _insert_run(s, noise_ratio=0.1, n_clusters=5)
+        row.in_current_grid = 1
+        s.commit()
         row_id = row.id
 
     from modules.cluster_validation import _phase_filter
@@ -69,6 +71,8 @@ def test_filter_disqualifies_high_noise():
     }
     with Session(eng) as s:
         row = _insert_run(s, noise_ratio=0.5, n_clusters=5)
+        row.in_current_grid = 1
+        s.commit()
         row_id = row.id
 
     from modules.cluster_validation import _phase_filter
@@ -87,6 +91,8 @@ def test_filter_disqualifies_too_few_clusters():
     }
     with Session(eng) as s:
         row = _insert_run(s, noise_ratio=0.1, n_clusters=1)
+        row.in_current_grid = 1
+        s.commit()
         row_id = row.id
 
     from modules.cluster_validation import _phase_filter
@@ -105,25 +111,7 @@ def test_filter_disqualifies_too_many_clusters():
     }
     with Session(eng) as s:
         row = _insert_run(s, noise_ratio=0.1, n_clusters=25)
-        row_id = row.id
-
-    from modules.cluster_validation import _phase_filter
-    with patch.dict(os.environ, env):
-        with Session(eng) as s:
-            _phase_filter(s, "video")
-            assert s.get(ClusterRun, row_id).disqualified == 1
-
-
-def test_filter_skips_already_set_rows():
-    eng = _make_engine()
-    env = {
-        "VALIDATION_MAX_NOISE_RATIO": "0.3",
-        "VALIDATION_MIN_CLUSTERS": "3",
-        "VALIDATION_MAX_CLUSTERS": "20",
-    }
-    with Session(eng) as s:
-        row = _insert_run(s, noise_ratio=0.5, n_clusters=5)
-        row.disqualified = 0  # already set — should not be overwritten
+        row.in_current_grid = 1
         s.commit()
         row_id = row.id
 
@@ -131,7 +119,7 @@ def test_filter_skips_already_set_rows():
     with patch.dict(os.environ, env):
         with Session(eng) as s:
             _phase_filter(s, "video")
-            assert s.get(ClusterRun, row_id).disqualified == 0  # unchanged
+            assert s.get(ClusterRun, row_id).disqualified == 1
 
 
 # --- Phase 2: score helpers ---
@@ -416,12 +404,14 @@ def test_select_best_picks_highest_final_score():
     with Session(eng) as s:
         r1 = _insert_run(s, disqualified=0, noise_ratio=0.1, n_clusters=5,
                          umap_n_components=10, random_state=1)
-        r1.composite_score = 0.8
-        r1.param_plateau_score = 0.6  # final = 0.7*0.8 + 0.3*0.6 = 0.74
+        r1.in_current_grid = 1
+        r1.composite_score = 0.9  # highest — should win
+        r1.param_plateau_score = 0.6
         r2 = _insert_run(s, disqualified=0, noise_ratio=0.1, n_clusters=5,
                          umap_n_components=15, random_state=1)
+        r2.in_current_grid = 1
         r2.composite_score = 0.6
-        r2.param_plateau_score = 0.9  # final = 0.7*0.6 + 0.3*0.9 = 0.69
+        r2.param_plateau_score = 0.9
         s.commit()
         id1 = r1.id
 
@@ -435,7 +425,9 @@ def test_select_best_picks_highest_final_score():
 def test_select_best_returns_none_when_no_eligible_runs():
     eng = _make_engine()
     with Session(eng) as s:
-        _insert_run(s, disqualified=0, noise_ratio=0.1, n_clusters=5)
+        row = _insert_run(s, disqualified=0, noise_ratio=0.1, n_clusters=5)
+        row.in_current_grid = 1
+        s.commit()
         # no composite_score set → not eligible
 
     from modules.cluster_validation import _select_best
@@ -448,6 +440,7 @@ def test_select_best_ignores_disqualified():
     with Session(eng) as s:
         row = _insert_run(s, disqualified=1, noise_ratio=0.1, n_clusters=5,
                           umap_n_components=10, random_state=1)
+        row.in_current_grid = 1
         row.composite_score = 0.9
         row.param_plateau_score = 0.9
         s.commit()
@@ -462,10 +455,12 @@ def test_select_best_env_override(monkeypatch):
     with Session(eng) as s:
         r1 = _insert_run(s, disqualified=0, noise_ratio=0.1, n_clusters=5,
                          umap_n_components=10, random_state=1)
+        r1.in_current_grid = 1
         r1.composite_score = 0.9
         r1.param_plateau_score = 0.9  # best by score
         r2 = _insert_run(s, disqualified=0, noise_ratio=0.1, n_clusters=5,
                          umap_n_components=15, random_state=1)
+        r2.in_current_grid = 1
         r2.composite_score = 0.1
         r2.param_plateau_score = 0.1  # worst by score
         s.commit()
@@ -486,3 +481,117 @@ def test_select_best_env_override_missing_id_raises(monkeypatch):
     with Session(eng) as s:
         with pytest.raises(ValueError, match="CLUSTER_OVERRIDE_VIDEO"):
             _select_best(s, "video")
+
+
+# --- Step A: filter ignores stale rows ---
+
+def test_filter_ignores_stale_rows():
+    """_phase_filter must not touch rows with in_current_grid=0."""
+    eng = _make_engine()
+    env = {
+        "VALIDATION_MAX_NOISE_RATIO": "0.3",
+        "VALIDATION_MIN_CLUSTERS": "3",
+        "VALIDATION_MAX_CLUSTERS": "20",
+    }
+    with Session(eng) as s:
+        # stale row: would pass filter criteria but should be ignored
+        row = _insert_run(s, noise_ratio=0.1, n_clusters=5)
+        row.in_current_grid = 0
+        row.disqualified = 1  # already marked stale
+        s.commit()
+        row_id = row.id
+
+    from modules.cluster_validation import _phase_filter
+    with patch.dict(os.environ, env):
+        with Session(eng) as s:
+            _phase_filter(s, "video")
+            # stale row must remain disqualified=1, not reset to 0
+            assert s.get(ClusterRun, row_id).disqualified == 1
+
+
+# --- Step B: flatten composite formula ---
+
+def test_phase_composite_final_uses_flattened_weights():
+    """composite_score = 0.35*dbcv_norm + 0.15*sil_norm + 0.20*bootstrap_norm + 0.30*plateau_norm"""
+    eng = _make_engine()
+
+    with Session(eng) as s:
+        r1 = _insert_run(s, disqualified=0, noise_ratio=0.1, n_clusters=5,
+                         umap_n_components=10, random_state=1)
+        r1.in_current_grid = 1
+        r1.dbcv = 1.0
+        r1.silhouette = 1.0
+        r1.bootstrap_stability = 1.0
+        r1.param_plateau_score = 1.0
+        r2 = _insert_run(s, disqualified=0, noise_ratio=0.1, n_clusters=5,
+                         umap_n_components=15, random_state=1)
+        r2.in_current_grid = 1
+        r2.dbcv = 0.0
+        r2.silhouette = 0.0
+        r2.bootstrap_stability = 0.0
+        r2.param_plateau_score = 0.0
+        s.commit()
+        id1, id2 = r1.id, r2.id
+
+    from modules.cluster_validation import _phase_composite_final
+    with Session(eng) as s:
+        _phase_composite_final(s, "video")
+        top = s.get(ClusterRun, id1)
+        bottom = s.get(ClusterRun, id2)
+        assert top.composite_score == pytest.approx(1.0, abs=1e-5)
+        assert bottom.composite_score == pytest.approx(0.0, abs=1e-5)
+
+
+def test_phase_composite_final_treats_none_bootstrap_as_zero():
+    eng = _make_engine()
+
+    with Session(eng) as s:
+        r1 = _insert_run(s, disqualified=0, noise_ratio=0.1, n_clusters=5,
+                         umap_n_components=10, random_state=1)
+        r1.in_current_grid = 1
+        r1.dbcv = 1.0
+        r1.silhouette = 1.0
+        r1.bootstrap_stability = None
+        r1.param_plateau_score = 1.0
+        r2 = _insert_run(s, disqualified=0, noise_ratio=0.1, n_clusters=5,
+                         umap_n_components=15, random_state=1)
+        r2.in_current_grid = 1
+        r2.dbcv = 0.0
+        r2.silhouette = 0.0
+        r2.bootstrap_stability = None
+        r2.param_plateau_score = 0.0
+        s.commit()
+        id1, id2 = r1.id, r2.id
+
+    from modules.cluster_validation import _phase_composite_final
+    with Session(eng) as s:
+        _phase_composite_final(s, "video")
+        top = s.get(ClusterRun, id1)
+        bottom = s.get(ClusterRun, id2)
+        # bootstrap_norm = 0 for both → composite = 0.35 + 0.15 + 0.0 + 0.30 = 0.80
+        assert top.composite_score == pytest.approx(0.80, abs=1e-5)
+        assert bottom.composite_score == pytest.approx(0.0, abs=1e-5)
+
+
+def test_select_best_uses_composite_score_directly():
+    """After _phase_composite_final, _select_best sorts on composite_score only."""
+    eng = _make_engine()
+    with Session(eng) as s:
+        r1 = _insert_run(s, disqualified=0, noise_ratio=0.1, n_clusters=5,
+                         umap_n_components=10, random_state=1)
+        r1.in_current_grid = 1
+        r1.composite_score = 0.9
+        r1.param_plateau_score = 0.1
+        r2 = _insert_run(s, disqualified=0, noise_ratio=0.1, n_clusters=5,
+                         umap_n_components=15, random_state=1)
+        r2.in_current_grid = 1
+        r2.composite_score = 0.5
+        r2.param_plateau_score = 0.9
+        s.commit()
+        id1 = r1.id
+
+    from modules.cluster_validation import _select_best
+    with Session(eng) as s:
+        result = _select_best(s, "video")
+        assert result is not None
+        assert result.id == id1
