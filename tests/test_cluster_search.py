@@ -27,7 +27,7 @@ def test_cluster_run_columns():
         "random_state",
         "n_clusters", "noise_ratio", "min_size", "median_size", "max_size",
         "created_at",
-        "disqualified", "dbcv", "silhouette", "composite_score",
+        "disqualified", "dbcv", "silhouette",
         "param_plateau_score",
         "in_current_grid", "dataset_fingerprint", "validation_config_hash",
     }
@@ -41,24 +41,6 @@ def test_cluster_run_unique_constraint():
 def test_cluster_run_hdbscan_min_samples_nullable():
     col = ClusterRun.__table__.c["hdbscan_min_samples"]
     assert col.nullable is True
-
-
-def test_parse_ints():
-    from modules.cluster_search import _parse_ints
-    assert _parse_ints("10 15 30") == [10, 15, 30]
-    assert _parse_ints("42") == [42]
-
-
-def test_parse_floats():
-    from modules.cluster_search import _parse_floats
-    assert _parse_floats("0.0 0.05") == [0.0, 0.05]
-    assert _parse_floats("0.1") == [0.1]
-
-
-def test_parse_strs():
-    from modules.cluster_search import _parse_strs
-    assert _parse_strs("cosine euclidean") == ["cosine", "euclidean"]
-    assert _parse_strs("eom") == ["eom"]
 
 
 def test_load_grid_combo_count():
@@ -192,6 +174,56 @@ def test_run_cluster_search_inserts_rows(mem_engine, monkeypatch):
     with Session(mem_engine) as s:
         count = s.query(ClusterRun).count()
     assert count == 3  # one row per embedding case (video, sandwich, audio)
+
+
+def test_run_cluster_search_invalidates_rows_when_no_embeddings_for_case(mem_engine, monkeypatch):
+    """If a case has zero embeddings, existing ClusterRun rows for that case must not stay current."""
+    env = {
+        "CLUSTERING_UMAP_N_COMPONENTS": "5",
+        "CLUSTERING_UMAP_N_NEIGHBORS": "5",
+        "CLUSTERING_UMAP_MIN_DIST": "0.0",
+        "CLUSTERING_UMAP_METRICS": "cosine",
+        "CLUSTERING_UMAP2D_N_NEIGHBORS": "5",
+        "CLUSTERING_UMAP2D_MIN_DIST": "0.1",
+        "CLUSTERING_UMAP2D_METRICS": "cosine",
+        "CLUSTERING_HDBSCAN_MIN_CLUSTER_SIZE": "10",
+        "CLUSTERING_HDBSCAN_SELECTION": "eom",
+        "CLUSTERING_HDBSCAN_METRICS": "euclidean",
+        "CLUSTERING_RANDOM_STATE": "42",
+    }
+
+    with Session(mem_engine) as s:
+        row = ClusterRun(
+            embedding_case="video",
+            umap_n_components=5, umap_n_neighbors=5, umap_min_dist=0.0, umap_metric="cosine",
+            umap2d_n_neighbors=5, umap2d_min_dist=0.1, umap2d_metric="cosine",
+            hdbscan_min_cluster_size=10, hdbscan_min_samples=None,
+            hdbscan_cluster_selection_method="eom", hdbscan_metric="euclidean",
+            random_state=42,
+            n_clusters=3, noise_ratio=0.1, min_size=1, median_size=2, max_size=5,
+            in_current_grid=1, disqualified=0, dataset_fingerprint="old",
+        )
+        s.add(row)
+        s.commit()
+        video_row_id = row.id
+
+    def fake_load(case):
+        if case == "video":
+            return (np.zeros((0, 30), dtype=np.float32), [])
+        return (_fake_matrix(), list(range(80)))
+
+    monkeypatch.setattr("modules.cluster_search.load_user_matrix", fake_load)
+    monkeypatch.setattr("modules.cluster_search.compute_clusters",
+                        lambda matrix, **kw: _fake_result())
+
+    from modules.cluster_search import run_cluster_search
+    with patch.dict(os.environ, env, clear=False):
+        run_cluster_search()
+
+    with Session(mem_engine) as s:
+        video_row = s.get(ClusterRun, video_row_id)
+        assert video_row.in_current_grid == 0
+        assert video_row.disqualified == 1
 
 
 def test_run_cluster_search_idempotent(mem_engine, monkeypatch):
