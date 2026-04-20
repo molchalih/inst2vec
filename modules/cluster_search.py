@@ -6,6 +6,7 @@ from itertools import product
 import numpy as np
 from sqlalchemy.exc import IntegrityError
 
+from modules.console import progress
 from modules.database import Base, engine, get_session, ClusterRun
 from modules.clustering import compute_clusters, load_user_matrix
 from modules.services import log
@@ -142,70 +143,81 @@ def run_cluster_search() -> None:
         finally:
             session.close()
 
-        for combo in case_combos:
-            params = {k: v for k, v in combo.items() if k != "embedding_case"}
-            session = get_session()
-            try:
-                # Skip if already computed for the current fingerprint
-                if session.query(ClusterRun).filter_by(**combo).filter(
-                    ClusterRun.dataset_fingerprint == fingerprint
-                ).first():
-                    total_skipped += 1
-                    continue
-
-                try:
-                    result = compute_clusters(matrix, **params)
-                except ValueError as exc:
-                    log(f"cluster_search:{case}", f"skipping — {exc}", level="warn")
-                    total_skipped += 1
-                    continue
-
-                sizes = result.cluster_sizes
-                row = ClusterRun(
-                    **combo,
-                    n_clusters=result.n_clusters,
-                    noise_ratio=round(result.noise_ratio, 4),
-                    min_size=min(sizes) if sizes else 0,
-                    median_size=int(np.median(sizes)) if sizes else 0,
-                    max_size=max(sizes) if sizes else 0,
-                    in_current_grid=1,
-                    dataset_fingerprint=fingerprint,
+        with progress(len(case_combos), f"cluster search · {case}") as advance:
+            for combo in case_combos:
+                short = (
+                    f"nc={combo['umap_n_components']} nn={combo['umap_n_neighbors']} "
+                    f"mcs={combo['hdbscan_min_cluster_size']}"
                 )
-                session.add(row)
-                session.commit()
-                total_new += 1
-            except IntegrityError:
-                session.rollback()
-                # A stale row with the same hyperparams exists (non-None hdbscan_min_samples
-                # case — SQLite unique constraint fires). Update it in-place instead.
-                stale_row = session.query(ClusterRun).filter_by(**combo).first()
-                if stale_row is not None:
+                params = {k: v for k, v in combo.items() if k != "embedding_case"}
+                session = get_session()
+                try:
+                    # Skip if already computed for the current fingerprint
+                    if session.query(ClusterRun).filter_by(**combo).filter(
+                        ClusterRun.dataset_fingerprint == fingerprint
+                    ).first():
+                        total_skipped += 1
+                        advance(1, detail=f"{short} | cached")
+                        continue
+
                     try:
                         result = compute_clusters(matrix, **params)
                     except ValueError as exc:
-                        log(f"cluster_search:{case}", f"update-skip — {exc}", level="warn")
+                        log(f"cluster_search:{case}", f"skipping — {exc}", level="warn")
                         total_skipped += 1
+                        advance(1, detail=f"{short} | skip {str(exc)[:48]}")
                         continue
+
                     sizes = result.cluster_sizes
-                    stale_row.n_clusters = result.n_clusters
-                    stale_row.noise_ratio = round(result.noise_ratio, 4)
-                    stale_row.min_size = min(sizes) if sizes else 0
-                    stale_row.median_size = int(np.median(sizes)) if sizes else 0
-                    stale_row.max_size = max(sizes) if sizes else 0
-                    stale_row.in_current_grid = 1
-                    stale_row.dataset_fingerprint = fingerprint
-                    stale_row.disqualified = None
-                    stale_row.dbcv = None
-                    stale_row.silhouette = None
-                    stale_row.composite_score = None
-                    stale_row.bootstrap_stability = None
-                    stale_row.bootstrap_n_runs = None
-                    stale_row.param_plateau_score = None
+                    row = ClusterRun(
+                        **combo,
+                        n_clusters=result.n_clusters,
+                        noise_ratio=round(result.noise_ratio, 4),
+                        min_size=min(sizes) if sizes else 0,
+                        median_size=int(np.median(sizes)) if sizes else 0,
+                        max_size=max(sizes) if sizes else 0,
+                        in_current_grid=1,
+                        dataset_fingerprint=fingerprint,
+                    )
+                    session.add(row)
                     session.commit()
                     total_new += 1
-                else:
-                    total_skipped += 1
-            finally:
-                session.close()
+                    advance(1, detail=f"{short} | k={result.n_clusters} new")
+                except IntegrityError:
+                    session.rollback()
+                    # A stale row with the same hyperparams exists (non-None hdbscan_min_samples
+                    # case — SQLite unique constraint fires). Update it in-place instead.
+                    stale_row = session.query(ClusterRun).filter_by(**combo).first()
+                    if stale_row is not None:
+                        try:
+                            result = compute_clusters(matrix, **params)
+                        except ValueError as exc:
+                            log(f"cluster_search:{case}", f"update-skip — {exc}", level="warn")
+                            total_skipped += 1
+                            advance(1, detail=f"{short} | upd-skip {str(exc)[:40]}")
+                            continue
+                        sizes = result.cluster_sizes
+                        stale_row.n_clusters = result.n_clusters
+                        stale_row.noise_ratio = round(result.noise_ratio, 4)
+                        stale_row.min_size = min(sizes) if sizes else 0
+                        stale_row.median_size = int(np.median(sizes)) if sizes else 0
+                        stale_row.max_size = max(sizes) if sizes else 0
+                        stale_row.in_current_grid = 1
+                        stale_row.dataset_fingerprint = fingerprint
+                        stale_row.disqualified = None
+                        stale_row.dbcv = None
+                        stale_row.silhouette = None
+                        stale_row.composite_score = None
+                        stale_row.bootstrap_stability = None
+                        stale_row.bootstrap_n_runs = None
+                        stale_row.param_plateau_score = None
+                        session.commit()
+                        total_new += 1
+                        advance(1, detail=f"{short} | k={result.n_clusters} updated")
+                    else:
+                        total_skipped += 1
+                        advance(1, detail=f"{short} | integrity skip")
+                finally:
+                    session.close()
 
     log("cluster_search", f"done — {total_new} new, {total_skipped} skipped", level="ok")

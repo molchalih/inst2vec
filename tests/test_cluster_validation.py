@@ -512,7 +512,7 @@ def test_filter_ignores_stale_rows():
 # --- Step B: flatten composite formula ---
 
 def test_phase_composite_final_uses_flattened_weights():
-    """composite_score = 0.35*dbcv_norm + 0.15*sil_norm + 0.20*bootstrap_norm + 0.30*plateau_norm"""
+    """composite_final uses VALIDATION_COMPOSITE_FINAL_* (defaults 0.35/0.15/0.20/0.30)."""
     eng = _make_engine()
 
     with Session(eng) as s:
