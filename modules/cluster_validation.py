@@ -7,6 +7,7 @@ import hdbscan.validity
 from sklearn.metrics import silhouette_score, adjusted_rand_score
 from sqlalchemy.orm import Session
 
+from modules.console import progress
 from modules.database import ClusterRun, get_session
 from modules.clustering import compute_clusters, load_user_matrix
 from modules.services import log
@@ -33,6 +34,25 @@ def _minmax(values: list[float]) -> list[float]:
     return [0.0 if math.isnan(v) else (v - lo) / (hi - lo) for v in values]
 
 
+def _weights_composite_intermediate() -> tuple[float, float, float]:
+    """dbcv, silhouette, bootstrap (min-max norms) — used before plateau exists."""
+    return (
+        float(os.environ.get("VALIDATION_COMPOSITE_DBCV", "0.5")),
+        float(os.environ.get("VALIDATION_COMPOSITE_SILHOUETTE", "0.2")),
+        float(os.environ.get("VALIDATION_COMPOSITE_BOOTSTRAP", "0.3")),
+    )
+
+
+def _weights_composite_final() -> tuple[float, float, float, float]:
+    """dbcv, silhouette, bootstrap, plateau — full formula after plateau is set."""
+    return (
+        float(os.environ.get("VALIDATION_COMPOSITE_FINAL_DBCV", "0.35")),
+        float(os.environ.get("VALIDATION_COMPOSITE_FINAL_SILHOUETTE", "0.15")),
+        float(os.environ.get("VALIDATION_COMPOSITE_FINAL_BOOTSTRAP", "0.20")),
+        float(os.environ.get("VALIDATION_COMPOSITE_FINAL_PLATEAU", "0.30")),
+    )
+
+
 def _phase_filter(session: Session, case: str) -> None:
     max_noise = float(os.environ.get("VALIDATION_MAX_NOISE_RATIO", "0.3"))
     min_clusters = int(os.environ.get("VALIDATION_MIN_CLUSTERS", "3"))
@@ -47,13 +67,16 @@ def _phase_filter(session: Session, case: str) -> None:
         .all()
     )
     n_pass = 0
-    for row in rows:
-        passes = (
-            row.noise_ratio <= max_noise
-            and min_clusters <= row.n_clusters <= max_clusters
-        )
-        row.disqualified = 0 if passes else 1
-        n_pass += int(passes)
+    if rows:
+        with progress(len(rows), f"validate filter · {case}") as advance:
+            for row in rows:
+                passes = (
+                    row.noise_ratio <= max_noise
+                    and min_clusters <= row.n_clusters <= max_clusters
+                )
+                row.disqualified = 0 if passes else 1
+                n_pass += int(passes)
+                advance(1)
     session.commit()
 
     log(f"validate:{case}", f"filter — {n_pass} passed, {len(rows) - n_pass} disqualified")
@@ -70,43 +93,50 @@ def _phase_score(session: Session, case: str, matrix: np.ndarray) -> None:
         .all()
     )
 
-    for i, row in enumerate(rows):
-        params = _row_to_params(row)
-        try:
-            result = compute_clusters(matrix, return_nd_matrix=True, **params)
-        except ValueError as exc:
-            log(f"validate:{case}", f"score skip id={row.id} — {exc}", level="warn")
-            row.disqualified = 1
-            session.commit()
-            continue
+    if not rows:
+        return
 
-        X_nd = result.matrix_nd.astype(np.float64)
-        labels = result.labels
-
-        try:
-            row.dbcv = float(hdbscan.validity.validity_index(
-                X_nd, labels, metric=row.hdbscan_metric
-            ))
-        except Exception:
-            log(f"validate:{case}", f"dbcv failed id={row.id} — disqualifying", level="err")
-            row.disqualified = 1
-            session.commit()
-            continue
-
-        non_noise = labels != -1
-        unique_clusters = np.unique(labels[non_noise])
-        if len(unique_clusters) >= 2:
+    with progress(len(rows), f"validate score · {case}") as advance:
+        for i, row in enumerate(rows):
+            params = _row_to_params(row)
+            advance(0, detail=f"id={row.id} ({i + 1}/{len(rows)})")
             try:
-                row.silhouette = float(silhouette_score(X_nd[non_noise], labels[non_noise]))
-            except Exception:
-                row.silhouette = 0.0
-        else:
-            row.silhouette = 0.0
+                result = compute_clusters(matrix, return_nd_matrix=True, **params)
+            except ValueError as exc:
+                log(f"validate:{case}", f"score skip id={row.id} — {exc}", level="warn")
+                row.disqualified = 1
+                session.commit()
+                advance(1, detail=f"id={row.id} skip")
+                continue
 
-        session.commit()
-        dbcv_str = f"{row.dbcv:.4f}"
-        sil_str = f"{row.silhouette:.4f}"
-        log(f"validate:{case}", f"scored {i + 1}/{len(rows)} id={row.id} dbcv={dbcv_str} sil={sil_str}")
+            X_nd = result.matrix_nd.astype(np.float64)
+            labels = result.labels
+
+            try:
+                row.dbcv = float(hdbscan.validity.validity_index(
+                    X_nd, labels, metric=row.hdbscan_metric
+                ))
+            except Exception:
+                log(f"validate:{case}", f"dbcv failed id={row.id} — disqualifying", level="err")
+                row.disqualified = 1
+                session.commit()
+                advance(1, detail=f"id={row.id} dbcv fail")
+                continue
+
+            non_noise = labels != -1
+            unique_clusters = np.unique(labels[non_noise])
+            if len(unique_clusters) >= 2:
+                try:
+                    row.silhouette = float(silhouette_score(X_nd[non_noise], labels[non_noise]))
+                except Exception:
+                    row.silhouette = 0.0
+            else:
+                row.silhouette = 0.0
+
+            session.commit()
+            dbcv_str = f"{row.dbcv:.4f}"
+            sil_str = f"{row.silhouette:.4f}"
+            advance(1, detail=f"id={row.id} dbcv={dbcv_str} sil={sil_str}")
 
 
 def _phase_composite(session: Session, case: str) -> None:
@@ -127,8 +157,9 @@ def _phase_composite(session: Session, case: str) -> None:
     stab_vals = [r.bootstrap_stability if r.bootstrap_stability is not None else 0.0 for r in rows]
     stab_norm = _minmax(stab_vals)
 
+    w_d, w_s, w_b = _weights_composite_intermediate()
     for row, dn, sn, stn in zip(rows, dbcv_norm, sil_norm, stab_norm):
-        row.composite_score = round(0.5 * dn + 0.2 * sn + 0.3 * stn, 6)
+        row.composite_score = round(w_d * dn + w_s * sn + w_b * stn, 6)
     session.commit()
     log(f"validate:{case}", f"composite — updated {len(rows)} rows")
 
@@ -136,7 +167,7 @@ def _phase_composite(session: Session, case: str) -> None:
 def _phase_composite_final(session: Session, case: str) -> None:
     """Recompute composite_score using the full 4-factor formula after plateau is available.
 
-    composite = 0.35*dbcv_norm + 0.15*sil_norm + 0.20*bootstrap_norm + 0.30*plateau_norm
+    Weights: VALIDATION_COMPOSITE_FINAL_DBCV, _SILHOUETTE, _BOOTSTRAP, _PLATEAU (defaults 0.35, 0.15, 0.20, 0.30).
 
     Only current-grid rows with param_plateau_score set are considered. bootstrap_stability=None → 0.0.
     """
@@ -159,8 +190,9 @@ def _phase_composite_final(session: Session, case: str) -> None:
     stab_norm = _minmax(stab_vals)
     plateau_norm = _minmax([r.param_plateau_score for r in rows])
 
+    w_d, w_s, w_b, w_p = _weights_composite_final()
     for row, dn, sn, stn, pn in zip(rows, dbcv_norm, sil_norm, stab_norm, plateau_norm):
-        row.composite_score = round(0.35 * dn + 0.15 * sn + 0.20 * stn + 0.30 * pn, 6)
+        row.composite_score = round(w_d * dn + w_s * sn + w_b * stn + w_p * pn, 6)
     session.commit()
     log(f"validate:{case}", f"composite_final — updated {len(rows)} rows")
 
@@ -205,37 +237,44 @@ def _phase_bootstrap(session: Session, case: str, matrix: np.ndarray) -> None:
 
     rng = np.random.default_rng(42)
 
-    for row_i, row in enumerate(rows):
-        params = _row_to_params(row)
-        try:
-            original = compute_clusters(matrix, **params)
-        except ValueError as exc:
-            log(f"validate:{case}", f"bootstrap skip id={row.id} — {exc}", level="warn")
-            continue
-
-        aris = []
-        for _ in range(n_runs):
-            idx = rng.integers(0, n_rows, size=n_rows)
+    with progress(len(rows), f"validate bootstrap · {case}") as advance:
+        for row_i, row in enumerate(rows):
+            params = _row_to_params(row)
+            advance(0, detail=f"id={row.id} ({row_i + 1}/{len(rows)}) fit")
             try:
-                boot = compute_clusters(matrix[idx], **params)
-            except ValueError:
+                original = compute_clusters(matrix, **params)
+            except ValueError as exc:
+                log(f"validate:{case}", f"bootstrap skip id={row.id} — {exc}", level="warn")
+                advance(1, detail=f"id={row.id} skip")
                 continue
-            aris.append(_ari_non_noise(original.labels[idx], boot.labels))
 
-        if not aris:
-            log(f"validate:{case}", f"bootstrap all-failed id={row.id} — disqualifying", level="err")
-            row.disqualified = 1
+            aris = []
+            for run_i in range(n_runs):
+                advance(0, detail=f"id={row.id} run {run_i + 1}/{n_runs}")
+                idx = rng.integers(0, n_rows, size=n_rows)
+                try:
+                    boot = compute_clusters(matrix[idx], **params)
+                except ValueError:
+                    continue
+                aris.append(_ari_non_noise(original.labels[idx], boot.labels))
+
+            if not aris:
+                log(f"validate:{case}", f"bootstrap all-failed id={row.id} — disqualifying", level="err")
+                row.disqualified = 1
+                session.commit()
+                advance(1, detail=f"id={row.id} all-failed")
+                continue
+
+            row.bootstrap_stability = float(np.mean(aris))
+            row.bootstrap_n_runs = len(aris)
             session.commit()
-            continue
-
-        row.bootstrap_stability = float(np.mean(aris))
-        row.bootstrap_n_runs = len(aris)
-        session.commit()
-        msg = (
-            f"bootstrap {row_i + 1}/{len(rows)} id={row.id}"
-            f" stability={row.bootstrap_stability:.4f} ({row.bootstrap_n_runs} runs)"
-        )
-        log(f"validate:{case}", msg)
+            advance(
+                1,
+                detail=(
+                    f"id={row.id} stab={row.bootstrap_stability:.4f} "
+                    f"({row.bootstrap_n_runs} runs)"
+                ),
+            )
 
 
 _NUMERIC_PARAM_COLS = [
@@ -309,10 +348,12 @@ def _phase_plateau(session: Session, case: str) -> None:
         .all()
     )
 
-    for row in top_rows:
-        neighbors = _find_param_neighbors(row, all_rows)
-        scores = [n.composite_score for n in neighbors if n.composite_score is not None]
-        row.param_plateau_score = float(np.mean(scores)) if scores else 0.0
+    with progress(len(top_rows), f"validate plateau · {case}") as advance:
+        for row in top_rows:
+            neighbors = _find_param_neighbors(row, all_rows)
+            scores = [n.composite_score for n in neighbors if n.composite_score is not None]
+            row.param_plateau_score = float(np.mean(scores)) if scores else 0.0
+            advance(1, detail=f"id={row.id} plateau={row.param_plateau_score:.4f}")
     session.commit()
     log(f"validate:{case}", f"plateau — scored {len(top_rows)} top rows")
 

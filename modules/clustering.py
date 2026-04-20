@@ -5,6 +5,7 @@ import numpy as np
 import hdbscan
 from umap import UMAP
 
+from modules.console import progress
 from modules.database import Base, engine, get_session, UserEmbedding, UserCluster
 from modules.services import log
 
@@ -154,24 +155,30 @@ def cluster_users(embedding_case: str, **params) -> None:
         log(f"cluster:{embedding_case}", "nothing to do")
         return
 
-    log(f"cluster:{embedding_case}", f"{matrix.shape[0]} users — running UMAP + HDBSCAN")
-    try:
-        result = compute_clusters(matrix, **params)
-    except ValueError as exc:
-        log(f"cluster:{embedding_case}", f"skipping — {exc}", level="warn")
-        return
+    n_users = matrix.shape[0]
+    log(f"cluster:{embedding_case}", f"{n_users} users — running UMAP + HDBSCAN")
+    with progress(1, f"cluster fit · {embedding_case}") as advance:
+        advance(0, detail="UMAP + HDBSCAN (may take a while)")
+        try:
+            result = compute_clusters(matrix, **params)
+        except ValueError as exc:
+            log(f"cluster:{embedding_case}", f"skipping — {exc}", level="warn")
+            return
+        advance(1, detail=f"{result.n_clusters} clusters, {result.noise_ratio:.1%} noise")
 
     session = get_session()
     try:
-        for i, user_pk in enumerate(user_pks):
-            row = UserCluster(
-                user_pk=user_pk,
-                embedding_case=embedding_case,
-                cluster_id=int(result.labels[i]),
-                umap_x=float(result.coords_2d[i, 0]),
-                umap_y=float(result.coords_2d[i, 1]),
-            )
-            session.merge(row)
+        with progress(len(user_pks), f"cluster save · {embedding_case}") as advance:
+            for i, user_pk in enumerate(user_pks):
+                row = UserCluster(
+                    user_pk=user_pk,
+                    embedding_case=embedding_case,
+                    cluster_id=int(result.labels[i]),
+                    umap_x=float(result.coords_2d[i, 0]),
+                    umap_y=float(result.coords_2d[i, 1]),
+                )
+                session.merge(row)
+                advance(1, detail=f"{i + 1}/{len(user_pks)}")
         session.commit()
     finally:
         session.close()
