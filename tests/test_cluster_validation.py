@@ -414,7 +414,8 @@ def test_select_best_ignores_disqualified():
         assert _select_best(s, "video") is None
 
 
-def test_select_best_env_override(monkeypatch):
+def test_select_best_ignores_cluster_override_env(monkeypatch):
+    """CLUSTER_OVERRIDE_* is unsupported; selection uses plateau + DBCV only."""
     eng = _make_engine()
     with Session(eng) as s:
         r1 = _insert_run(s, disqualified=0, noise_ratio=0.1, n_clusters=5,
@@ -428,23 +429,15 @@ def test_select_best_env_override(monkeypatch):
         r2.dbcv = 0.1
         r2.param_plateau_score = 0.09
         s.commit()
-        id2 = r2.id
+        low_id = r2.id
 
-    monkeypatch.setenv("CLUSTER_OVERRIDE_VIDEO", str(id2))
+    monkeypatch.setenv("CLUSTER_OVERRIDE_VIDEO", str(low_id))
     from modules.cluster_validation import _select_best
     with Session(eng) as s:
         result = _select_best(s, "video")
         assert result is not None
-        assert result.id == id2  # forced override, not the best-scoring
-
-
-def test_select_best_env_override_missing_id_raises(monkeypatch):
-    eng = _make_engine()
-    monkeypatch.setenv("CLUSTER_OVERRIDE_VIDEO", "99999")
-    from modules.cluster_validation import _select_best
-    with Session(eng) as s:
-        with pytest.raises(ValueError, match="CLUSTER_OVERRIDE_VIDEO"):
-            _select_best(s, "video")
+        assert result.id != low_id
+        assert result.dbcv == 0.9
 
 
 # --- Config hash ---

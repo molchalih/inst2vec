@@ -108,6 +108,16 @@ def run_cluster_search() -> None:
         if matrix.shape[0] == 0:
             log(f"cluster_search:{case}", f"no embeddings — skipping {len(case_combos)} combos", level="warn")
             total_skipped += len(case_combos)
+            session = get_session()
+            try:
+                for row in session.query(ClusterRun).filter(
+                    ClusterRun.embedding_case == case
+                ).all():
+                    row.in_current_grid = 0
+                    row.disqualified = 1
+                session.commit()
+            finally:
+                session.close()
             continue
 
         fingerprint = _compute_dataset_fingerprint(user_pks)
@@ -205,7 +215,6 @@ def run_cluster_search() -> None:
                         stale_row.disqualified = None
                         stale_row.dbcv = None
                         stale_row.silhouette = None
-                        stale_row.composite_score = None
                         stale_row.param_plateau_score = None
                         session.commit()
                         total_new += 1

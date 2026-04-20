@@ -468,8 +468,3 @@ def embed_user_clips(cases: list[str] | None = None):
             log(f"embed:user:{case}", "done", level="ok")
     finally:
         session.close()
-
-
-def embed_clips():
-    """Backwards-compatible entrypoint. Runs video embeddings only; call embed_sandwich_clips() separately for sandwich embeddings."""
-    embed_video_clips()

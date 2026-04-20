@@ -214,16 +214,6 @@ def _phase_plateau(session: Session, case: str) -> None:
 
 
 def _select_best(session: Session, case: str) -> ClusterRun | None:
-    override = os.environ.get(f"CLUSTER_OVERRIDE_{case.upper()}")
-    if override:
-        row = session.get(ClusterRun, int(override))
-        if row is None:
-            raise ValueError(
-                f"CLUSTER_OVERRIDE_{case.upper()}={override} but no ClusterRun with that id"
-            )
-        log(f"validate:{case}", f"override — using run id={row.id} (forced via env var)")
-        return row
-
     threshold = float(os.environ.get("VALIDATION_PLATEAU_DROP_THRESHOLD", "0.05"))
 
     rows = (
