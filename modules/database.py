@@ -219,7 +219,7 @@ class ClusterRun(Base):
     silhouette = Column(Float, nullable=True)
     param_plateau_score = Column(Float, nullable=True)
     in_current_grid = Column(Integer, nullable=True)   # 1=current, 0=stale
-    dataset_fingerprint = Column(String, nullable=True) # SHA-256 of sorted user PKs
+    dataset_hash = Column(String, nullable=True) # SHA-256 of sorted user PKs
     validation_config_hash = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
@@ -261,13 +261,22 @@ def _migrate_cluster_runs_table() -> None:
         "silhouette": "REAL",
         "param_plateau_score": "REAL",
         "in_current_grid": "INTEGER",
-        "dataset_fingerprint": "TEXT",
+        "dataset_hash": "TEXT",
         "validation_config_hash": "TEXT",
     }
     for col, col_type in new_cols.items():
         if col not in columns:
             with engine.begin() as conn:
                 conn.execute(text(f"ALTER TABLE cluster_runs ADD COLUMN {col} {col_type}"))
+
+    # Backfill renamed column for existing DBs that still have dataset_fingerprint.
+    if "dataset_hash" in {c["name"] for c in inspect(engine).get_columns("cluster_runs")} and "dataset_fingerprint" in columns:
+        with engine.begin() as conn:
+            conn.execute(text(
+                "UPDATE cluster_runs "
+                "SET dataset_hash = dataset_fingerprint "
+                "WHERE dataset_hash IS NULL AND dataset_fingerprint IS NOT NULL"
+            ))
 
 
 # legacy column drops run during init_db; no separate migrate script needed for these.
