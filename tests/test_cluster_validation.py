@@ -595,3 +595,13 @@ def test_select_best_uses_composite_score_directly():
         result = _select_best(s, "video")
         assert result is not None
         assert result.id == id1
+
+
+def test_cluster_run_has_validation_config_hash_field():
+    eng = _make_engine()
+    with Session(eng) as s:
+        row = _insert_run(s)
+        row.validation_config_hash = "abc123def456abcd"
+        s.commit()
+        s.refresh(row)
+        assert row.validation_config_hash == "abc123def456abcd"
