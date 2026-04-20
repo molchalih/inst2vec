@@ -146,8 +146,14 @@ def test_filter_ignores_stale_rows():
 
 # --- Phase 2: score ---
 
-def test_phase_score_populates_dbcv_and_silhouette():
+def test_phase_score_populates_dbcv_and_silhouette(monkeypatch):
     eng = _make_engine()
+
+    def _get_session():
+        return Session(eng)
+
+    monkeypatch.setattr("modules.cluster_validation.get_session", _get_session)
+
     rng = np.random.default_rng(0)
     matrix = np.vstack([
         rng.normal(8.0, 0.2, (40, 30)).astype(np.float32),
@@ -167,8 +173,14 @@ def test_phase_score_populates_dbcv_and_silhouette():
         assert updated.silhouette is not None
 
 
-def test_phase_score_skips_already_scored_rows():
+def test_phase_score_skips_already_scored_rows(monkeypatch):
     eng = _make_engine()
+
+    def _get_session():
+        return Session(eng)
+
+    monkeypatch.setattr("modules.cluster_validation.get_session", _get_session)
+
     rng = np.random.default_rng(0)
     matrix = np.vstack([
         rng.normal(8.0, 0.2, (40, 30)).astype(np.float32),
@@ -659,3 +671,60 @@ def test_validate_clustering_phase_order(monkeypatch):
     video_hash = next(h for op, c, h in sequence if c == "video" and op == "invalidate")
     assert len(video_hash) == 16
     assert all(ch in "0123456789abcdef" for ch in video_hash)
+
+
+def test_phase_score_uses_thread_pool_when_workers_gt_one(monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+
+    eng = _make_engine()
+
+    def _get_session():
+        return Session(eng)
+
+    monkeypatch.setattr("modules.cluster_validation.get_session", _get_session)
+
+    max_workers_seen: list[int | None] = []
+
+    class RecordingPool(ThreadPoolExecutor):
+        def __init__(self, *args, max_workers=None, **kwargs):
+            max_workers_seen.append(max_workers)
+            super().__init__(*args, max_workers=max_workers, **kwargs)
+
+    calls = {"n": 0}
+
+    def counting_compute(matrix, **kw):
+        calls["n"] += 1
+        assert kw.get("umap_n_jobs") in (None, 1)
+        from modules.clustering import ClusterResult
+
+        labels = np.zeros(matrix.shape[0], dtype=np.int32)
+        return ClusterResult(
+            labels=labels,
+            coords_2d=np.zeros((matrix.shape[0], 2), dtype=np.float32),
+            n_clusters=1,
+            noise_ratio=0.0,
+            cluster_sizes=[matrix.shape[0]],
+            matrix_nd=np.zeros((matrix.shape[0], 2), dtype=np.float32),
+        )
+
+    with Session(eng) as s:
+        for nc in (15, 16):
+            row = _insert_run(s, umap_n_components=nc, disqualified=0)
+            row.in_current_grid = 1
+            row.dbcv = None
+            s.commit()
+
+    monkeypatch.setattr("modules.cluster_validation.ThreadPoolExecutor", RecordingPool)
+    monkeypatch.setattr("modules.cluster_validation.compute_clusters", counting_compute)
+
+    from modules.cluster_validation import _phase_score
+
+    matrix = np.ones((20, 8), dtype=np.float32)
+    env = {"CLUSTERING_GRID_WORKERS": "4"}
+
+    with patch.dict(os.environ, env, clear=False):
+        with Session(eng) as session:
+            _phase_score(session, "video", matrix)
+
+    assert calls["n"] == 2
+    assert max_workers_seen == [4]

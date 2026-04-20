@@ -21,10 +21,10 @@ _PARAM_KEYS = (
 )
 
 
-def _compute_dataset_fingerprint(user_pks: list[int]) -> str:
-    """Compute a deterministic SHA-256 fingerprint of the dataset.
+def _compute_dataset_hash(user_pks: list[int]) -> str:
+    """Compute a deterministic SHA-256 hash of the dataset.
 
-    The fingerprint is based on sorted user PKs, ensuring it's order-independent.
+    The hash is based on sorted user PKs, ensuring it's order-independent.
     """
     payload = ",".join(str(pk) for pk in sorted(user_pks)).encode()
     return hashlib.sha256(payload).hexdigest()
@@ -86,14 +86,13 @@ def run_cluster_search() -> None:
 
     At the start of each run: marks existing rows as in_current_grid=0/disqualified=1
     if they belong to a combo not in the current grid, or were computed on a different
-    dataset (fingerprint mismatch). New rows get in_current_grid=1 and dataset_fingerprint.
+    dataset (hash mismatch). New rows get in_current_grid=1 and dataset_hash.
 
-    Idempotent: skips any combo already present in the DB with matching fingerprint.
+    Idempotent: skips any combo already present in the DB with matching dataset hash.
     Groups combos by embedding_case so the user embedding matrix is loaded once per case.
     """
     Base.metadata.create_all(engine)
     combos = _load_grid()
-    umap_n_jobs = env_positive_int("CLUSTERING_JOBS")
     grid_workers = env_positive_int("CLUSTERING_GRID_WORKERS")
 
     combos_by_case: dict[str, list[dict]] = {}
@@ -120,7 +119,7 @@ def run_cluster_search() -> None:
                 session.close()
             continue
 
-        fingerprint = _compute_dataset_fingerprint(user_pks)
+        dataset_hash = _compute_dataset_hash(user_pks)
         current_keys = {_combo_key(c) for c in case_combos}
 
         # Invalidate stale rows: wrong grid params or dataset changed
@@ -134,7 +133,7 @@ def run_cluster_search() -> None:
                     (k, getattr(row, k)) for k in _PARAM_KEYS
                 )
                 in_grid = row_key in current_keys
-                fp_match = row.dataset_fingerprint == fingerprint
+                fp_match = row.dataset_hash == dataset_hash
                 if in_grid and fp_match:
                     row.in_current_grid = 1
                 else:
@@ -154,7 +153,7 @@ def run_cluster_search() -> None:
                 session = get_session()
                 try:
                     if session.query(ClusterRun).filter_by(**combo).filter(
-                        ClusterRun.dataset_fingerprint == fingerprint
+                        ClusterRun.dataset_hash == dataset_hash
                     ).first():
                         total_skipped += 1
                         advance(1, detail=f"{short} | cached")
@@ -173,7 +172,7 @@ def run_cluster_search() -> None:
                 session = get_session()
                 try:
                     if session.query(ClusterRun).filter_by(**combo).filter(
-                        ClusterRun.dataset_fingerprint == fingerprint
+                        ClusterRun.dataset_hash == dataset_hash
                     ).first():
                         total_skipped += 1
                         advance(1, detail=f"{short} | cached")
@@ -187,7 +186,7 @@ def run_cluster_search() -> None:
                         median_size=int(np.median(sizes)) if sizes else 0,
                         max_size=max(sizes) if sizes else 0,
                         in_current_grid=1,
-                        dataset_fingerprint=fingerprint,
+                        dataset_hash=dataset_hash,
                     )
                     session.add(row)
                     session.commit()
@@ -198,7 +197,7 @@ def run_cluster_search() -> None:
                     stale_row = session.query(ClusterRun).filter_by(**combo).first()
                     if stale_row is not None:
                         try:
-                            result = compute_clusters(matrix, umap_n_jobs=umap_n_jobs, **params)
+                            result = compute_clusters(matrix, **params)
                         except ValueError as exc:
                             log(f"cluster_search:{case}", f"update-skip — {exc}", level="warn")
                             total_skipped += 1
@@ -211,7 +210,7 @@ def run_cluster_search() -> None:
                         stale_row.median_size = int(np.median(sizes)) if sizes else 0
                         stale_row.max_size = max(sizes) if sizes else 0
                         stale_row.in_current_grid = 1
-                        stale_row.dataset_fingerprint = fingerprint
+                        stale_row.dataset_hash = dataset_hash
                         stale_row.disqualified = None
                         stale_row.dbcv = None
                         stale_row.silhouette = None
@@ -227,7 +226,7 @@ def run_cluster_search() -> None:
 
             def run_one_combo(c: dict):
                 p = {k: v for k, v in c.items() if k != "embedding_case"}
-                return c, compute_clusters(matrix, umap_n_jobs=umap_n_jobs, **p)
+                return c, compute_clusters(matrix, **p)
 
             if grid_workers == 1:
                 for combo in pending:
@@ -237,7 +236,7 @@ def run_cluster_search() -> None:
                     )
                     params = {k: v for k, v in combo.items() if k != "embedding_case"}
                     try:
-                        result = compute_clusters(matrix, umap_n_jobs=umap_n_jobs, **params)
+                        result = compute_clusters(matrix, **params)
                     except ValueError as exc:
                         log(f"cluster_search:{case}", f"skipping — {exc}", level="warn")
                         total_skipped += 1

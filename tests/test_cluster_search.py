@@ -29,7 +29,7 @@ def test_cluster_run_columns():
         "created_at",
         "disqualified", "dbcv", "silhouette",
         "param_plateau_score",
-        "in_current_grid", "dataset_fingerprint", "validation_config_hash",
+        "in_current_grid", "dataset_hash", "validation_config_hash",
     }
 
 
@@ -201,7 +201,7 @@ def test_run_cluster_search_invalidates_rows_when_no_embeddings_for_case(mem_eng
             hdbscan_cluster_selection_method="eom", hdbscan_metric="euclidean",
             random_state=42,
             n_clusters=3, noise_ratio=0.1, min_size=1, median_size=2, max_size=5,
-            in_current_grid=1, disqualified=0, dataset_fingerprint="old",
+            in_current_grid=1, disqualified=0, dataset_hash="old",
         )
         s.add(row)
         s.commit()
@@ -255,17 +255,17 @@ def test_run_cluster_search_idempotent(mem_engine, monkeypatch):
     assert count == 3  # still 3, not 6
 
 
-def test_compute_dataset_fingerprint_deterministic():
-    from modules.cluster_search import _compute_dataset_fingerprint
-    fp1 = _compute_dataset_fingerprint([3, 1, 2])
-    fp2 = _compute_dataset_fingerprint([1, 2, 3])
+def test_compute_dataset_hash_deterministic():
+    from modules.cluster_search import _compute_dataset_hash
+    fp1 = _compute_dataset_hash([3, 1, 2])
+    fp2 = _compute_dataset_hash([1, 2, 3])
     assert fp1 == fp2  # order-independent
     assert len(fp1) == 64  # SHA-256 hex
 
 
-def test_compute_dataset_fingerprint_differs_on_different_users():
-    from modules.cluster_search import _compute_dataset_fingerprint
-    assert _compute_dataset_fingerprint([1, 2]) != _compute_dataset_fingerprint([1, 3])
+def test_compute_dataset_hash_differs_on_different_users():
+    from modules.cluster_search import _compute_dataset_hash
+    assert _compute_dataset_hash([1, 2]) != _compute_dataset_hash([1, 3])
 
 
 def test_combo_key_excludes_embedding_case():
@@ -364,7 +364,7 @@ def test_run_cluster_search_invalidates_rows_on_dataset_change(mem_engine, monke
         run_cluster_search()  # uses pks 0..79
 
     with Session(mem_engine) as s:
-        fp_before = s.query(ClusterRun).first().dataset_fingerprint
+        fp_before = s.query(ClusterRun).first().dataset_hash
         assert fp_before is not None
 
     with patch.dict(os.environ, env, clear=False):
@@ -377,15 +377,17 @@ def test_run_cluster_search_invalidates_rows_on_dataset_change(mem_engine, monke
         assert len(current) == 3  # new rows inserted
 
 
-def test_run_cluster_search_passes_umap_n_jobs_from_env(mem_engine, monkeypatch):
-    received = {}
+def test_run_cluster_search_uses_single_thread_umap_per_combo(mem_engine, monkeypatch):
+    """Grid search does not enable UMAP internal threading; parallelism is only via grid workers."""
+    received: list[int | None] = []
 
     def capture_compute(matrix, **kw):
-        received["umap_n_jobs"] = kw.get("umap_n_jobs")
+        received.append(kw.get("umap_n_jobs"))
         return _fake_result()
 
     env = {
-        "CLUSTERING_JOBS": "3",
+        "CLUSTERING_JOBS": "99",
+        "CLUSTERING_GRID_WORKERS": "1",
         "CLUSTERING_UMAP_N_COMPONENTS": "5",
         "CLUSTERING_UMAP_N_NEIGHBORS": "5",
         "CLUSTERING_UMAP_MIN_DIST": "0.0",
@@ -406,7 +408,8 @@ def test_run_cluster_search_passes_umap_n_jobs_from_env(mem_engine, monkeypatch)
     with patch.dict(os.environ, env, clear=False):
         run_cluster_search()
 
-    assert received["umap_n_jobs"] == 3
+    assert all(j in (None, 1) for j in received), received
+    assert received, "compute_clusters should have been called"
 
 
 def test_run_cluster_search_parallel_workers_uses_thread_pool(mem_engine, monkeypatch):
@@ -414,7 +417,6 @@ def test_run_cluster_search_parallel_workers_uses_thread_pool(mem_engine, monkey
 
     env = {
         "CLUSTERING_GRID_WORKERS": "3",
-        "CLUSTERING_JOBS": "1",
         "CLUSTERING_UMAP_N_COMPONENTS": "5 6",
         "CLUSTERING_UMAP_N_NEIGHBORS": "5",
         "CLUSTERING_UMAP_MIN_DIST": "0.0",
@@ -435,7 +437,7 @@ def test_run_cluster_search_parallel_workers_uses_thread_pool(mem_engine, monkey
             super().__init__(*args, max_workers=max_workers, **kwargs)
 
     def tracking_compute(matrix, **kw):
-        assert kw.get("umap_n_jobs") == 1
+        assert kw.get("umap_n_jobs") in (None, 1)
         return _fake_result()
 
     monkeypatch.setattr("modules.cluster_search.ThreadPoolExecutor", RecordingPool)
@@ -452,7 +454,7 @@ def test_run_cluster_search_parallel_workers_uses_thread_pool(mem_engine, monkey
     assert max_workers_seen == [3, 3, 3]
 
 
-def test_run_cluster_search_new_rows_have_fingerprint_and_in_current_grid(mem_engine, monkeypatch):
+def test_run_cluster_search_new_rows_have_dataset_hash_and_in_current_grid(mem_engine, monkeypatch):
     env = {
         "CLUSTERING_UMAP_N_COMPONENTS": "5",
         "CLUSTERING_UMAP_N_NEIGHBORS": "5",
@@ -479,7 +481,7 @@ def test_run_cluster_search_new_rows_have_fingerprint_and_in_current_grid(mem_en
         rows = s.query(ClusterRun).all()
         for row in rows:
             assert row.in_current_grid == 1
-            assert row.dataset_fingerprint is not None
-            assert len(row.dataset_fingerprint) == 64
+            assert row.dataset_hash is not None
+            assert len(row.dataset_hash) == 64
 
 
