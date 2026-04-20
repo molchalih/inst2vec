@@ -595,3 +595,253 @@ def test_select_best_uses_composite_score_directly():
         result = _select_best(s, "video")
         assert result is not None
         assert result.id == id1
+
+
+def test_cluster_run_has_validation_config_hash_field():
+    eng = _make_engine()
+    with Session(eng) as s:
+        row = _insert_run(s)
+        row.validation_config_hash = "abc123def456abcd"
+        s.commit()
+        s.refresh(row)
+        assert row.validation_config_hash == "abc123def456abcd"
+
+
+# --- Config hash ---
+
+def test_compute_validation_config_hash_is_deterministic():
+    from modules.cluster_validation import _compute_validation_config_hash
+    env = {
+        "VALIDATION_MAX_NOISE_RATIO": "0.3",
+        "VALIDATION_MIN_CLUSTERS": "3",
+        "VALIDATION_MAX_CLUSTERS": "20",
+        "VALIDATION_TOP_N_BOOTSTRAP": "20",
+        "VALIDATION_BOOTSTRAP_N": "30",
+        "VALIDATION_TOP_N_PLATEAU": "20",
+    }
+    with patch.dict(os.environ, env, clear=False):
+        h1 = _compute_validation_config_hash()
+        h2 = _compute_validation_config_hash()
+    assert h1 == h2
+    assert len(h1) == 16
+
+
+def test_compute_validation_config_hash_changes_with_env():
+    from modules.cluster_validation import _compute_validation_config_hash
+    base_env = {
+        "VALIDATION_MAX_NOISE_RATIO": "0.3",
+        "VALIDATION_MIN_CLUSTERS": "3",
+        "VALIDATION_MAX_CLUSTERS": "20",
+        "VALIDATION_TOP_N_BOOTSTRAP": "20",
+        "VALIDATION_BOOTSTRAP_N": "30",
+        "VALIDATION_TOP_N_PLATEAU": "20",
+    }
+    changed_env = {**base_env, "VALIDATION_MAX_NOISE_RATIO": "0.5"}
+    with patch.dict(os.environ, base_env, clear=False):
+        h_base = _compute_validation_config_hash()
+    with patch.dict(os.environ, changed_env, clear=False):
+        h_changed = _compute_validation_config_hash()
+    assert h_base != h_changed
+
+
+def test_compute_validation_config_hash_uses_defaults_when_env_absent():
+    from modules.cluster_validation import _compute_validation_config_hash
+    keys = [
+        "VALIDATION_MAX_NOISE_RATIO", "VALIDATION_MIN_CLUSTERS", "VALIDATION_MAX_CLUSTERS",
+        "VALIDATION_TOP_N_BOOTSTRAP", "VALIDATION_BOOTSTRAP_N", "VALIDATION_TOP_N_PLATEAU",
+    ]
+    original = {k: os.environ.pop(k) for k in keys if k in os.environ}
+    try:
+        h1 = _compute_validation_config_hash()
+        h2 = _compute_validation_config_hash()
+        assert h1 == h2
+    finally:
+        os.environ.update(original)
+
+
+# --- Stale row invalidation ---
+
+def test_invalidate_stale_rows_nulls_config_dependent_fields_when_hash_differs():
+    eng = _make_engine()
+    with Session(eng) as s:
+        row = _insert_run(s, noise_ratio=0.1, n_clusters=5)
+        row.in_current_grid = 1
+        row.validation_config_hash = "oldhash00000000"
+        row.bootstrap_stability = 0.8
+        row.bootstrap_n_runs = 30
+        row.param_plateau_score = 0.7
+        row.composite_score = 0.6
+        row.dbcv = 0.9
+        row.silhouette = 0.85
+        s.commit()
+        row_id = row.id
+
+    from modules.cluster_validation import _invalidate_stale_rows
+    with Session(eng) as s:
+        _invalidate_stale_rows(s, "video", "newhash00000000")
+        updated = s.get(ClusterRun, row_id)
+        assert updated.bootstrap_stability is None
+        assert updated.bootstrap_n_runs is None
+        assert updated.param_plateau_score is None
+        assert updated.composite_score is None
+        assert updated.dbcv == pytest.approx(0.9)
+        assert updated.silhouette == pytest.approx(0.85)
+        assert updated.validation_config_hash == "newhash00000000"
+
+
+def test_invalidate_stale_rows_treats_null_hash_as_stale():
+    eng = _make_engine()
+    with Session(eng) as s:
+        row = _insert_run(s, noise_ratio=0.1, n_clusters=5)
+        row.in_current_grid = 1
+        row.validation_config_hash = None
+        row.bootstrap_stability = 0.5
+        row.bootstrap_n_runs = 10
+        row.param_plateau_score = 0.4
+        row.composite_score = 0.3
+        s.commit()
+        row_id = row.id
+
+    from modules.cluster_validation import _invalidate_stale_rows
+    with Session(eng) as s:
+        _invalidate_stale_rows(s, "video", "currenthash0000")
+        updated = s.get(ClusterRun, row_id)
+        assert updated.bootstrap_stability is None
+        assert updated.bootstrap_n_runs is None
+        assert updated.param_plateau_score is None
+        assert updated.composite_score is None
+        assert updated.validation_config_hash == "currenthash0000"
+
+
+def test_invalidate_stale_rows_skips_matching_hash():
+    eng = _make_engine()
+    with Session(eng) as s:
+        row = _insert_run(s, noise_ratio=0.1, n_clusters=5)
+        row.in_current_grid = 1
+        row.validation_config_hash = "currenthash0000"
+        row.bootstrap_stability = 0.8
+        row.bootstrap_n_runs = 30
+        row.param_plateau_score = 0.7
+        row.composite_score = 0.6
+        s.commit()
+        row_id = row.id
+
+    from modules.cluster_validation import _invalidate_stale_rows
+    with Session(eng) as s:
+        _invalidate_stale_rows(s, "video", "currenthash0000")
+        updated = s.get(ClusterRun, row_id)
+        assert updated.bootstrap_stability == pytest.approx(0.8)
+        assert updated.bootstrap_n_runs == 30
+        assert updated.param_plateau_score == pytest.approx(0.7)
+        assert updated.composite_score == pytest.approx(0.6)
+
+
+def test_invalidate_stale_rows_ignores_non_current_grid_rows():
+    eng = _make_engine()
+    with Session(eng) as s:
+        row = _insert_run(s, noise_ratio=0.1, n_clusters=5)
+        row.in_current_grid = 0
+        row.validation_config_hash = "oldhash00000000"
+        row.bootstrap_stability = 0.8
+        row.param_plateau_score = 0.7
+        row.composite_score = 0.6
+        s.commit()
+        row_id = row.id
+
+    from modules.cluster_validation import _invalidate_stale_rows
+    with Session(eng) as s:
+        _invalidate_stale_rows(s, "video", "newhash00000000")
+        updated = s.get(ClusterRun, row_id)
+        assert updated.bootstrap_stability == pytest.approx(0.8)
+        assert updated.param_plateau_score == pytest.approx(0.7)
+        assert updated.composite_score == pytest.approx(0.6)
+        assert updated.validation_config_hash == "oldhash00000000"
+
+
+def test_invalidate_stale_rows_only_affects_matching_case():
+    eng = _make_engine()
+    with Session(eng) as s:
+        video_row = _insert_run(s, embedding_case="video", noise_ratio=0.1, n_clusters=5,
+                                umap_n_components=10, random_state=1)
+        video_row.in_current_grid = 1
+        video_row.validation_config_hash = "oldhash00000000"
+        video_row.bootstrap_stability = 0.8
+
+        audio_row = _insert_run(s, embedding_case="audio", noise_ratio=0.1, n_clusters=5,
+                                umap_n_components=10, random_state=1)
+        audio_row.in_current_grid = 1
+        audio_row.validation_config_hash = "oldhash00000000"
+        audio_row.bootstrap_stability = 0.9
+        s.commit()
+        vid_id, aud_id = video_row.id, audio_row.id
+
+    from modules.cluster_validation import _invalidate_stale_rows
+    with Session(eng) as s:
+        _invalidate_stale_rows(s, "video", "newhash00000000")
+        vid = s.get(ClusterRun, vid_id)
+        aud = s.get(ClusterRun, aud_id)
+        assert vid.bootstrap_stability is None
+        assert aud.bootstrap_stability == pytest.approx(0.9)
+
+
+def test_validate_clustering_calls_invalidation_before_phases(monkeypatch):
+    """_invalidate_stale_rows must be called before any phase for non-empty cases."""
+    from unittest.mock import MagicMock
+    sequence = []
+
+    def fake_invalidate(session, case, current_hash):
+        sequence.append(("invalidate", case, current_hash))
+
+    def fake_load_matrix(case):
+        if case == "video":
+            return (np.ones((5, 10), dtype=np.float32), list(range(5)))
+        return (np.zeros((0, 10), dtype=np.float32), [])
+
+    def fake_phase_filter(session, case):
+        sequence.append(("filter", case))
+
+    def fake_phase_score(session, case, matrix):
+        sequence.append(("score", case))
+
+    def fake_phase_composite(session, case):
+        sequence.append(("composite", case))
+
+    def fake_phase_bootstrap(session, case, matrix):
+        sequence.append(("bootstrap", case))
+
+    def fake_phase_plateau(session, case):
+        sequence.append(("plateau", case))
+
+    def fake_phase_composite_final(session, case):
+        sequence.append(("composite_final", case))
+
+    def fake_select_best(session, case):
+        return None
+
+    monkeypatch.setattr("modules.cluster_validation._invalidate_stale_rows", fake_invalidate)
+    monkeypatch.setattr("modules.cluster_validation.load_user_matrix", fake_load_matrix)
+    monkeypatch.setattr("modules.cluster_validation._phase_filter", fake_phase_filter)
+    monkeypatch.setattr("modules.cluster_validation._phase_score", fake_phase_score)
+    monkeypatch.setattr("modules.cluster_validation._phase_composite", fake_phase_composite)
+    monkeypatch.setattr("modules.cluster_validation._phase_bootstrap", fake_phase_bootstrap)
+    monkeypatch.setattr("modules.cluster_validation._phase_plateau", fake_phase_plateau)
+    monkeypatch.setattr("modules.cluster_validation._phase_composite_final", fake_phase_composite_final)
+    monkeypatch.setattr("modules.cluster_validation._select_best", fake_select_best)
+    monkeypatch.setattr("modules.cluster_validation.get_session", lambda: MagicMock())
+
+    from modules.cluster_validation import validate_clustering
+    validate_clustering()
+
+    video_seq = [(op, c) for op, c, *_ in sequence if c == "video"]
+    assert video_seq, "no calls recorded for video case"
+    assert video_seq[0] == ("invalidate", "video"), (
+        f"invalidation must be first for video, got: {video_seq}"
+    )
+    assert ("filter", "video") in video_seq
+    invalidate_idx = video_seq.index(("invalidate", "video"))
+    filter_idx = video_seq.index(("filter", "video"))
+    assert invalidate_idx < filter_idx, "invalidation must come before filter"
+
+    video_hash = next(h for op, c, h in sequence if c == "video" and op == "invalidate")
+    assert len(video_hash) == 16
+    assert all(ch in "0123456789abcdef" for ch in video_hash)
