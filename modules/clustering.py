@@ -1,5 +1,6 @@
 """Pure clustering logic: two-pass UMAP + HDBSCAN → ClusterResult."""
 from dataclasses import dataclass, field
+import os
 
 import numpy as np
 import hdbscan
@@ -50,6 +51,7 @@ def compute_clusters(
     hdbscan_metric: str = "euclidean",
     random_state: int = 42,
     return_nd_matrix: bool = False,
+    umap_n_jobs: int = 1,
 ) -> ClusterResult:
     min_required = umap_n_components + 1
     if matrix.shape[0] < min_required:
@@ -76,7 +78,7 @@ def compute_clusters(
         metric=umap_metric,
         init="random",
         random_state=random_state,
-        n_jobs=1,
+        n_jobs=umap_n_jobs,
     )
     matrix_nd = reducer_nd.fit_transform(matrix)
 
@@ -107,7 +109,7 @@ def compute_clusters(
         metric=u2_metric,
         init="random",
         random_state=random_state,
-        n_jobs=1,
+        n_jobs=umap_n_jobs,
     )
     coords_2d = reducer_2d.fit_transform(matrix)
 
