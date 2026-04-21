@@ -59,6 +59,18 @@ def render_clustering_summary(*, eng=None) -> Markdown:
         )
     )
 
+
+def render_users_summary(*, eng=None) -> Markdown:
+    _ensure_project_root_on_path()
+
+    from generators.dataset_summary_users import users_summary_to_markdown
+
+    if eng is None:
+        eng = _get_default_engine()
+
+    return Markdown(users_summary_to_markdown(eng))
+
+
 def render_clustering_summary_by_case(case: str, *, eng=None) -> Markdown:
     _ensure_project_root_on_path()
 
