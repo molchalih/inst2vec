@@ -12,7 +12,6 @@ HIKER_TOKEN = os.environ.get("HIKER_API_KEY", "")
 BATCH_SIZE = int(os.environ.get("BATCH_SIZE", 5))
 MAX_CLIPS = int(os.environ.get("MAX_CLIPS", 5))
 
-# Per attempt: no delay before first try, then wait before 2nd / 3rd / 4th attempt.
 _FETCH_RETRY_DELAYS_SEC = [0, 30, 60, 90]
 
 

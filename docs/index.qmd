@@ -49,11 +49,15 @@ Finally, for effective clustering, the high-dimensional vectors should be reduce
 
 The resulting clusters represent aesthetic communities, populated by creators with similar aesthetic features. Both the internal structure of clusters and the overall organization of the map will be examined to characterize the field. Descriptive analysis will provide answers to the research questions posed.
 
-## Data and Methods
-### Dataset 
+## Methods
+test text
+
+### Data 
 saokdaksp
+
 ### Analytical Pipeline
 sadkasd
+
 ### Clustering Strategy
 sadsad
 

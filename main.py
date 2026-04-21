@@ -20,8 +20,8 @@ startup()
 phase("Database")
 init_db()
 
-phase("Importing")
-load_usernames_from_csv()
+# phase("Importing")
+# load_usernames_from_csv()
 
 phase("Profile Parsing")
 fetch_profiles()
