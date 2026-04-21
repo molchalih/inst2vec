@@ -7,10 +7,9 @@ from itertools import product
 import numpy as np
 from sqlalchemy.exc import IntegrityError
 
-from modules.console import progress
+from modules.console import progress, log
 from modules.database import Base, engine, get_session, ClusterRun
 from modules.clustering import compute_clusters, env_positive_int, load_user_matrix
-from modules.services import log
 
 
 _PARAM_KEYS = (

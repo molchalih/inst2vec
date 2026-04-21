@@ -9,8 +9,7 @@ from sqlalchemy import func, or_
 
 from modules.database import Clip, get_session
 from modules.external.gemma_translate import GemmaTranslator
-from modules.services import log
-from modules.console import progress
+from modules.console import progress, log
 
 
 COMMIT_EVERY = int(os.environ.get("CAPTIONS_COMMIT_EVERY", 50))

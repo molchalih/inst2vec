@@ -1,19 +1,13 @@
-"""Shared services: structured logging, Spotify and ReccoBeats HTTP clients."""
+"""Shared services: Spotify and ReccoBeats HTTP clients."""
 from __future__ import annotations
 
 import os
 import random
 import time
+import httpx
 from pathlib import Path
 from typing import Callable, Optional
 from urllib.parse import urlparse
-
-import httpx
-
-# ── logging ───────────────────────────────────────────────────────────────────
-
-from modules.console import log  # noqa: F401 — re-exported for existing callers
-
 
 # ── utilities ─────────────────────────────────────────────────────────────────
 

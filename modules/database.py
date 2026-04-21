@@ -1,46 +1,15 @@
-import csv
 import os
-from pathlib import Path
-from urllib.parse import urlparse
-
 from dotenv import load_dotenv
-from sqlalchemy import (
-    create_engine,
-    Column,
-    BigInteger,
-    Integer,
-    Float,
-    String,
-    Boolean,
-    ForeignKey,
-    Text,
-    LargeBinary,
-    UniqueConstraint,
-    DateTime,
-)
+from sqlalchemy import create_engine, Column, BigInteger, Integer, Float, String, Boolean, ForeignKey, Text, LargeBinary, UniqueConstraint, DateTime, inspect, text
 from sqlalchemy.orm import declarative_base, relationship, Session
 from sqlalchemy.sql import func
-from sqlalchemy import inspect, text
-
-from modules.services import log
 
 load_dotenv()
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+# create an instance of the ORM engine
+engine = create_engine(os.environ["DATABASE_URL"])
 
-
-def _resolve_database_url(url: str) -> str:
-    if not url.startswith("sqlite:///") or url.startswith("sqlite:////"):
-        return url
-
-    db_path = url.removeprefix("sqlite:///")
-    if db_path == ":memory:":
-        return url
-
-    return f"sqlite:///{(PROJECT_ROOT / db_path).resolve()}"
-
-
-engine = create_engine(_resolve_database_url(os.environ["DATABASE_URL"]))
+# create a base class for the ORM models
 Base = declarative_base()
 
 
@@ -96,7 +65,7 @@ class Music(Base):
     __tablename__ = "music"
     __table_args__ = (
         UniqueConstraint("artist", "track", name="uq_music_artist_track"),
-    )
+    ) # additional enforcement of artists and tracks
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     artist = Column(String, nullable=False, default="")
@@ -239,119 +208,23 @@ class ClusterRun(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
-def _migrate_clips_table() -> None:
-    """Apply additive schema migrations for existing SQLite databases."""
-    inspector = inspect(engine)
-    if "clips" not in inspector.get_table_names():
-        return
-    columns = {c["name"] for c in inspector.get_columns("clips")}
-    if "caption_language" not in columns:
-        with engine.begin() as conn:
-            conn.execute(text("ALTER TABLE clips ADD COLUMN caption_language TEXT"))
-    if "disqualified" not in columns:
-        with engine.begin() as conn:
-            conn.execute(text("ALTER TABLE clips ADD COLUMN disqualified INTEGER"))
-
-
-def _migrate_users_table() -> None:
+def _migrate_users_table(eng=None):
     """Apply additive schema migrations for existing users table."""
-    inspector = inspect(engine)
+    eng = eng or engine
+    inspector = inspect(eng)
     if "users" not in inspector.get_table_names():
         return
     columns = {c["name"] for c in inspector.get_columns("users")}
     if "user_disqualified" not in columns:
-        with engine.begin() as conn:
+        with eng.begin() as conn:
             conn.execute(text("ALTER TABLE users ADD COLUMN user_disqualified INTEGER"))
 
 
-def _migrate_cluster_runs_table() -> None:
-    """Apply additive schema migrations for existing cluster_runs table."""
-    inspector = inspect(engine)
-    if "cluster_runs" not in inspector.get_table_names():
-        return
-    columns = {c["name"] for c in inspector.get_columns("cluster_runs")}
-    new_cols = {
-        "disqualified": "INTEGER",
-        "dbcv": "REAL",
-        "silhouette": "REAL",
-        "param_plateau_score": "REAL",
-        "in_current_grid": "INTEGER",
-        "dataset_hash": "TEXT",
-        "validation_config_hash": "TEXT",
-    }
-    for col, col_type in new_cols.items():
-        if col not in columns:
-            with engine.begin() as conn:
-                conn.execute(text(f"ALTER TABLE cluster_runs ADD COLUMN {col} {col_type}"))
-
-    # Backfill renamed column for existing DBs that still have dataset_fingerprint.
-    if "dataset_hash" in {c["name"] for c in inspect(engine).get_columns("cluster_runs")} and "dataset_fingerprint" in columns:
-        with engine.begin() as conn:
-            conn.execute(text(
-                "UPDATE cluster_runs "
-                "SET dataset_hash = dataset_fingerprint "
-                "WHERE dataset_hash IS NULL AND dataset_fingerprint IS NOT NULL"
-            ))
-
-
-# legacy column drops run during init_db; no separate migrate script needed for these.
-def _migrate_cluster_runs_drop_legacy_columns() -> None:
-    """Drop unused legacy columns from cluster_runs (SQLite 3.35+ ALTER DROP COLUMN)."""
-    inspector = inspect(engine)
-    if "cluster_runs" not in inspector.get_table_names():
-        return
-    columns = {c["name"] for c in inspector.get_columns("cluster_runs")}
-    for col in ("composite_score", "bootstrap_stability", "bootstrap_n_runs"):
-        if col not in columns:
-            continue
-        try:
-            with engine.begin() as conn:
-                conn.execute(text(f"ALTER TABLE cluster_runs DROP COLUMN {col}"))
-        except Exception as exc:
-            log(
-                "database",
-                f"could not drop cluster_runs.{col} (needs sqlite 3.35+): {exc}",
-                level="warn",
-            )
-
-
 def init_db():
+    """create the database."""
     Base.metadata.create_all(engine)
     _migrate_users_table()
-    _migrate_clips_table()
-    _migrate_cluster_runs_table()
-    _migrate_cluster_runs_drop_legacy_columns()
 
 
 def get_session() -> Session:
     return Session(engine)
-
-
-def load_usernames_from_csv(csv_path: str = "data/data.csv"):
-    with open(csv_path) as f:
-        reader = csv.reader(f)
-        urls = [row[0].strip() for row in reader if row]
-
-    usernames = set()
-    for url in urls:
-        path = urlparse(url).path.strip("/")
-        if path:
-            # handle trailing /reels/ etc — take first segment
-            username = path.split("/")[0]
-            if username:
-                usernames.add(username)
-
-    total = len(urls)
-    unique = len(usernames)
-    duplicates_in_csv = total - unique
-
-    session = get_session()
-    loaded = 0
-    for username in sorted(usernames):
-        if not session.query(User).filter_by(username=username).first():
-            session.add(User(pk=hash(username) & 0x7FFFFFFFFFFFFFFF, username=username))
-            loaded += 1
-    session.commit()
-    already_in_db = unique - loaded
-    log("database", f"loaded {loaded} usernames ({duplicates_in_csv} duplicates in csv, {already_in_db} already in db)")
-    session.close()

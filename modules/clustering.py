@@ -6,9 +6,8 @@ import numpy as np
 import hdbscan
 from umap import UMAP
 
-from modules.console import progress
+from modules.console import progress, log
 from modules.database import Base, engine, get_session, UserEmbedding, UserCluster
-from modules.services import log
 
 
 def env_positive_int(key: str, default: str = "1") -> int:

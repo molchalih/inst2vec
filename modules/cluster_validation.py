@@ -10,7 +10,7 @@ from sklearn.metrics import silhouette_score
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from modules.console import progress
+from modules.console import progress, log
 from modules.database import ClusterRun, get_session
 from modules.clustering import compute_clusters, env_positive_int, load_user_matrix
 from modules.cluster_results import (
@@ -18,7 +18,6 @@ from modules.cluster_results import (
     list_eligible_best_rows,
     pick_best_cluster_run,
 )
-from modules.services import log
 
 
 _PARAM_COLS = [

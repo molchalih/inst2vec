@@ -25,32 +25,29 @@ _LEVEL_STYLES: dict[str, str] = {
 }
 
 
-def startup(db_path: str = "") -> None:
-    """Print a startup banner with timestamp and optional DB path."""
+def startup() -> None:
+    """print a startup banner."""
     _console.rule(style="dim")
-    suffix = f"  {db_path}" if db_path else ""
-    _console.print(f"  inst2vec  {datetime.now().strftime('%Y-%m-%d %H:%M')}{suffix}", style="bold")
+    _console.print(f"  inst2vec execution {datetime.now().strftime('%Y-%m-%d %H:%M')}", style="bold")
     _console.rule(style="dim")
     _console.print()
 
 
 def phase(name: str) -> None:
-    """Print a section header: bold title with a dim prefix, no full-width rules."""
-    _console.print()
-    title = Text()
-    title.append("▸ ", style="dim cyan")
-    title.append(name, style="bold")
-    _console.print(title)
-    _console.print()
+    """print a section header."""
+    _console.print() # empty line
+    title = Text() # create a new text object
+    title.append("▸ ", style="dim cyan").append(name, style="bold") # apply styles
+    _console.print(title) # print the text object
+    _console.print() # empty line
 
 
 def log(scope: str, msg: str, level: Literal["info", "ok", "warn", "err"] = "info") -> None:
-    """Print a scoped log line. level controls the message text color."""
+    """print a log line (controls the message text color)."""
     style = _LEVEL_STYLES.get(level, "")
     line = Text()
-    line.append(f"[{scope}]", style="dim")
-    line.append(f" {msg}", style=style)
-    _console.print(line)
+    line.append(f"[{scope}]", style="dim").append(f" {msg}", style=style) # apply styles
+    _console.print(line) # print the text object
 
 
 @contextmanager

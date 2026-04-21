@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from modules.database import get_session, UserCluster
-from modules.services import log
+from modules.console import log
 
 PLOTS_DIR = "data/plots"
 
