@@ -6,25 +6,33 @@ from statistics import mean, median
 from sqlalchemy import func, inspect
 from sqlalchemy.orm import Session
 
-from modules.database import User
+from modules.database import Clip, User
 
 
-def _user_column_names(bind) -> set[str]:
-    return {c["name"] for c in inspect(bind).get_columns("users")}
+def _table_exists(bind, table_name: str) -> bool:
+    return table_name in inspect(bind).get_table_names()
+
+
+def _table_has_columns(bind, table_name: str, *column_names: str) -> bool:
+    columns = {c["name"] for c in inspect(bind).get_columns(table_name)}
+    return all(name in columns for name in column_names)
+
 
 __all__ = ("users_summary_to_markdown",)
 
+
 TABLE_ROWS: tuple[tuple[str, str], ...] = (
     ("Total users", "total_users"),
-    ("Parsed users", "parsed_users"),
-    ("Unresolved users", "unresolved_users"),
     ("Users kept", "kept_users"),
-    ("Users disqualified", "disqualified_users"),
     ("Users with full name", "with_full_name"),
     ("Users with profile picture", "with_profile_pic"),
     ("Users with HD profile picture", "with_profile_pic_hd"),
     ("Users with city", "with_city"),
-    ("Following count (median, mean, min-max)", "following_count_summary"),
+    ("Following count (median)", "following_count_median"),
+    ("Following count (mean)", "following_count_mean"),
+    ("Following count (min-max)", "following_count_minmax"),
+    ("Play count per user (median)", "play_count_per_user_median"),
+    ("Play count per user (mean)", "play_count_per_user_mean"),
 )
 
 
@@ -32,10 +40,10 @@ def _count(session: Session, *criteria) -> int:
     return int(session.query(func.count(User.pk)).filter(*criteria).scalar() or 0)
 
 
-def _count_non_empty(session: Session, column) -> int:
+def _count_non_empty(session: Session, column, *criteria) -> int:
     return int(
         session.query(func.count(User.pk))
-        .filter(column.is_not(None), func.trim(column) != "")
+        .filter(column.is_not(None), func.trim(column) != "", *criteria)
         .scalar()
         or 0
     )
@@ -47,57 +55,84 @@ def _fmt_count_share(count: int, total: int) -> str:
     return f"{count:,} ({count / total:.1%})"
 
 
-def _fmt_distribution(values: list[int]) -> str:
+def _fmt_distribution(values: list[float]) -> tuple[str, str, str]:
     if not values:
-        return "-"
-    return f"{median(values):,.0f}, {mean(values):,.1f}, {min(values):,}-{max(values):,}"
+        return "-", "-", "-"
+    return (
+        f"{median(values):,.0f}",
+        f"{mean(values):,.1f}",
+        f"{min(values):,.0f}-{max(values):,.0f}",
+    )
 
 
-def _summary_cells(session: Session, *, user_cols: set[str]) -> dict[str, str]:
-    total_users = _count(session)
-    if "parse_status" in user_cols:
-        parsed_users = _count(session, User.parse_status == "success")
-        unresolved_users = _count(session, User.parse_status != "success") + _count(
-            session, User.parse_status.is_(None)
+def _kept_play_count_distribution(session: Session) -> list[float]:
+    if not _table_exists(session.get_bind(), "clips") or not _table_has_columns(
+        session.get_bind(), "clips", "play_count", "disqualified"
+    ):
+        return []
+
+    rows = (
+        session.query(Clip.user_pk, func.avg(Clip.play_count).label("avg_play_count"))
+        .join(User, Clip.user_pk == User.pk)
+        .filter(
+            User.user_disqualified == 0,
+            Clip.disqualified == 0,
+            Clip.play_count.is_not(None),
         )
-        parsed_s = _fmt_count_share(parsed_users, total_users)
-        unresolved_s = _fmt_count_share(unresolved_users, total_users)
-    else:
-        parsed_s = "-"
-        unresolved_s = "-"
+        .group_by(Clip.user_pk)
+        .all()
+    )
+    return [float(avg_play_count) for _, avg_play_count in rows if avg_play_count is not None]
+
+
+def _summary_cells(session: Session) -> dict[str, str]:
+    total_users = _count(session)
     kept_users = _count(session, User.user_disqualified == 0)
-    disqualified_users = _count(session, User.user_disqualified == 1)
+    kept_user_filters = (User.user_disqualified == 0,)
+
     following_counts = [
         int(value)
         for (value,) in session.query(User.following_count)
-        .filter(User.following_count.is_not(None))
+        .filter(User.following_count.is_not(None), *kept_user_filters)
         .all()
     ]
+    following_distribution = _fmt_distribution([float(v) for v in following_counts])
+
+    user_play_averages = _kept_play_count_distribution(session)
+    play_distribution = _fmt_distribution(user_play_averages)
 
     return {
         "total_users": f"{total_users:,}",
-        "parsed_users": parsed_s,
-        "unresolved_users": unresolved_s,
         "kept_users": _fmt_count_share(kept_users, total_users),
-        "disqualified_users": _fmt_count_share(disqualified_users, total_users),
-        "with_full_name": _fmt_count_share(_count_non_empty(session, User.full_name), total_users),
+        "with_full_name": _fmt_count_share(
+            _count_non_empty(session, User.full_name, *kept_user_filters), kept_users
+        ),
         "with_profile_pic": _fmt_count_share(
-            _count_non_empty(session, User.profile_pic_url), total_users
+            _count_non_empty(session, User.profile_pic_url, *kept_user_filters),
+            kept_users,
         ),
         "with_profile_pic_hd": _fmt_count_share(
-            _count_non_empty(session, User.profile_pic_url_hd), total_users
+            _count_non_empty(session, User.profile_pic_url_hd, *kept_user_filters),
+            kept_users,
         ),
-        "with_city": _fmt_count_share(_count_non_empty(session, User.city_name), total_users),
-        "following_count_summary": _fmt_distribution(following_counts),
+        "with_city": _fmt_count_share(
+            _count_non_empty(session, User.city_name, *kept_user_filters), kept_users
+        ),
+        "following_count_median": following_distribution[0],
+        "following_count_mean": following_distribution[1],
+        "following_count_minmax": following_distribution[2],
+        "play_count_per_user_median": play_distribution[0],
+        "play_count_per_user_mean": play_distribution[1],
+        "play_count_per_user_minmax": play_distribution[2],
     }
 
 
 def users_summary_to_markdown(eng) -> str:
     with Session(eng) as session:
-        user_cols = _user_column_names(session.get_bind())
-        cells = _summary_cells(session, user_cols=user_cols)
+        cells = _summary_cells(session)
 
     lines = ["| Metric | Value |", "|---|---:|"]
     for label, key in TABLE_ROWS:
         lines.append(f"| {label} | {cells[key]} |")
     return "\n".join(lines)
+

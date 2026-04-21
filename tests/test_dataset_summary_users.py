@@ -7,13 +7,17 @@ from sqlalchemy.orm import Session
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from modules.database import Base, User
+from modules.database import Base, Clip, User
 
 
 def _make_engine():
     eng = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(eng)
     return eng
+
+
+def _add_clip(session: Session, *, user_pk: int, pk: int, play_count: int | None, disqualified: int | None):
+    session.add(Clip(user_pk=user_pk, pk=pk, play_count=play_count, disqualified=disqualified))
 
 
 def test_users_summary_to_markdown_renders_curated_metrics():
@@ -30,24 +34,37 @@ def test_users_summary_to_markdown_renders_curated_metrics():
                     following_count=100,
                     city_name="Berlin",
                     user_disqualified=0,
-                    parse_status="success",
                 ),
                 User(
                     pk=2,
                     username="beta",
+                    full_name="Beta",
                     profile_pic_url="https://example.com/b.jpg",
-                    following_count=300,
+                    following_count=500,
+                    city_name="Paris",
                     user_disqualified=1,
-                    parse_status="success",
                 ),
                 User(
                     pk=3,
                     username="gamma",
-                    user_disqualified=None,
-                    parse_status=None,
+                    following_count=50,
+                    user_disqualified=0,
+                ),
+                User(
+                    pk=4,
+                    username="delta",
+                    following_count=200,
+                    user_disqualified=0,
                 ),
             ]
         )
+        _add_clip(s, user_pk=1, pk=100, play_count=10, disqualified=0)
+        _add_clip(s, user_pk=1, pk=101, play_count=20, disqualified=0)
+        _add_clip(s, user_pk=1, pk=102, play_count=None, disqualified=0)
+        _add_clip(s, user_pk=2, pk=200, play_count=40, disqualified=0)
+        _add_clip(s, user_pk=3, pk=300, play_count=None, disqualified=1)
+        _add_clip(s, user_pk=4, pk=400, play_count=30, disqualified=0)
+        _add_clip(s, user_pk=3, pk=401, play_count=21, disqualified=0)
         s.commit()
 
     from generators.dataset_summary_users import users_summary_to_markdown
@@ -55,35 +72,91 @@ def test_users_summary_to_markdown_renders_curated_metrics():
     out = users_summary_to_markdown(eng)
 
     assert out.startswith("| Metric | Value |")
-    assert "| Total users | 3 |" in out
-    assert "| Parsed users | 2 (66.7%) |" in out
-    assert "| Unresolved users | 1 (33.3%) |" in out
-    assert "| Users kept | 1 (33.3%) |" in out
-    assert "| Users disqualified | 1 (33.3%) |" in out
+    assert "| Total users | 4 |" in out
+    assert "| Users kept | 3 (75.0%) |" in out
     assert "| Users with full name | 1 (33.3%) |" in out
-    assert "| Users with profile picture | 2 (66.7%) |" in out
+    assert "| Users with profile picture | 1 (33.3%) |" in out
     assert "| Users with HD profile picture | 1 (33.3%) |" in out
     assert "| Users with city | 1 (33.3%) |" in out
-    assert "| Following count (median, mean, min-max) | 200, 200.0, 100-300 |" in out
+    assert "| Following count (median) | 100 |" in out
+    assert "| Following count (mean) | 116.7 |" in out
+    assert "| Following count (min-max) | 50-200 |" in out
+    assert "| Play count per user (median) | 21 |" in out
+    assert "| Play count per user (mean) | 22.0 |" in out
 
 
-def test_users_summary_to_markdown_uses_dash_for_missing_numeric_values():
+def test_users_summary_to_markdown_scopes_users_to_kept_rows():
     eng = _make_engine()
     with Session(eng) as s:
-        s.add(User(pk=1, username="alpha", parse_status="success", user_disqualified=0))
+        s.add_all(
+            [
+                User(
+                    pk=1,
+                    username="kept_full",
+                    full_name="Kept User",
+                    profile_pic_url="https://example.com/kept.jpg",
+                    profile_pic_url_hd="https://example.com/kept-hd.jpg",
+                    city_name="Berlin",
+                    following_count=100,
+                    user_disqualified=0,
+                ),
+                User(
+                    pk=2,
+                    username="disqualified_rich",
+                    full_name="Disqualified User",
+                    profile_pic_url="https://example.com/disqualified.jpg",
+                    following_count=500,
+                    city_name="Paris",
+                    user_disqualified=1,
+                ),
+                User(
+                    pk=3,
+                    username="kept_sparse",
+                    following_count=50,
+                    user_disqualified=0,
+                ),
+            ]
+        )
+        _add_clip(s, user_pk=1, pk=100, play_count=200, disqualified=0)
+        _add_clip(s, user_pk=1, pk=101, play_count=100, disqualified=1)
+        _add_clip(s, user_pk=3, pk=300, play_count=50, disqualified=0)
         s.commit()
 
     from generators.dataset_summary_users import users_summary_to_markdown
 
     out = users_summary_to_markdown(eng)
 
-    assert "| Following count (median, mean, min-max) | - |" in out
+    assert "| Users kept | 2 (66.7%) |" in out
+    assert "| Users with full name | 1 (50.0%) |" in out
+    assert "| Users with profile picture | 1 (50.0%) |" in out
+    assert "| Following count (median) | 75 |" in out
+    assert "| Following count (mean) | 75.0 |" in out
+    assert "| Following count (min-max) | 50-100 |" in out
+    assert "| Play count per user (median) | 125 |" in out
+    assert "| Play count per user (mean) | 125.0 |" in out
+
+
+def test_users_summary_to_markdown_uses_dash_for_missing_numeric_values():
+    eng = _make_engine()
+    with Session(eng) as s:
+        s.add(User(pk=1, username="alpha", user_disqualified=0))
+        s.commit()
+
+    from generators.dataset_summary_users import users_summary_to_markdown
+
+    out = users_summary_to_markdown(eng)
+
+    assert "| Following count (median) | - |" in out
+    assert "| Following count (mean) | - |" in out
+    assert "| Following count (min-max) | - |" in out
+    assert "| Play count per user (median) | - |" in out
+    assert "| Play count per user (mean) | - |" in out
 
 
 def test_render_users_summary_returns_markdown_object():
     eng = _make_engine()
     with Session(eng) as s:
-        s.add(User(pk=1, username="alpha", parse_status="success", user_disqualified=0))
+        s.add(User(pk=1, username="alpha", user_disqualified=0))
         s.commit()
 
     from docs.quarto_helpers import render_users_summary
@@ -127,6 +200,60 @@ def test_users_summary_legacy_db_without_parse_status_column():
 
     out = users_summary_to_markdown(eng)
 
-    assert "| Parsed users | - |" in out
-    assert "| Unresolved users | - |" in out
     assert "| Total users | 1 |" in out
+    assert "| Users kept | 1 (100.0%) |" in out
+    assert "| Users with full name | 1 (100.0%) |" in out
+    assert "| Users with profile picture | 0 (0.0%) |" in out
+    assert "| Users with HD profile picture | 0 (0.0%) |" in out
+    assert "| Users with city | 0 (0.0%) |" in out
+    assert "| Following count (median) | - |" in out
+    assert "| Following count (mean) | - |" in out
+    assert "| Following count (min-max) | - |" in out
+    assert "| Play count per user (median) | - |" in out
+    assert "| Play count per user (mean) | - |" in out
+
+
+def test_users_summary_legacy_db_without_play_count_columns():
+    """Legacy DB with legacy clips schema should still render safely."""
+    eng = create_engine("sqlite:///:memory:")
+    with eng.connect() as conn:
+        conn.execute(
+            text(
+                """
+                CREATE TABLE users (
+                    pk BIGINT PRIMARY KEY,
+                    username VARCHAR NOT NULL UNIQUE,
+                    full_name VARCHAR,
+                    profile_pic_url VARCHAR,
+                    profile_pic_url_hd VARCHAR,
+                    following_count INTEGER,
+                    city_name VARCHAR,
+                    user_disqualified INTEGER
+                )
+                """
+            )
+        )
+        conn.execute(
+            text("CREATE TABLE clips (pk BIGINT PRIMARY KEY, user_pk BIGINT NOT NULL)")
+        )
+        conn.execute(
+            text(
+                "INSERT INTO users (pk, username, full_name, user_disqualified) "
+                "VALUES (1, 'a', 'A', 0)"
+            )
+        )
+        conn.execute(text("INSERT INTO clips (pk, user_pk) VALUES (1, 1)"))
+        conn.commit()
+
+    from generators.dataset_summary_users import users_summary_to_markdown
+
+    out = users_summary_to_markdown(eng)
+
+    assert "| Total users | 1 |" in out
+    assert "| Users kept | 1 (100.0%) |" in out
+    assert "| Following count (median) | - |" in out
+    assert "| Following count (mean) | - |" in out
+    assert "| Following count (min-max) | - |" in out
+    assert "| Play count per user (median) | - |" in out
+    assert "| Play count per user (mean) | - |" in out
+

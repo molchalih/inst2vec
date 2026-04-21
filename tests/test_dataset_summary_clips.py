@@ -28,14 +28,16 @@ def test_clips_summary_to_markdown_renders_curated_metrics():
                     user_pk=1,
                     caption_text="hello",
                     caption_language="en",
+                    caption_translation="hi",
                     like_count=10,
-                    comment_count=1,
-                    reshare_count=0,
+                    comment_count=2,
+                    reshare_count=1,
                     play_count=100,
                     music_id=7,
                     has_music=1,
                     speech_transcription="hello",
                     speech_language="en",
+                    speech_translation="hello",
                     has_speech=1,
                     disqualified=0,
                 ),
@@ -48,7 +50,7 @@ def test_clips_summary_to_markdown_renders_curated_metrics():
                     play_count=200,
                     has_music=0,
                     has_speech=0,
-                    disqualified=1,
+                    disqualified=0,
                 ),
                 Clip(
                     pk=13,
@@ -56,15 +58,17 @@ def test_clips_summary_to_markdown_renders_curated_metrics():
                     caption_text="bonjour",
                     caption_language="fr",
                     caption_translation="hello",
-                    like_count=30,
-                    comment_count=3,
-                    reshare_count=2,
-                    play_count=300,
+                    like_count=10_000,
+                    comment_count=100,
+                    reshare_count=200,
+                    play_count=10_000,
                     speech_transcription="bonjour",
                     speech_language="fr",
                     speech_translation="hello",
                     has_speech=1,
-                    disqualified=0,
+                    has_music=1,
+                    music_id=8,
+                    disqualified=1,
                 ),
             ]
         )
@@ -77,20 +81,27 @@ def test_clips_summary_to_markdown_renders_curated_metrics():
     assert out.startswith("| Metric | Value |")
     assert "| Total clips | 3 |" in out
     assert "| Clips kept | 2 (66.7%) |" in out
-    assert "| Clips disqualified | 1 (33.3%) |" in out
-    assert "| Clips with caption text | 2 (66.7%) |" in out
-    assert "| Clips with caption language | 2 (66.7%) |" in out
-    assert "| Clips with caption translation | 1 (33.3%) |" in out
-    assert "| Clips with speech | 2 (66.7%) |" in out
-    assert "| Clips with speech transcription | 2 (66.7%) |" in out
-    assert "| Clips with speech language | 2 (66.7%) |" in out
-    assert "| Clips with speech translation | 1 (33.3%) |" in out
-    assert "| Clips with music | 1 (33.3%) |" in out
-    assert "| Clips linked to music row | 1 (33.3%) |" in out
-    assert "| Play count (median, mean, min-max) | 200, 200.0, 100-300 |" in out
-    assert "| Like count (median, mean, min-max) | 20, 20.0, 10-30 |" in out
-    assert "| Comment count (median, mean, min-max) | 2, 2.0, 1-3 |" in out
-    assert "| Reshare count (median, mean, min-max) | 1, 1.0, 0-2 |" in out
+    assert "| Clips with caption text | 1 (50.0%) |" in out
+    assert "| Clips with caption translation | 1 (50.0%) |" in out
+    assert "| Clips with speech | 1 (50.0%) |" in out
+    assert "| Clips with speech translation | 1 (50.0%) |" in out
+    assert "| Clips with music | 1 (50.0%) |" in out
+    assert "| Play count (median) | 150 |" in out
+    assert "| Play count (mean) | 150.0 |" in out
+    assert "| Play count (min-max) | 100-200 |" in out
+    assert "| Like count (median) | 15 |" in out
+    assert "| Like count (mean) | 15.0 |" in out
+    assert "| Like count (min-max) | 10-20 |" in out
+    assert "| Comment count (median, mean, min-max) | 2, 2.0, 2-2 |" in out
+    assert "| Reshare count (median, mean, min-max) | 1, 1.0, 1-1 |" in out
+
+    assert "| Clips disqualified |" not in out
+    assert "| Clips with caption language |" not in out
+    assert "| Clips with speech transcription |" not in out
+    assert "| Clips with speech language |" not in out
+    assert "| Clips linked to music row |" not in out
+    assert "| Play count (median, mean, min-max) |" not in out
+    assert "| Like count (median, mean, min-max) |" not in out
 
 
 def test_clips_summary_to_markdown_uses_dash_for_missing_numeric_values():
@@ -104,7 +115,7 @@ def test_clips_summary_to_markdown_uses_dash_for_missing_numeric_values():
 
     out = clips_summary_to_markdown(eng)
 
-    assert "| Play count (median, mean, min-max) | - |" in out
+    assert "| Play count (median) | - |" in out
 
 
 def test_render_clips_summary_returns_markdown_object():
