@@ -2,7 +2,7 @@ import os
 import sys
 
 from IPython.display import Markdown
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
@@ -93,3 +93,40 @@ def test_render_users_summary_returns_markdown_object():
 
     assert isinstance(rendered, Markdown)
     assert rendered.data == users_summary_to_markdown(eng)
+
+
+def test_users_summary_legacy_db_without_parse_status_column():
+    """Older on-disk DBs may lack users.parse_status; summary must not crash."""
+    eng = create_engine("sqlite:///:memory:")
+    with eng.connect() as conn:
+        conn.execute(
+            text(
+                """
+                CREATE TABLE users (
+                    pk BIGINT PRIMARY KEY,
+                    username VARCHAR NOT NULL UNIQUE,
+                    full_name VARCHAR,
+                    profile_pic_url VARCHAR,
+                    profile_pic_url_hd VARCHAR,
+                    following_count INTEGER,
+                    city_name VARCHAR,
+                    user_disqualified INTEGER
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO users (pk, username, full_name, user_disqualified) "
+                "VALUES (1, 'a', 'A', 0)"
+            )
+        )
+        conn.commit()
+
+    from generators.dataset_summary_users import users_summary_to_markdown
+
+    out = users_summary_to_markdown(eng)
+
+    assert "| Parsed users | - |" in out
+    assert "| Unresolved users | - |" in out
+    assert "| Total users | 1 |" in out

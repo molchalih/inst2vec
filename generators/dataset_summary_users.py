@@ -3,10 +3,14 @@ from __future__ import annotations
 
 from statistics import mean, median
 
-from sqlalchemy import func
+from sqlalchemy import func, inspect
 from sqlalchemy.orm import Session
 
 from modules.database import User
+
+
+def _user_column_names(bind) -> set[str]:
+    return {c["name"] for c in inspect(bind).get_columns("users")}
 
 __all__ = ("users_summary_to_markdown",)
 
@@ -49,12 +53,18 @@ def _fmt_distribution(values: list[int]) -> str:
     return f"{median(values):,.0f}, {mean(values):,.1f}, {min(values):,}-{max(values):,}"
 
 
-def _summary_cells(session: Session) -> dict[str, str]:
+def _summary_cells(session: Session, *, user_cols: set[str]) -> dict[str, str]:
     total_users = _count(session)
-    parsed_users = _count(session, User.parse_status == "success")
-    unresolved_users = _count(session, User.parse_status != "success") + _count(
-        session, User.parse_status.is_(None)
-    )
+    if "parse_status" in user_cols:
+        parsed_users = _count(session, User.parse_status == "success")
+        unresolved_users = _count(session, User.parse_status != "success") + _count(
+            session, User.parse_status.is_(None)
+        )
+        parsed_s = _fmt_count_share(parsed_users, total_users)
+        unresolved_s = _fmt_count_share(unresolved_users, total_users)
+    else:
+        parsed_s = "-"
+        unresolved_s = "-"
     kept_users = _count(session, User.user_disqualified == 0)
     disqualified_users = _count(session, User.user_disqualified == 1)
     following_counts = [
@@ -66,8 +76,8 @@ def _summary_cells(session: Session) -> dict[str, str]:
 
     return {
         "total_users": f"{total_users:,}",
-        "parsed_users": _fmt_count_share(parsed_users, total_users),
-        "unresolved_users": _fmt_count_share(unresolved_users, total_users),
+        "parsed_users": parsed_s,
+        "unresolved_users": unresolved_s,
         "kept_users": _fmt_count_share(kept_users, total_users),
         "disqualified_users": _fmt_count_share(disqualified_users, total_users),
         "with_full_name": _fmt_count_share(_count_non_empty(session, User.full_name), total_users),
@@ -84,7 +94,8 @@ def _summary_cells(session: Session) -> dict[str, str]:
 
 def users_summary_to_markdown(eng) -> str:
     with Session(eng) as session:
-        cells = _summary_cells(session)
+        user_cols = _user_column_names(session.get_bind())
+        cells = _summary_cells(session, user_cols=user_cols)
 
     lines = ["| Metric | Value |", "|---|---:|"]
     for label, key in TABLE_ROWS:
