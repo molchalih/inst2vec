@@ -1,163 +1,101 @@
-#!/usr/bin/env python
-"""Show top-N cluster runs per embedding case, aligned with validate_clustering.
-
-Default sort matches main.py: plateau survivors first (drop <= threshold), then by
-DBCv descending — so rank 1 is the same run cluster_users() uses. Use --sort dbcv
-for a raw DBCV-only leaderboard (those rows may all be ok=N while a lower-DBCv run wins).
-"""
+"""Paper-facing summary of the validation-best cluster run per embedding case."""
 from __future__ import annotations
 
-import argparse
-import os
-import sys
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+import math
 
 from sqlalchemy.orm import Session
 
-from modules.database import engine, ClusterRun
-
-
-CASES = ["video", "sandwich", "audio"]
-
-_HEADER = (
-    f"{'rk':>2}  {'id':>5}  {'dbcv':>7}  {'plat':>7}  {'drop':>6}  {'ok':>2}  {'sil':>7}"
-    f"  {'k':>3}  {'noise%':>6}"
-    f"  {'nc':>3}  {'nn':>3}  {'md':>5}  {'u1m':<8}"
-    f"  {'u2n':>3}  {'u2d':>5}  {'u2m':<8}"
-    f"  {'mcs':>4}  {'ms':>4}  {'sel':<4}  {'hdbm':<8}  {'*':>1}"
+from modules.database import ClusterRun
+from modules.cluster_results import (
+    DEFAULT_CASES,
+    get_plateau_drop_threshold,
+    select_best_cluster_run,
 )
-_SEP = "-" * len(_HEADER)
+
+__all__ = ("best_run_to_markdown", "best_runs_all_to_markdown")
+
+BEST_TABLE_ROWS: tuple[tuple[str, str], ...] = (
+    (r"$\mathrm{DBCV}^*$", "dbcv"),
+    (r"$\mathrm{plateau}^*$", "plateau_score"),
+    (r"$\Delta_{\mathrm{drop}}^*$", "drop"),
+    (r"$\mathrm{sil}^*$", "silhouette"),
+    (r"$k^*$", "n_clusters"),
+    (r"$\mathrm{noise\_ratio}$", "noise_ratio"),
+    (r"$n_{\mathrm{UMAP}}^*$", "umap_n_neighbors"),
+    (r"$m_{\mathrm{HDBSCAN}}^*$", "hdbscan_min_cluster_size"),
+)
 
 
 def _fmt(val: float | None) -> str:
-    return f"{val:.4f}" if val is not None else "    —"
+    if val is None or not math.isfinite(float(val)):
+        return "-"
+    return f"{float(val):.4f}"
 
 
-def _fmt_ms(val: int | None) -> str:
-    if val is None:
-        return "   —"
-    return f"{val:>4}"
+def _best_cells(best: ClusterRun | None) -> dict[str, str]:
+    keys = [k for _, k in BEST_TABLE_ROWS]
+    if best is None:
+        return dict.fromkeys(keys, "-")
+    drop = best.dbcv - best.param_plateau_score
+    return {
+        "dbcv": _fmt(best.dbcv),
+        "plateau_score": _fmt(best.param_plateau_score),
+        "drop": f"{drop:.4f}",
+        "silhouette": _fmt(best.silhouette),
+        "n_clusters": str(best.n_clusters),
+        "noise_ratio": f"{best.noise_ratio:.1%}",
+        "umap_n_neighbors": str(best.umap_n_neighbors),
+        "hdbscan_min_cluster_size": str(best.hdbscan_min_cluster_size),
+    }
 
 
-def _pick_best(rows: list[ClusterRun], threshold: float) -> ClusterRun | None:
-    """Same survivor rule as modules.cluster_validation._select_best."""
-    if not rows:
-        return None
-    survivors = [r for r in rows if (r.dbcv - r.param_plateau_score) <= threshold]
-    if not survivors:
-        survivors = rows
-    return max(survivors, key=lambda r: r.dbcv)
+def best_run_to_markdown(eng, case: str) -> str:
+    if case not in DEFAULT_CASES:
+        raise ValueError(f"unknown embedding case: {case}")
+
+    threshold = get_plateau_drop_threshold()
+
+    with Session(eng) as session:
+        best = select_best_cluster_run(session, case, threshold=threshold)
+    if best is None:
+        return f"No eligible cluster runs found for `{case}`."
+
+    cells = _best_cells(best)
+    lines = ["| Field | Value |", "|---|---:|"]
+    for label, key in BEST_TABLE_ROWS:
+        lines.append(f"| {label} | {cells[key]} |")
+    return "\n".join(lines)
 
 
-def _passes_plateau(r: ClusterRun, threshold: float) -> bool:
-    return (r.dbcv - r.param_plateau_score) <= threshold
-
-
-def _sort_rows(
-    rows: list[ClusterRun],
-    threshold: float,
-    sort: str,
-) -> list[ClusterRun]:
-    if sort == "dbcv":
-        rows.sort(key=lambda r: r.dbcv, reverse=True)
-        return rows
-    # validation: survivors first (same ordering as _select_best’s pool), then rest
-    rows.sort(
-        key=lambda r: (
-            0 if _passes_plateau(r, threshold) else 1,
-            -r.dbcv,
-        ),
-    )
-    return rows
-
-
-def show(
-    case: str,
-    num: int = 10,
+def best_runs_all_to_markdown(
+    eng,
     *,
-    sort: str = "validation",
-) -> None:
-    threshold = float(os.environ.get("VALIDATION_PLATEAU_DROP_THRESHOLD", "0.05"))
+    cases: tuple[str, ...] = DEFAULT_CASES,
+) -> str:
+    if not cases:
+        raise ValueError("cases must contain at least one embedding case")
 
-    with Session(engine) as session:
-        rows = (
-            session.query(ClusterRun)
-            .filter(
-                ClusterRun.embedding_case == case,
-                ClusterRun.in_current_grid == 1,
-                ClusterRun.disqualified == 0,
-                ClusterRun.dbcv.isnot(None),
-                ClusterRun.param_plateau_score.isnot(None),
-            )
-            .all()
-        )
+    threshold = get_plateau_drop_threshold()
 
-    best = _pick_best(rows, threshold)
-    _sort_rows(rows, threshold, sort)
-    rows = rows[:num]
+    summaries: dict[str, dict[str, str]] = {}
+    with Session(eng) as session:
+        for case in cases:
+            best = select_best_cluster_run(session, case, threshold=threshold)
+            summaries[case] = _best_cells(best)
 
-    print(f"\nTop {num} cluster runs — case={case} (current grid)\n")
-    print(f"plateau drop threshold (VALIDATION_PLATEAU_DROP_THRESHOLD) = {threshold:g}")
-    if best is not None:
-        print(
-            f"validation pick: id={best.id} dbcv={best.dbcv:.4f} "
-            f"plat={best.param_plateau_score:.4f} "
-            f"drop={best.dbcv - best.param_plateau_score:.4f}"
-        )
-    print()
-    print(_HEADER)
-    print(_SEP)
-    for rank, r in enumerate(rows, 1):
-        drop = r.dbcv - r.param_plateau_score
-        ok = "Y" if drop <= threshold else "N"
-        star = "*" if best is not None and r.id == best.id else " "
-        print(
-            f"{rank:>2}  {r.id:>5}  {_fmt(r.dbcv):>7}  {_fmt(r.param_plateau_score):>7}"
-            f"  {drop:>6.4f}  {ok:>2}  {_fmt(r.silhouette):>7}"
-            f"  {r.n_clusters:>3}  {r.noise_ratio:>6.1%}"
-            f"  {r.umap_n_components:>3}  {r.umap_n_neighbors:>3}  {r.umap_min_dist:>5.3f}"
-            f"  {r.umap_metric:<8}"
-            f"  {r.umap2d_n_neighbors:>3}  {r.umap2d_min_dist:>5.3f}  {r.umap2d_metric:<8}"
-            f"  {r.hdbscan_min_cluster_size:>4}  {_fmt_ms(r.hdbscan_min_samples)}"
-            f"  {r.hdbscan_cluster_selection_method:<4}  {r.hdbscan_metric:<8}  {star:>1}"
-        )
-    if not rows:
-        print("  (no eligible runs — need cluster_search + validate_clustering)")
-    print()
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description=(
-            "Show top cluster runs per embedding case from the DB, "
-            "matching validate_clustering filters and selection."
-        )
+    col_header = " | ".join(cases)
+    align_row = "|".join(["---:"] * len(cases))
+    table_lines = [
+        f"| Field | {col_header} |",
+        f"|---|{align_row}|",
+    ]
+    for label, key in BEST_TABLE_ROWS:
+        values = [summaries[case][key] for case in cases]
+        table_lines.append(f"| {label} | {' | '.join(values)} |")
+    table_lines.extend(
+        [
+            "",
+            ": Best validated cluster run per embedding case.",
+        ]
     )
-    parser.add_argument(
-        "--case",
-        required=True,
-        choices=CASES,
-        help="Embedding case to inspect (video, sandwich, audio)",
-    )
-    parser.add_argument(
-        "--num",
-        type=int,
-        default=10,
-        help="Number of top runs to show (default: 10)",
-    )
-    parser.add_argument(
-        "--sort",
-        choices=("validation", "dbcv"),
-        default="validation",
-        help=(
-            "validation: plateau-stable runs first, then by DBCV (rank 1 = pipeline run). "
-            "dbcv: pure DBCV descending (may disagree with cluster_users)."
-        ),
-    )
-    args = parser.parse_args()
-    show(args.case, args.num, sort=args.sort)
-
-
-if __name__ == "__main__":
-    main()
+    return "\n".join(table_lines)
