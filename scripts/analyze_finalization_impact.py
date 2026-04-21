@@ -79,17 +79,6 @@ def _median(values: list[float]) -> float:
     return (ordered[mid - 1] + ordered[mid]) / 2.0
 
 
-def _is_parsed_user(user: User) -> bool:
-    return any([
-        user.full_name is not None,
-        user.profile_pic_url is not None,
-        user.profile_pic_url_hd is not None,
-        user.following_count is not None,
-        user.city_name is not None,
-        bool(user.clips),
-    ])
-
-
 def _creator_relative_low_outliers(users: list[User], only_active_clips: bool) -> set[int]:
     outliers: set[int] = set()
     for user in users:
@@ -121,7 +110,7 @@ def main() -> None:
             print("No users found.")
             return
 
-        parsed_users = [u for u in users if _is_parsed_user(u)]
+        parsed_users = [u for u in users if u.parse_status == "success"]
         unresolved_users = len(users) - len(parsed_users)
 
         text_ok_ids: set[int] = set()
@@ -157,7 +146,7 @@ def main() -> None:
         # Unresolved users are neutral in finalize pass A/B (user_disqualified stays NULL),
         # so preview should carry their current clip flags through unchanged.
         for user in users:
-            if _is_parsed_user(user):
+            if user.parse_status == "success":
                 continue
             for clip in user.clips:
                 if clip.disqualified == 1:

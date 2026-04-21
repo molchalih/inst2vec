@@ -10,10 +10,14 @@ from sklearn.metrics import silhouette_score
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from modules.console import progress
+from modules.console import progress, log
 from modules.database import ClusterRun, get_session
 from modules.clustering import compute_clusters, env_positive_int, load_user_matrix
-from modules.services import log
+from modules.cluster_results import (
+    get_plateau_drop_threshold,
+    list_eligible_best_rows,
+    pick_best_cluster_run,
+)
 
 
 _PARAM_COLS = [
@@ -277,19 +281,8 @@ def _phase_plateau(session: Session, case: str) -> None:
 
 
 def _select_best(session: Session, case: str) -> ClusterRun | None:
-    threshold = float(os.environ.get("VALIDATION_PLATEAU_DROP_THRESHOLD", "0.05"))
-
-    rows = (
-        session.query(ClusterRun)
-        .filter(
-            ClusterRun.embedding_case == case,
-            ClusterRun.in_current_grid == 1,
-            ClusterRun.disqualified == 0,
-            ClusterRun.dbcv.isnot(None),
-            ClusterRun.param_plateau_score.isnot(None),
-        )
-        .all()
-    )
+    threshold = get_plateau_drop_threshold()
+    rows = list_eligible_best_rows(session, case)
     if not rows:
         log(f"validate:{case}", "select — no eligible runs", level="warn")
         return None
@@ -301,9 +294,10 @@ def _select_best(session: Session, case: str) -> ClusterRun | None:
             f"plateau filter rejected all {len(rows)} runs — falling back to DBCV rank",
             level="warn",
         )
-        survivors = rows
 
-    best = max(survivors, key=lambda r: r.dbcv)
+    best = pick_best_cluster_run(rows, threshold=threshold)
+    if best is None:
+        return None
     log(
         f"validate:{case}",
         f"selected run id={best.id} dbcv={best.dbcv:.4f} plateau={best.param_plateau_score:.4f}",

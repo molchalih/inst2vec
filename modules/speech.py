@@ -14,8 +14,7 @@ from sqlalchemy import func, or_
 
 from modules.database import Clip, get_session
 from modules.external.gemma_translate import GemmaTranslator
-from modules.services import log
-from modules.console import progress
+from modules.console import progress, log
 
 VIDEO_DIR = os.environ.get("VIDEO_DIR", "data/source/videos")
 WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "large-v3-turbo")

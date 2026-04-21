@@ -7,7 +7,7 @@ import os
 from sqlalchemy import func
 
 from modules.database import Clip, User, get_session
-from modules.services import log
+from modules.console import log
 
 SCOPE = "finalize_dataset"
 
@@ -18,22 +18,6 @@ GLOBAL_MIN_PLAYS = int(os.environ.get("FINALIZE_GLOBAL_MIN_PLAYS", "0"))
 GLOBAL_MIN_PLAYS_PERCENTILE = float(os.environ.get("FINALIZE_GLOBAL_MIN_PLAYS_PERCENTILE", "5"))
 CREATOR_ROBUST_Z_THRESHOLD = float(os.environ.get("FINALIZE_CREATOR_ROBUST_Z_THRESHOLD", "-2.5"))
 CREATOR_MIN_CLIPS = int(os.environ.get("FINALIZE_CREATOR_MIN_CLIPS", "5"))
-
-
-def _is_parsed_user(user: User) -> bool:
-    """Mirror parse._is_parsed with a tolerant parse-signal check.
-
-    Some legitimate profiles can have null fields (e.g., full_name/profile_pic/following_count).
-    Treat user as parsed when we have any profile signal or already attached clips.
-    """
-    return any([
-        user.full_name is not None,
-        user.profile_pic_url is not None,
-        user.profile_pic_url_hd is not None,
-        user.following_count is not None,
-        user.city_name is not None,
-        bool(user.clips),
-    ])
 
 
 def _count_for_user_clip_set(clip_ids: list[int], allowed: set[int]) -> int:
@@ -130,7 +114,7 @@ def finalize_user_dataset(pass_name: str = "A") -> None:
 
     parsed_users: list[User] = []
     for user in users:
-        if not _is_parsed_user(user):
+        if user.parse_status != "success":
             # keep unresolved users neutral so debug BATCH_SIZE runs don't poison eligibility
             user.user_disqualified = None
             unresolved_users += 1

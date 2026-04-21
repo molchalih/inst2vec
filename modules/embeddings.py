@@ -6,8 +6,7 @@ from sqlalchemy import or_
 
 from modules.database import Base, engine, get_session, Clip, ClipEmbedding, User, Music, UserEmbedding
 from modules.external.qwen3_vl_embedding import Qwen3VLEmbedder
-from modules.console import progress
-from modules.services import log
+from modules.console import progress, log
 
 MODEL_PATH = "./models/Qwen3-VL-Embedding-8B"
 VIDEO_DIR = "data/source/videos"

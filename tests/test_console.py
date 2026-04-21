@@ -18,7 +18,7 @@ def test_phase_does_not_raise():
 
 
 def test_startup_does_not_raise():
-    startup("data/inst2vec.db")
+    startup()
 
 
 def test_progress_advances_to_completion():

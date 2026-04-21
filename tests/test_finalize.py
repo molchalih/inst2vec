@@ -17,7 +17,7 @@ def _make_engine():
 
 
 def _make_user(session, pk: int, clips_play_counts: list[int]) -> User:
-    user = User(pk=pk, username=f"user{pk}", full_name=f"User {pk}")
+    user = User(pk=pk, username=f"user{pk}", full_name=f"User {pk}", parse_status="success")
     session.add(user)
     session.flush()
     for i, plays in enumerate(clips_play_counts):

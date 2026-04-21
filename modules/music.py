@@ -17,8 +17,8 @@ from acrcloud.recognizer import ACRCloudRecognizer
 from sqlalchemy import or_
 
 from modules.database import Clip, Music, get_session
-from modules.console import progress
-from modules.services import ReccoBeatsClient, SpotifyClient, log
+from modules.console import progress, log
+from modules.services import ReccoBeatsClient, SpotifyClient
 
 VIDEO_DIR = Path(os.environ.get("VIDEO_DIR", "data/source/videos"))
 MIN_CONFIDENCE = float(os.environ.get("AUDIO_FINGERPRINT_CONFIDENCE", 0.8))

@@ -1,8 +1,6 @@
-import os
-
 from modules.console import phase, startup
-from modules.services import log
-from modules.database import init_db, load_usernames_from_csv
+from modules.console import log
+from modules.database import init_db
 from modules.parse import fetch_profiles
 from modules.download import download_files
 from modules.music import classify_music, extract_music_features
@@ -14,12 +12,16 @@ from modules.cluster_search import run_cluster_search
 from modules.cluster_validation import validate_clustering
 from modules.clustering import cluster_users
 from modules.visualization import plot_clusters
+from modules.utils import load_usernames_from_csv
 
-startup(os.environ.get("DATABASE_URL", "data/inst2vec.db"))
+
+startup()
 
 phase("Database")
 init_db()
-load_usernames_from_csv()
+
+# phase("Importing")
+# load_usernames_from_csv()
 
 phase("Profile Parsing")
 fetch_profiles()

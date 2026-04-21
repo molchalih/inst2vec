@@ -452,6 +452,34 @@ def test_select_best_ignores_cluster_override_env(monkeypatch):
         assert result.dbcv == 0.9
 
 
+def test_select_best_delegates_to_shared_selector(monkeypatch):
+    eng = _make_engine()
+    with Session(eng) as s:
+        row = _insert_run(s, disqualified=0, noise_ratio=0.1, n_clusters=5,
+                          umap_n_components=10, random_state=1)
+        row.in_current_grid = 1
+        row.dbcv = 0.9
+        row.param_plateau_score = 0.88
+        s.commit()
+        row_id = row.id
+
+    calls = {}
+
+    def fake_pick(rows, threshold=None):
+        calls["count"] = len(rows)
+        return rows[0]
+
+    monkeypatch.setattr("modules.cluster_validation.pick_best_cluster_run", fake_pick)
+
+    from modules.cluster_validation import _select_best
+    with Session(eng) as s:
+        result = _select_best(s, "video")
+
+    assert result is not None
+    assert result.id == row_id
+    assert calls["count"] == 1
+
+
 # --- Config hash ---
 
 def test_compute_validation_config_hash_is_deterministic():
