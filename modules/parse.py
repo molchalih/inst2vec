@@ -53,19 +53,13 @@ def fetch_profiles():
     session = get_session()
 
     users = (
-        session.query(User)
-        .filter(
-            (User.parse_status.is_(None)) | (User.parse_status == "pending"),
-            (User.user_disqualified.is_(None)) | (User.user_disqualified == 0),
-        )
-        .limit(BATCH_SIZE)
-        .all()
-    )
+        session.query(User).filter(User.parse_status.is_(None)).limit(BATCH_SIZE).all()
+    ) 
 
     parsed = skipped = failed = 0
 
     if not users:
-        log(SCOPE, "no users provided", level="err")
+        log(SCOPE, "no new users provided", level="warn")
         session.close()
         return
 

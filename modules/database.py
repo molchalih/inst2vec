@@ -212,54 +212,9 @@ class ClusterRun(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
-def _migrate_users_table(eng=None):
-    """Add users.parse_status when missing (SQLite additive migration)."""
-    eng = eng or engine
-    insp = inspect(eng)
-    cols = {c["name"] for c in insp.get_columns("users")}
-    if "parse_status" in cols:
-        return
-    with eng.connect() as conn:
-        conn.execute(text("ALTER TABLE users ADD COLUMN parse_status VARCHAR"))
-        conn.commit()
-
-
-def _backfill_parse_status(session: Session) -> None:
-    """Map legacy state into parse_status; safe to run repeatedly."""
-    session.execute(text("UPDATE users SET parse_status = 'pending' WHERE parse_status IS NULL"))
-    session.execute(
-        text(
-            """
-            UPDATE users SET parse_status = 'success' WHERE
-                full_name IS NOT NULL
-                OR profile_pic_url IS NOT NULL
-                OR profile_pic_url_hd IS NOT NULL
-                OR following_count IS NOT NULL
-                OR city_name IS NOT NULL
-                OR pk IN (SELECT user_pk FROM clips)
-            """
-        )
-    )
-    session.execute(
-        text(
-            """
-            UPDATE users SET parse_status = 'failed' WHERE parse_status != 'success'
-                AND pk IN (
-                    SELECT entity_pk FROM downloads
-                    WHERE file_type = 'profile_pic' AND parse_available = 0
-                )
-            """
-        )
-    )
-
-
 def init_db():
     """create the database."""
     Base.metadata.create_all(engine)
-    _migrate_users_table()
-    with Session(engine) as session:
-        _backfill_parse_status(session)
-        session.commit()
 
 
 def get_session() -> Session:
