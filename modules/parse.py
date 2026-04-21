@@ -2,32 +2,18 @@ import os
 import time
 
 from hikerapi import Client
-from httpx import ConnectError, TimeoutException
 
-from modules.database import get_session, User, Clip, Download
-from modules.console import progress
-from modules.services import log
+from modules.database import get_session, User, Clip
+from modules.console import progress, log
 
 SCOPE = "fetch_profiles"
 
 HIKER_TOKEN = os.environ.get("HIKER_API_KEY", "")
 BATCH_SIZE = int(os.environ.get("BATCH_SIZE", 5))
-
-
-def _is_parsed(user: User) -> bool:
-    # Some valid profiles can return nulls for individual fields.
-    # Treat user as parsed when we have any profile signal or clips already linked.
-    return any([
-        user.full_name is not None,
-        user.profile_pic_url is not None,
-        user.profile_pic_url_hd is not None,
-        user.following_count is not None,
-        user.city_name is not None,
-        bool(user.clips),
-    ])
-
-
 MAX_CLIPS = int(os.environ.get("MAX_CLIPS", 5))
+
+# Per attempt: no delay before first try, then wait before 2nd / 3rd / 4th attempt.
+_FETCH_RETRY_DELAYS_SEC = [0, 30, 60, 90]
 
 
 def _fetch_clips(cl: Client, user: User, session) -> int:
@@ -67,13 +53,12 @@ def fetch_profiles():
     cl = Client(token=HIKER_TOKEN)
     session = get_session()
 
-    failed_pks = session.query(Download.entity_pk).filter(
-        Download.file_type == "profile_pic",
-        Download.parse_available.is_(False),
-    )
     users = (
         session.query(User)
-        .filter(~User.pk.in_(failed_pks), (User.user_disqualified.is_(None)) | (User.user_disqualified == 0))
+        .filter(
+            (User.parse_status.is_(None)) | (User.parse_status == "pending"),
+            (User.user_disqualified.is_(None)) | (User.user_disqualified == 0),
+        )
         .limit(BATCH_SIZE)
         .all()
     )
@@ -81,45 +66,46 @@ def fetch_profiles():
     parsed = skipped = failed = 0
 
     if not users:
+        log(SCOPE, "no users provided", level="err")
         session.close()
         return
 
     log(SCOPE, f"{len(users)} users to process")
+
     with progress(len(users), "Fetching profiles") as advance:
         for user in users:
-            if _is_parsed(user):
-                skipped += 1
-                advance()
-                continue
+            username = user.username
+            for attempt in range(4):
+                if _FETCH_RETRY_DELAYS_SEC[attempt]:
+                    time.sleep(_FETCH_RETRY_DELAYS_SEC[attempt])
+                try:
+                    data = cl.user_by_username_v1(username)
+                    info = data.get("user", data)
 
-            try:
-                data = cl.user_by_username_v1(user.username)
-                info = data.get("user", data)
+                    user.pk = info["pk"]
+                    user.full_name = info.get("full_name")
+                    user.profile_pic_url = info.get("profile_pic_url")
+                    user.profile_pic_url_hd = info.get("profile_pic_url_hd")
+                    user.following_count = info.get("following_count")
+                    user.city_name = info.get("city_name")
 
-                user.pk = info["pk"]
-                user.full_name = info.get("full_name")
-                user.profile_pic_url = info.get("profile_pic_url")
-                user.profile_pic_url_hd = info.get("profile_pic_url_hd")
-                user.following_count = info.get("following_count")
-                user.city_name = info.get("city_name")
-
-                clips_count = _fetch_clips(cl, user, session)
-                parsed += 1
-                advance(detail=f"{user.username} ({user.full_name}, {clips_count} clips)")
-
-            except (ConnectError, TimeoutException) as e:
-                session.merge(Download(entity_pk=user.pk, file_type="profile_pic", parse_available=False))
-                failed += 1
-                advance(detail=f"{user.username} — network error")
-
-            except Exception as e:
-                session.merge(Download(entity_pk=user.pk, file_type="profile_pic", parse_available=False))
-                failed += 1
-                advance(detail=f"{user.username} — error")
+                    clips_count = _fetch_clips(cl, user, session)
+                    user.parse_status = "success"
+                    session.commit()
+                    parsed += 1
+                    advance(detail=f"{username} ({user.full_name}, {clips_count} clips)")
+                    break
+                except Exception:
+                    session.rollback()
+                    user = session.query(User).filter_by(username=username).one()
+                    if attempt == 3:
+                        user.parse_status = "failed"
+                        session.commit()
+                        failed += 1
+                        advance(detail=f"{username} — error")
 
             time.sleep(0.3)
 
-    session.commit()
     session.close()
 
     total = parsed + skipped + failed

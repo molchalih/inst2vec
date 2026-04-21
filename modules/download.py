@@ -4,11 +4,11 @@ import time
 import httpx
 
 from modules.database import get_session, User, Download
-from modules.console import progress
-from modules.services import log
+from modules.console import progress, log
 
 SCOPE = "download"
 
+# Download rows track file attempts only; parse eligibility uses users.parse_status.
 DIRS = {
     "profile_pic": "data/source/profile_pics",
     "thumbnail": "data/source/thumbnails",
@@ -39,7 +39,7 @@ def _try_download(session, entity_pk, file_type, url):
         return
 
     if not url:
-        session.add(Download(entity_pk=entity_pk, file_type=file_type, success=False, parse_available=False))
+        session.add(Download(entity_pk=entity_pk, file_type=file_type, success=False, parse_available=True))
         return
 
     ext = "mp4" if file_type == "video" else "jpg"
@@ -52,7 +52,7 @@ def _try_download(session, entity_pk, file_type, url):
     ok = _download(url, path)
     session.add(Download(
         entity_pk=entity_pk, file_type=file_type,
-        success=ok, parse_available=ok,
+        success=ok, parse_available=True,
     ))
 
 

@@ -31,7 +31,13 @@ def load_usernames_from_csv(csv_path: str = os.environ(["DATA_CSV_PATH"])):
     loaded = 0
     for username in sorted(usernames):
         if not session.query(User).filter_by(username=username).first():
-            session.add(User(pk=hash(username) & 0x7FFFFFFFFFFFFFFF, username=username))
+            session.add(
+                User(
+                    pk=hash(username) & 0x7FFFFFFFFFFFFFFF,
+                    username=username,
+                    parse_status="pending",
+                )
+            )
             loaded += 1
     session.commit()
     already_in_db = unique - loaded

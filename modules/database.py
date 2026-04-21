@@ -1,3 +1,4 @@
+import csv
 import os
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, Column, BigInteger, Integer, Float, String, Boolean, ForeignKey, Text, LargeBinary, UniqueConstraint, DateTime, inspect, text
@@ -24,6 +25,7 @@ class User(Base):
     following_count = Column(Integer)
     city_name = Column(String)
     user_disqualified = Column(Integer, nullable=True)
+    parse_status = Column(String, nullable=True)
 
     clips = relationship("Clip", back_populates="user")
     embeddings = relationship("UserEmbedding", back_populates="user")
@@ -101,6 +103,7 @@ class Download(Base):
     entity_pk = Column(BigInteger, primary_key=True)
     file_type = Column(String, primary_key=True)
     success = Column(Boolean)
+    # Legacy; unused by fetch_profiles / parse_state (see users.parse_status).
     parse_available = Column(Boolean, default=True)
 
 
@@ -209,21 +212,53 @@ class ClusterRun(Base):
 
 
 def _migrate_users_table(eng=None):
-    """Apply additive schema migrations for existing users table."""
+    """Add users.parse_status when missing (SQLite additive migration)."""
     eng = eng or engine
-    inspector = inspect(eng)
-    if "users" not in inspector.get_table_names():
+    insp = inspect(eng)
+    cols = {c["name"] for c in insp.get_columns("users")}
+    if "parse_status" in cols:
         return
-    columns = {c["name"] for c in inspector.get_columns("users")}
-    if "user_disqualified" not in columns:
-        with eng.begin() as conn:
-            conn.execute(text("ALTER TABLE users ADD COLUMN user_disqualified INTEGER"))
+    with eng.connect() as conn:
+        conn.execute(text("ALTER TABLE users ADD COLUMN parse_status VARCHAR"))
+        conn.commit()
+
+
+def _backfill_parse_status(session: Session) -> None:
+    """Map legacy state into parse_status; safe to run repeatedly."""
+    session.execute(text("UPDATE users SET parse_status = 'pending' WHERE parse_status IS NULL"))
+    session.execute(
+        text(
+            """
+            UPDATE users SET parse_status = 'success' WHERE
+                full_name IS NOT NULL
+                OR profile_pic_url IS NOT NULL
+                OR profile_pic_url_hd IS NOT NULL
+                OR following_count IS NOT NULL
+                OR city_name IS NOT NULL
+                OR pk IN (SELECT user_pk FROM clips)
+            """
+        )
+    )
+    session.execute(
+        text(
+            """
+            UPDATE users SET parse_status = 'failed' WHERE parse_status != 'success'
+                AND pk IN (
+                    SELECT entity_pk FROM downloads
+                    WHERE file_type = 'profile_pic' AND parse_available = 0
+                )
+            """
+        )
+    )
 
 
 def init_db():
     """create the database."""
     Base.metadata.create_all(engine)
     _migrate_users_table()
+    with Session(engine) as session:
+        _backfill_parse_status(session)
+        session.commit()
 
 
 def get_session() -> Session:
