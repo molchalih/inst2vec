@@ -1,5 +1,6 @@
 import csv
 import os
+from pathlib import Path
 from urllib.parse import urlparse
 
 from dotenv import load_dotenv
@@ -25,7 +26,21 @@ from modules.services import log
 
 load_dotenv()
 
-engine = create_engine(os.environ["DATABASE_URL"])
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _resolve_database_url(url: str) -> str:
+    if not url.startswith("sqlite:///") or url.startswith("sqlite:////"):
+        return url
+
+    db_path = url.removeprefix("sqlite:///")
+    if db_path == ":memory:":
+        return url
+
+    return f"sqlite:///{(PROJECT_ROOT / db_path).resolve()}"
+
+
+engine = create_engine(_resolve_database_url(os.environ["DATABASE_URL"]))
 Base = declarative_base()
 
 

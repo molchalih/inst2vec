@@ -11,10 +11,10 @@ transformers
 accelerate
 pillow
 ninja
-flash-attn
 bitsandbytes
 umap-learn
 hdbscan
 matplotlib
 rich
 quarto
+flash-attn
