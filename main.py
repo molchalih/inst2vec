@@ -1,5 +1,5 @@
 from modules.console import phase, startup
-from modules.services import log
+from modules.console import log
 from modules.database import init_db
 from modules.parse import fetch_profiles
 from modules.download import download_files
