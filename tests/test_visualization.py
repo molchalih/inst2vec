@@ -6,8 +6,9 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
-from modules.visualization import _plot_case
+from modules.visualization import _plot_case, plot_clusters
 
 
 def _rows(xs, ys, labels):
@@ -48,3 +49,43 @@ def test_plot_case_title_contains_case_name():
     fig = _plot_case("sandwich", rows)
     assert "sandwich" in fig.axes[0].get_title()
     plt.close(fig)
+
+
+def test_plot_clusters_uses_shared_cluster_plot_generator(monkeypatch, tmp_path):
+    fake_rows = [
+        SimpleNamespace(embedding_case="audio"),
+        SimpleNamespace(embedding_case="video"),
+        SimpleNamespace(embedding_case="sandwich"),
+    ]
+
+    query = MagicMock()
+    query.distinct.return_value.all.return_value = [("audio",), ("video",), ("sandwich",)]
+    query.filter.return_value.all.side_effect = [
+        [fake_rows[0]],
+        [fake_rows[1]],
+        [fake_rows[2]],
+    ]
+
+    fake_session = MagicMock()
+    fake_session.query.return_value = query
+
+    called_cases = []
+
+    def fake_cluster_plot_figure_for_case(eng, case: str, *, title_label=None):
+        called_cases.append((eng, case, title_label))
+        return plt.figure()
+
+    monkeypatch.setattr("modules.visualization.get_session", lambda: fake_session)
+    monkeypatch.setattr("modules.visualization.PLOTS_DIR", str(tmp_path))
+    monkeypatch.setattr(
+        "modules.visualization.cluster_plot_figure_for_case",
+        fake_cluster_plot_figure_for_case,
+    )
+
+    plot_clusters()
+
+    assert called_cases == [
+        (fake_session.get_bind.return_value, "audio", None),
+        (fake_session.get_bind.return_value, "sandwich", None),
+        (fake_session.get_bind.return_value, "video", None),
+    ]

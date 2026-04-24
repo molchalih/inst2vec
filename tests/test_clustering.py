@@ -1,12 +1,27 @@
 import sys
 import os
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import numpy as np
 import pytest
 from unittest.mock import patch, MagicMock
 from modules.database import UserCluster
-from modules.clustering import compute_clusters, ClusterResult, resolve_umap2d_params
+from modules.clustering import (
+    DEFAULT_HDBSCAN_METRIC,
+    ClusterResult,
+    compute_clusters,
+    resolve_hdbscan_metric,
+    resolve_umap2d_params,
+)
+
+
+def test_resolve_hdbscan_metric_always_returns_euclidean():
+    assert DEFAULT_HDBSCAN_METRIC == "euclidean"
+    assert resolve_hdbscan_metric(None) == "euclidean"
+    assert resolve_hdbscan_metric("euclidean") == "euclidean"
+    assert resolve_hdbscan_metric("cosine") == "euclidean"
+    assert resolve_hdbscan_metric("correlation") == "euclidean"
 
 
 def test_resolve_umap2d_params_mirrors_pass1():
@@ -134,3 +149,4 @@ def test_compute_clusters_passes_umap_n_jobs_to_both_umap_instances(mock_umap, m
     assert mock_umap.call_count == 2
     assert mock_umap.call_args_list[0].kwargs["n_jobs"] == 4
     assert mock_umap.call_args_list[1].kwargs["n_jobs"] == 4
+    assert mock_hdbscan.call_args.kwargs["metric"] == DEFAULT_HDBSCAN_METRIC

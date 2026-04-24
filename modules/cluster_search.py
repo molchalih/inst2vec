@@ -9,7 +9,12 @@ from sqlalchemy.exc import IntegrityError
 
 from modules.console import progress, log
 from modules.database import Base, engine, get_session, ClusterRun
-from modules.clustering import compute_clusters, env_positive_int, load_user_matrix
+from modules.clustering import (
+    DEFAULT_HDBSCAN_METRIC,
+    compute_clusters,
+    env_positive_int,
+    load_user_matrix,
+)
 
 
 _PARAM_KEYS = (
@@ -43,6 +48,7 @@ def _load_grid() -> list[dict]:
 
     umap2d_n_neighbors and umap2d_min_dist are fixed scalars (not swept);
     umap2d_metric is swept independently as a list.
+    HDBSCAN distance on pass-1 UMAP space is fixed (euclidean); not swept.
     """
     umap_n_components  = [int(x) for x in os.environ.get("CLUSTERING_UMAP_N_COMPONENTS", "15").split()]
     umap_n_neighbors   = [int(x) for x in os.environ.get("CLUSTERING_UMAP_N_NEIGHBORS", "15").split()]
@@ -53,14 +59,13 @@ def _load_grid() -> list[dict]:
     umap2d_metrics     = os.environ.get("CLUSTERING_UMAP2D_METRICS", "cosine").split()
     hdbscan_min_sizes  = [int(x) for x in os.environ.get("CLUSTERING_HDBSCAN_MIN_CLUSTER_SIZE", "15").split()]
     hdbscan_selection  = os.environ.get("CLUSTERING_HDBSCAN_SELECTION", "eom").split()
-    hdbscan_metrics    = os.environ.get("CLUSTERING_HDBSCAN_METRICS", "euclidean").split()
     random_state       = int(os.environ.get("CLUSTERING_RANDOM_STATE", "42"))
     cases              = ["video", "sandwich", "audio"]
 
     combos = []
-    for case, nc, nn, md, um, u2m, mcs, sel, hm in product(
+    for case, nc, nn, md, um, u2m, mcs, sel in product(
         cases, umap_n_components, umap_n_neighbors, umap_min_dist, umap_metrics,
-        umap2d_metrics, hdbscan_min_sizes, hdbscan_selection, hdbscan_metrics,
+        umap2d_metrics, hdbscan_min_sizes, hdbscan_selection,
     ):
         combos.append(dict(
             embedding_case=case,
@@ -74,7 +79,7 @@ def _load_grid() -> list[dict]:
             hdbscan_min_cluster_size=mcs,
             hdbscan_min_samples=None,
             hdbscan_cluster_selection_method=sel,
-            hdbscan_metric=hm,
+            hdbscan_metric=DEFAULT_HDBSCAN_METRIC,
             random_state=random_state,
         ))
     return combos

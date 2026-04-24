@@ -12,7 +12,13 @@ from sqlalchemy.orm import Session
 
 from modules.console import progress, log
 from modules.database import ClusterRun, get_session
-from modules.clustering import compute_clusters, env_positive_int, load_user_matrix
+from modules.clustering import (
+    DEFAULT_HDBSCAN_METRIC,
+    compute_clusters,
+    env_positive_int,
+    load_user_matrix,
+    resolve_hdbscan_metric,
+)
 from modules.cluster_results import (
     get_plateau_drop_threshold,
     list_eligible_best_rows,
@@ -79,10 +85,13 @@ def _compute_row_scores(matrix: np.ndarray, params: dict) -> tuple[float, float]
 
     X_nd = result.matrix_nd.astype(np.float64)
     labels = result.labels
+    validation_metric = resolve_hdbscan_metric(
+        params.get("hdbscan_metric", DEFAULT_HDBSCAN_METRIC)
+    )
 
     try:
         dbcv = float(hdbscan.validity.validity_index(
-            X_nd, labels, metric=params["hdbscan_metric"]
+            X_nd, labels, metric=validation_metric
         ))
     except Exception:
         return "dbcv_fail"
@@ -91,7 +100,11 @@ def _compute_row_scores(matrix: np.ndarray, params: dict) -> tuple[float, float]
     unique_clusters = np.unique(labels[non_noise])
     if len(unique_clusters) >= 2:
         try:
-            sil = float(silhouette_score(X_nd[non_noise], labels[non_noise]))
+            sil = float(silhouette_score(
+                X_nd[non_noise],
+                labels[non_noise],
+                metric=validation_metric,
+            ))
         except Exception:
             sil = 0.0
     else:
