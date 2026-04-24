@@ -16,13 +16,11 @@ abstract: |
 ## Introduction
 Whаt we see online every dаy is not neutrаl, it is curаted аnd shаped by аlgorithms. On plаtforms like Instаgrаm, where communicаtion is lаrgely visuаl, аesthetics plаy а centrаl role in shаping engаgement. Aesthetic choices cаn increаse exposure, shаpe follower dynаmics, аnd even determine who becomes pаrt of which community. Like mаny plаtforms, Instаgrаm depends on two centrаl components: users аnd content. Users, reаl people, creаte content, often аiming to gаin visibility аnd populаrity. This cаn be аchieved by copying trends or аdopting populаr аesthetic styles. As more users creаte content, the more they engаge with the plаtform's аlgorithm, аttempting to fit into certаin cаtegories to win the desired visibility, grow their аudience, аnd foster connections (get more followers). In this context, аesthetics аre no longer just а mаtter of tаste, they hаve become strаtegic tools for visibility аnd sociаl networking, mаking their role in shаping digitаl relаtionships increаsingly significаnt.
 
-This paper argues that one of the primary regulatory strategies at the creators’ disposal is aesthetic positioning. Such dynamics have previously been studied on Instagram, a major site of new media cultural production [@Abidin_2015; @Marwick_2015; @Mears_2023]. While existing research focuses on the general representation of the creators, comparatively less attention has been paid to the aesthetic organization of the video content itself. Moreover, in recent years, the platform introduced the Reels feature, a short-form vertical videos format, which is primarily driven by algorithmic distribution and is functioning as a competitive arena for visibility. However, this format has received little attention in the studies of the cultural economy of social media. This research aims to address this gap, arguing that the aesthetic choices in Instagram Reels act as a mechanism through which creators mediate between cultural expression and economic pressure.
+While existing research focuses on the general representation of the creators, comparatively less attention has been paid to the aesthetic organization of the video content itself. Moreover, in recent years, the platform introduced the Reels feature, a short-form vertical videos format, which is primarily driven by algorithmic distribution and is functioning as a competitive arena for visibility. However, this format has received little attention in the studies of the cultural economy of social media. This research aims to address this gap, arguing that the aesthetic choices in Instagram Reels act as a mechanism through which creators mediate between cultural expression and economic pressure.
 
 This research, therefore, asks: How is the field of cultural production in Instagram Reels structured, and how do aesthetic communities emerge among creators? [@Goldhaber_1997]
 
 What aesthetic communities can be identified? Is the aesthetic field organized into discrete communities, or does it form continuous categories? How is the thematic difference translated into position within the field?
-
-`This pаper brings together culturаl theory (McPherson et аl., 2001; Hаll 1996) аnd computational tools to exаmine how aesthetic similаrity operаtes аs а mechаnism of sociаl constructions. By focusing on Instаgrаm Reels, we explore how shаred visuаl codes function аs both personаl expression аnd community-building logic within аlgorithmicаlly governed environments.`
 
 A key contribution of this study is thаt it used аn unsupervised аpproаch to mаpping аesthetic communities on Instаgrаm. Our method identifies groups bаsed on lаtent chаrаcteristics, which аre non-textuаl semantic pаtterns extrаcted from a Reel and corresponding meta data. 
 
@@ -190,9 +188,58 @@ All these structural levels indicate differences in the thematic and audiovisual
 
 Thus, we can observe a division of accounts into distinct communities. Those who employ similar aesthetics were found clustered together. Those who differ to some extent are similarly separated.
 
-## Results
+## Analysis
 
 As mentioned, the resulting clusters represent aesthetic communities, populated by creators with similar aesthetic features. Both the internal structure of clusters and the overall organization of the map will be examined to characterize the field. Descriptive analysis will provide answers to the research questions posed.
+
+**Audio**
+
+```{python}
+#| echo: false
+#| label: plot-audio-embeddings
+#| tbl-cap: "Audio case"
+#| tbl-cap-location: bottom
+from quarto_helpers import render_audio_cluster_plot
+render_audio_cluster_plot()
+```
+
+It is difficult to analyze the field formed using the audio case. The methodological characteristics of this study—specifically, the strict evaluation criteria applied to the resulting clusters—prevented us from obtaining sufficiently representative data for this case. If we refer to the summary table presented above (@tbl-best-clusters), we can see that the DBCV (and the plateau due to dependency) and the silhouette are strikingly low in this case compared to others. The average number of clusters after filtering ( <30% noise, 5–15 clusters) is below the required value. Therefore, the data is non-representative, and in the current methodological configuration, it is not possible to study audio in isolation from the other features. 
+
+**Video**
+
+```{python}
+#| echo: false
+#| label: plot-video-embeddings
+#| tbl-cap: "Audio case"
+#| tbl-cap-location: bottom
+from quarto_helpers import render_video_cluster_plot
+render_video_cluster_plot()
+```
+
+The video, on the other hand, is more revealing. The graph clearly shows the structure and distribution of the clusters. The field has its own characteristics and peculiarities.
+
+**Multimodal**
+
+```{python}
+#| echo: false
+#| label: plot-sandwich-embeddings
+#| tbl-cap: "Audio case"
+#| tbl-cap-location: bottom
+from quarto_helpers import render_multimodal_cluster_plot
+render_multimodal_cluster_plot()
+```
+
+Surprisingly, the evaluation rates this case slightly lower than the video. However, the difference is negligible. The layout is similar, and there are clearly defined structures that require further study.
+
+### Macro features
+
+At this level, the analysis aims to identify the overall structure. Thus, the cultural field of Instagram Reels production examines not the individual behavior of creators but the overall distribution of participants. The resulting space demonstrates a distinct structure: dense clusters, areas of lower density, and the presence of stable communities. A key feature worth noting is the presence of poles. Conceptually, this suggests that different strategies exist. For example, those who focus on mass popularity and trends, and those who focus on niche cultural value (more details in the micro-analysis). In terms of field theory, this is precisely the described orientation between economic and symbolic capital. Those in the middle borrow elements from general, broad strategies. It is important that the distribution is uneven. In this way, dominant thematic and aesthetic regimes can be identified. 
+
+### Micro features
+
+This section involves studying the *local structures* formed during the clustering process. It aims to reveal the relationships between individual actors within the field. Thus, a cluster is viewed not merely as a group of points, but as an empirically observable aesthetic community within which participants share the thematic and audiovisual characteristics of their content. In this way, they relate to one another through the similarity of the practices employed and the chosen strategies of representation on the platform.
+
+Analysis at this level aims to identify intra-cluster differences and hierarchies. Several characteristics are defined within the cluster. The concept of aesthetic purity is defined by the degree of membership in the cluster (coordinates within the local structure, centroid). Participants close to the core reproduce recognizable and stable patterns. Those who are further away and occupy peripheral positions follow pre-established codes to a lesser extent. From the perspective of field theory, this variation is explained by the chosen strategy. Central actors establish the aesthetic norm. Marginalized actors adapt. This situation is determined by the legitimacy of various positions of symbolic capital.
 
 ## Discussion
 
@@ -205,10 +252,6 @@ This section is a reflective part that encompasse *limitations* of currenty desi
 **Translation**. It is important to note that the chosen strategy solves only part of the problems, has its own trade-offs, and introduces new limitations. In particular, translation smooths out the stylistic features of the original speech. For example, certain cultural and idiomatic markers that shape specific audiovisual cultures and communities are lost. Translation reduces emotional and subtextual meanings, diminishing semantic depth. Furthermore, using this translation method introduces systematic noise into the corpus due to the model’s training constraints. The target space thus reflects not only the source data but also the transformation characteristics of the selected model. This step introduces bias into the data, which can amplify or oversimplify the categories under study.
 
 **User-embedding approximation**. Mean-pooling is a computationally efficient and methodologically transparent method for computing user-level representations. However, it imposes a number of significant limitations. First, it assumes relative homogeneity of content. This is because if a user posts fundamentally different content, their behavior will not be accounted for. Moreover, it is highly likely to invalidate and degrade this data point. This will occur because significant differences in thematic and audiovisual characteristics will stretch the point across different semantic planes. Although in reality, the user does not fully belong to any of them. Such a scenario would essentially turn the data point into noise. Second, this strategy, just like the broader research methodology, does not fully account for the prioritization of different videos. This could be applied to a time frame or, for example, the popularity of individual videos. If some clips were valued more than others, weights could be assigned to different vectors. For example, using adaptive and statistically driven policies. In this way, the most conceptually important elements would have a greater influence on the final representation of the user.
-
-## Analysis
-
-
 
 ## Expected findings
 

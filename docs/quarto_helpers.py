@@ -135,3 +135,35 @@ def render_spotify_feature_metrics() -> Markdown:
     from generators.spotify_feature_metrics import spotify_feature_metrics_to_markdown
 
     return Markdown(spotify_feature_metrics_to_markdown())
+
+
+def render_cluster_plot_by_case(
+    case: str,
+    *,
+    eng=None,
+    title_label: str | None = None,
+):
+    _ensure_project_root_on_path()
+
+    from generators.cluster_case_plots import cluster_plot_figure_for_case
+
+    if eng is None:
+        eng = _get_default_engine()
+
+    return cluster_plot_figure_for_case(eng, case, title_label=title_label)
+
+
+def render_audio_cluster_plot(*, eng=None):
+    return render_cluster_plot_by_case("audio", eng=eng)
+
+
+def render_video_cluster_plot(*, eng=None):
+    return render_cluster_plot_by_case("video", eng=eng)
+
+
+def render_multimodal_cluster_plot(*, eng=None):
+    return render_cluster_plot_by_case(
+        "sandwich",
+        eng=eng,
+        title_label="multimodal",
+    )
