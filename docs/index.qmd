@@ -10,10 +10,11 @@ author: "Georgii Bezridnyi"
 bibliography: references.bib
 csl: chicago-author-date.csl
 abstract: |
-  This paper clearly does something, yet noone knows what it is. Abstracts are 150–200-word long summaries (or ‘trailers’) for your thesis. They state the goals, question, method, results, and conclusion.
+  Abstracts are 150–200-word long summaries (or ‘trailers’) for your thesis. They state the goals, question, method, results, and conclusion. (still a placeholder)
 ---
 
 ## Introduction
+Whаt we see online every dаy is not neutrаl, it is curаted аnd shаped by аlgorithms. On plаtforms like Instаgrаm, where communicаtion is lаrgely visuаl, аesthetics plаy а centrаl role in shаping engаgement. Aesthetic choices cаn increаse exposure, shаpe follower dynаmics, аnd even determine who becomes pаrt of which community. Like mаny plаtforms, Instаgrаm depends on two centrаl components: users аnd content. Users, reаl people, creаte content, often аiming to gаin visibility аnd populаrity. This cаn be аchieved by copying trends or аdopting populаr аesthetic styles. As more users creаte content, the more they engаge with the plаtform's аlgorithm, аttempting to fit into certаin cаtegories to win the desired visibility, grow their аudience, аnd foster connections (get more followers). In this context, аesthetics аre no longer just а mаtter of tаste, they hаve become strаtegic tools for visibility аnd sociаl networking, mаking their role in shаping digitаl relаtionships increаsingly significаnt.
 
 This paper argues that one of the primary regulatory strategies at the creators’ disposal is aesthetic positioning. Such dynamics have previously been studied on Instagram, a major site of new media cultural production [@Abidin_2015; @Marwick_2015; @Mears_2023]. While existing research focuses on the general representation of the creators, comparatively less attention has been paid to the aesthetic organization of the video content itself. Moreover, in recent years, the platform introduced the Reels feature, a short-form vertical videos format, which is primarily driven by algorithmic distribution and is functioning as a competitive arena for visibility. However, this format has received little attention in the studies of the cultural economy of social media. This research aims to address this gap, arguing that the aesthetic choices in Instagram Reels act as a mechanism through which creators mediate between cultural expression and economic pressure.
 
@@ -21,8 +22,11 @@ This research, therefore, asks: How is the field of cultural production in Insta
 
 What aesthetic communities can be identified? Is the aesthetic field organized into discrete communities, or does it form continuous categories? How is the thematic difference translated into position within the field?
 
-## Literature Review
+`This pаper brings together culturаl theory (McPherson et аl., 2001; Hаll 1996) аnd computational tools to exаmine how aesthetic similаrity operаtes аs а mechаnism of sociаl constructions. By focusing on Instаgrаm Reels, we explore how shаred visuаl codes function аs both personаl expression аnd community-building logic within аlgorithmicаlly governed environments.`
 
+A key contribution of this study is thаt it used аn unsupervised аpproаch to mаpping аesthetic communities on Instаgrаm. Our method identifies groups bаsed on lаtent chаrаcteristics, which аre non-textuаl semantic pаtterns extrаcted from a Reel and corresponding meta data. 
+
+## Literature Review
 The rise of social media has significantly reshaped both traditional and contemporary forms of cultural production. A particularly substantial novelty is social media adoption of the “platform” model by providing a technical means (e.g., APIs) for various actors to reprogram the service for their needs [@Gillespie_2010]. The active _“platformization”_ enabled a collective economic activity, essentially creating multi-sided markets that connect different participants [@Helmond_2015]. It is important to note that the platforms themselves act as the stakeholders and active participants in these economic relations.
 
 Besides economic implications, many notable scholars mention the intricate power structures. It is often noted that the platform, in fact, has a distinctively strong agency [@Helmond_2015; @Van_Dijck_2013]. The manifestations of non-neutrality are constituted individually for each platform and are deeply embedded into a certain design, specific affordances, or algorithmic interventions [@Bucher_et_al_2018]. These material aspects are non-static and are constantly adapted to the needs of the actors, be it the mundane measures serving the market economy, or ways to maintain and interact with users. In this sense, the platform is more than a sole intermediary, as “it shapes the performance of social acts instead of merely facilitating them” [@Van_Dijck_2013].
@@ -34,59 +38,132 @@ To sum up briefly, social media are characterized by a complex network of both f
 This paper largely leans on computational semantics as its primary toolkit. One of the key analysis principles is the latent representation. Deriving from linguistics, the Latent Semantic Analysis suggests that: _“the aggregate of all the word contexts in which a given word does and does not appear … determines the similarity of meaning of words and sets of words to each other”_ [@Landauer_1998]. In essence, it was proposed to approach the language not as a static set of discrete units, but rather as a relational structure. Meanings in such a system occur from contextual patterns instead of predetermined characteristics. LSA became particularly prominent in its discipline and rapidly spread to computational fields. For instance, computer science rapidly adopted this structural approach by operating representations in the form of mathematically determined objects. This distinctive formalization allows to represent meanings in a coordinated vector space, where the semantics of an entity is coined as embedding. A principle is canonically described by the pioneer researchers in a classical example: _“vector(‘King’) − vector(‘Man’) + vector(‘Woman’) results in a vector that is closest to the vector representation of the word ‘Queen’”_ [@Mikolov_2013]. This approach is increasingly applied outside of linguistic data, featuring works in digital humanities and cultural analytics. Noting that cultural data is constructed and prone to bias, Lev Manovich [-@Manovich_2020] calls for this approach: _“Rather than starting with existing and seemingly natural categories, the cultural analytics approach is to extract low-level features and find clusters of objects based on these features.”_ Therefore, this paper aims to utilize the high-dimensional semantic space to organize the cultural data in a measurable form. Such a definition enables the quantification of relations between the entities by measuring their geometric proximity. This technique provides a clear operationalization for the central concept of this paper, the shared aesthetic.
 
 ## Theoretical Framework
-
 Based on Bourdieu's theory [-@Bourdieu_1993], this study conceptualizes Instagram Reels as a space of cultural production. Within the field, content creators can be understood as microcelebrities incentivized by attention and visibility, who cultivate their audience through strategic self-presentation and stylistic choices [@Senft_2013]. Such behavior demonstrates their agency, as they maneuver between cultural expression and economic incentives. Essentially, aesthetic choices act as a positioning mechanism. Previous research has shown that such visibility systems tend to reproduce established symbolic conventions. [@Marwick_2015]. These conventions act like a shared aesthetic repertoire, an organizing principle for the whole field. It plays a structural role to connect creators with the audience and giving rise to distinct communities within Instagram Reels. Consequently, this study understands aesthetics not as predefined categories, but rather as relational patterns deriving from similarities in content and attributing to a related aesthetic community.
 
-## Methodology
-
-To empirically investigate these relations, computational semantics methods are employed. Specifically, this paper aims to represent videos in a high-dimensional vector space. This approach allows to cluster stylistically similar content, respectively, highlighting various aesthetic communities [@Martin_2017].
-
-The manually compiled dataset consists of various Instagram accounts, a sample of _1 000_ content creators who meet certain criteria. Candidates have more than _10 000_ followers to account for niche creators. They have posted more than 10 new Reels in the last 180 days. Demographics are a particularly keen and impactful aspect of this research as it influences which the communities emerge. As study aims to provide a general definition of how Reels function as a cultural field, a broad sample will be used, comprising Western accounts that use English as their primary language. Importantly, the dataset is heterogeneous and represent different thematic categories (beauty, sports, music, politics, etc.). Such dataset design is prone to selection bias it and will be considered in the analysis.
-
-For each creator, the _5_ most viewed Reels posted in the last _180_ days are be examined. Keyframes, audio, and caption features are extracted. Each modality is to be converted into text using open weights, providing transparency and control. [@Li_et_al_2026] The combined information is used to obtain an embedding of a video. The average vector of five embeddings is a representation of the creator. A control methodological aspect of the study involves experimenting with modalities for final vectorization. Depending on selected domains, the resulting communities may differ significantly. The study attempts to approximate the natural consumption experience, therefore, the result of all modalities is conceptually preferred, though other implications will be considered during the analysis.
-
-Finally, for effective clustering, the high-dimensional vectors should be reduced using UMAP, a contemporary dimensionality reduction technique [@McInnes_2018]. The further clustering is done via HDBSCAN, a density-based clustering algorithm without a predefined number of clusters [@McInnes_2017]. For further visual analysis, a reduction to 2D should be performed, as well as the color-coding of clusters and belonging vertices.
-
-The resulting clusters represent aesthetic communities, populated by creators with similar aesthetic features. Both the internal structure of clusters and the overall organization of the map will be examined to characterize the field. Descriptive analysis will provide answers to the research questions posed.
-
 ## Methods
-test text
 
-### Data 
-saokdaksp
+To empirically investigate аesthetic communities, computational semantics methods are employed. A key contribution of this study is thаt it used аn unsupervised аpproаch to mаpping these relations on Instаgrаm. Our method identifies groups bаsed on lаtent chаrаcteristics, which аre non-textuаl semantic pаtterns extrаcted from a Reel and corresponding metainformation. Specifically, this paper aims to represent videos in a high-dimensional vector space. This approach allows to cluster stylistically similar content, respectively, highlighting various aesthetic communities [@Martin_2017].
 
-### Analytical Pipeline
-sadkasd
+Keyframes, audio, and caption features are extracted. Each modality is converted into text using open weights, providing transparency and control. [@Li_et_al_2026] The combined information is used to obtain an embedding of a video. The average vector of five embeddings is a representation of the creator. A control methodological aspect of the study involves experimenting with modalities for final vectorization. Depending on selected domains, the resulting communities may differ significantly. The study attempts to approximate the natural consumption experience, therefore, the result of all modalities is conceptually preferred, though other implications will be considered during the analysis.
 
-### Clustering Strategy
-sadsad
-
-## Results
-
-Here is a random cluster plot:
 
 ```{python}
 #| echo: false
-#| label: fig-random-cluster-plot
-#| fig-cap: "Random Cluster Plot"
-#| fig-cap-location: bottom
-import numpy as np
-import matplotlib.pyplot as plt
 
-rng = np.random.default_rng(42)
-x = rng.standard_normal(200)
-y = x * 0.6 + rng.standard_normal(200) * 0.8
+from quarto_helpers import get_users_summary_cells, get_clips_summary_cells
 
-fig, ax = plt.subplots(figsize=(5, 4))
-ax.scatter(x, y, alpha=0.5, s=20)
-ax.set_xlabel("UMAP 1")
-ax.set_ylabel("UMAP 2")
-ax.set_title("Random Cluster Plot")
-plt.tight_layout()
-plt.show()
+users_summary_cells = get_users_summary_cells()
+n_users_all = users_summary_cells["total_users"]
+n_users_kept = users_summary_cells["kept_users"]
+
+clips_summary_cells = get_clips_summary_cells()
+n_clips_all = clips_summary_cells["total_clips"]
+n_clips_kept = clips_summary_cells["kept_clips"]
+
+n_music = clips_summary_cells["with_music"]
+n_speech = clips_summary_cells["with_speech"]
+
+n_speech_translation = clips_summary_cells["with_speech_translation"]
+n_captions_translation = clips_summary_cells["with_caption_translation"]
+
 ```
 
-As shown in @tbl-clustering-summary-all, clustering has not performed sufficiently well across audio.
+### Data collection
+This study utilizes manual sampling as an initial data collection method. Suggested approach involved human-operated exploration of the platform and collection of accounts for further analysis. The actual procedure was carefully crafted to ensure alignment with research goals, desired scope, while also accounting for the potentional limitations and biases. Specifically, employed design decisions aimed to create a model of Instagram’s diverse social landscape. It was important for this reason to convey the essence of platform-mediated social and cultural production processes, rather than focusing on the definitive representation. A special atttention was paid to avoid falling into the trap of the structural distributional imbalance caused by excessive concentration of accounts in specific niches. For this reason, it was crucial to priritize a variety of representatives from the field. Additionally, the actual demographics are a particularly impactful aspect of this research as it influences which the communities emerge. For this reason a certain criteria for selection was developed, that allows to precisely scope the sample.
+
+```{python}
+#| echo: false
+#| label: tbl-users-summary
+#| fig-cap: "Users summary"
+#| fig-cap-location: bottom
+from quarto_helpers import render_users_summary, render_clips_summary
+render_users_summary()
+```
+
+Candidates should have more than _10 000_ followers and have posted more than 10 new Reels in the last 180 days. A sample comprising Western accounts mainly using English as their primary language was chosen. It was vital to include empirically understandable but intentionally broad and vague categories of accounts. These categories were defined: *bloggers, cultural, sports, music, and political figures*. At the same time, within the actual categories, the selection aimed for diversity. Thus, the general principle of the chosen approach was to give preference not to the most typical representatives, but to those who demonstrate different directions. This essentially encouraged the selection of those who have unique topics or aesthetic preferences. Importantly, the formed categories are not analytical entities, but a heuristic tool for data collection. The criteria are outlined in @tbl-users-summary. 
+
+Finally, the dataset for this study consists of `{python} n_users_all` users and `{python} n_clips_all` videos, as for each creator, the _5_ most viewed Reels posted in the last _180_ days are examined. 
+
+### Analytical Pipeline
+
+A multi-stage Python-based analytical pipeline was built to conduct this study. The resulting toolkit can be viewed as a research architecture rather than a collection of separate utilities. Modularity was a fundamental design decision to enable reusability. The approach covers the full data processing cycle and is divided into phases: data collection, preprocessing, analysis, and validation. Each phase consists of several steps and procedures organized in a sequential and idempotent architecture. This organization allows for seamless exploration of various data, as well as the ability to supplement, edit, and reorganize the dataset on the fly. Furthermore, data processing follows a single, reproducible logic.
+
+### Feature extraction
+
+The first stage was data parsing. A data provider was selected for an efficient and resource-intensive approach. The following data was obtained for each user from the dataset: username, number of followers, number of followings, profile description, profile picture, and the latest 24 Reels. Next, metadata about the clips was collected. For each video, the following fields were retrieved: number of views, likes, shares, caption text, and the video file itself. The resulting dataset was preprocessed in two ways. Hard criteria were required to create a valid dataset. An important aspect identified at this stage was that some accounts did not meet the pre-set threshold of 5 videos. Accordingly, at this stage, exclusion was primarily based on this criterion. Soft filtering was necessary for data smoothing and normalization. This stage involved the use of statistical methods to identify outliers. Specifically, the 0.95 percentile for view count was retained, and filtering was also performed based on the z-score. Next, a second round of hard filtering was performed to cascade-exclude accounts that did not comply with the 5-video policy. Thus, as a result of preprocessing, `{python} n_users_kept` remained out of `{python} n_users_all`, and `{python} n_clips_kept` remained out of `{python} n_clips_all` all Instagram Reels in the dataset. 
+
+This was followed by feature extraction. To begin this process, videos belonging to users who had previously passed preprocessing and were marked as valid were downloaded. Within the scope of this study, it was determined that a video contains 3 main elements. These elements constitute the features themselves and, at the same time, serve as the central analytical categories of the study. 
+
+**Video**. Visual features are considered a central element of vertical content in Instagram Reels. This aspect accounts for a significant portion of user perception and interaction. Unlike other modalities, video possesses a high-resolution signal that unfolds over time. This makes its operationalization methodologically complex. Thus, video requires special attention in the design of the analytical pipeline.
+
+For further embedding into a multimodal model, key frames were extracted from the video. The procedure was performed adaptively. The number of frames extracted is dynamically selected depending on the duration of the video file. Thus, short videos are sampled more frequently, while long ones are sampled less frequently. This allows us to preserve the completeness of the semantic representation while maintaining a balance with computational efficiency. 
+
+Additionally, it was necessary to consider the architectural limitations of the model used. One such aspect is the fixed context window, which must accommodate tokens from all modalities. In case this budget is exceeded, a strategy was developed to reduce the amount of material presented for embedding. It is important to note that preference was given to the text component by reducing the number of frames.
+
+**Audio**. This feature is highly significant, as it is inseparable from the cultural form of vertical content. At the same time, Instagram has no clear guidelines regarding the use of audio. For this reason, when constructing the analytical pipeline, it was important to capture precisely this variability in how creators utilize the affordance under study. At the same time, it was particularly important to develop a toolkit that would allow for a universal comparison of different audio elements across all clips. Thus, within this class, two main categories were identified: *speech and music*. Each of these, in turn, has its own subcategories and branches. Both categories must be operationalized for analysis. At the same time, the final representation must be compatible with embedding analysis methods. Within the scope of this study, it was decided to use a text-based format. Thus, audio is represented through a textual description.
+
+*Music*. First, the track’s identifying data was determined, and the artist and song title were obtained. For this, an audio fingerprinting algorithm was used [@Cano_2005; @Muller_2021]. This method requires a large music database, which entails legal costs. For this reason, open-source solutions were unable to solve the problem, and a third-party data provider was used [@acrcloud]. Thus, for the `{python} n_music` clips, tracks were registered. Next, the necessary descriptive audio features were extracted. In this context, it was necessary to obtain a song’s characteristics to successfully calculate its semantics. Until recently, Spotify provided such data [@spotify_audio_analysis_api]. For each track, they used machine learning to calculate a number of criteria. The data itself could be obtained via an open API. However, access to this endpoint is currently closed. However, a solution was found in the open community project, which set its aim to fill this gap after Spotify's closure [@reccobeats]. This service openly provides the exact same data. Thus, for Python tracks_with_features, it was possible to extract musical characteristics. An example of the output is available at @tbl-audio-example.
+
+*Speech*. This category was operationalized by transcribing spoken speech into text. An ASR (Automated Speech Recognition) approach was used for this purpose. It represents a mature field of machine learning that enables the solution of a wide variety of tasks thanks to its established ecosystem. Despite the field’s established nature, it remains at the technological frontier due to advancements in new technologies: foundation models and multimodal architecture [@nayeem_et_al_2025]. Thus, the choice of ASR in this study is driven by several factors. First, transcription allows the audio signal to be converted into a unified textual representation compatible with embedding analysis methods. Second, modern ASR models provide high-quality results with relatively low computational resource consumption. This makes them particularly relevant for analyzing massive datasets. Specifically, the open weight model was used [@radford2022whisper]. It consists of a Transformer encoder-decoder, which allows the task of converting audio to text to be solved directly within a single model [@Dong_2018]. Importantly, the model was trained on a large multilingual corpus of audio data. This enabled the automatic and accurate identification of multilingual content without additional adaptation. Whisper also delivers robust results in the presence of noise and low-quality recordings [@radford2022whisper]. This is particularly relevant given the wide variation in audio quality within the dataset under study. To validate the transcription results, we used metrics provided by the model that allow us to calculate its confidence in the generated output. Specifically, if the average logarithmic probability of tokens across the entire phrase is below a set threshold, the result is considered unreliable and discarded. Additionally, the probability of speech absence was used to filter out segments containing no speech signal. Analysis of the compression ratio allowed us to filter out abnormally repetitive fragments and reduce hallucinations in the generated output. 
+
+**Text**. Another key element of the analysis is text, which appears as a caption beneath the video. This Instagram feature allows creators to leave a message of their choice, which will be visible to viewers. Within the scope of this study, the focus is on audiovisual culture; therefore, in a broad sense, this feature is more of a supplementary one. However, it is also worth considering the specifics of content consumption practices and their structural organization, which is dictated by the platform’s features. This is highlighted because these captions are always displayed in a small area at the bottom of the screen when viewing Reels. This architectural feature of Instagram Reels makes them impossible to ignore. Their constant presence in the viewer’s field of vision shapes their specific experience and impressions. This means that this text should be considered as one of the variables influencing the final perception and, consequently, aesthetic identification. For this reason, the study focuses on this modality and utilizes it in further analysis. As mentioned earlier, English-language content predominates in the corpus. However, there are exceptions. In the case of captions, it is `{python} n_captions_translation` number of clips that use differen languages. To address this, we resorted to translation. This procedure was applied to both spokern audio (speech) and captions. In the essence, the actual methdological application of translation is no different no different and addresses the same tasks in the same way. 
+
+### Language space
+
+This work prioritized English-speaking creators but did not explicitly limit itself to such a sample. Thus, although most of the information is in English, there are exceptions in the dataset. There are `{python} n_speech_translation` speech elements and `{python} n_captions_translation` captions, as mentioned. This presents a structural problem due to the organization of the downstream analytical pipeline. The fact is that although modern models do possess some cross-linguistic generalization ability, they nevertheless tend to form *language-specific categories* [@feng_et_al_2020; @Artetxe_2020]. This inevitably leads to a degradation in the quality of the embedding space within the study of audiovisual culture.
+
+To minimize this effect, the study employs language space normalization. This is achieved through the automatic translation of all non-English segments. Specifically, a neural open weights translation model [@gemmatranslate2026] was selected. This allowed to standardize the corpus and increase data consistency. Consequently, this improves the quality of embeddings and enhances the validity of further analysis.
+
+```{python}
+#| echo: false
+#| label: tbl-clips-summary
+#| fig-cap: "Clips summary"
+#| fig-cap-location: bottom
+from quarto_helpers import render_users_summary, render_clips_summary
+render_clips_summary()
+```
+
+### Embedding
+
+Embedding. The next stage of the pipeline involves transforming the aggregated descriptive text data from individual reels into a format that allows for comparison. In this study, a multidimensional space was chosen. A multimodal embedding model was used for this purpose. A key feature of this family of models is their ability to process data of different types (modalities). This allowed us to combine text and video in a single semantic space without additional adaptation of visual features. As part of this study, embedding was performed for three different categories.
+
+Audio. This case involves embedding only one of the previously extracted features of a reel. It included categories such as speech and music. Thus, the final embedding contains only their text features, but not visual or text features. The input of the model receives depends on the availability of data for one of the categories. There are videos that contain speech but no music. There are videos that contain music but no speech. Videos containing neither are ignored. Thus, the model may receive one of the following text instructions:
+
+(Instruction)
+
+“Represent the audio character of this video: its musical mood, energy, and any spoken content.”
+
+(Input)
+
+“<speech text> | Music: ”<track>“ by <artist> — <descriptors>”
+
+As you can see, the bare coefficients describing the values of certain musical characteristics have been replaced with a verbal representation. This was achieved using pre-coded representations for different values. This was done to increase the efficiency of embedding, since, due to its architecture, the model primarily focuses on semantic meaning. Using words allows the vector to be normalized and stretched, rather than incorporating a numerical representation (the indices provided by the API). 
+
+Video. In this case, embedding was constructed only for visual features. Specifically, the operation was performed on previously extracted frames without involving audio or text signals. Such isolation is necessary to obtain a representation and evaluate specifically the visual characteristics. In practice, by selecting a model with a multimodal architecture, the process itself turned out to be straightforward and did not require additional steps. This architecture allows the model to use only the extracted frames as input.
+
+Each frame is treated as an independent carrier of information. To obtain the final representation, the individual frame embeddings are averaged. This forms a single target vector that reflects the generalized content of the visual characteristics. The approach takes into account static components: objects, scene, visual aesthetics, and style. It also considers temporal aspects, as the sequence of frames allows us to reveal the actions themselves in the video.
+
+Multimodal. This case was conceived as the most comprehensive. It is intended to encompass typical consumption practices. This is because the model captures all possible extracted features of the reel: video, audio, and captions. Thus, this approach allows for the most comprehensive semantic representation of the video being studied. A set of extracted frames (key frames), captions, recognized speech (and in some cases, translated speech), and audio characteristics in text form are fed into the model. All elements are then combined into a unified representation. Modality integration allows these inconsistent features to be accounted for within a single semantic space. The combination of all three enhances the robustness of embedding within the study due to the completeness of the context compared to single-modality cases.
+
+User-level embedding. The initial embeddings are organized at the level of individual content units. The research task, in turn, involves comparing creators. To make this operation possible, the data must be transformed into a suitable format. A single representation is generated for each user. For this purpose, the mean *pooling strategy* was chosen, which involves calculating the average value of all sub-representative vectors. This choice is motivated by its robustness to noise within a single operation. This is important given the high variability of the data inherent in this study. Thus, individual clips that deviate from the general style have a limited impact on the recorded data. 
+
+In the context of entity analysis, this is an account. Accordingly, the mean is calculated based on the clips belonging to it. This approach allows us to obtain an averaged user profile in a multidimensional space. The resulting vector, in turn, reflects the aggregate value of selected thematic and audiovisual characteristics. As a result, each account is projected into a common semantic space. Its location within this space is determined by the form of its content. This allows us to mathematically define the relationships between the subjects of analysis, since the distance between points effectively determines the degree of their aesthetic similarities and differences. 
+
+### Clustering
+
+Clustering. The final stage of the analytical pipeline involves examining the relationships between the obtained data. A clustering method was used to determine the similarity of the previously identified points. It aims to identify similar and closely related vectors in the embedding space. Clustering in this case is defined as the search for stable groups based on common characteristics. Since the obtained vectors are semantic representations of various accounts, the resulting clusters are accounts with similar thematic and audiovisual characteristics.
+
+To solve the clustering problem in this study, two algorithms are used: UMAP (Uniform Manifold Approximation and Projection) and HDBSCAN (Hierarchical Density-Based Spatial Clustering of Applications with Noise) [@McInnes2018; @McInnes2017; @mcinnes2017hdbscan; @mcinnes2018umap-software]. Their application is dictated by the specific nature of the data, particularly its high dimensionality, as well as the specific research objective. It is important to note that in the constructed model, some points will not conform to strict community logic and will not exhibit specific patterns. In this regard, it is methodologically important to account for the possibility of noise in the data. observations that do not belong to any stable cluster. and, importantly, it was crucial to avoid specifying a fixed number of clusters (as in classical methods, such as k-means).
+
+The first step in this process is dimension reduction. Although the vectors contain a high proportion of qualitative descriptive information, their clustering presents a difficult task. This is because in high-dimensional spaces, the informativeness of distances decreases. For this reason, UMAP projects the data into a lower-dimensional space (manifold) while preserving the original structure. Such an approximation allows for further analysis in a low-dimensional space, but enables generalized conclusions about the structure of its parent space. 
+
+The next step is identifying relationships between points and searching for structures. For this, the density-based HDBSCAN algorithm is used. Unlike methods that assume a spherical shape for clusters, this algorithm is capable of accounting for the complex geometry of the formed groups. This is particularly relevant in the methodological context, since the data itself is organized in an embedding space where data dependencies are nonlinear. This allows for structures in which density and scale may differ from other groups. Points that do not meet the established density criterion are classified as noise. The result of this stage is defined clusters, which consist of similar, closely located vectors. These, in turn, represent groups of accounts sharing thematic and aesthetic characteristics. The distance between points and clusters can be interpreted as the degree of semantic differences and manifestations of certain cultural patterns.
+
+In practice, to ensure the reliability of the process, it was decided to abandon predefined parameters. Instead, the algorithms were configured by iterating over hyperparameters. The need for flexible configuration is dictated by the high responsiveness of the methods. The stages of dimension reduction and clustering themselves yield fundamentally different partitioning results. Thus, the grid search produced a multitude of clustering results for each of the cases.
+
+### Evaluation
+
+The results were evaluated using a multi-stage procedure. First, all options were filtered according to established criteria: clustering noise <30%, and the number of clusters between 5 and 15. This initial filtering allowed us to discard outliers and variations that were implausible for the data under study. The remaining results underwent additional evaluation. The primary metric for evaluating clusters is the DBCV (Density-Based Clustering Validation) index [@Moulavi_2014, @McInnes2026]. It is well-suited for data generated using density-based clustering algorithms. This metric evaluates the internal cohesion and separability of the identified groups. In addition to directly evaluating specific clustering results, DBCV was used to find the most performant hyperparameters. Specifically, for each hyperparameter variation, a local plateau was calculated—the mean DBCV value for a specific parameter value. This was necessary to identify anomalous spikes and normalize the target value. A spike may arise due to random circumstances, while a plateau, in turn, penalizes such implausible values. Thus, preference is given not to a local maximum, but to a stable result. The silhouette score was used as an auxiliary metric. It was not included in the automated evaluation, but rather served as an empirical marker for the researcher and for personal analysis of the results.
 
 ```{python}
 #| echo: false
@@ -97,8 +174,6 @@ from quarto_helpers import render_clustering_summary
 render_clustering_summary()
 ```
 
-The clustering has peformed the best for the following cases:
-
 ```{python}
 #| echo: false
 #| label: tbl-test-cluster-plot
@@ -108,9 +183,29 @@ from quarto_helpers import render_best_cluster_run
 render_best_cluster_run()
 ```
 
+The clustering results for all three case studies were visualized on a 2D plane. For further analysis, it is suggested to examine communities using these plots. The *x-* and *y-* axes do not represent specific features; instead, they indicate the semantic distance between data points. Thus, to analyze the data, it is recommended to first look at the distance between points on the graph. It is also recommended to examine the local structures formed in this plane. For the latter, a color-coded representation of the points is suggested. Representatives of the same cluster are marked with the same color. Additionally, within the scope of this study, it is worthwhile to consider the global structure. Specifically, how exactly the participants in the dataset formed and moved apart from one another.
+
+All these structural levels indicate differences in the thematic and audiovisual characteristics of the phenomenon under study. A dense cluster of points represents accounts that share thematic and audiovisual characteristics. In turn, the distant structures represent accounts with differing characteristics. The gray points between them represent noise—those whose characteristics do not fully resemble their neighbors and cannot be fully grouped with them.
+
+Thus, we can observe a division of accounts into distinct communities. Those who employ similar aesthetics were found clustered together. Those who differ to some extent are similarly separated.
+
+## Results
+
+As mentioned, the resulting clusters represent aesthetic communities, populated by creators with similar aesthetic features. Both the internal structure of clusters and the overall organization of the map will be examined to characterize the field. Descriptive analysis will provide answers to the research questions posed.
+
 ## Discussion
 
-sadasd
+This section is a reflective part that encompasse limitations of currenty design decisions and their implications. Therefore, the information outlined below is a comprehensive summary of future and potential improvements of current methodology.
+
+### Limitation
+
+Data collection. It is important to note that such an approach inevitably entails certain limitations. First, The data collection principle aims to recreate the simplified view of how Instagram and other platforms function, but not it's intricate social underpinnings. The actual communities, their complex relations, and dynamics might differ significantly from those constructed. For this reason, modeling should be considered as a heuristic approximation and analytical abstraction. Interprtation, as follows, should be taken with a grain of salt, as the resulting model might in turn lead to distorted and overly simplistic understanding of the platform's structure. Second, the proposed emphatsis on heterogeneity might be overstated. It is important to apprehend that the sample is limited to English-language accounts (as per @tbl-users-summary); while all data points represent the Western segment of the platofrm. This may significantly limit the thematic and aesthetic richness of various remote groups and communities present on the actual platform. Third, the chosen technique is subject to researcher subjectivity and algotithmic interventions. Such data collection technique is prone to impending bias, consequently challenging the reliability of the study. These limitations will be taken into account during the interpretation. 
+
+Speech. The textual representation of speech fundamentally reduces the multidimensional nature of the act itself, as it overlooks its nonverbal features. A literal interpretation is unable to capture the entire communicative layer, which is conveyed not by words, but by the manner in which they are presented. This category of omitted parameters includes such aspects of speech as intonation, rhythm, tempo, and emotional specificity. Subtextual constructions are also overlooked: irony, sarcasm, and other implicit meanings. The systematic omission lies in the fact that such components can sometimes play a leading communicative role rather than the direct meaning of what is said. This feature leads to the omission of final data and the blurring of boundaries between the elements under study. Thus, the final textual form is a significantly simplified representation, which imposes certain limitations on the analysis.
+
+Translation. It is important to note that the chosen strategy solves only part of the problems, has its own trade-offs, and introduces new limitations. In particular, translation smooths out the stylistic features of the original speech. For example, certain cultural and idiomatic markers that shape specific audiovisual cultures and communities are lost. Translation reduces emotional and subtextual meanings, diminishing semantic depth. Furthermore, using this translation method introduces systematic noise into the corpus due to the model’s training constraints. The target space thus reflects not only the source data but also the transformation characteristics of the selected model. This step introduces bias into the data, which can amplify or oversimplify the categories under study.
+
+User-embedding approximation. Mean-pooling is a computationally efficient and methodologically transparent method for computing user-level representations. However, it imposes a number of significant limitations. First, it assumes relative homogeneity of content. This is because if a user posts fundamentally different content, their behavior will not be accounted for. Moreover, it is highly likely to invalidate and degrade this data point. This will occur because significant differences in thematic and audiovisual characteristics will stretch the point across different semantic planes. Although in reality, the user does not fully belong to any of them. Such a scenario would essentially turn the data point into noise. Second, this strategy, just like the broader research methodology, does not fully account for the prioritization of different videos. This could be applied to a time frame or, for example, the popularity of individual videos. If some clips were valued more than others, weights could be assigned to different vectors. For example, using adaptive and statistically driven policies. In this way, the most conceptually important elements would have a greater influence on the final representation of the user.
 
 ## Expected findings
 

@@ -11,21 +11,19 @@ from modules.database import Clip
 __all__ = ("clips_summary_to_markdown",)
 
 TABLE_ROWS: tuple[tuple[str, str], ...] = (
-    ("Total clips", "total_clips"),
-    ("Clips kept", "kept_clips"),
-    ("Clips with caption text", "with_caption_text"),
-    ("Clips with caption translation", "with_caption_translation"),
-    ("Clips with speech", "with_speech"),
-    ("Clips with speech translation", "with_speech_translation"),
-    ("Clips with music", "with_music"),
-    ("Play count (median)", "play_count_median"),
-    ("Play count (mean)", "play_count_mean"),
-    ("Play count (min-max)", "play_count_minmax"),
-    ("Like count (median)", "like_count_median"),
-    ("Like count (mean)", "like_count_mean"),
-    ("Like count (min-max)", "like_count_minmax"),
-    ("Comment count (median, mean, min-max)", "comment_count_summary"),
-    ("Reshare count (median, mean, min-max)", "reshare_count_summary"),
+    (r"$N$", "total_clips"),
+    (r"$N_{\mathrm{kept}}$", "kept_clips"),
+    (r"$N_{\mathrm{caption}}$", "with_caption_text"),
+    (r"$N_{\mathrm{caption\_trans}}$", "with_caption_translation"),
+    (r"$N_{\mathrm{speech}}$", "with_speech"),
+    (r"$N_{\mathrm{speech\_trans}}$", "with_speech_translation"),
+    (r"$N_{\mathrm{music}}$", "with_music"),
+    (r"$\tilde{x}_{\mathrm{views}}$", "play_count_median"),
+    (r"$\mu_\mathrm{views}$", "play_count_mean"),
+    (r"$[\min-max]_{\mathrm{views}}$", "play_count_minmax")
+    # (r"$\tilde{x}_{\mathrm{likes}}$", "like_count_median"),
+    # (r"$\mu_\mathrm{likes}$", "like_count_mean"),
+    # (r"$[\min-max]_{\mathrm{likes}}$", "like_count_minmax")
 )
 
 
@@ -103,8 +101,6 @@ def _summary_cells(session: Session) -> dict[str, str]:
     music_counts = _count(session, Clip.has_music == 1, KEPT_CLIP_FILTER)
     play_counts = _numeric_values(session, Clip.play_count, KEPT_CLIP_FILTER)
     like_counts = _numeric_values(session, Clip.like_count, KEPT_CLIP_FILTER)
-    comment_counts = _numeric_values(session, Clip.comment_count, KEPT_CLIP_FILTER)
-    reshare_counts = _numeric_values(session, Clip.reshare_count, KEPT_CLIP_FILTER)
 
     return {
         "total_clips": f"{total_clips:,}",
@@ -118,12 +114,10 @@ def _summary_cells(session: Session) -> dict[str, str]:
         "with_music": _fmt_count_share(music_counts, kept_clips),
         "play_count_median": _fmt_median(play_counts),
         "play_count_mean": _fmt_mean(play_counts),
-        "play_count_minmax": _fmt_min_max(play_counts),
-        "like_count_median": _fmt_median(like_counts),
-        "like_count_mean": _fmt_mean(like_counts),
-        "like_count_minmax": _fmt_min_max(like_counts),
-        "comment_count_summary": _fmt_distribution(comment_counts),
-        "reshare_count_summary": _fmt_distribution(reshare_counts),
+        "play_count_minmax": _fmt_min_max(play_counts)
+        # "like_count_median": _fmt_median(like_counts),
+        # "like_count_mean": _fmt_mean(like_counts),
+        # "like_count_minmax": _fmt_min_max(like_counts),
     }
 
 
@@ -135,3 +129,8 @@ def clips_summary_to_markdown(eng) -> str:
     for label, key in TABLE_ROWS:
         lines.append(f"| {label} | {cells[key]} |")
     return "\n".join(lines)
+
+
+def get_clips_summary_cells(eng) -> dict[str, str]:
+    with Session(eng) as session:
+        return _summary_cells(session)

@@ -22,31 +22,18 @@ __all__ = ("users_summary_to_markdown",)
 
 
 TABLE_ROWS: tuple[tuple[str, str], ...] = (
-    ("Total users", "total_users"),
-    ("Users kept", "kept_users"),
-    ("Users with full name", "with_full_name"),
-    ("Users with profile picture", "with_profile_pic"),
-    ("Users with HD profile picture", "with_profile_pic_hd"),
-    ("Users with city", "with_city"),
-    ("Following count (median)", "following_count_median"),
-    ("Following count (mean)", "following_count_mean"),
-    ("Following count (min-max)", "following_count_minmax"),
-    ("Play count per user (median)", "play_count_per_user_median"),
-    ("Play count per user (mean)", "play_count_per_user_mean"),
+    (r"$N$", "total_users"),
+    (r"$N_{\mathrm{kept}}$", "kept_users"),
+    (r"$\tilde{x}_{\mathrm{following}}$", "following_count_median"),
+    (r"$\mu_\mathrm{following}$", "following_count_mean"),
+    (r"$[\min-max]_{\mathrm{following}}$", "following_count_minmax"),
+    (r"$\tilde{x}_{\mathrm{views}}$","play_count_per_user_median"),
+    (r"$\mu_\mathrm{views}$", "play_count_per_user_mean"),
 )
 
 
 def _count(session: Session, *criteria) -> int:
     return int(session.query(func.count(User.pk)).filter(*criteria).scalar() or 0)
-
-
-def _count_non_empty(session: Session, column, *criteria) -> int:
-    return int(
-        session.query(func.count(User.pk))
-        .filter(column.is_not(None), func.trim(column) != "", *criteria)
-        .scalar()
-        or 0
-    )
 
 
 def _fmt_count_share(count: int, total: int) -> str:
@@ -104,20 +91,6 @@ def _summary_cells(session: Session) -> dict[str, str]:
     return {
         "total_users": f"{total_users:,}",
         "kept_users": _fmt_count_share(kept_users, total_users),
-        "with_full_name": _fmt_count_share(
-            _count_non_empty(session, User.full_name, *kept_user_filters), kept_users
-        ),
-        "with_profile_pic": _fmt_count_share(
-            _count_non_empty(session, User.profile_pic_url, *kept_user_filters),
-            kept_users,
-        ),
-        "with_profile_pic_hd": _fmt_count_share(
-            _count_non_empty(session, User.profile_pic_url_hd, *kept_user_filters),
-            kept_users,
-        ),
-        "with_city": _fmt_count_share(
-            _count_non_empty(session, User.city_name, *kept_user_filters), kept_users
-        ),
         "following_count_median": following_distribution[0],
         "following_count_mean": following_distribution[1],
         "following_count_minmax": following_distribution[2],
@@ -136,3 +109,7 @@ def users_summary_to_markdown(eng) -> str:
         lines.append(f"| {label} | {cells[key]} |")
     return "\n".join(lines)
 
+
+def get_users_summary_cells(eng) -> dict[str, str]:
+    with Session(eng) as session:
+        return _summary_cells(session)

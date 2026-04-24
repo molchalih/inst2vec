@@ -43,6 +43,8 @@ def _get_default_engine() -> Engine:
     return create_engine(_resolve_quarto_database_url(os.environ["DATABASE_URL"]))
 
 
+# ── CLUSTERING-related ───────────────────────────────────────────────────────────
+
 def render_clustering_summary(*, eng=None) -> Markdown:
     _ensure_project_root_on_path()
 
@@ -59,6 +61,28 @@ def render_clustering_summary(*, eng=None) -> Markdown:
         )
     )
 
+def render_clustering_summary_by_case(case: str, *, eng=None) -> Markdown:
+    _ensure_project_root_on_path()
+
+    from generators.cluster_results_all import summarize_to_markdown
+
+    if eng is None:
+        eng = _get_default_engine()
+
+    return Markdown(summarize_to_markdown(eng, case))
+
+def render_best_cluster_run(*, eng=None) -> Markdown:
+    _ensure_project_root_on_path()
+
+    from generators.cluster_results_best import best_runs_all_to_markdown
+    from modules.cluster_results import DEFAULT_CASES
+
+    if eng is None:
+        eng = _get_default_engine()
+
+    return Markdown(best_runs_all_to_markdown(eng, cases=DEFAULT_CASES))
+
+# ── USER-related ─────────────────────────────────────────────────────────────────
 
 def render_users_summary(*, eng=None) -> Markdown:
     _ensure_project_root_on_path()
@@ -71,6 +95,18 @@ def render_users_summary(*, eng=None) -> Markdown:
     return Markdown(users_summary_to_markdown(eng))
 
 
+def get_users_summary_cells(*, eng=None) -> dict[str, str]:
+    _ensure_project_root_on_path()
+
+    from generators.dataset_summary_users import get_users_summary_cells
+
+    if eng is None:
+        eng = _get_default_engine()
+
+    return get_users_summary_cells(eng)
+
+# ── CLIP-related ──────────────────────────────────────────────────────────────────
+
 def render_clips_summary(*, eng=None) -> Markdown:
     _ensure_project_root_on_path()
 
@@ -82,24 +118,12 @@ def render_clips_summary(*, eng=None) -> Markdown:
     return Markdown(clips_summary_to_markdown(eng))
 
 
-def render_clustering_summary_by_case(case: str, *, eng=None) -> Markdown:
+def get_clips_summary_cells(*, eng=None) -> dict[str, str]:
     _ensure_project_root_on_path()
 
-    from generators.cluster_results_all import summarize_to_markdown
+    from generators.dataset_summary_clips import get_clips_summary_cells
 
     if eng is None:
         eng = _get_default_engine()
 
-    return Markdown(summarize_to_markdown(eng, case))
-
-
-def render_best_cluster_run(*, eng=None) -> Markdown:
-    _ensure_project_root_on_path()
-
-    from generators.cluster_results_best import best_runs_all_to_markdown
-    from modules.cluster_results import DEFAULT_CASES
-
-    if eng is None:
-        eng = _get_default_engine()
-
-    return Markdown(best_runs_all_to_markdown(eng, cases=DEFAULT_CASES))
+    return get_clips_summary_cells(eng)
