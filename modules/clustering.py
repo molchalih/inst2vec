@@ -19,6 +19,14 @@ def env_positive_int(key: str, default: str = "1") -> int:
     return max(1, n)
 
 
+DEFAULT_HDBSCAN_METRIC = "euclidean"
+
+
+def resolve_hdbscan_metric(hdbscan_metric: str | None = None) -> str:
+    """HDBSCAN runs on pass-1 UMAP coordinates; distance is always Euclidean in that space."""
+    return DEFAULT_HDBSCAN_METRIC
+
+
 @dataclass
 class ClusterResult:
     labels: np.ndarray
@@ -56,7 +64,7 @@ def compute_clusters(
     hdbscan_min_cluster_size: int = 15,
     hdbscan_min_samples: int | None = None,
     hdbscan_cluster_selection_method: str = "eom",
-    hdbscan_metric: str = "euclidean",
+    hdbscan_metric: str = DEFAULT_HDBSCAN_METRIC,
     random_state: int = 42,
     return_nd_matrix: bool = False,
     umap_n_jobs: int = 1,
@@ -90,24 +98,14 @@ def compute_clusters(
     )
     matrix_nd = reducer_nd.fit_transform(matrix)
 
-    # HDBSCAN on the reduced matrix
-    # sklearn BallTree (used by hdbscan's "best" path) does not support cosine; use generic MST path.
-    hdbscan_kw: dict = dict(
+    effective_metric = resolve_hdbscan_metric(hdbscan_metric)
+    clusterer = hdbscan.HDBSCAN(
         min_cluster_size=hdbscan_min_cluster_size,
         min_samples=hdbscan_min_samples,
         cluster_selection_method=hdbscan_cluster_selection_method,
-        metric=hdbscan_metric,
+        metric=effective_metric,
     )
-    if hdbscan_metric == "cosine":
-        hdbscan_kw["algorithm"] = "generic"
-    clusterer = hdbscan.HDBSCAN(**hdbscan_kw)
-    # generic + cosine path needs float64 (hdbscan cython linkage)
-    x_hdb = (
-        np.asarray(matrix_nd, dtype=np.float64)
-        if hdbscan_metric == "cosine"
-        else matrix_nd
-    )
-    labels = clusterer.fit_predict(x_hdb)
+    labels = clusterer.fit_predict(matrix_nd)
 
     # Pass 2 — independent 2D reduction from the original matrix (not matrix_nd)
     reducer_2d = UMAP(

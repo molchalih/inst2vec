@@ -61,8 +61,30 @@ def test_load_grid_combo_count():
     with patch.dict(os.environ, env, clear=False):
         combos = _load_grid()
     # 3 cases × 2 umap_n_components × 1 nn × 1 md × 1 umap_metric
-    # × 2 umap2d_metrics × 1 mcs × 1 selection × 1 hdbscan_metric = 12
+    # × 2 umap2d_metrics × 1 mcs × 1 selection = 12 (HDBSCAN metric fixed, not swept)
     assert len(combos) == 12
+
+
+def test_load_grid_ignores_hdbscan_metric_env_dimension():
+    from modules.cluster_search import _load_grid
+
+    env = {
+        "CLUSTERING_UMAP_N_COMPONENTS": "10 15",
+        "CLUSTERING_UMAP_N_NEIGHBORS": "10",
+        "CLUSTERING_UMAP_MIN_DIST": "0.0",
+        "CLUSTERING_UMAP_METRICS": "cosine",
+        "CLUSTERING_UMAP2D_N_NEIGHBORS": "15",
+        "CLUSTERING_UMAP2D_MIN_DIST": "0.1",
+        "CLUSTERING_UMAP2D_METRICS": "cosine euclidean",
+        "CLUSTERING_HDBSCAN_MIN_CLUSTER_SIZE": "10",
+        "CLUSTERING_HDBSCAN_SELECTION": "eom",
+        "CLUSTERING_HDBSCAN_METRICS": "euclidean cosine correlation",
+        "CLUSTERING_RANDOM_STATE": "42",
+    }
+    with patch.dict(os.environ, env, clear=False):
+        combos = _load_grid()
+    assert len(combos) == 12
+    assert {combo["hdbscan_metric"] for combo in combos} == {"euclidean"}
 
 
 def test_load_grid_combo_keys():

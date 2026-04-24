@@ -203,6 +203,66 @@ def test_phase_score_skips_already_scored_rows(monkeypatch):
         assert updated.silhouette == pytest.approx(0.88)
 
 
+def test_compute_row_scores_uses_explicit_euclidean_metrics(monkeypatch):
+    captured = {}
+
+    class DummyResult:
+        def __init__(self):
+            self.matrix_nd = np.array(
+                [[0.0, 0.0], [0.0, 1.0], [5.0, 5.0], [5.0, 6.0]],
+                dtype=np.float32,
+            )
+            self.labels = np.array([0, 0, 1, 1], dtype=int)
+
+    monkeypatch.setattr(
+        "modules.cluster_validation.compute_clusters",
+        lambda matrix, return_nd_matrix, **params: DummyResult(),
+    )
+
+    def fake_validity_index(X, labels, metric):
+        captured["dbcv_metric"] = metric
+        return 0.42
+
+    def fake_silhouette_score(X, labels, metric):
+        captured["silhouette_metric"] = metric
+        return 0.51
+
+    monkeypatch.setattr(
+        "modules.cluster_validation.hdbscan.validity.validity_index",
+        fake_validity_index,
+    )
+    monkeypatch.setattr(
+        "modules.cluster_validation.silhouette_score",
+        fake_silhouette_score,
+    )
+
+    from modules.cluster_validation import _compute_row_scores
+
+    outcome = _compute_row_scores(
+        np.zeros((4, 2), dtype=np.float32),
+        {
+            "umap_n_components": 2,
+            "umap_n_neighbors": 2,
+            "umap_min_dist": 0.0,
+            "umap_metric": "cosine",
+            "umap2d_n_neighbors": 2,
+            "umap2d_min_dist": 0.1,
+            "umap2d_metric": "cosine",
+            "hdbscan_min_cluster_size": 2,
+            "hdbscan_min_samples": None,
+            "hdbscan_cluster_selection_method": "eom",
+            "hdbscan_metric": "cosine",
+            "random_state": 42,
+        },
+    )
+
+    assert outcome == (0.42, 0.51)
+    assert captured == {
+        "dbcv_metric": "euclidean",
+        "silhouette_metric": "euclidean",
+    }
+
+
 # --- Plateau neighbor logic ---
 
 def test_find_param_neighbors_one_step_difference():
