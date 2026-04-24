@@ -127,3 +127,11 @@ def get_clips_summary_cells(*, eng=None) -> dict[str, str]:
         eng = _get_default_engine()
 
     return get_clips_summary_cells(eng)
+
+
+def render_spotify_feature_metrics() -> Markdown:
+    _ensure_project_root_on_path()
+
+    from generators.spotify_feature_metrics import spotify_feature_metrics_to_markdown
+
+    return Markdown(spotify_feature_metrics_to_markdown())
