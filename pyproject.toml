@@ -3,7 +3,7 @@ name = "inst2vec"
 version = "0.1.0"
 description = "A research-oriented codebase related to parse, embed and interpret Instagram accounts."
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.12"
 dependencies = [
     "hdbscan>=0.8.42",
     "hikerapi>=1.7.9",
@@ -20,11 +20,8 @@ dependencies = [
     "torch>=2.11.0",
     "transformers>=5.8.0",
     "umap-learn>=0.5.12",
+    "setuptools",
 ]
-
-[tool.uv.extra-build-dependencies]
-openai-whisper = ["setuptools"]
-hdbscan = ["setuptools", "cython"]
 
 [dependency-groups]
 dev = [
@@ -36,4 +33,13 @@ dev = [
 gpu = [
     "ninja>=1.13.0",
     "flash-attn>=2.8.3",
+    "cython",
 ]
+
+[tool.uv]
+no-build-isolation-package = ["flash-attn"]
+
+[tool.uv.extra-build-dependencies]
+openai-whisper = ["setuptools"]
+hdbscan = ["setuptools", "cython"]
+flash-attn = ["torch", "ninja"]
