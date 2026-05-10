@@ -44,14 +44,19 @@ CLAUDE.md
 AGENTS.md
 TODO.md
 
-# Docs (working notes, not published)
-docs/.quarto
-docs/index_files
-docs/refs
-docs/superpowers
-docs/index.html
-docs/index.pdf
+# Docs — ignore all of docs/ except explicit whitelist (add lines like !docs/your_file)
+docs/*
+!docs/.gitignore
+!docs/_quarto.yml
+!docs/chicago-author-date.csl
+!docs/index.qmd
+!docs/quarto_helpers.py
+!docs/references.bib
+!docs/assets/
+
 notes/PHASE4_STAGE_NOTES.md
+
+
 
 /.quarto/
 **/*.quarto_ipynb*
