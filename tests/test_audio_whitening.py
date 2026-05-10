@@ -1,4 +1,5 @@
-import sys, os
+import sys
+import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import csv
@@ -16,7 +17,8 @@ pytest.skip("temporarily broken", allow_module_level=True)
 
 @functools.lru_cache(maxsize=1)
 def _import():
-    import importlib.util, pathlib
+    import importlib.util
+    import pathlib
     spec = importlib.util.spec_from_file_location(
         "explore_audio_whitening",
         pathlib.Path(__file__).parent.parent / "scripts" / "explore_audio_whitening.py",

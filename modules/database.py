@@ -1,8 +1,7 @@
-import csv
 import os
 
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, Column, BigInteger, Integer, Float, String, Boolean, ForeignKey, Text, LargeBinary, UniqueConstraint, DateTime, inspect, text
+from sqlalchemy import create_engine, Column, BigInteger, Integer, Float, String, Boolean, ForeignKey, Text, LargeBinary, UniqueConstraint, DateTime
 from sqlalchemy.orm import declarative_base, relationship, Session
 from sqlalchemy.sql import func
 

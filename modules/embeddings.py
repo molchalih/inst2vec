@@ -416,7 +416,7 @@ def embed_audio_clips():
                 try:
                     embeddings = model.process([{"text": text, "instruction": AUDIO_INSTRUCTION}])
                     embedding = embeddings[0]
-                except Exception as e:
+                except Exception:
                     advance(detail=f"✗ {clip.pk}")
                     continue
 
