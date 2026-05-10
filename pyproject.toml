@@ -22,6 +22,9 @@ dependencies = [
     "umap-learn>=0.5.12",
 ]
 
+[tool.uv.extra-build-dependencies]
+openai-whisper = ["setuptools"]
+
 [dependency-groups]
 gpu = [
     "ninja>=1.13.0",
