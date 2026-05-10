@@ -27,6 +27,12 @@ openai-whisper = ["setuptools"]
 hdbscan = ["setuptools", "cython"]
 
 [dependency-groups]
+dev = [
+    "autoflake>=2.3.3",
+    "pyright>=1.1.409",
+    "ruff>=0.15.12",
+    "vulture>=2.16",
+]
 gpu = [
     "ninja>=1.13.0",
     "flash-attn>=2.8.3",
