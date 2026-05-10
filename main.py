@@ -12,7 +12,6 @@ from modules.cluster_search import run_cluster_search
 from modules.cluster_validation import validate_clustering
 from modules.clustering import cluster_users
 from modules.visualization import plot_clusters
-from modules.utils import load_usernames_from_csv
 
 
 startup()

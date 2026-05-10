@@ -5,7 +5,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from generators.cluster_case_plots import _plot_case, cluster_plot_figure_for_case
+from generators.cluster_case_plots import cluster_plot_figure_for_case
 from modules.database import get_session, UserCluster
 from modules.console import log
 
