@@ -24,6 +24,7 @@ dependencies = [
 
 [tool.uv.extra-build-dependencies]
 openai-whisper = ["setuptools"]
+hdbscan = ["setuptools", "cython"]
 
 [dependency-groups]
 gpu = [
