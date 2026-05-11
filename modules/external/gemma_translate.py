@@ -1,5 +1,4 @@
 """Shared TranslateGemma pipeline wrapper for text translation."""
-
 from __future__ import annotations
 
 import os
@@ -7,9 +6,8 @@ import os
 import torch
 from transformers import pipeline
 
-DEFAULT_MODEL_ID = os.environ.get(
-    "GEMMA_TRANSLATE_MODEL", "google/translategemma-4b-it"
-)
+
+DEFAULT_MODEL_ID = os.environ.get("GEMMA_TRANSLATE_MODEL", "google/translategemma-4b-it")
 DEFAULT_MAX_NEW_TOKENS = int(os.environ.get("GEMMA_TRANSLATE_MAX_NEW_TOKENS", 200))
 
 
@@ -18,7 +16,7 @@ class GemmaTranslator:
 
     def __init__(self, model_id: str = DEFAULT_MODEL_ID) -> None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
-        dtype = torch.bfloat16 if device == "cuda" else torch.float32  # type: ignore[attr-defined]
+        dtype = torch.bfloat16 if device == "cuda" else torch.float32
 
         self.model_id = model_id
         self.pipe = pipeline(
@@ -31,14 +29,12 @@ class GemmaTranslator:
         # Keep generation config compatible with explicit max_new_tokens usage.
         if getattr(self.pipe.model, "generation_config", None) is not None:
             self.pipe.model.generation_config.max_length = None
-            self.pipe.model.generation_config.pad_token_id = (
-                self.pipe.tokenizer.eos_token_id  # type: ignore[attr-defined]
-            )
+            self.pipe.model.generation_config.pad_token_id = self.pipe.tokenizer.eos_token_id
         if getattr(self.pipe, "generation_config", None) is not None:
             self.pipe.generation_config.max_length = None
-            self.pipe.generation_config.pad_token_id = self.pipe.tokenizer.eos_token_id  # type: ignore[attr-defined]
+            self.pipe.generation_config.pad_token_id = self.pipe.tokenizer.eos_token_id
 
-        self.pad_token_id = self.pipe.tokenizer.eos_token_id  # type: ignore[attr-defined]
+        self.pad_token_id = self.pipe.tokenizer.eos_token_id
         self.device = device
 
     def translate_text(
@@ -64,7 +60,7 @@ class GemmaTranslator:
         ]
 
         output = self.pipe(
-            text=messages,  # type: ignore[arg-type]
+            text=messages,
             generate_kwargs={
                 "max_new_tokens": max_new_tokens,
                 "do_sample": False,
