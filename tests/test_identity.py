@@ -164,3 +164,49 @@ def test_load_usernames_from_csv_creates_user_with_sequential_id(tmp_path, monke
     with get_identity_session() as s:
         usernames = {ui.username for ui in s.query(UserIdentity).all()}
         assert usernames == {"alice", "bob"}
+
+
+def test_download_uses_entity_id_and_fetches_pic_url_from_identity_db(tmp_path, monkeypatch):
+    """_try_download must use entity_id (not entity_pk); profile_pic_url from identity DB."""
+    import os
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+    from modules.database import Base, Download, User
+    import modules.identity as identity_mod
+
+    main_eng = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(main_eng)
+
+    # The autouse fixture already replaced _engine with in-memory; add a UserIdentity
+    from modules.identity import UserIdentity, get_identity_session
+    with get_identity_session() as s:
+        s.add(UserIdentity(id=1, username="downloader",
+                           profile_pic_url="https://example.com/pic.jpg"))
+        s.commit()
+
+    with Session(main_eng) as s:
+        s.add(User(id=1, user_disqualified=0))
+        s.commit()
+
+    monkeypatch.setattr("modules.download.get_session", lambda: Session(main_eng))
+
+    import modules.download as dl_mod
+    monkeypatch.setattr(dl_mod, "DIRS", {
+        "profile_pic": str(tmp_path / "profile_pics"),
+        "thumbnail": str(tmp_path / "thumbnails"),
+        "video": str(tmp_path / "videos"),
+    })
+    for d in dl_mod.DIRS.values():
+        os.makedirs(d, exist_ok=True)
+
+    # Stub _download to succeed without actually fetching HTTP
+    monkeypatch.setattr(dl_mod, "_download", lambda url, path: True)
+    monkeypatch.setenv("BATCH_SIZE", "10")
+    monkeypatch.setenv("MAX_CLIPS", "0")
+
+    dl_mod.download_files()
+
+    with Session(main_eng) as s:
+        row = s.query(Download).filter_by(entity_id=1, file_type="profile_pic").first()
+        assert row is not None, "Download row not created — likely entity_pk/entity_id bug"
+        assert row.success is True
