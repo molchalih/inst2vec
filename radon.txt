@@ -1,5 +1,3 @@
-uv run radon cc -s -a . --exclude ".venv/*,modules/external/*,tests/*" -n C > radon.txt
-
 scripts/analyze_finalization_impact.py
     F 116:0 main - F (41)
     F 89:0 _creator_relative_low_outliers - C (13)
