@@ -19,13 +19,13 @@ def _make_engine():
 def _add_clip(
     session: Session,
     *,
-    user_pk: int,
-    pk: int,
+    user_id: int,
+    id: int,
     play_count: int | None,
     disqualified: int | None,
 ):
     session.add(
-        Clip(user_id=user_pk, id=pk, play_count=play_count, disqualified=disqualified)
+        Clip(user_id=user_id, id=id, play_count=play_count, disqualified=disqualified)
     )
 
 
@@ -67,13 +67,13 @@ def test_users_summary_to_markdown_renders_curated_metrics():
                 ),
             ]
         )
-        _add_clip(s, user_pk=1, pk=100, play_count=10, disqualified=0)
-        _add_clip(s, user_pk=1, pk=101, play_count=20, disqualified=0)
-        _add_clip(s, user_pk=1, pk=102, play_count=None, disqualified=0)
-        _add_clip(s, user_pk=2, pk=200, play_count=40, disqualified=0)
-        _add_clip(s, user_pk=3, pk=300, play_count=None, disqualified=1)
-        _add_clip(s, user_pk=4, pk=400, play_count=30, disqualified=0)
-        _add_clip(s, user_pk=3, pk=401, play_count=21, disqualified=0)
+        _add_clip(s, user_id=1, id=100, play_count=10, disqualified=0)
+        _add_clip(s, user_id=1, id=101, play_count=20, disqualified=0)
+        _add_clip(s, user_id=1, id=102, play_count=None, disqualified=0)
+        _add_clip(s, user_id=2, id=200, play_count=40, disqualified=0)
+        _add_clip(s, user_id=3, id=300, play_count=None, disqualified=1)
+        _add_clip(s, user_id=4, id=400, play_count=30, disqualified=0)
+        _add_clip(s, user_id=3, id=401, play_count=21, disqualified=0)
         s.commit()
 
     from generators.dataset_summary_users import users_summary_to_markdown
@@ -122,9 +122,9 @@ def test_users_summary_to_markdown_scopes_users_to_kept_rows():
                 ),
             ]
         )
-        _add_clip(s, user_pk=1, pk=100, play_count=200, disqualified=0)
-        _add_clip(s, user_pk=1, pk=101, play_count=100, disqualified=1)
-        _add_clip(s, user_pk=3, pk=300, play_count=50, disqualified=0)
+        _add_clip(s, user_id=1, id=100, play_count=200, disqualified=0)
+        _add_clip(s, user_id=1, id=101, play_count=100, disqualified=1)
+        _add_clip(s, user_id=3, id=300, play_count=50, disqualified=0)
         s.commit()
 
     from generators.dataset_summary_users import users_summary_to_markdown

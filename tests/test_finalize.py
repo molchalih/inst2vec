@@ -15,16 +15,16 @@ def _make_engine():
     return eng
 
 
-def _make_user(session, pk: int, clips_play_counts: list[int]) -> User:
+def _make_user(session, id: int, clips_play_counts: list[int]) -> User:
     user = User(
-        id=pk, username=f"user{pk}", full_name=f"User {pk}", parse_status="success"
+        id=id, username=f"user{id}", full_name=f"User {id}", parse_status="success"
     )
     session.add(user)
     session.flush()
     for i, plays in enumerate(clips_play_counts):
         clip = Clip(
-            id=pk * 1000 + i,
-            user_id=pk,
+            id=id * 1000 + i,
+            user_id=id,
             play_count=plays,
         )
         session.add(clip)
@@ -37,10 +37,10 @@ def test_pass_a_pre_gates_users_with_too_few_raw_clips(monkeypatch):
     eng = _make_engine()
     with Session(eng) as s:
         _make_user(
-            s, pk=1, clips_play_counts=[100000]
+            s, id=1, clips_play_counts=[100000]
         )  # 1 clip — below default TARGET=4
         _make_user(
-            s, pk=2, clips_play_counts=[100000] * 5
+            s, id=2, clips_play_counts=[100000] * 5
         )  # 5 clips — survives pre-gate
 
     monkeypatch.setattr("modules.finalize.get_session", lambda: Session(eng))
@@ -77,8 +77,8 @@ def test_pass_a_pre_gated_users_excluded_from_percentile_floor(monkeypatch):
     """
     eng = _make_engine()
     with Session(eng) as s:
-        _make_user(s, pk=1, clips_play_counts=[1])  # 1 clip, pre-gated out
-        _make_user(s, pk=2, clips_play_counts=[100000] * 5)  # 5 clips, survives
+        _make_user(s, id=1, clips_play_counts=[1])  # 1 clip, pre-gated out
+        _make_user(s, id=2, clips_play_counts=[100000] * 5)  # 5 clips, survives
 
     monkeypatch.setattr("modules.finalize.get_session", lambda: Session(eng))
     monkeypatch.setenv("FINALIZE_TARGET_CLIPS_PER_USER", "4")
@@ -117,7 +117,7 @@ def test_pass_a_re_gates_after_stat_disq(monkeypatch):
     with Session(eng) as s:
         # 5 clips total — passes pre-gate (5 >= 4)
         # 4 clips have very low plays → stat disq removes them → 1 remains → re-gate fires
-        _make_user(s, pk=1, clips_play_counts=[1, 1, 1, 1, 1000000])
+        _make_user(s, id=1, clips_play_counts=[1, 1, 1, 1, 1000000])
 
     monkeypatch.setattr("modules.finalize.get_session", lambda: Session(eng))
     monkeypatch.setenv("FINALIZE_TARGET_CLIPS_PER_USER", "4")
@@ -149,7 +149,7 @@ def test_pass_b_does_not_pre_gate(monkeypatch):
     eng = _make_engine()
     with Session(eng) as s:
         # User with only 1 clip — would be pre-gated in Pass A, but not in Pass B
-        u = _make_user(s, pk=1, clips_play_counts=[100000])
+        u = _make_user(s, id=1, clips_play_counts=[100000])
         # Pre-set clip as eligible (disqualified=0) so Pass B considers it
         s.query(Clip).filter(Clip.user_id == 1).update({"disqualified": 0})
         s.commit()
