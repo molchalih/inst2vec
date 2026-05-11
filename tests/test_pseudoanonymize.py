@@ -1,15 +1,27 @@
-import os, sys
+import os
+import sys
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-import sqlite3
-import pytest
 import hashlib
-import shutil
-from sqlalchemy import create_engine, inspect
+import sqlite3
+
+from sqlalchemy import inspect
 from sqlalchemy.orm import Session
 
-from scripts.pseudoanonymize import init_identity_db, IdentityBase, UserIdentity, ClipIdentity, _assign_ids, _write_identity_map, pseudoanonymize
-from modules.database import User, Clip, Download, ClipEmbedding, UserEmbedding, UserCluster
+from modules.database import (
+    Clip,
+    Download,
+    User,
+)
+from scripts.pseudoanonymize import (
+    ClipIdentity,
+    UserIdentity,
+    _assign_ids,
+    _write_identity_map,
+    init_identity_db,
+    pseudoanonymize,
+)
 
 
 def test_init_identity_db_creates_tables(tmp_path):
@@ -23,8 +35,15 @@ def test_init_identity_db_creates_tables(tmp_path):
 def test_user_identity_columns(tmp_path):
     engine = init_identity_db(str(tmp_path / "identity_map.db"))
     cols = {c["name"] for c in inspect(engine).get_columns("user_identities")}
-    assert cols == {"id", "api_pk", "username", "full_name", "city_name",
-                    "profile_pic_url", "profile_pic_url_hd"}
+    assert cols == {
+        "id",
+        "api_pk",
+        "username",
+        "full_name",
+        "city_name",
+        "profile_pic_url",
+        "profile_pic_url_hd",
+    }
 
 
 def test_clip_identity_columns(tmp_path):
@@ -196,7 +215,10 @@ def test_migrate_updates_fk_references(tmp_path):
     assert ce_ids == {1}
     uc_ids = {row[0] for row in con.execute("SELECT user_id FROM user_clusters")}
     assert uc_ids == {1}
-    dl_rows = {(row[0], row[1]) for row in con.execute("SELECT entity_id, file_type FROM downloads")}
+    dl_rows = {
+        (row[0], row[1])
+        for row in con.execute("SELECT entity_id, file_type FROM downloads")
+    }
     assert (1, "profile_pic") in dl_rows
     assert (1, "thumbnail") in dl_rows
     assert (1, "video") in dl_rows
@@ -209,7 +231,9 @@ def test_migrate_nulls_pii_in_main_db(tmp_path):
     _seed_full_db(db)
     pseudoanonymize(main_db=db, identity_db=idb, data_dir=str(tmp_path))
     con = sqlite3.connect(db)
-    rows = con.execute("SELECT username, full_name, city_name, profile_pic_url, profile_pic_url_hd FROM users").fetchall()
+    rows = con.execute(
+        "SELECT username, full_name, city_name, profile_pic_url, profile_pic_url_hd FROM users"
+    ).fetchall()
     for row in rows:
         assert all(v is None for v in row)
     con.close()
@@ -223,10 +247,10 @@ def test_migrate_renames_columns(tmp_path):
     con = sqlite3.connect(db)
     user_cols = {r[1] for r in con.execute("PRAGMA table_info(users)")}
     clip_cols = {r[1] for r in con.execute("PRAGMA table_info(clips)")}
-    dl_cols   = {r[1] for r in con.execute("PRAGMA table_info(downloads)")}
-    ce_cols   = {r[1] for r in con.execute("PRAGMA table_info(clip_embeddings)")}
-    ue_cols   = {r[1] for r in con.execute("PRAGMA table_info(user_embeddings)")}
-    uc_cols   = {r[1] for r in con.execute("PRAGMA table_info(user_clusters)")}
+    dl_cols = {r[1] for r in con.execute("PRAGMA table_info(downloads)")}
+    ce_cols = {r[1] for r in con.execute("PRAGMA table_info(clip_embeddings)")}
+    ue_cols = {r[1] for r in con.execute("PRAGMA table_info(user_embeddings)")}
+    uc_cols = {r[1] for r in con.execute("PRAGMA table_info(user_clusters)")}
     assert "id" in user_cols and "pk" not in user_cols
     assert "id" in clip_cols and "user_id" in clip_cols
     assert "pk" not in clip_cols and "user_pk" not in clip_cols
@@ -251,8 +275,8 @@ def test_migrate_renames_disk_files(tmp_path):
     _seed_full_db(db)
     for subdir, ext, name in [
         ("profile_pics", "jpg", "111"),
-        ("thumbnails",   "jpg", "901"),
-        ("videos",       "mp4", "901"),
+        ("thumbnails", "jpg", "901"),
+        ("videos", "mp4", "901"),
     ]:
         d = tmp_path / "source" / subdir
         d.mkdir(parents=True, exist_ok=True)
@@ -273,7 +297,8 @@ def test_migrate_updates_dataset_hash(tmp_path):
     pseudoanonymize(main_db=db, identity_db=idb, data_dir=str(tmp_path))
     con = sqlite3.connect(db)
     new_user_ids = sorted(
-        row[0] for row in con.execute(
+        row[0]
+        for row in con.execute(
             "SELECT user_id FROM user_embeddings WHERE embedding_case='video'"
         )
     )

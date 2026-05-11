@@ -23,7 +23,9 @@ import hashlib
 import os
 import shutil
 import sqlite3
-from sqlalchemy import BigInteger, Engine, Integer, String, create_engine
+
+from sqlalchemy import BigInteger, Integer, String, create_engine
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
 
@@ -69,14 +71,14 @@ def _assign_ids(main_db: str) -> tuple[dict[int, int], dict[int, int]]:
 
     # Sort clips by (user's new id, clip pk) for stable ordering
     clips = con.execute("SELECT pk, user_pk FROM clips ORDER BY user_pk, pk").fetchall()
-    
+
     # Validate FK integrity: all clips must reference a valid user
     orphaned = [r[0] for r in clips if r[1] not in user_map]
     if orphaned:
         raise ValueError(
             f"_assign_ids: {len(orphaned)} clip(s) reference unknown user_pk: {orphaned[:5]}"
         )
-    
+
     sorted_clips = sorted(clips, key=lambda r: (user_map[r[1]], r[0]))
     clip_map = {row[0]: i + 1 for i, row in enumerate(sorted_clips)}
     con.close()
@@ -116,71 +118,73 @@ def _write_identity_map(
         session.commit()
 
 
-def _migrate_main_db(main_db: str, user_map: dict[int, int], clip_map: dict[int, int]) -> None:
+def _migrate_main_db(
+    main_db: str, user_map: dict[int, int], clip_map: dict[int, int]
+) -> None:
     """Migrate main DB values: update PKs and FKs, null PII, rename columns."""
     con = sqlite3.connect(main_db)
     con.execute("PRAGMA foreign_keys = OFF")
-    
+
     # Create temp mapping tables
     con.execute("CREATE TEMP TABLE _user_map (old_pk INTEGER, new_id INTEGER)")
     con.execute("CREATE TEMP TABLE _clip_map (old_pk INTEGER, new_id INTEGER)")
-    
+
     # Populate temp tables
     con.executemany("INSERT INTO _user_map VALUES (?, ?)", user_map.items())
     con.executemany("INSERT INTO _clip_map VALUES (?, ?)", clip_map.items())
-    
+
     # Update FK columns BEFORE PK columns (using old PKs for matching)
     con.execute("""
         UPDATE clips SET user_pk = (
             SELECT new_id FROM _user_map WHERE old_pk = clips.user_pk
         )
     """)
-    
+
     con.execute("""
         UPDATE user_embeddings SET user_pk = (
             SELECT new_id FROM _user_map WHERE old_pk = user_embeddings.user_pk
         )
     """)
-    
+
     con.execute("""
         UPDATE user_clusters SET user_pk = (
             SELECT new_id FROM _user_map WHERE old_pk = user_clusters.user_pk
         )
     """)
-    
+
     con.execute("""
         UPDATE clip_embeddings SET clip_pk = (
             SELECT new_id FROM _clip_map WHERE old_pk = clip_embeddings.clip_pk
         )
     """)
-    
+
     con.execute("""
         UPDATE downloads SET entity_pk = (
             SELECT new_id FROM _user_map WHERE old_pk = downloads.entity_pk
         )
         WHERE file_type = 'profile_pic'
     """)
-    
+
     con.execute("""
         UPDATE downloads SET entity_pk = (
             SELECT new_id FROM _clip_map WHERE old_pk = downloads.entity_pk
         )
         WHERE file_type IN ('thumbnail', 'video')
     """)
-    
+
     # Update PK columns AFTER FKs
     con.execute("""
         UPDATE clips SET pk = (
             SELECT new_id FROM _clip_map WHERE old_pk = clips.pk
         )
     """)
-    
+
     con.execute("""
         UPDATE users SET pk = (
             SELECT new_id FROM _user_map WHERE old_pk = users.pk
         )
     """)
-    
+
     # NULL out PII fields using table recreation
     # Get all non-PII columns and copy data to new table
     con.execute("""
@@ -189,10 +193,10 @@ def _migrate_main_db(main_db: str, user_map: dict[int, int], clip_map: dict[int,
                user_disqualified, parse_status, NULL as profile_pic_url, NULL as profile_pic_url_hd
         FROM users
     """)
-    
+
     con.execute("DROP TABLE users")
     con.execute("ALTER TABLE users_new RENAME TO users")
-    
+
     # Re-enable FK enforcement
     con.execute("PRAGMA foreign_keys = ON")
     con.commit()
@@ -202,7 +206,7 @@ def _migrate_main_db(main_db: str, user_map: dict[int, int], clip_map: dict[int,
 def _rename_columns(main_db: str) -> None:
     """Rename pk/user_pk/clip_pk/entity_pk columns to id/user_id/clip_id/entity_id."""
     con = sqlite3.connect(main_db)
-    
+
     # Execute ALTER TABLE RENAME COLUMN statements in order
     con.execute("ALTER TABLE users RENAME COLUMN pk TO id")
     con.execute("ALTER TABLE clips RENAME COLUMN pk TO id")
@@ -211,12 +215,14 @@ def _rename_columns(main_db: str) -> None:
     con.execute("ALTER TABLE clip_embeddings RENAME COLUMN clip_pk TO clip_id")
     con.execute("ALTER TABLE user_embeddings RENAME COLUMN user_pk TO user_id")
     con.execute("ALTER TABLE user_clusters RENAME COLUMN user_pk TO user_id")
-    
+
     con.commit()
     con.close()
 
 
-def _rename_files(data_dir: str, user_map: dict[int, int], clip_map: dict[int, int]) -> None:
+def _rename_files(
+    data_dir: str, user_map: dict[int, int], clip_map: dict[int, int]
+) -> None:
     """Rename on-disk files from old PKs to new sequential IDs."""
     # Map (directory, extension, id_map) tuples
     renames = [
@@ -224,18 +230,18 @@ def _rename_files(data_dir: str, user_map: dict[int, int], clip_map: dict[int, i
         ("source/thumbnails", "jpg", clip_map),
         ("source/videos", "mp4", clip_map),
     ]
-    
+
     for subdir, ext, id_map in renames:
         dir_path = os.path.join(data_dir, subdir)
-        
+
         # Skip if directory doesn't exist
         if not os.path.isdir(dir_path):
             continue
-        
+
         for old_pk, new_id in id_map.items():
             old_file = os.path.join(dir_path, f"{old_pk}.{ext}")
             new_file = os.path.join(dir_path, f"{new_id}.{ext}")
-            
+
             # Only rename if old file exists and new file doesn't
             if os.path.exists(old_file) and not os.path.exists(new_file):
                 os.rename(old_file, new_file)
@@ -244,33 +250,36 @@ def _rename_files(data_dir: str, user_map: dict[int, int], clip_map: dict[int, i
 def _update_dataset_hash(main_db: str) -> None:
     """Recompute cluster_runs.dataset_hash based on new user IDs."""
     con = sqlite3.connect(main_db)
-    
+
     # Get distinct embedding_case values
-    embedding_cases = con.execute("SELECT DISTINCT embedding_case FROM cluster_runs").fetchall()
-    
+    embedding_cases = con.execute(
+        "SELECT DISTINCT embedding_case FROM cluster_runs"
+    ).fetchall()
+
     for (embedding_case,) in embedding_cases:
         # Query user_id from user_embeddings for this embedding_case
         user_ids = sorted(
-            row[0] for row in con.execute(
+            row[0]
+            for row in con.execute(
                 "SELECT user_id FROM user_embeddings WHERE embedding_case = ?",
-                (embedding_case,)
+                (embedding_case,),
             )
         )
-        
+
         # Skip if no user embeddings
         if not user_ids:
             continue
-        
+
         # Compute hash
         hash_str = ",".join(str(x) for x in user_ids)
         dataset_hash = hashlib.sha256(hash_str.encode()).hexdigest()
-        
+
         # Update cluster_runs
         con.execute(
             "UPDATE cluster_runs SET dataset_hash = ? WHERE embedding_case = ?",
-            (dataset_hash, embedding_case)
+            (dataset_hash, embedding_case),
         )
-    
+
     con.commit()
     con.close()
 
@@ -289,30 +298,30 @@ def pseudoanonymize(
                 f"{main_db!r} appears already migrated (users.id exists, users.pk absent). "
                 "Delete identity_map.db and restore the .bak file to re-run."
             )
-    
+
     print(f"[pseudoanonymize] backing up {main_db} → {main_db}.bak")
     shutil.copy2(main_db, main_db + ".bak")
-    
+
     print("[pseudoanonymize] assigning sequential IDs …")
     user_map, clip_map = _assign_ids(main_db)
     print(f"  {len(user_map)} users, {len(clip_map)} clips")
-    
+
     print(f"[pseudoanonymize] writing identity map → {identity_db}")
     identity_engine = init_identity_db(identity_db)
     _write_identity_map(main_db, identity_engine, user_map, clip_map)
-    
+
     print("[pseudoanonymize] migrating main DB values …")
     _migrate_main_db(main_db, user_map, clip_map)
-    
+
     print("[pseudoanonymize] renaming SQL columns …")
     _rename_columns(main_db)
-    
+
     print("[pseudoanonymize] renaming on-disk files …")
     _rename_files(data_dir, user_map, clip_map)
-    
+
     print("[pseudoanonymize] recomputing cluster_runs.dataset_hash …")
     _update_dataset_hash(main_db)
-    
+
     print("[pseudoanonymize] done.")
 
 
