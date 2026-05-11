@@ -34,7 +34,7 @@ TABLE_ROWS: tuple[tuple[str, str], ...] = (
 
 
 def _count(session: Session, *criteria) -> int:
-    return int(session.query(func.count(User.pk)).filter(*criteria).scalar() or 0)
+    return int(session.query(func.count(User.id)).filter(*criteria).scalar() or 0)
 
 
 def _fmt_count_share(count: int, total: int) -> str:
@@ -60,14 +60,14 @@ def _kept_play_count_distribution(session: Session) -> list[float]:
         return []
 
     rows = (
-        session.query(Clip.user_pk, func.avg(Clip.play_count).label("avg_play_count"))
-        .join(User, Clip.user_pk == User.pk)
+        session.query(Clip.user_id, func.avg(Clip.play_count).label("avg_play_count"))
+        .join(User, Clip.user_id == User.id)
         .filter(
             User.user_disqualified == 0,
             Clip.disqualified == 0,
             Clip.play_count.is_not(None),
         )
-        .group_by(Clip.user_pk)
+        .group_by(Clip.user_id)
         .all()
     )
     return [

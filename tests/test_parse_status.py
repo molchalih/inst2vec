@@ -34,21 +34,21 @@ def test_backfill_success_failed_pending_and_precedence():
     eng = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(eng)
     with Session(eng) as s:
-        s.add(User(pk=1, username="a", full_name="Parsed", parse_status=None))
-        s.add(User(pk=2, username="b", parse_status=None))
+        s.add(User(id=1, username="a", full_name="Parsed", parse_status=None))
+        s.add(User(id=2, username="b", parse_status=None))
         s.add(
             Download(
-                entity_pk=2,
+                entity_id=2,
                 file_type="profile_pic",
                 success=False,
                 parse_available=False,
             )
         )
-        s.add(User(pk=3, username="c", parse_status=None))
-        s.add(User(pk=4, username="d", full_name="Both", parse_status=None))
+        s.add(User(id=3, username="c", parse_status=None))
+        s.add(User(id=4, username="d", full_name="Both", parse_status=None))
         s.add(
             Download(
-                entity_pk=4,
+                entity_id=4,
                 file_type="profile_pic",
                 success=False,
                 parse_available=False,
@@ -77,7 +77,7 @@ def test_fetch_profiles_retries_then_succeeds_fourth(monkeypatch):
     eng = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(eng)
     with Session(eng) as s:
-        s.add(User(pk=100, username="retry_user", parse_status="pending"))
+        s.add(User(id=100, username="retry_user", parse_status="pending"))
         s.commit()
 
     class FakeClient:
@@ -114,14 +114,14 @@ def test_fetch_profiles_retries_then_succeeds_fourth(monkeypatch):
     with Session(eng) as s:
         u = s.query(User).filter_by(username="retry_user").one()
         assert u.parse_status == "success"
-        assert u.pk == 200
+        assert u.id == 200
 
 
 def test_fetch_profiles_all_attempts_fail(monkeypatch):
     eng = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(eng)
     with Session(eng) as s:
-        s.add(User(pk=101, username="fail_user", parse_status="pending"))
+        s.add(User(id=101, username="fail_user", parse_status="pending"))
         s.commit()
 
     class FakeClient:
@@ -148,14 +148,14 @@ def test_finalize_unresolved_for_non_success_parse_status(monkeypatch):
     eng = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(eng)
     with Session(eng) as s:
-        s.add(User(pk=1, username="u1", parse_status="pending"))
-        s.add(User(pk=2, username="u2", parse_status="failed"))
-        s.add(User(pk=3, username="u3", full_name="Ok", parse_status="success"))
+        s.add(User(id=1, username="u1", parse_status="pending"))
+        s.add(User(id=2, username="u2", parse_status="failed"))
+        s.add(User(id=3, username="u3", full_name="Ok", parse_status="success"))
         for i in range(4):
             s.add(
                 Clip(
-                    pk=3000 + i,
-                    user_pk=3,
+                    id=3000 + i,
+                    user_id=3,
                     play_count=100000,
                     disqualified=0,
                 )

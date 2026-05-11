@@ -83,13 +83,13 @@ def download_files():
         os.makedirs(d, exist_ok=True)
 
     session = get_session()
-    done_pks = session.query(Download.entity_pk).filter(
+    done_ids = session.query(Download.entity_id).filter(
         Download.file_type == "profile_pic"
     )
     users = (
         session.query(User)
         .filter(
-            ~User.pk.in_(done_pks),
+            ~User.id.in_(done_ids),
             (User.user_disqualified.is_(None)) | (User.user_disqualified == 0),
         )
         .limit(BATCH_SIZE)
@@ -103,13 +103,13 @@ def download_files():
     log(SCOPE, f"{len(users)} users to download")
     with progress(len(users), "Downloading") as advance:
         for user in users:
-            _try_download(session, user.pk, "profile_pic", user.profile_pic_url)
+            _try_download(session, user.id, "profile_pic", user.profile_pic_url)
             for clip in user.clips[: MAX_CLIPS or None]:
                 if clip.disqualified == 1:
                     continue
-                _try_download(session, clip.pk, "thumbnail", clip.thumbnail_url)
-                _try_download(session, clip.pk, "video", clip.video_url)
+                _try_download(session, clip.id, "thumbnail", clip.thumbnail_url)
+                _try_download(session, clip.id, "video", clip.video_url)
             session.commit()
-            advance(detail=user.username)
+            advance(detail=str(user.id))
 
     session.close()

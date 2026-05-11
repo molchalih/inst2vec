@@ -103,7 +103,7 @@ def clean_speech() -> None:
             Clip.speech_translation.is_not(None),
             or_(*filter_conditions),
         )
-        .order_by(Clip.pk)
+        .order_by(Clip.id)
         .all()
     )
     if not clips:
@@ -114,7 +114,7 @@ def clean_speech() -> None:
         clip.has_speech = 0
         log(
             SCOPE_CLEAN,
-            f'{clip.pk}: marked has_speech=0 (translation: "{(clip.speech_translation or "")[:60]}")',
+            f'{clip.id}: marked has_speech=0 (translation: "{(clip.speech_translation or "")[:60]}")',
         )
 
     session.commit()
@@ -134,7 +134,7 @@ def classify_speech() -> None:
             Clip.has_speech.is_(None),
             or_(Clip.disqualified.is_(None), Clip.disqualified == 0),
         )
-        .order_by(Clip.pk.desc())
+        .order_by(Clip.id.desc())
         .all()
     )
     if not clips:
@@ -147,7 +147,7 @@ def classify_speech() -> None:
 
     with progress(len(clips), "Transcribing") as advance:
         for i, clip in enumerate(clips, 1):
-            path = f"{VIDEO_DIR}/{clip.pk}.mp4"
+            path = f"{VIDEO_DIR}/{clip.id}.mp4"
             if not os.path.exists(path):
                 missing += 1
                 advance()
@@ -184,7 +184,7 @@ def classify_speech() -> None:
                 clip.has_speech = 1
                 has_speech += 1
                 preview = text[:60] + ("…" if len(text) > 60 else "")
-                advance(detail=f'{clip.pk}: "{preview}"')
+                advance(detail=f'{clip.id}: "{preview}"')
             else:
                 clip.has_speech = 0
                 no_speech += 1
@@ -215,7 +215,7 @@ def translate_speech() -> None:
             func.lower(Clip.speech_language).notlike("en%"),
             (Clip.speech_translation.is_(None)) | (Clip.speech_translation == ""),
         )
-        .order_by(Clip.pk)
+        .order_by(Clip.id)
         .all()
     )
     if not clips:
@@ -252,7 +252,7 @@ def translate_speech() -> None:
                 translated += 1
                 src_preview = source[:45] + ("…" if len(source) > 45 else "")
                 tr_preview = translation[:45] + ("…" if len(translation) > 45 else "")
-                advance(detail=f'{clip.pk}: "{src_preview}" → "{tr_preview}"')
+                advance(detail=f'{clip.id}: "{src_preview}" → "{tr_preview}"')
             except Exception:
                 advance()
                 continue

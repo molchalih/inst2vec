@@ -19,13 +19,13 @@ def _make_engine():
 def _add_clip(
     session: Session,
     *,
-    user_pk: int,
-    pk: int,
+    user_id: int,
+    id: int,
     play_count: int | None,
     disqualified: int | None,
 ):
     session.add(
-        Clip(user_pk=user_pk, pk=pk, play_count=play_count, disqualified=disqualified)
+        Clip(user_id=user_id, id=id, play_count=play_count, disqualified=disqualified)
     )
 
 
@@ -35,7 +35,7 @@ def test_users_summary_to_markdown_renders_curated_metrics():
         s.add_all(
             [
                 User(
-                    pk=1,
+                    id=1,
                     username="alpha",
                     full_name="Alpha",
                     profile_pic_url="https://example.com/a.jpg",
@@ -45,7 +45,7 @@ def test_users_summary_to_markdown_renders_curated_metrics():
                     user_disqualified=0,
                 ),
                 User(
-                    pk=2,
+                    id=2,
                     username="beta",
                     full_name="Beta",
                     profile_pic_url="https://example.com/b.jpg",
@@ -54,26 +54,26 @@ def test_users_summary_to_markdown_renders_curated_metrics():
                     user_disqualified=1,
                 ),
                 User(
-                    pk=3,
+                    id=3,
                     username="gamma",
                     following_count=50,
                     user_disqualified=0,
                 ),
                 User(
-                    pk=4,
+                    id=4,
                     username="delta",
                     following_count=200,
                     user_disqualified=0,
                 ),
             ]
         )
-        _add_clip(s, user_pk=1, pk=100, play_count=10, disqualified=0)
-        _add_clip(s, user_pk=1, pk=101, play_count=20, disqualified=0)
-        _add_clip(s, user_pk=1, pk=102, play_count=None, disqualified=0)
-        _add_clip(s, user_pk=2, pk=200, play_count=40, disqualified=0)
-        _add_clip(s, user_pk=3, pk=300, play_count=None, disqualified=1)
-        _add_clip(s, user_pk=4, pk=400, play_count=30, disqualified=0)
-        _add_clip(s, user_pk=3, pk=401, play_count=21, disqualified=0)
+        _add_clip(s, user_id=1, id=100, play_count=10, disqualified=0)
+        _add_clip(s, user_id=1, id=101, play_count=20, disqualified=0)
+        _add_clip(s, user_id=1, id=102, play_count=None, disqualified=0)
+        _add_clip(s, user_id=2, id=200, play_count=40, disqualified=0)
+        _add_clip(s, user_id=3, id=300, play_count=None, disqualified=1)
+        _add_clip(s, user_id=4, id=400, play_count=30, disqualified=0)
+        _add_clip(s, user_id=3, id=401, play_count=21, disqualified=0)
         s.commit()
 
     from generators.dataset_summary_users import users_summary_to_markdown
@@ -96,7 +96,7 @@ def test_users_summary_to_markdown_scopes_users_to_kept_rows():
         s.add_all(
             [
                 User(
-                    pk=1,
+                    id=1,
                     username="kept_full",
                     full_name="Kept User",
                     profile_pic_url="https://example.com/kept.jpg",
@@ -106,7 +106,7 @@ def test_users_summary_to_markdown_scopes_users_to_kept_rows():
                     user_disqualified=0,
                 ),
                 User(
-                    pk=2,
+                    id=2,
                     username="disqualified_rich",
                     full_name="Disqualified User",
                     profile_pic_url="https://example.com/disqualified.jpg",
@@ -115,16 +115,16 @@ def test_users_summary_to_markdown_scopes_users_to_kept_rows():
                     user_disqualified=1,
                 ),
                 User(
-                    pk=3,
+                    id=3,
                     username="kept_sparse",
                     following_count=50,
                     user_disqualified=0,
                 ),
             ]
         )
-        _add_clip(s, user_pk=1, pk=100, play_count=200, disqualified=0)
-        _add_clip(s, user_pk=1, pk=101, play_count=100, disqualified=1)
-        _add_clip(s, user_pk=3, pk=300, play_count=50, disqualified=0)
+        _add_clip(s, user_id=1, id=100, play_count=200, disqualified=0)
+        _add_clip(s, user_id=1, id=101, play_count=100, disqualified=1)
+        _add_clip(s, user_id=3, id=300, play_count=50, disqualified=0)
         s.commit()
 
     from generators.dataset_summary_users import users_summary_to_markdown
@@ -142,7 +142,7 @@ def test_users_summary_to_markdown_scopes_users_to_kept_rows():
 def test_users_summary_to_markdown_uses_dash_for_missing_numeric_values():
     eng = _make_engine()
     with Session(eng) as s:
-        s.add(User(pk=1, username="alpha", user_disqualified=0))
+        s.add(User(id=1, username="alpha", user_disqualified=0))
         s.commit()
 
     from generators.dataset_summary_users import users_summary_to_markdown
@@ -159,7 +159,7 @@ def test_users_summary_to_markdown_uses_dash_for_missing_numeric_values():
 def test_render_users_summary_returns_markdown_object():
     eng = _make_engine()
     with Session(eng) as s:
-        s.add(User(pk=1, username="alpha", user_disqualified=0))
+        s.add(User(id=1, username="alpha", user_disqualified=0))
         s.commit()
 
     from docs.quarto_helpers import render_users_summary
@@ -179,7 +179,7 @@ def test_users_summary_legacy_db_without_parse_status_column():
             text(
                 """
                 CREATE TABLE users (
-                    pk BIGINT PRIMARY KEY,
+                    id BIGINT PRIMARY KEY,
                     username VARCHAR NOT NULL UNIQUE,
                     full_name VARCHAR,
                     profile_pic_url VARCHAR,
@@ -193,7 +193,7 @@ def test_users_summary_legacy_db_without_parse_status_column():
         )
         conn.execute(
             text(
-                "INSERT INTO users (pk, username, full_name, user_disqualified) "
+                "INSERT INTO users (id, username, full_name, user_disqualified) "
                 "VALUES (1, 'a', 'A', 0)"
             )
         )
@@ -219,7 +219,7 @@ def test_users_summary_legacy_db_without_play_count_columns():
             text(
                 """
                 CREATE TABLE users (
-                    pk BIGINT PRIMARY KEY,
+                    id BIGINT PRIMARY KEY,
                     username VARCHAR NOT NULL UNIQUE,
                     full_name VARCHAR,
                     profile_pic_url VARCHAR,
@@ -232,15 +232,15 @@ def test_users_summary_legacy_db_without_play_count_columns():
             )
         )
         conn.execute(
-            text("CREATE TABLE clips (pk BIGINT PRIMARY KEY, user_pk BIGINT NOT NULL)")
+            text("CREATE TABLE clips (id BIGINT PRIMARY KEY, user_id BIGINT NOT NULL)")
         )
         conn.execute(
             text(
-                "INSERT INTO users (pk, username, full_name, user_disqualified) "
+                "INSERT INTO users (id, username, full_name, user_disqualified) "
                 "VALUES (1, 'a', 'A', 0)"
             )
         )
-        conn.execute(text("INSERT INTO clips (pk, user_pk) VALUES (1, 1)"))
+        conn.execute(text("INSERT INTO clips (id, user_id) VALUES (1, 1)"))
 
     from generators.dataset_summary_users import users_summary_to_markdown
 

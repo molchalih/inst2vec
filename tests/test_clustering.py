@@ -51,7 +51,7 @@ def test_resolve_umap2d_params_mirrors_pass1():
 
 def test_user_cluster_columns():
     cols = {c.key for c in UserCluster.__table__.columns}
-    assert "user_pk" in cols
+    assert "user_id" in cols
     assert "embedding_case" in cols
     assert "cluster_id" in cols
     assert "umap_x" in cols
