@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import cast
 
 import hdbscan.validity
 import numpy as np
@@ -100,6 +101,8 @@ def _compute_row_scores(matrix: np.ndarray, params: dict) -> tuple[float, float]
     except ValueError:
         return "value_error"
 
+    if result.matrix_nd is None:
+        return "value_error"
     X_nd = result.matrix_nd.astype(np.float64)
     labels = result.labels
     validation_metric = resolve_hdbscan_metric(
@@ -107,9 +110,10 @@ def _compute_row_scores(matrix: np.ndarray, params: dict) -> tuple[float, float]
     )
 
     try:
-        dbcv = float(
-            hdbscan.validity.validity_index(X_nd, labels, metric=validation_metric)
+        _vi_result = hdbscan.validity.validity_index(
+            X_nd, labels, metric=validation_metric
         )
+        dbcv = float(cast(float, _vi_result))
     except Exception:
         return "dbcv_fail"
 
@@ -349,7 +353,7 @@ def _select_best(session: Session, case: str) -> ClusterRun | None:
         log(f"validate:{case}", "select — no eligible runs", level="warn")
         return None
 
-    survivors = [r for r in rows if r.dbcv - r.param_plateau_score <= threshold]
+    survivors = [r for r in rows if r.dbcv - r.param_plateau_score <= threshold]  # type: ignore[operator]
     if not survivors:
         log(
             f"validate:{case}",

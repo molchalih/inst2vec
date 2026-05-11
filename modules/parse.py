@@ -19,7 +19,7 @@ def _fetch_clips(cl: Client, user: User, session) -> int:
     if user.clips:
         return 0
 
-    data = cl.user_clips_v2(user.pk)
+    data = cl.user_clips_v2(str(user.pk))
     items = data["response"]["items"]
     items.sort(key=lambda x: x["media"].get("play_count") or 0, reverse=True)
 
@@ -55,7 +55,12 @@ def fetch_profiles():
     session = get_session()
 
     users = (
-        session.query(User).filter(User.parse_status.is_(None)).limit(BATCH_SIZE).all()
+        session.query(User)
+        .filter(
+            (User.parse_status.is_(None)) | (User.parse_status == "pending"),
+        )
+        .limit(BATCH_SIZE)
+        .all()
     )
 
     parsed = skipped = failed = 0

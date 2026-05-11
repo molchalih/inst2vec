@@ -299,6 +299,7 @@ def test_run_cluster_search_invalidates_rows_when_no_embeddings_for_case(
 
     with Session(mem_engine) as s:
         video_row = s.get(ClusterRun, video_row_id)
+        assert video_row is not None
         assert video_row.in_current_grid == 0
         assert video_row.disqualified == 1
 
@@ -466,7 +467,9 @@ def test_run_cluster_search_invalidates_rows_on_dataset_change(mem_engine, monke
         run_cluster_search()  # uses pks 0..79
 
     with Session(mem_engine) as s:
-        fp_before = s.query(ClusterRun).first().dataset_hash
+        result = s.query(ClusterRun).first()
+        assert result is not None
+        fp_before = result.dataset_hash
         assert fp_before is not None
 
     with patch.dict(os.environ, env, clear=False):

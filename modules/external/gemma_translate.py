@@ -18,7 +18,7 @@ class GemmaTranslator:
 
     def __init__(self, model_id: str = DEFAULT_MODEL_ID) -> None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
-        dtype = torch.bfloat16 if device == "cuda" else torch.float32
+        dtype = torch.bfloat16 if device == "cuda" else torch.float32  # type: ignore[attr-defined]
 
         self.model_id = model_id
         self.pipe = pipeline(
@@ -32,13 +32,13 @@ class GemmaTranslator:
         if getattr(self.pipe.model, "generation_config", None) is not None:
             self.pipe.model.generation_config.max_length = None
             self.pipe.model.generation_config.pad_token_id = (
-                self.pipe.tokenizer.eos_token_id
+                self.pipe.tokenizer.eos_token_id  # type: ignore[attr-defined]
             )
         if getattr(self.pipe, "generation_config", None) is not None:
             self.pipe.generation_config.max_length = None
-            self.pipe.generation_config.pad_token_id = self.pipe.tokenizer.eos_token_id
+            self.pipe.generation_config.pad_token_id = self.pipe.tokenizer.eos_token_id  # type: ignore[attr-defined]
 
-        self.pad_token_id = self.pipe.tokenizer.eos_token_id
+        self.pad_token_id = self.pipe.tokenizer.eos_token_id  # type: ignore[attr-defined]
         self.device = device
 
     def translate_text(
@@ -64,7 +64,7 @@ class GemmaTranslator:
         ]
 
         output = self.pipe(
-            text=messages,
+            text=messages,  # type: ignore[arg-type]
             generate_kwargs={
                 "max_new_tokens": max_new_tokens,
                 "do_sample": False,

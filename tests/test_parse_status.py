@@ -18,13 +18,12 @@ from modules.database import (
 
 def test_migrate_users_table_adds_parse_status_column():
     eng = create_engine("sqlite:///:memory:")
-    with eng.connect() as conn:
+    with eng.begin() as conn:
         conn.execute(
             text(
                 "CREATE TABLE users (pk BIGINT PRIMARY KEY, username VARCHAR NOT NULL UNIQUE)"
             )
         )
-        conn.commit()
     assert "parse_status" not in {c["name"] for c in inspect(eng).get_columns("users")}
     _migrate_users_table(eng)
     names = {c["name"] for c in inspect(eng).get_columns("users")}
@@ -60,10 +59,18 @@ def test_backfill_success_failed_pending_and_precedence():
         s.commit()
 
     with Session(eng) as s:
-        assert s.get(User, 1).parse_status == "success"
-        assert s.get(User, 2).parse_status == "failed"
-        assert s.get(User, 3).parse_status == "pending"
-        assert s.get(User, 4).parse_status == "success"
+        u1 = s.get(User, 1)
+        assert u1 is not None
+        assert u1.parse_status == "success"
+        u2 = s.get(User, 2)
+        assert u2 is not None
+        assert u2.parse_status == "failed"
+        u3 = s.get(User, 3)
+        assert u3 is not None
+        assert u3.parse_status == "pending"
+        u4 = s.get(User, 4)
+        assert u4 is not None
+        assert u4.parse_status == "success"
 
 
 def test_fetch_profiles_retries_then_succeeds_fourth(monkeypatch):
@@ -170,6 +177,12 @@ def test_finalize_unresolved_for_non_success_parse_status(monkeypatch):
     finalize_user_dataset("A")
 
     with Session(eng) as s:
-        assert s.get(User, 1).user_disqualified is None
-        assert s.get(User, 2).user_disqualified is None
-        assert s.get(User, 3).user_disqualified in (0, 1)
+        u1 = s.get(User, 1)
+        assert u1 is not None
+        assert u1.user_disqualified is None
+        u2 = s.get(User, 2)
+        assert u2 is not None
+        assert u2.user_disqualified is None
+        u3 = s.get(User, 3)
+        assert u3 is not None
+        assert u3.user_disqualified in (0, 1)

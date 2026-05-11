@@ -26,6 +26,7 @@ def _import():
         "explore_audio_whitening",
         pathlib.Path(__file__).parent.parent / "scripts" / "explore_audio_whitening.py",
     )
+    assert spec is not None and spec.loader is not None
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod

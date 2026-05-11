@@ -2,6 +2,7 @@
 
 import os
 from dataclasses import dataclass, field
+from typing import cast
 
 import hdbscan
 import numpy as np
@@ -97,7 +98,7 @@ def compute_clusters(
         random_state=random_state,
         n_jobs=umap_n_jobs,
     )
-    matrix_nd = reducer_nd.fit_transform(matrix)
+    matrix_nd = cast(np.ndarray, reducer_nd.fit_transform(matrix))
 
     effective_metric = resolve_hdbscan_metric(hdbscan_metric)
     clusterer = hdbscan.HDBSCAN(
@@ -118,7 +119,7 @@ def compute_clusters(
         random_state=random_state,
         n_jobs=umap_n_jobs,
     )
-    coords_2d = reducer_2d.fit_transform(matrix)
+    coords_2d = cast(np.ndarray, reducer_2d.fit_transform(matrix))
 
     unique_labels = [lbl for lbl in set(labels) if lbl >= 0]
     n_clusters = len(unique_labels)

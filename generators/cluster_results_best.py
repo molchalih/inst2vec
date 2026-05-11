@@ -37,7 +37,9 @@ def _best_cells(best: ClusterRun | None) -> dict[str, str]:
     keys = [k for _, k in BEST_TABLE_ROWS]
     if best is None:
         return dict.fromkeys(keys, "-")
-    drop = best.dbcv - best.param_plateau_score
+    dbcv_val = best.dbcv if best.dbcv is not None else 0.0
+    plateau_val = best.param_plateau_score if best.param_plateau_score is not None else 0.0
+    drop = dbcv_val - plateau_val
     return {
         "dbcv": _fmt(best.dbcv),
         "plateau_score": _fmt(best.param_plateau_score),

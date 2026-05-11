@@ -30,7 +30,9 @@ dev = [
     "autoflake>=2.3.3",
     "pyright>=1.1.409",
     "pytest>=9.0.3",
+    "radon>=6.0.1",
     "ruff>=0.15.12",
+    "sqlalchemy2-stubs>=0.0.2a38",
     "ty>=0.0.35",
     "vulture>=2.16",
 ]
@@ -76,3 +78,7 @@ ignore = [
 exclude = ["modules/external/*"]
 min_confidence = 80
 sort_by_size = true
+
+[tool.pyright]
+include = ["modules", "tests", "scripts", "generators"]
+exclude = ["modules/external/**"]

@@ -83,29 +83,25 @@ def test_clips_summary_to_markdown_renders_curated_metrics():
     out = clips_summary_to_markdown(eng)
 
     assert out.startswith("| Metric | Value |")
-    assert "| Total clips | 3 |" in out
-    assert "| Clips kept | 2 (66.7%) |" in out
-    assert "| Clips with caption text | 1 (50.0%) |" in out
-    assert "| Clips with caption translation | 1 (50.0%) |" in out
-    assert "| Clips with speech | 1 (50.0%) |" in out
-    assert "| Clips with speech translation | 1 (50.0%) |" in out
-    assert "| Clips with music | 1 (50.0%) |" in out
-    assert "| Play count (median) | 150 |" in out
-    assert "| Play count (mean) | 150.0 |" in out
-    assert "| Play count (min-max) | 100-200 |" in out
-    assert "| Like count (median) | 15 |" in out
-    assert "| Like count (mean) | 15.0 |" in out
-    assert "| Like count (min-max) | 10-20 |" in out
-    assert "| Comment count (median, mean, min-max) | 2, 2.0, 2-2 |" in out
-    assert "| Reshare count (median, mean, min-max) | 1, 1.0, 1-1 |" in out
+    assert r"| $N$ | 3 |" in out
+    assert r"| $N_{\mathrm{kept}}$ | 2 (66.7%) |" in out
+    assert r"| $N_{\mathrm{caption}}$ | 1 (50.0%) |" in out
+    assert r"| $N_{\mathrm{caption\_trans}}$ | 1 (50.0%) |" in out
+    assert r"| $N_{\mathrm{speech}}$ | 1 (50.0%) |" in out
+    assert r"| $N_{\mathrm{speech\_trans}}$ | 1 (50.0%) |" in out
+    assert r"| $N_{\mathrm{music}}$ | 1 (50.0%) |" in out
+    assert r"| $\tilde{x}_{\mathrm{views}}$ | 150 |" in out
+    assert r"| $\mu_\mathrm{views}$ | 150.0 |" in out
+    assert r"| $[\min-max]_{\mathrm{views}}$ | 100-200 |" in out
 
     assert "| Clips disqualified |" not in out
     assert "| Clips with caption language |" not in out
     assert "| Clips with speech transcription |" not in out
     assert "| Clips with speech language |" not in out
     assert "| Clips linked to music row |" not in out
-    assert "| Play count (median, mean, min-max) |" not in out
-    assert "| Like count (median, mean, min-max) |" not in out
+    assert "| Like count" not in out
+    assert "| Comment count" not in out
+    assert "| Reshare count" not in out
 
 
 def test_clips_summary_to_markdown_uses_dash_for_missing_numeric_values():
@@ -119,7 +115,7 @@ def test_clips_summary_to_markdown_uses_dash_for_missing_numeric_values():
 
     out = clips_summary_to_markdown(eng)
 
-    assert "| Play count (median) | - |" in out
+    assert r"| $\tilde{x}_{\mathrm{views}}$ | - |" in out
 
 
 def test_render_clips_summary_returns_markdown_object():

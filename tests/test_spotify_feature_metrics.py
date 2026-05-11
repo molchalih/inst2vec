@@ -18,7 +18,7 @@ def test_spotify_feature_metrics_to_markdown_renders_expected_rows():
     assert "| Instrumentalness | 0-1 |" in out
     assert "| Key | 0-11 |" in out
     assert "| Liveness | 0-1 |" in out
-    assert "| Loudness | typically -60 to 0 dB |" in out
+    assert "| Loudness | -60 to 0 dB |" in out
     assert "| Mode | 0 or 1 |" in out
     assert "| Speechiness | 0-1 |" in out
     assert "| Tempo | BPM (>0) |" in out

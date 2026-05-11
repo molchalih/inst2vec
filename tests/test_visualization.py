@@ -10,8 +10,10 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
 
-from modules.visualization import _plot_case, plot_clusters
+from generators.cluster_case_plots import _plot_case
+from modules.visualization import plot_clusters
 
 
 def _rows(xs, ys, labels):
@@ -24,28 +26,28 @@ def _rows(xs, ys, labels):
 def test_plot_case_returns_figure():
     rows = _rows([0.1, 0.2, 0.3], [0.4, 0.5, 0.6], [0, 0, 1])
     fig = _plot_case("video", rows)
-    assert isinstance(fig, plt.Figure)
+    assert isinstance(fig, Figure)
     plt.close(fig)
 
 
 def test_plot_case_handles_noise_points():
     rows = _rows([0.0, 1.0, 2.0], [0.0, 1.0, 2.0], [-1, 0, 1])
     fig = _plot_case("sandwich", rows)
-    assert isinstance(fig, plt.Figure)
+    assert isinstance(fig, Figure)
     plt.close(fig)
 
 
 def test_plot_case_all_noise():
     rows = _rows([0.0, 1.0], [0.0, 1.0], [-1, -1])
     fig = _plot_case("audio", rows)
-    assert isinstance(fig, plt.Figure)
+    assert isinstance(fig, Figure)
     plt.close(fig)
 
 
 def test_plot_case_single_cluster():
     rows = _rows([0.1, 0.2], [0.3, 0.4], [0, 0])
     fig = _plot_case("video", rows)
-    assert isinstance(fig, plt.Figure)
+    assert isinstance(fig, Figure)
     plt.close(fig)
 
 

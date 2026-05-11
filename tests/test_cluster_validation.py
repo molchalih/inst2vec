@@ -71,7 +71,9 @@ def test_filter_passes_run_within_bounds():
 
     with patch.dict(os.environ, env), Session(eng) as s:
         _phase_filter(s, "video")
-        assert s.get(ClusterRun, row_id).disqualified == 0
+        result = s.get(ClusterRun, row_id)
+        assert result is not None
+        assert result.disqualified == 0
 
 
 def test_filter_disqualifies_high_noise():
@@ -91,7 +93,9 @@ def test_filter_disqualifies_high_noise():
 
     with patch.dict(os.environ, env), Session(eng) as s:
         _phase_filter(s, "video")
-        assert s.get(ClusterRun, row_id).disqualified == 1
+        result = s.get(ClusterRun, row_id)
+        assert result is not None
+        assert result.disqualified == 1
 
 
 def test_filter_disqualifies_too_few_clusters():
@@ -111,7 +115,9 @@ def test_filter_disqualifies_too_few_clusters():
 
     with patch.dict(os.environ, env), Session(eng) as s:
         _phase_filter(s, "video")
-        assert s.get(ClusterRun, row_id).disqualified == 1
+        result = s.get(ClusterRun, row_id)
+        assert result is not None
+        assert result.disqualified == 1
 
 
 def test_filter_disqualifies_too_many_clusters():
@@ -131,7 +137,9 @@ def test_filter_disqualifies_too_many_clusters():
 
     with patch.dict(os.environ, env), Session(eng) as s:
         _phase_filter(s, "video")
-        assert s.get(ClusterRun, row_id).disqualified == 1
+        result = s.get(ClusterRun, row_id)
+        assert result is not None
+        assert result.disqualified == 1
 
 
 def test_filter_ignores_stale_rows():
@@ -153,7 +161,9 @@ def test_filter_ignores_stale_rows():
 
     with patch.dict(os.environ, env), Session(eng) as s:
         _phase_filter(s, "video")
-        assert s.get(ClusterRun, row_id).disqualified == 1
+        result = s.get(ClusterRun, row_id)
+        assert result is not None
+        assert result.disqualified == 1
 
 
 # --- Phase 2: score ---
@@ -191,6 +201,7 @@ def test_phase_score_populates_dbcv_and_silhouette(monkeypatch):
     with Session(eng) as s:
         _phase_score(s, "video", matrix)
         updated = s.get(ClusterRun, row_id)
+        assert updated is not None
         assert updated.dbcv is not None
         assert updated.silhouette is not None
 
@@ -230,6 +241,7 @@ def test_phase_score_skips_already_scored_rows(monkeypatch):
     with Session(eng) as s:
         _phase_score(s, "video", matrix)
         updated = s.get(ClusterRun, row_id)
+        assert updated is not None
         assert updated.dbcv == pytest.approx(0.99)
         assert updated.silhouette == pytest.approx(0.88)
 
@@ -376,6 +388,7 @@ def test_phase_plateau_uses_dbcv_of_neighbors():
     with Session(eng) as s:
         _phase_plateau(s, "video")
         r1_updated = s.get(ClusterRun, id1)
+        assert r1_updated is not None
         # r1's only neighbor is r2 (dbcv=0.6), so plateau = 0.6
         assert r1_updated.param_plateau_score == pytest.approx(0.6, abs=1e-5)
 
@@ -405,7 +418,9 @@ def test_phase_plateau_covers_all_scored_rows():
     with Session(eng) as s:
         _phase_plateau(s, "video")
         for rid in ids:
-            assert s.get(ClusterRun, rid).param_plateau_score is not None
+            result = s.get(ClusterRun, rid)
+            assert result is not None
+            assert result.param_plateau_score is not None
 
 
 def test_phase_plateau_no_neighbors_falls_back_to_own_dbcv():
@@ -430,6 +445,7 @@ def test_phase_plateau_no_neighbors_falls_back_to_own_dbcv():
     with Session(eng) as s:
         _phase_plateau(s, "video")
         updated = s.get(ClusterRun, rid)
+        assert updated is not None
         # No neighbors → fallback to own dbcv → drop = 0 → not rejected by filter
         assert updated.param_plateau_score == pytest.approx(0.75, abs=1e-5)
 
@@ -455,7 +471,9 @@ def test_phase_plateau_skips_already_set():
 
     with Session(eng) as s:
         _phase_plateau(s, "video")
-        assert s.get(ClusterRun, row_id).param_plateau_score == pytest.approx(0.5)
+        result = s.get(ClusterRun, row_id)
+        assert result is not None
+        assert result.param_plateau_score == pytest.approx(0.5)
 
 
 # --- _select_best ---
@@ -778,6 +796,7 @@ def test_invalidate_stale_rows_nulls_plateau_when_hash_differs():
     with Session(eng) as s:
         _invalidate_stale_rows(s, "video", "newhash00000000")
         updated = s.get(ClusterRun, row_id)
+        assert updated is not None
         assert updated.param_plateau_score is None
         assert updated.dbcv == pytest.approx(0.9)
         assert updated.silhouette == pytest.approx(0.85)
@@ -799,6 +818,7 @@ def test_invalidate_stale_rows_treats_null_hash_as_stale():
     with Session(eng) as s:
         _invalidate_stale_rows(s, "video", "currenthash0000")
         updated = s.get(ClusterRun, row_id)
+        assert updated is not None
         assert updated.param_plateau_score is None
         assert updated.validation_config_hash == "currenthash0000"
 
@@ -818,6 +838,7 @@ def test_invalidate_stale_rows_skips_matching_hash():
     with Session(eng) as s:
         _invalidate_stale_rows(s, "video", "currenthash0000")
         updated = s.get(ClusterRun, row_id)
+        assert updated is not None
         assert updated.param_plateau_score == pytest.approx(0.7)
 
 
@@ -836,6 +857,7 @@ def test_invalidate_stale_rows_ignores_non_current_grid_rows():
     with Session(eng) as s:
         _invalidate_stale_rows(s, "video", "newhash00000000")
         updated = s.get(ClusterRun, row_id)
+        assert updated is not None
         assert updated.param_plateau_score == pytest.approx(0.7)
         assert updated.validation_config_hash == "oldhash00000000"
 
@@ -875,6 +897,8 @@ def test_invalidate_stale_rows_only_affects_matching_case():
         _invalidate_stale_rows(s, "video", "newhash00000000")
         vid = s.get(ClusterRun, vid_id)
         aud = s.get(ClusterRun, aud_id)
+        assert vid is not None
+        assert aud is not None
         assert vid.param_plateau_score is None
         assert aud.param_plateau_score == pytest.approx(0.9)
 

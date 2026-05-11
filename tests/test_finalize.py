@@ -60,6 +60,8 @@ def test_pass_a_pre_gates_users_with_too_few_raw_clips(monkeypatch):
     with Session(eng) as s:
         u1 = s.get(User, 1)
         u2 = s.get(User, 2)
+        assert u1 is not None
+        assert u2 is not None
         assert u1.user_disqualified == 1  # pre-gated
         assert u2.user_disqualified == 0  # survived
 
@@ -98,6 +100,8 @@ def test_pass_a_pre_gated_users_excluded_from_percentile_floor(monkeypatch):
     with Session(eng) as s:
         u1 = s.get(User, 1)
         u2 = s.get(User, 2)
+        assert u1 is not None
+        assert u2 is not None
         # User1 must be pre-gated (disqualified immediately, not due to stats)
         assert u1.user_disqualified == 1
         # User2 survives with all clips intact because floor is computed only from user2
@@ -136,6 +140,7 @@ def test_pass_a_re_gates_after_stat_disq(monkeypatch):
 
     with Session(eng) as s:
         u = s.get(User, 1)
+        assert u is not None
         assert u.user_disqualified == 1  # re-gated: only 1 clip survives stat disq
 
 
@@ -165,6 +170,7 @@ def test_pass_b_does_not_pre_gate(monkeypatch):
 
     with Session(eng) as s:
         u = s.get(User, 1)
+        assert u is not None
         # Pass B does not pre-gate; user gets disqualified only by clip-count re-gate
         # (which is the same behavior as before — 1 clip < 4)
         assert u.user_disqualified == 1  # disqualified by clip count in Pass B loop

@@ -7,6 +7,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.figure import Figure
 from sqlalchemy.orm import Session
 
 from modules.cluster_results import DEFAULT_CASES
@@ -21,7 +22,7 @@ def _validate_case(case: str) -> str:
     return case
 
 
-def _plot_case(case: str, rows: list) -> plt.Figure:
+def _plot_case(case: str, rows: list) -> Figure:
     """Build a scatter figure for one embedding case from UserCluster-like rows."""
     xs = np.array([r.umap_x for r in rows], dtype=np.float32)
     ys = np.array([r.umap_y for r in rows], dtype=np.float32)

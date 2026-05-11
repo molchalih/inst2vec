@@ -6,6 +6,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pytest
+from matplotlib.figure import Figure
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
@@ -85,7 +86,7 @@ def test_cluster_plot_figure_for_case_returns_matplotlib_figure():
 
     fig = cluster_plot_figure_for_case(eng, "audio")
 
-    assert isinstance(fig, plt.Figure)
+    assert isinstance(fig, Figure)
     assert "audio" in fig.axes[0].get_title().lower()
     plt.close(fig)
 
@@ -119,7 +120,7 @@ def test_render_audio_cluster_plot_returns_figure():
 
     fig = render_audio_cluster_plot(eng=eng)
 
-    assert isinstance(fig, plt.Figure)
+    assert isinstance(fig, Figure)
     assert "audio" in fig.axes[0].get_title().lower()
     plt.close(fig)
 

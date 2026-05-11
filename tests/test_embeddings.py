@@ -259,6 +259,7 @@ def test_build_text_appends_music():
     )
     clip = _clip(caption_text="Great video", caption_language="en", music_id=42)
     result = _build_text(clip, {42: m})
+    assert result is not None
     assert result.startswith("Great video | Music:")
     assert "Test Track" in result
     assert "Test Artist" in result
@@ -267,6 +268,7 @@ def test_build_text_appends_music():
 def test_build_text_no_music_when_music_id_none():
     clip = _clip(caption_text="Great video", caption_language="en", music_id=None)
     result = _build_text(clip, {})
+    assert result is not None
     assert "Music:" not in result
 
 
@@ -460,6 +462,7 @@ def test_build_audio_text_no_caption_included():
         music_id=1,
     )
     result = _build_audio_text(clip, {1: m})
+    assert result is not None
     assert "Some caption" not in result
 
 
