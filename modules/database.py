@@ -36,8 +36,8 @@ class Base(DeclarativeBase):
 class User(Base):
     __tablename__ = "users"
 
-    pk: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    username: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    username: Mapped[str | None] = mapped_column(String, unique=True, nullable=True)
     full_name: Mapped[str | None] = mapped_column(String)
     profile_pic_url: Mapped[str | None] = mapped_column(String)
     profile_pic_url_hd: Mapped[str | None] = mapped_column(String)
@@ -58,9 +58,9 @@ class User(Base):
 class Clip(Base):
     __tablename__ = "clips"
 
-    pk: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    user_pk: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("users.pk"), nullable=False
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id"), nullable=False
     )
     thumbnail_url: Mapped[str | None] = mapped_column(String)
     video_url: Mapped[str | None] = mapped_column(String)
@@ -131,7 +131,7 @@ class Music(Base):
 class Download(Base):
     __tablename__ = "downloads"
 
-    entity_pk: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    entity_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     file_type: Mapped[str] = mapped_column(String, primary_key=True)
     success: Mapped[bool | None] = mapped_column(Boolean)
     parse_available: Mapped[bool | None] = mapped_column(Boolean, default=True)
@@ -141,12 +141,12 @@ class ClipEmbedding(Base):
     __tablename__ = "clip_embeddings"
     __table_args__ = (
         UniqueConstraint(
-            "clip_pk", "embedding_case", name="uq_clip_embeddings_clip_case"
+            "clip_id", "embedding_case", name="uq_clip_embeddings_clip_case"
         ),
     )
 
-    clip_pk: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("clips.pk"), primary_key=True
+    clip_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("clips.id"), primary_key=True
     )
     embedding_case: Mapped[str] = mapped_column(String, primary_key=True)
     embedding: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
@@ -167,12 +167,12 @@ class UserEmbedding(Base):
     __tablename__ = "user_embeddings"
     __table_args__ = (
         UniqueConstraint(
-            "user_pk", "embedding_case", name="uq_user_embeddings_user_case"
+            "user_id", "embedding_case", name="uq_user_embeddings_user_case"
         ),
     )
 
-    user_pk: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("users.pk"), primary_key=True
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id"), primary_key=True
     )
     embedding_case: Mapped[str] = mapped_column(String, primary_key=True)
     embedding: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
@@ -193,12 +193,12 @@ class UserCluster(Base):
     __tablename__ = "user_clusters"
     __table_args__ = (
         UniqueConstraint(
-            "user_pk", "embedding_case", name="uq_user_clusters_user_case"
+            "user_id", "embedding_case", name="uq_user_clusters_user_case"
         ),
     )
 
-    user_pk: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("users.pk"), primary_key=True
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id"), primary_key=True
     )
     embedding_case: Mapped[str] = mapped_column(String, primary_key=True)
     cluster_id: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -310,7 +310,7 @@ def _backfill_parse_status(session: Session) -> None:
                 OR profile_pic_url_hd IS NOT NULL
                 OR following_count IS NOT NULL
                 OR city_name IS NOT NULL
-                OR pk IN (SELECT user_pk FROM clips)
+                OR id IN (SELECT user_id FROM clips)
             """
         )
     )
@@ -318,8 +318,8 @@ def _backfill_parse_status(session: Session) -> None:
         text(
             """
             UPDATE users SET parse_status = 'failed' WHERE parse_status != 'success'
-                AND pk IN (
-                    SELECT entity_pk FROM downloads
+                AND id IN (
+                    SELECT entity_id FROM downloads
                     WHERE file_type = 'profile_pic' AND parse_available = 0
                 )
             """

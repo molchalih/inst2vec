@@ -9,6 +9,7 @@ from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import Session
 
 from scripts.pseudoanonymize import init_identity_db, IdentityBase, UserIdentity, ClipIdentity, _assign_ids, _write_identity_map, pseudoanonymize
+from modules.database import User, Clip, Download, ClipEmbedding, UserEmbedding, UserCluster
 
 
 def test_init_identity_db_creates_tables(tmp_path):
@@ -284,3 +285,23 @@ def test_migrate_updates_dataset_hash(tmp_path):
     ).fetchone()[0]
     assert stored_hash == expected_hash
     con.close()
+
+
+def test_orm_user_has_id_not_pk():
+    col_names = {c.key for c in User.__table__.columns}
+    assert "id" in col_names
+    assert "pk" not in col_names
+
+
+def test_orm_clip_has_id_and_user_id():
+    col_names = {c.key for c in Clip.__table__.columns}
+    assert "id" in col_names
+    assert "user_id" in col_names
+    assert "pk" not in col_names
+    assert "user_pk" not in col_names
+
+
+def test_orm_download_has_entity_id():
+    col_names = {c.key for c in Download.__table__.columns}
+    assert "entity_id" in col_names
+    assert "entity_pk" not in col_names
