@@ -34,7 +34,7 @@ def _count_for_user_clip_set(clip_ids: list[int], allowed: set[int]) -> int:
 def _text_ok_clip_ids(session) -> set[int]:
     return {
         row[0]
-        for row in session.query(Clip.pk)
+        for row in session.query(Clip.id)
         .filter(
             ((Clip.caption_text.is_not(None)) & (func.trim(Clip.caption_text) != ""))
             | (
@@ -95,7 +95,7 @@ def _creator_relative_low_outliers(
         for clip, value in zip(clips, logs, strict=False):
             robust_z = (value - med) / scale
             if robust_z < CREATOR_ROBUST_Z_THRESHOLD:
-                outliers.add(clip.pk)
+                outliers.add(clip.id)
     return outliers
 
 
@@ -109,7 +109,7 @@ def finalize_user_dataset(pass_name: str = "A") -> None:
     use_text_gate = pass_name == "B" and REQUIRE_MIN_TEXT_CLIPS
 
     session = get_session()
-    users = session.query(User).order_by(User.pk).all()
+    users = session.query(User).order_by(User.id).all()
     if not users:
         session.close()
         return
@@ -140,7 +140,7 @@ def finalize_user_dataset(pass_name: str = "A") -> None:
 
     # Pass A: pre-gate users with too few raw clips before computing stats
     pre_gate_users: list[User] = []
-    pre_gated_clip_pks: set[int] = (
+    pre_gated_clip_ids: set[int] = (
         set()
     )  # Track clips disqualified in pre-gate for later deduplication
     if is_pass_a:
@@ -153,7 +153,7 @@ def finalize_user_dataset(pass_name: str = "A") -> None:
                     clip.disqualified = 1
                     clip_disq += 1
                     clip_reason_counts["user_disqualified"] += 1
-                    pre_gated_clip_pks.add(clip.pk)
+                    pre_gated_clip_ids.add(clip.id)
             else:
                 pre_gate_users.append(user)
     else:
@@ -192,14 +192,14 @@ def finalize_user_dataset(pass_name: str = "A") -> None:
                     and clip.play_count is not None
                     and int(clip.play_count) < global_floor
                 )
-                is_creator_low = clip.pk in creator_outlier_ids
+                is_creator_low = clip.id in creator_outlier_ids
                 stat_disq = already_disq or is_global_low or is_creator_low
-                stat_disq_by_clip[clip.pk] = stat_disq
+                stat_disq_by_clip[clip.id] = stat_disq
                 if not stat_disq:
-                    active_clip_ids.append(clip.pk)
+                    active_clip_ids.append(clip.id)
         else:
-            active_clip_ids = [clip.pk for clip in user.clips if clip.disqualified != 1]
-            stat_disq_by_clip = {clip.pk: clip.disqualified == 1 for clip in user.clips}
+            active_clip_ids = [clip.id for clip in user.clips if clip.disqualified != 1]
+            stat_disq_by_clip = {clip.id: clip.disqualified == 1 for clip in user.clips}
 
         total_clips = len(active_clip_ids)
         text_count = _count_for_user_clip_set(active_clip_ids, text_ok_ids)
@@ -217,9 +217,9 @@ def finalize_user_dataset(pass_name: str = "A") -> None:
                 reason_counts["text_count"] += 1
 
         for clip in user.clips:
-            was_pre_gated = clip.pk in pre_gated_clip_pks
+            was_pre_gated = clip.id in pre_gated_clip_ids
             should_disqualify_clip = disqualified or stat_disq_by_clip.get(
-                clip.pk, False
+                clip.id, False
             )
             clip.disqualified = 1 if should_disqualify_clip else 0
 
@@ -238,7 +238,7 @@ def finalize_user_dataset(pass_name: str = "A") -> None:
                         and int(clip.play_count) < global_floor
                     ) and not was_pre_gated:
                         clip_reason_counts["global_low_plays"] += 1
-                    if clip.pk in creator_outlier_ids and not was_pre_gated:
+                    if clip.id in creator_outlier_ids and not was_pre_gated:
                         clip_reason_counts["creator_low_outlier"] += 1
             else:
                 clip_kept += 1
@@ -247,7 +247,7 @@ def finalize_user_dataset(pass_name: str = "A") -> None:
     total_users = len(users)
     kept = total_users - disq_count
     eligible_clips = (
-        session.query(func.count(Clip.pk)).filter(Clip.disqualified == 0).scalar()
+        session.query(func.count(Clip.id)).filter(Clip.disqualified == 0).scalar()
     )
     session.close()
 

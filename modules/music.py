@@ -85,15 +85,15 @@ def _get_or_create_music(session, artist: str, track: str) -> Music:
 
 
 def _pick_video(session, music_id: int) -> Path | None:
-    for (pk,) in (
-        session.query(Clip.pk)
+    for (clip_id,) in (
+        session.query(Clip.id)
         .filter(
             Clip.music_id == music_id,
             or_(Clip.disqualified.is_(None), Clip.disqualified == 0),
         )
-        .order_by(Clip.play_count.desc(), Clip.pk.desc())
+        .order_by(Clip.play_count.desc(), Clip.id.desc())
     ):
-        p = VIDEO_DIR / f"{pk}.mp4"
+        p = VIDEO_DIR / f"{clip_id}.mp4"
         if p.exists():
             return p
     return None
@@ -157,7 +157,7 @@ def classify_music() -> None:
             Clip.has_music.is_(None),
             or_(Clip.disqualified.is_(None), Clip.disqualified == 0),
         )
-        .order_by(Clip.pk.desc())
+        .order_by(Clip.id.desc())
         .all()
     )
     if not clips:
@@ -177,7 +177,7 @@ def classify_music() -> None:
 
     with progress(len(clips), "Fingerprinting") as advance:
         for i, clip in enumerate(clips, 1):
-            path = VIDEO_DIR / f"{clip.pk}.mp4"
+            path = VIDEO_DIR / f"{clip.id}.mp4"
             if not path.exists():
                 missing += 1
                 advance()
@@ -193,7 +193,7 @@ def classify_music() -> None:
                 clip.music_confidence = confidence
                 clip.has_music = 1
                 matched += 1
-                advance(detail=f"{clip.pk}: {artist} – {track} ({confidence:.0%})")
+                advance(detail=f"{clip.id}: {artist} – {track} ({confidence:.0%})")
             else:
                 clip.has_music = 0
                 no_match += 1

@@ -23,23 +23,23 @@ def _fetch_clips(cl: Any, user: User, session: Any) -> int:
     if user.clips:
         return 0
 
-    data = cl.user_clips_v2(str(user.pk))
+    data = cl.user_clips_v2(str(user.id))
     items = data["response"]["items"]
     items.sort(key=lambda x: x["media"].get("play_count") or 0, reverse=True)
 
     count = 0
     for item in items[: MAX_CLIPS or None]:
         m = item["media"]
-        clip_pk = int(m["pk"])
-        if session.query(Clip).filter_by(pk=clip_pk).first():
+        clip_id = int(m["pk"])
+        if session.query(Clip).filter_by(id=clip_id).first():
             continue
 
         cap = m.get("caption") or {}
 
         session.add(
             Clip(
-                pk=clip_pk,
-                user_pk=user.pk,
+                id=clip_id,
+                user_id=user.id,
                 thumbnail_url=m.get("thumbnail_url"),
                 video_url=m.get("video_url"),
                 caption_text=cap.get("text"),
@@ -86,7 +86,7 @@ def fetch_profiles():
                     data = cl.user_by_username_v1(username)
                     info = data.get("user", data)
 
-                    user.pk = info["pk"]
+                    user.id = info["pk"]
                     user.full_name = info.get("full_name")
                     user.profile_pic_url = info.get("profile_pic_url")
                     user.profile_pic_url_hd = info.get("profile_pic_url_hd")

@@ -140,26 +140,26 @@ def compute_clusters(
 
 
 def load_user_matrix(embedding_case: str) -> tuple[np.ndarray, list[int]]:
-    """Load user embeddings from DB. Returns (matrix, user_pks) in matching order."""
+    """Load user embeddings from DB. Returns (matrix, user_ids) in matching order."""
     session = get_session()
     try:
         rows = (
-            session.query(UserEmbedding.user_pk, UserEmbedding.embedding)
+            session.query(UserEmbedding.user_id, UserEmbedding.embedding)
             .filter(UserEmbedding.embedding_case == embedding_case)
             .all()
         )
         if not rows:
             return np.empty((0, 0), dtype=np.float32), []
-        user_pks = [r.user_pk for r in rows]
+        user_ids = [r.user_id for r in rows]
         arrays = [np.frombuffer(r.embedding, dtype=np.float32).copy() for r in rows]
-        return np.stack(arrays), user_pks
+        return np.stack(arrays), user_ids
     finally:
         session.close()
 
 
 def cluster_users(embedding_case: str, **params) -> None:
     Base.metadata.create_all(engine)
-    matrix, user_pks = load_user_matrix(embedding_case)
+    matrix, user_ids = load_user_matrix(embedding_case)
 
     if matrix.shape[0] == 0:
         log(f"cluster:{embedding_case}", "nothing to do")
@@ -180,17 +180,17 @@ def cluster_users(embedding_case: str, **params) -> None:
 
     session = get_session()
     try:
-        with progress(len(user_pks), f"cluster save · {embedding_case}") as advance:
-            for i, user_pk in enumerate(user_pks):
+        with progress(len(user_ids), f"cluster save · {embedding_case}") as advance:
+            for i, user_id in enumerate(user_ids):
                 row = UserCluster(
-                    user_pk=user_pk,
+                    user_id=user_id,
                     embedding_case=embedding_case,
                     cluster_id=int(result.labels[i]),
                     umap_x=float(result.coords_2d[i, 0]),
                     umap_y=float(result.coords_2d[i, 1]),
                 )
                 session.merge(row)
-                advance(1, detail=f"{i + 1}/{len(user_pks)}")
+                advance(1, detail=f"{i + 1}/{len(user_ids)}")
         session.commit()
     finally:
         session.close()

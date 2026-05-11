@@ -108,13 +108,13 @@ def _bytes_to_array(blob: bytes) -> np.ndarray:
 
 
 def _aggregate_user_embeddings(rows: list[tuple[bytes, int]]) -> dict[int, bytes]:
-    """Mean-pool clip embedding blobs by user. Returns {user_pk: mean_blob}."""
+    """Mean-pool clip embedding blobs by user. Returns {user_id: mean_blob}."""
     user_arrays: dict[int, list[np.ndarray]] = defaultdict(list)
-    for blob, user_pk in rows:
-        user_arrays[user_pk].append(_bytes_to_array(blob))
+    for blob, user_id in rows:
+        user_arrays[user_id].append(_bytes_to_array(blob))
     return {
-        user_pk: np.stack(arrays).mean(axis=0).astype(np.float32).tobytes()
-        for user_pk, arrays in user_arrays.items()
+        user_id: np.stack(arrays).mean(axis=0).astype(np.float32).tobytes()
+        for user_id, arrays in user_arrays.items()
     }
 
 
@@ -123,14 +123,14 @@ def _eligible_clips(session):
         or_(Clip.disqualified.is_(None), Clip.disqualified == 0)
     )
     if EXCLUDE_DISQUALIFIED_USERS:
-        clips_q = clips_q.join(User, Clip.user_pk == User.pk).filter(
+        clips_q = clips_q.join(User, Clip.user_id == User.id).filter(
             or_(User.user_disqualified.is_(None), User.user_disqualified == 0),
         )
     return clips_q.all()
 
 
-def _video_path(clip_pk: int) -> str:
-    return os.path.abspath(os.path.join(VIDEO_DIR, f"{clip_pk}.mp4"))
+def _video_path(clip_id: int) -> str:
+    return os.path.abspath(os.path.join(VIDEO_DIR, f"{clip_id}.mp4"))
 
 
 def _build_text(clip, music_map: dict) -> str | None:
@@ -252,8 +252,8 @@ def embed_video_clips():
     session = get_session()
     try:
         done_video = {
-            r.clip_pk
-            for r in session.query(ClipEmbedding.clip_pk)
+            r.clip_id
+            for r in session.query(ClipEmbedding.clip_id)
             .filter(ClipEmbedding.embedding_case == "video")
             .all()
         }
@@ -261,9 +261,9 @@ def embed_video_clips():
         clips = _eligible_clips(session)
         todo = []
         for clip in clips:
-            if clip.pk in done_video:
+            if clip.id in done_video:
                 continue
-            path = _video_path(clip.pk)
+            path = _video_path(clip.id)
             if not os.path.exists(path):
                 continue
             todo.append(clip)
@@ -287,7 +287,7 @@ def embed_video_clips():
 
         with progress(len(todo), "Embedding video") as advance:
             for _, clip in enumerate(todo, 1):
-                path = _video_path(clip.pk)
+                path = _video_path(clip.id)
                 fps, max_frames, _duration = _adaptive_video_sampling(path)
                 frame_caps = _frame_retry_schedule(max_frames)
                 embeddings = None
@@ -305,17 +305,17 @@ def embed_video_clips():
                             continue
                         break
                 if embeddings is None:
-                    advance(detail=f"✗ {clip.pk}")
+                    advance(detail=f"✗ {clip.id}")
                     continue
 
                 video_row = ClipEmbedding(
-                    clip_pk=clip.pk,
+                    clip_id=clip.id,
                     embedding_case="video",
                     embedding=_to_bytes(embeddings[0]),
                 )
                 session.merge(video_row)
                 session.commit()
-                advance(detail=f"✓ {clip.pk}")
+                advance(detail=f"✓ {clip.id}")
 
         log("embed:video", "done", level="ok")
     finally:
@@ -327,8 +327,8 @@ def embed_sandwich_clips():
     session = get_session()
     try:
         done_sandwich = {
-            r.clip_pk
-            for r in session.query(ClipEmbedding.clip_pk)
+            r.clip_id
+            for r in session.query(ClipEmbedding.clip_id)
             .filter(ClipEmbedding.embedding_case == "sandwich")
             .all()
         }
@@ -338,9 +338,9 @@ def embed_sandwich_clips():
         clips = _eligible_clips(session)
         todo = []
         for clip in clips:
-            if clip.pk in done_sandwich:
+            if clip.id in done_sandwich:
                 continue
-            path = _video_path(clip.pk)
+            path = _video_path(clip.id)
             if not os.path.exists(path):
                 continue
             text = _build_text(clip, music_map)
@@ -367,7 +367,7 @@ def embed_sandwich_clips():
 
         with progress(len(todo), "Embedding sandwich") as advance:
             for _, (clip, text) in enumerate(todo, 1):
-                path = _video_path(clip.pk)
+                path = _video_path(clip.id)
                 fps, max_frames, _duration = _adaptive_video_sampling(path)
                 frame_caps = _frame_retry_schedule(max_frames)
                 embedding = None
@@ -394,17 +394,17 @@ def embed_sandwich_clips():
                         break
 
                 if embedding is None:
-                    advance(detail=f"✗ {clip.pk}")
+                    advance(detail=f"✗ {clip.id}")
                     continue
 
                 sandwich_row = ClipEmbedding(
-                    clip_pk=clip.pk,
+                    clip_id=clip.id,
                     embedding_case="sandwich",
                     embedding=_to_bytes(embedding),
                 )
                 session.merge(sandwich_row)
                 session.commit()
-                advance(detail=f"✓ {clip.pk}")
+                advance(detail=f"✓ {clip.id}")
 
         log("embed:sandwich", "done", level="ok")
     finally:
@@ -422,8 +422,8 @@ def embed_audio_clips():
     session = get_session()
     try:
         done_audio = {
-            r.clip_pk
-            for r in session.query(ClipEmbedding.clip_pk)
+            r.clip_id
+            for r in session.query(ClipEmbedding.clip_id)
             .filter(ClipEmbedding.embedding_case == "audio")
             .all()
         }
@@ -433,7 +433,7 @@ def embed_audio_clips():
         clips = _eligible_clips(session)
         todo = []
         for clip in clips:
-            if clip.pk in done_audio:
+            if clip.id in done_audio:
                 continue
             text = _build_audio_text(clip, music_map)
             if text is None:
@@ -461,17 +461,17 @@ def embed_audio_clips():
                     )
                     embedding = embeddings[0]
                 except Exception:
-                    advance(detail=f"✗ {clip.pk}")
+                    advance(detail=f"✗ {clip.id}")
                     continue
 
                 audio_row = ClipEmbedding(
-                    clip_pk=clip.pk,
+                    clip_id=clip.id,
                     embedding_case="audio",
                     embedding=_to_bytes(embedding),
                 )
                 session.merge(audio_row)
                 session.commit()
-                advance(detail=f"✓ {clip.pk}")
+                advance(detail=f"✓ {clip.id}")
 
         log("embed:audio", "done", level="ok")
     finally:
@@ -486,8 +486,8 @@ def embed_user_clips(cases: list[str] | None = None):
     try:
         for case in cases:
             rows = (
-                session.query(ClipEmbedding.embedding, Clip.user_pk)
-                .join(Clip, ClipEmbedding.clip_pk == Clip.pk)
+                session.query(ClipEmbedding.embedding, Clip.user_id)
+                .join(Clip, ClipEmbedding.clip_id == Clip.id)
                 .filter(ClipEmbedding.embedding_case == case)
                 .all()
             )
@@ -499,9 +499,9 @@ def embed_user_clips(cases: list[str] | None = None):
             aggregated = _aggregate_user_embeddings(rows)
             log(f"embed:user:{case}", f"{len(aggregated)} users to embed")
 
-            for user_pk, mean_blob in aggregated.items():
+            for user_id, mean_blob in aggregated.items():
                 row = UserEmbedding(
-                    user_pk=user_pk,
+                    user_id=user_id,
                     embedding_case=case,
                     embedding=mean_blob,
                 )

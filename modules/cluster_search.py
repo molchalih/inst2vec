@@ -33,12 +33,12 @@ _PARAM_KEYS = (
 )
 
 
-def _compute_dataset_hash(user_pks: list[int]) -> str:
+def _compute_dataset_hash(user_ids: list[int]) -> str:
     """Compute a deterministic SHA-256 hash of the dataset.
 
-    The hash is based on sorted user PKs, ensuring it's order-independent.
+    The hash is based on sorted user IDs, ensuring it's order-independent.
     """
-    payload = ",".join(str(pk) for pk in sorted(user_pks)).encode()
+    payload = ",".join(str(uid) for uid in sorted(user_ids)).encode()
     return hashlib.sha256(payload).hexdigest()
 
 
@@ -132,7 +132,7 @@ def run_cluster_search() -> None:
     total_skipped = 0
 
     for case, case_combos in combos_by_case.items():
-        matrix, user_pks = load_user_matrix(case)
+        matrix, user_ids = load_user_matrix(case)
         if matrix.shape[0] == 0:
             log(
                 f"cluster_search:{case}",
@@ -154,7 +154,7 @@ def run_cluster_search() -> None:
                 session.close()
             continue
 
-        dataset_hash = _compute_dataset_hash(user_pks)
+        dataset_hash = _compute_dataset_hash(user_ids)
         current_keys = {_combo_key(c) for c in case_combos}
 
         # Invalidate stale rows: wrong grid params or dataset changed
