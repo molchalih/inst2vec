@@ -138,7 +138,7 @@ def section_health(session):
 
     # Downloads
     n_video_fail = (
-        session.query(func.count(Download.entity_pk))
+        session.query(func.count(Download.entity_id))
         .filter(Download.file_type == "video", ~Download.success)
         .scalar()
     )
