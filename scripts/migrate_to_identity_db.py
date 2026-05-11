@@ -158,10 +158,10 @@ def _remap_ids(
 
 
 def _null_pii_and_rename(main_db: str) -> None:
-    """NULL out PII columns, add parse_status, rename pk→id / user_pk→user_id / etc."""
+    """NULL out PII columns, rename pk→id / user_pk→user_id / etc."""
     con = sqlite3.connect(main_db)
 
-    # Recreate users table: NULL PII, add parse_status
+    # Recreate users table: NULL PII
     con.execute("""
         CREATE TABLE users_new AS
         SELECT pk,
@@ -170,7 +170,6 @@ def _null_pii_and_rename(main_db: str) -> None:
                following_count,
                NULL AS city_name,
                user_disqualified,
-               parse_status,
                NULL AS profile_pic_url,
                NULL AS profile_pic_url_hd
         FROM users
