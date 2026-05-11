@@ -1,4 +1,5 @@
 """Paper-facing summary table for the users dataset."""
+
 from __future__ import annotations
 
 from statistics import mean, median
@@ -27,13 +28,13 @@ TABLE_ROWS: tuple[tuple[str, str], ...] = (
     (r"$\tilde{x}_{\mathrm{following}}$", "following_count_median"),
     (r"$\mu_\mathrm{following}$", "following_count_mean"),
     (r"$[\min-max]_{\mathrm{following}}$", "following_count_minmax"),
-    (r"$\tilde{x}_{\mathrm{views}}$","play_count_per_user_median"),
+    (r"$\tilde{x}_{\mathrm{views}}$", "play_count_per_user_median"),
     (r"$\mu_\mathrm{views}$", "play_count_per_user_mean"),
 )
 
 
 def _count(session: Session, *criteria) -> int:
-    return int(session.query(func.count(User.pk)).filter(*criteria).scalar() or 0)
+    return int(session.query(func.count(User.id)).filter(*criteria).scalar() or 0)
 
 
 def _fmt_count_share(count: int, total: int) -> str:
@@ -59,17 +60,21 @@ def _kept_play_count_distribution(session: Session) -> list[float]:
         return []
 
     rows = (
-        session.query(Clip.user_pk, func.avg(Clip.play_count).label("avg_play_count"))
-        .join(User, Clip.user_pk == User.pk)
+        session.query(Clip.user_id, func.avg(Clip.play_count).label("avg_play_count"))
+        .join(User, Clip.user_id == User.id)
         .filter(
             User.user_disqualified == 0,
             Clip.disqualified == 0,
             Clip.play_count.is_not(None),
         )
-        .group_by(Clip.user_pk)
+        .group_by(Clip.user_id)
         .all()
     )
-    return [float(avg_play_count) for _, avg_play_count in rows if avg_play_count is not None]
+    return [
+        float(avg_play_count)
+        for _, avg_play_count in rows
+        if avg_play_count is not None
+    ]
 
 
 def _summary_cells(session: Session) -> dict[str, str]:

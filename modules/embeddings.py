@@ -1,21 +1,33 @@
 import os
 import subprocess
 from collections import defaultdict
+
 import numpy as np
 from sqlalchemy import or_
 
-from modules.database import Base, engine, get_session, Clip, ClipEmbedding, User, Music, UserEmbedding
+from modules.console import log, progress
+from modules.database import (
+    Base,
+    Clip,
+    ClipEmbedding,
+    Music,
+    User,
+    UserEmbedding,
+    engine,
+    get_session,
+)
 from modules.external.qwen3_vl_embedding import Qwen3VLEmbedder
-from modules.console import progress, log
 
 MODEL_PATH = "./models/Qwen3-VL-Embedding-8B"
 VIDEO_DIR = "data/source/videos"
-EXCLUDE_DISQUALIFIED_USERS = os.environ.get("EMBEDDINGS_EXCLUDE_DISQUALIFIED_USERS", "1") == "1"
+EXCLUDE_DISQUALIFIED_USERS = (
+    os.environ.get("EMBEDDINGS_EXCLUDE_DISQUALIFIED_USERS", "1") == "1"
+)
 EMBED_MAX_LENGTH = 32768
 ADAPTIVE_MAX_FRAMES = 96
 ADAPTIVE_DEFAULT_FPS = 2.0
 
-_KEY_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+_KEY_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
 
 def verbalize_music(music) -> str:
@@ -66,7 +78,7 @@ def verbalize_music(music) -> str:
             descriptors.append("rap or speech-heavy")
 
     if music.tempo is not None:
-        bpm = int(round(music.tempo))
+        bpm = round(music.tempo)
         if music.tempo >= 150:
             descriptors.append(f"fast ({bpm} BPM)")
         elif music.tempo >= 110:
@@ -96,30 +108,29 @@ def _bytes_to_array(blob: bytes) -> np.ndarray:
 
 
 def _aggregate_user_embeddings(rows: list[tuple[bytes, int]]) -> dict[int, bytes]:
-    """Mean-pool clip embedding blobs by user. Returns {user_pk: mean_blob}."""
+    """Mean-pool clip embedding blobs by user. Returns {user_id: mean_blob}."""
     user_arrays: dict[int, list[np.ndarray]] = defaultdict(list)
-    for blob, user_pk in rows:
-        user_arrays[user_pk].append(_bytes_to_array(blob))
+    for blob, user_id in rows:
+        user_arrays[user_id].append(_bytes_to_array(blob))
     return {
-        user_pk: np.stack(arrays).mean(axis=0).astype(np.float32).tobytes()
-        for user_pk, arrays in user_arrays.items()
+        user_id: np.stack(arrays).mean(axis=0).astype(np.float32).tobytes()
+        for user_id, arrays in user_arrays.items()
     }
 
 
 def _eligible_clips(session):
-    clips_q = session.query(Clip).filter(or_(Clip.disqualified.is_(None), Clip.disqualified == 0))
+    clips_q = session.query(Clip).filter(
+        or_(Clip.disqualified.is_(None), Clip.disqualified == 0)
+    )
     if EXCLUDE_DISQUALIFIED_USERS:
-        clips_q = (
-            clips_q.join(User, Clip.user_pk == User.pk)
-            .filter(
-                or_(User.user_disqualified.is_(None), User.user_disqualified == 0),
-            )
+        clips_q = clips_q.join(User, Clip.user_id == User.id).filter(
+            or_(User.user_disqualified.is_(None), User.user_disqualified == 0),
         )
     return clips_q.all()
 
 
-def _video_path(clip_pk: int) -> str:
-    return os.path.abspath(os.path.join(VIDEO_DIR, f"{clip_pk}.mp4"))
+def _video_path(clip_id: int) -> str:
+    return os.path.abspath(os.path.join(VIDEO_DIR, f"{clip_id}.mp4"))
 
 
 def _build_text(clip, music_map: dict) -> str | None:
@@ -230,7 +241,10 @@ def _frame_retry_schedule(initial_max_frames: int) -> list[int]:
 
 def _is_token_mismatch_error(exc: Exception) -> bool:
     msg = str(exc)
-    return "Mismatch in `video` token count" in msg or "Likely due to `truncation='max_length'" in msg
+    return (
+        "Mismatch in `video` token count" in msg
+        or "Likely due to `truncation='max_length'" in msg
+    )
 
 
 def embed_video_clips():
@@ -238,16 +252,18 @@ def embed_video_clips():
     session = get_session()
     try:
         done_video = {
-            r.clip_pk
-            for r in session.query(ClipEmbedding.clip_pk).filter(ClipEmbedding.embedding_case == "video").all()
+            r.clip_id
+            for r in session.query(ClipEmbedding.clip_id)
+            .filter(ClipEmbedding.embedding_case == "video")
+            .all()
         }
 
         clips = _eligible_clips(session)
         todo = []
         for clip in clips:
-            if clip.pk in done_video:
+            if clip.id in done_video:
                 continue
-            path = _video_path(clip.pk)
+            path = _video_path(clip.id)
             if not os.path.exists(path):
                 continue
             todo.append(clip)
@@ -256,8 +272,12 @@ def embed_video_clips():
             log("embed:video", "nothing to do")
             return
 
-        log("embed:video", f"{len(todo)} clips to embed ({len(done_video)} already done)")
+        log(
+            "embed:video",
+            f"{len(todo)} clips to embed ({len(done_video)} already done)",
+        )
         from modules.external.qwen3_vl_embedding import Qwen3VLEmbedder
+
         model = Qwen3VLEmbedder(
             model_name_or_path=MODEL_PATH,
             max_length=EMBED_MAX_LENGTH,
@@ -267,30 +287,35 @@ def embed_video_clips():
 
         with progress(len(todo), "Embedding video") as advance:
             for _, clip in enumerate(todo, 1):
-                path = _video_path(clip.pk)
-                fps, max_frames, duration = _adaptive_video_sampling(path)
+                path = _video_path(clip.id)
+                fps, max_frames, _duration = _adaptive_video_sampling(path)
                 frame_caps = _frame_retry_schedule(max_frames)
                 embeddings = None
                 for attempt_idx, frame_cap in enumerate(frame_caps):
                     try:
-                        embeddings = model.process([{"video": path, "fps": fps, "max_frames": frame_cap}])
+                        embeddings = model.process(
+                            [{"video": path, "fps": fps, "max_frames": frame_cap}]
+                        )
                         break
                     except Exception as e:
-                        if _is_token_mismatch_error(e) and attempt_idx < len(frame_caps) - 1:
+                        if (
+                            _is_token_mismatch_error(e)
+                            and attempt_idx < len(frame_caps) - 1
+                        ):
                             continue
                         break
                 if embeddings is None:
-                    advance(detail=f"✗ {clip.pk}")
+                    advance(detail=f"✗ {clip.id}")
                     continue
 
                 video_row = ClipEmbedding(
-                    clip_pk=clip.pk,
+                    clip_id=clip.id,
                     embedding_case="video",
                     embedding=_to_bytes(embeddings[0]),
                 )
                 session.merge(video_row)
                 session.commit()
-                advance(detail=f"✓ {clip.pk}")
+                advance(detail=f"✓ {clip.id}")
 
         log("embed:video", "done", level="ok")
     finally:
@@ -302,8 +327,8 @@ def embed_sandwich_clips():
     session = get_session()
     try:
         done_sandwich = {
-            r.clip_pk
-            for r in session.query(ClipEmbedding.clip_pk)
+            r.clip_id
+            for r in session.query(ClipEmbedding.clip_id)
             .filter(ClipEmbedding.embedding_case == "sandwich")
             .all()
         }
@@ -313,9 +338,9 @@ def embed_sandwich_clips():
         clips = _eligible_clips(session)
         todo = []
         for clip in clips:
-            if clip.pk in done_sandwich:
+            if clip.id in done_sandwich:
                 continue
-            path = _video_path(clip.pk)
+            path = _video_path(clip.id)
             if not os.path.exists(path):
                 continue
             text = _build_text(clip, music_map)
@@ -327,8 +352,12 @@ def embed_sandwich_clips():
             log("embed:sandwich", "nothing to do")
             return
 
-        log("embed:sandwich", f"{len(todo)} clips to embed ({len(done_sandwich)} already done)")
+        log(
+            "embed:sandwich",
+            f"{len(todo)} clips to embed ({len(done_sandwich)} already done)",
+        )
         from modules.external.qwen3_vl_embedding import Qwen3VLEmbedder
+
         model = Qwen3VLEmbedder(
             model_name_or_path=MODEL_PATH,
             max_length=EMBED_MAX_LENGTH,
@@ -338,34 +367,44 @@ def embed_sandwich_clips():
 
         with progress(len(todo), "Embedding sandwich") as advance:
             for _, (clip, text) in enumerate(todo, 1):
-                path = _video_path(clip.pk)
-                fps, max_frames, duration = _adaptive_video_sampling(path)
+                path = _video_path(clip.id)
+                fps, max_frames, _duration = _adaptive_video_sampling(path)
                 frame_caps = _frame_retry_schedule(max_frames)
                 embedding = None
                 for attempt_idx, frame_cap in enumerate(frame_caps):
                     try:
                         embeddings = model.process(
-                            [{"video": path, "fps": fps, "max_frames": frame_cap, "text": text}]
+                            [
+                                {
+                                    "video": path,
+                                    "fps": fps,
+                                    "max_frames": frame_cap,
+                                    "text": text,
+                                }
+                            ]
                         )
                         embedding = embeddings[0]
                         break
                     except Exception as e:
-                        if _is_token_mismatch_error(e) and attempt_idx < len(frame_caps) - 1:
+                        if (
+                            _is_token_mismatch_error(e)
+                            and attempt_idx < len(frame_caps) - 1
+                        ):
                             continue
                         break
 
                 if embedding is None:
-                    advance(detail=f"✗ {clip.pk}")
+                    advance(detail=f"✗ {clip.id}")
                     continue
 
                 sandwich_row = ClipEmbedding(
-                    clip_pk=clip.pk,
+                    clip_id=clip.id,
                     embedding_case="sandwich",
                     embedding=_to_bytes(embedding),
                 )
                 session.merge(sandwich_row)
                 session.commit()
-                advance(detail=f"✓ {clip.pk}")
+                advance(detail=f"✓ {clip.id}")
 
         log("embed:sandwich", "done", level="ok")
     finally:
@@ -383,8 +422,8 @@ def embed_audio_clips():
     session = get_session()
     try:
         done_audio = {
-            r.clip_pk
-            for r in session.query(ClipEmbedding.clip_pk)
+            r.clip_id
+            for r in session.query(ClipEmbedding.clip_id)
             .filter(ClipEmbedding.embedding_case == "audio")
             .all()
         }
@@ -394,7 +433,7 @@ def embed_audio_clips():
         clips = _eligible_clips(session)
         todo = []
         for clip in clips:
-            if clip.pk in done_audio:
+            if clip.id in done_audio:
                 continue
             text = _build_audio_text(clip, music_map)
             if text is None:
@@ -405,7 +444,10 @@ def embed_audio_clips():
             log("embed:audio", "nothing to do")
             return
 
-        log("embed:audio", f"{len(todo)} clips to embed ({len(done_audio)} already done)")
+        log(
+            "embed:audio",
+            f"{len(todo)} clips to embed ({len(done_audio)} already done)",
+        )
         model = Qwen3VLEmbedder(
             model_name_or_path=MODEL_PATH,
             max_length=EMBED_MAX_LENGTH,
@@ -414,20 +456,22 @@ def embed_audio_clips():
         with progress(len(todo), "Embedding audio") as advance:
             for _, (clip, text) in enumerate(todo, 1):
                 try:
-                    embeddings = model.process([{"text": text, "instruction": AUDIO_INSTRUCTION}])
+                    embeddings = model.process(
+                        [{"text": text, "instruction": AUDIO_INSTRUCTION}]
+                    )
                     embedding = embeddings[0]
                 except Exception:
-                    advance(detail=f"✗ {clip.pk}")
+                    advance(detail=f"✗ {clip.id}")
                     continue
 
                 audio_row = ClipEmbedding(
-                    clip_pk=clip.pk,
+                    clip_id=clip.id,
                     embedding_case="audio",
                     embedding=_to_bytes(embedding),
                 )
                 session.merge(audio_row)
                 session.commit()
-                advance(detail=f"✓ {clip.pk}")
+                advance(detail=f"✓ {clip.id}")
 
         log("embed:audio", "done", level="ok")
     finally:
@@ -442,8 +486,8 @@ def embed_user_clips(cases: list[str] | None = None):
     try:
         for case in cases:
             rows = (
-                session.query(ClipEmbedding.embedding, Clip.user_pk)
-                .join(Clip, ClipEmbedding.clip_pk == Clip.pk)
+                session.query(ClipEmbedding.embedding, Clip.user_id)
+                .join(Clip, ClipEmbedding.clip_id == Clip.id)
                 .filter(ClipEmbedding.embedding_case == case)
                 .all()
             )
@@ -455,9 +499,9 @@ def embed_user_clips(cases: list[str] | None = None):
             aggregated = _aggregate_user_embeddings(rows)
             log(f"embed:user:{case}", f"{len(aggregated)} users to embed")
 
-            for user_pk, mean_blob in aggregated.items():
+            for user_id, mean_blob in aggregated.items():
                 row = UserEmbedding(
-                    user_pk=user_pk,
+                    user_id=user_id,
                     embedding_case=case,
                     embedding=mean_blob,
                 )

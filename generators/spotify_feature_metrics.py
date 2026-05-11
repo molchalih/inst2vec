@@ -1,4 +1,5 @@
 """Static markdown table listing Spotify audio feature metrics."""
+
 from __future__ import annotations
 
 __all__ = ("spotify_feature_metrics_to_markdown",)

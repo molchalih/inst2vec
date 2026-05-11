@@ -1,8 +1,9 @@
 """Phase 1 – music pipeline.
 
-  classify_music()         ACRCloud fingerprint every clip → link to Music rows.
-  extract_music_features() Spotify → ReccoBeats IDs → audio features (upload fallback).
+classify_music()         ACRCloud fingerprint every clip → link to Music rows.
+extract_music_features() Spotify → ReccoBeats IDs → audio features (upload fallback).
 """
+
 from __future__ import annotations
 
 import json
@@ -10,14 +11,13 @@ import os
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Optional
 
 import httpx
 from acrcloud.recognizer import ACRCloudRecognizer
 from sqlalchemy import or_
 
+from modules.console import log, progress
 from modules.database import Clip, Music, get_session
-from modules.console import progress, log
 from modules.services import ReccoBeatsClient, SpotifyClient
 
 VIDEO_DIR = Path(os.environ.get("VIDEO_DIR", "data/source/videos"))
@@ -25,15 +25,26 @@ MIN_CONFIDENCE = float(os.environ.get("AUDIO_FINGERPRINT_CONFIDENCE", 0.8))
 COMMIT_EVERY = int(os.environ.get("MUSIC_COMMIT_EVERY", 50))
 
 FEATURE_FIELDS = [
-    "acousticness", "danceability", "energy", "instrumentalness",
-    "key", "liveness", "loudness", "mode", "speechiness", "tempo", "valence",
+    "acousticness",
+    "danceability",
+    "energy",
+    "instrumentalness",
+    "key",
+    "liveness",
+    "loudness",
+    "mode",
+    "speechiness",
+    "tempo",
+    "valence",
 ]
 UPLOAD_FIELDS = [f for f in FEATURE_FIELDS if f not in ("key", "mode")]
 _NO_MATCH = "none"
 
 _SAMPLE_SECS = int(os.environ.get("MANUAL_FEATURES_MAX_SECONDS", 20))
 _SAMPLE_RATE = int(os.environ.get("MANUAL_FEATURES_SAMPLE_RATE", 44100))
-_SAMPLE_MAX_BYTES = int(float(os.environ.get("MANUAL_FEATURES_MAX_MB", 5)) * 1024 * 1024)
+_SAMPLE_MAX_BYTES = int(
+    float(os.environ.get("MANUAL_FEATURES_MAX_MB", 5)) * 1024 * 1024
+)
 _SAMPLE_BITRATE = os.environ.get("MANUAL_FEATURES_MP3_BITRATE", "128k")
 
 SCOPE_CLASSIFY = "classify_music"
@@ -42,7 +53,8 @@ SCOPE_FEATURES = "extract_features"
 
 # ── helpers ────────────────────────────────────────────────────────────────────
 
-def _fingerprint(acr: ACRCloudRecognizer, path: str) -> Optional[tuple[str, str, float]]:
+
+def _fingerprint(acr: ACRCloudRecognizer, path: str) -> tuple[str, str, float] | None:
     try:
         data = json.loads(acr.recognize_by_file(path, 0) or "")
     except Exception:
@@ -72,37 +84,64 @@ def _get_or_create_music(session, artist: str, track: str) -> Music:
     return row
 
 
-def _pick_video(session, music_id: int) -> Optional[Path]:
-    for (pk,) in (
-        session.query(Clip.pk)
-        .filter(Clip.music_id == music_id, or_(Clip.disqualified.is_(None), Clip.disqualified == 0))
-        .order_by(Clip.play_count.desc(), Clip.pk.desc())
+def _pick_video(session, music_id: int) -> Path | None:
+    for (clip_id,) in (
+        session.query(Clip.id)
+        .filter(
+            Clip.music_id == music_id,
+            or_(Clip.disqualified.is_(None), Clip.disqualified == 0),
+        )
+        .order_by(Clip.play_count.desc(), Clip.id.desc())
     ):
-        p = VIDEO_DIR / f"{pk}.mp4"
+        p = VIDEO_DIR / f"{clip_id}.mp4"
         if p.exists():
             return p
     return None
 
 
-def _extract_audio_sample(video: Path, out_dir: Path) -> Optional[Path]:
+def _extract_audio_sample(video: Path, out_dir: Path) -> Path | None:
     """ffmpeg: extract a short stereo clip. WAV preferred; MP3 as size fallback.
 
     ReccoBeats analysis rejects low-rate mono input, so we always use 44.1 kHz stereo.
     """
-    base = ["ffmpeg", "-y", "-i", str(video), "-vn",
-            "-t", str(_SAMPLE_SECS), "-ac", "2", "-ar", str(_SAMPLE_RATE)]
+    base = [
+        "ffmpeg",
+        "-y",
+        "-i",
+        str(video),
+        "-vn",
+        "-t",
+        str(_SAMPLE_SECS),
+        "-ac",
+        "2",
+        "-ar",
+        str(_SAMPLE_RATE),
+    ]
     wav = out_dir / f"{video.stem}.wav"
-    if (subprocess.run(base + ["-c:a", "pcm_s16le", str(wav)], capture_output=True).returncode == 0
-            and wav.exists() and wav.stat().st_size <= _SAMPLE_MAX_BYTES):
+    if (
+        subprocess.run(
+            [*base, "-c:a", "pcm_s16le", str(wav)], capture_output=True
+        ).returncode
+        == 0
+        and wav.exists()
+        and wav.stat().st_size <= _SAMPLE_MAX_BYTES
+    ):
         return wav
     mp3 = out_dir / f"{video.stem}.mp3"
-    if (subprocess.run(base + ["-b:a", _SAMPLE_BITRATE, str(mp3)], capture_output=True).returncode == 0
-            and mp3.exists() and mp3.stat().st_size <= _SAMPLE_MAX_BYTES):
+    if (
+        subprocess.run(
+            [*base, "-b:a", _SAMPLE_BITRATE, str(mp3)], capture_output=True
+        ).returncode
+        == 0
+        and mp3.exists()
+        and mp3.stat().st_size <= _SAMPLE_MAX_BYTES
+    ):
         return mp3
     return None
 
 
 # ── public API ─────────────────────────────────────────────────────────────────
+
 
 def classify_music() -> None:
     """Fingerprint all unresolved clips with ACRCloud and link them to Music rows.
@@ -114,26 +153,31 @@ def classify_music() -> None:
 
     clips = (
         session.query(Clip)
-        .filter(Clip.has_music.is_(None), or_(Clip.disqualified.is_(None), Clip.disqualified == 0))
-        .order_by(Clip.pk.desc())
+        .filter(
+            Clip.has_music.is_(None),
+            or_(Clip.disqualified.is_(None), Clip.disqualified == 0),
+        )
+        .order_by(Clip.id.desc())
         .all()
     )
     if not clips:
         session.close()
         return
 
-    acr = ACRCloudRecognizer({
-        "host": os.environ["ARC_HOST"],
-        "access_key": os.environ["ARC_ACCESS_KEY"],
-        "access_secret": os.environ["ARC_SECRET_KEY"],
-        "timeout": 10,
-    })
+    acr = ACRCloudRecognizer(
+        {
+            "host": os.environ["ARC_HOST"],
+            "access_key": os.environ["ARC_ACCESS_KEY"],
+            "access_secret": os.environ["ARC_SECRET_KEY"],
+            "timeout": 10,
+        }
+    )
     log(SCOPE_CLASSIFY, f"{len(clips)} clips to fingerprint")
     matched = no_match = missing = 0
 
     with progress(len(clips), "Fingerprinting") as advance:
         for i, clip in enumerate(clips, 1):
-            path = VIDEO_DIR / f"{clip.pk}.mp4"
+            path = VIDEO_DIR / f"{clip.id}.mp4"
             if not path.exists():
                 missing += 1
                 advance()
@@ -149,7 +193,7 @@ def classify_music() -> None:
                 clip.music_confidence = confidence
                 clip.has_music = 1
                 matched += 1
-                advance(detail=f"{clip.pk}: {artist} – {track} ({confidence:.0%})")
+                advance(detail=f"{clip.id}: {artist} – {track} ({confidence:.0%})")
             else:
                 clip.has_music = 0
                 no_match += 1
@@ -196,37 +240,56 @@ def extract_music_features() -> None:
                         session.commit()
                     advance(detail=f"{row.artist} – {row.track}")
             session.commit()
-            log(SCOPE_FEATURES, f"spotify: done — {found} found, {total - found} no match", level="ok")
+            log(
+                SCOPE_FEATURES,
+                f"spotify: done — {found} found, {total - found} no match",
+                level="ok",
+            )
 
         # 2. ReccoBeats track IDs — batched lookup by Spotify ID
-        rows = session.query(Music).filter(
-            Music.spotify_id.is_not(None),
-            Music.spotify_id != _NO_MATCH,
-            Music.reccobeats_id.is_(None),
-        ).all()
+        rows = (
+            session.query(Music)
+            .filter(
+                Music.spotify_id.is_not(None),
+                Music.spotify_id != _NO_MATCH,
+                Music.reccobeats_id.is_(None),
+            )
+            .all()
+        )
         if rows:
             log(SCOPE_FEATURES, f"reccobeats_id: {len(rows)} tracks to resolve")
             rb_id_map = rb.get_ids(
                 [r.spotify_id for r in rows if r.spotify_id],
-                on_batch=lambda i, n, m: log(SCOPE_FEATURES, f"reccobeats_id: batch {i}/{n} — {m} matched"),
+                on_batch=lambda i, n, m: log(
+                    SCOPE_FEATURES, f"reccobeats_id: batch {i}/{n} — {m} matched"
+                ),
             )
             for row in rows:
                 row.reccobeats_id = rb_id_map.get(row.spotify_id, _NO_MATCH)
             session.commit()
             matched = sum(1 for r in rows if r.reccobeats_id != _NO_MATCH)
-            log(SCOPE_FEATURES, f"reccobeats_id: done — {matched} matched, {len(rows) - matched} no match")
+            log(
+                SCOPE_FEATURES,
+                f"reccobeats_id: done — {matched} matched, {len(rows) - matched} no match",
+            )
 
         # 3. Catalog audio features — batched by ReccoBeats ID
-        rows = session.query(Music).filter(
-            Music.reccobeats_id.is_not(None),
-            Music.reccobeats_id != _NO_MATCH,
-            Music.has_features.is_(None),
-        ).all()
+        rows = (
+            session.query(Music)
+            .filter(
+                Music.reccobeats_id.is_not(None),
+                Music.reccobeats_id != _NO_MATCH,
+                Music.has_features.is_(None),
+            )
+            .all()
+        )
         if rows:
             log(SCOPE_FEATURES, f"catalog features: {len(rows)} tracks to enrich")
             feat_map = rb.get_features(
                 [r.reccobeats_id for r in rows if r.reccobeats_id],
-                on_batch=lambda i, n, m: log(SCOPE_FEATURES, f"catalog features: batch {i}/{n} — {m} enriched"),
+                on_batch=lambda i, n, m: log(
+                    SCOPE_FEATURES, f"catalog features: batch {i}/{n} — {m} enriched"
+                ),
             )
             enriched = 0
             for row in rows:
@@ -250,11 +313,16 @@ def extract_music_features() -> None:
                 (Music.reccobeats_id.is_(None)) | (Music.reccobeats_id == _NO_MATCH),
                 (Music.has_features.is_(None)) | (Music.has_features != "yes"),
             )
-            .distinct().order_by(Music.id).all()
+            .distinct()
+            .order_by(Music.id)
+            .all()
         )
         if rows:
             total = len(rows)
-            log(SCOPE_FEATURES, f"upload fallback: {total} tracks without catalog coverage")
+            log(
+                SCOPE_FEATURES,
+                f"upload fallback: {total} tracks without catalog coverage",
+            )
             enriched = 0
             with progress(total, "Upload fallback") as advance:
                 for i, row in enumerate(rows, 1):
@@ -268,7 +336,9 @@ def extract_music_features() -> None:
                         audio = _extract_audio_sample(video, Path(tmp))
                         if not audio:
                             row.has_features = "none"
-                            advance(detail=f"{row.artist} – {row.track} (audio extract failed)")
+                            advance(
+                                detail=f"{row.artist} – {row.track} (audio extract failed)"
+                            )
                             continue
                         feats = rb.upload_features(audio)
 
@@ -287,6 +357,10 @@ def extract_music_features() -> None:
                         session.commit()
 
             session.commit()
-            log(SCOPE_FEATURES, f"upload fallback: done — {enriched}/{total} enriched", level="ok")
+            log(
+                SCOPE_FEATURES,
+                f"upload fallback: done — {enriched}/{total} enriched",
+                level="ok",
+            )
 
     session.close()

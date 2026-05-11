@@ -2,9 +2,11 @@ import os
 import sys
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pytest
+from matplotlib.figure import Figure
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
@@ -23,14 +25,54 @@ def _seed_clusters(eng):
     with Session(eng) as s:
         s.add_all(
             [
-                User(pk=1, username="alpha", parse_status="success", user_disqualified=0),
-                User(pk=2, username="beta", parse_status="success", user_disqualified=0),
-                UserCluster(user_pk=1, embedding_case="audio", cluster_id=0, umap_x=0.1, umap_y=0.2),
-                UserCluster(user_pk=2, embedding_case="audio", cluster_id=-1, umap_x=0.3, umap_y=0.4),
-                UserCluster(user_pk=1, embedding_case="video", cluster_id=1, umap_x=1.1, umap_y=1.2),
-                UserCluster(user_pk=2, embedding_case="video", cluster_id=1, umap_x=1.3, umap_y=1.4),
-                UserCluster(user_pk=1, embedding_case="sandwich", cluster_id=2, umap_x=2.1, umap_y=2.2),
-                UserCluster(user_pk=2, embedding_case="sandwich", cluster_id=2, umap_x=2.3, umap_y=2.4),
+                User(
+                    id=1, parse_status="success", user_disqualified=0
+                ),
+                User(
+                    id=2, parse_status="success", user_disqualified=0
+                ),
+                UserCluster(
+                    user_id=1,
+                    embedding_case="audio",
+                    cluster_id=0,
+                    umap_x=0.1,
+                    umap_y=0.2,
+                ),
+                UserCluster(
+                    user_id=2,
+                    embedding_case="audio",
+                    cluster_id=-1,
+                    umap_x=0.3,
+                    umap_y=0.4,
+                ),
+                UserCluster(
+                    user_id=1,
+                    embedding_case="video",
+                    cluster_id=1,
+                    umap_x=1.1,
+                    umap_y=1.2,
+                ),
+                UserCluster(
+                    user_id=2,
+                    embedding_case="video",
+                    cluster_id=1,
+                    umap_x=1.3,
+                    umap_y=1.4,
+                ),
+                UserCluster(
+                    user_id=1,
+                    embedding_case="sandwich",
+                    cluster_id=2,
+                    umap_x=2.1,
+                    umap_y=2.2,
+                ),
+                UserCluster(
+                    user_id=2,
+                    embedding_case="sandwich",
+                    cluster_id=2,
+                    umap_x=2.3,
+                    umap_y=2.4,
+                ),
             ]
         )
         s.commit()
@@ -44,7 +86,7 @@ def test_cluster_plot_figure_for_case_returns_matplotlib_figure():
 
     fig = cluster_plot_figure_for_case(eng, "audio")
 
-    assert isinstance(fig, plt.Figure)
+    assert isinstance(fig, Figure)
     assert "audio" in fig.axes[0].get_title().lower()
     plt.close(fig)
 
@@ -78,7 +120,7 @@ def test_render_audio_cluster_plot_returns_figure():
 
     fig = render_audio_cluster_plot(eng=eng)
 
-    assert isinstance(fig, plt.Figure)
+    assert isinstance(fig, Figure)
     assert "audio" in fig.axes[0].get_title().lower()
     plt.close(fig)
 

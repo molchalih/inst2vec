@@ -1,10 +1,12 @@
-import sys
 import os
+import sys
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import csv
 import functools
 import io
+
 import numpy as np
 import pytest
 
@@ -19,16 +21,19 @@ pytest.skip("temporarily broken", allow_module_level=True)
 def _import():
     import importlib.util
     import pathlib
+
     spec = importlib.util.spec_from_file_location(
         "explore_audio_whitening",
         pathlib.Path(__file__).parent.parent / "scripts" / "explore_audio_whitening.py",
     )
+    assert spec is not None and spec.loader is not None
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
 
 
 # ── _build_whitened_matrix ─────────────────────────────────────────────────────
+
 
 def test_build_whitened_none_returns_same_shape():
     mod = _import()
@@ -68,14 +73,28 @@ def test_build_whitened_scale_whiten_reduces_dims():
 # ── _load_done ─────────────────────────────────────────────────────────────────
 
 FIELDNAMES = [
-    "umap_n_components", "umap_n_neighbors", "umap_min_dist", "umap_metric",
-    "hdbscan_min_cluster_size", "hdbscan_cluster_selection_method", "hdbscan_metric",
-    "whitening", "n_clusters", "noise_ratio", "dbcv", "silhouette",
+    "umap_n_components",
+    "umap_n_neighbors",
+    "umap_min_dist",
+    "umap_metric",
+    "hdbscan_min_cluster_size",
+    "hdbscan_cluster_selection_method",
+    "hdbscan_metric",
+    "whitening",
+    "n_clusters",
+    "noise_ratio",
+    "dbcv",
+    "silhouette",
 ]
 
 PARAM_COLS = [
-    "umap_n_components", "umap_n_neighbors", "umap_min_dist", "umap_metric",
-    "hdbscan_min_cluster_size", "hdbscan_cluster_selection_method", "hdbscan_metric",
+    "umap_n_components",
+    "umap_n_neighbors",
+    "umap_min_dist",
+    "umap_metric",
+    "hdbscan_min_cluster_size",
+    "hdbscan_cluster_selection_method",
+    "hdbscan_metric",
 ]
 
 
@@ -99,11 +118,18 @@ def test_load_done_parses_existing_rows(tmp_path):
     mod = _import()
     p = tmp_path / "results.csv"
     row = {
-        "umap_n_components": "15", "umap_n_neighbors": "10", "umap_min_dist": "0.0",
-        "umap_metric": "cosine", "hdbscan_min_cluster_size": "10",
-        "hdbscan_cluster_selection_method": "eom", "hdbscan_metric": "euclidean",
-        "whitening": "whiten_128", "n_clusters": "5", "noise_ratio": "0.2",
-        "dbcv": "0.41", "silhouette": "0.3",
+        "umap_n_components": "15",
+        "umap_n_neighbors": "10",
+        "umap_min_dist": "0.0",
+        "umap_metric": "cosine",
+        "hdbscan_min_cluster_size": "10",
+        "hdbscan_cluster_selection_method": "eom",
+        "hdbscan_metric": "euclidean",
+        "whitening": "whiten_128",
+        "n_clusters": "5",
+        "noise_ratio": "0.2",
+        "dbcv": "0.41",
+        "silhouette": "0.3",
     }
     p.write_text(_make_csv([row]))
     done = mod._load_done(str(p), PARAM_COLS)

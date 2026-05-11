@@ -1,4 +1,5 @@
 """Grid search over UMAP + HDBSCAN hyperparameters; saves aggregate metrics to ClusterRun."""
+
 import hashlib
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -7,30 +8,37 @@ from itertools import product
 import numpy as np
 from sqlalchemy.exc import IntegrityError
 
-from modules.console import progress, log
-from modules.database import Base, engine, get_session, ClusterRun
 from modules.clustering import (
     DEFAULT_HDBSCAN_METRIC,
     compute_clusters,
     env_positive_int,
     load_user_matrix,
 )
-
+from modules.console import log, progress
+from modules.database import Base, ClusterRun, engine, get_session
 
 _PARAM_KEYS = (
-    "umap_n_components", "umap_n_neighbors", "umap_min_dist", "umap_metric",
-    "umap2d_n_neighbors", "umap2d_min_dist", "umap2d_metric",
-    "hdbscan_min_cluster_size", "hdbscan_min_samples",
-    "hdbscan_cluster_selection_method", "hdbscan_metric", "random_state",
+    "umap_n_components",
+    "umap_n_neighbors",
+    "umap_min_dist",
+    "umap_metric",
+    "umap2d_n_neighbors",
+    "umap2d_min_dist",
+    "umap2d_metric",
+    "hdbscan_min_cluster_size",
+    "hdbscan_min_samples",
+    "hdbscan_cluster_selection_method",
+    "hdbscan_metric",
+    "random_state",
 )
 
 
-def _compute_dataset_hash(user_pks: list[int]) -> str:
+def _compute_dataset_hash(user_ids: list[int]) -> str:
     """Compute a deterministic SHA-256 hash of the dataset.
 
-    The hash is based on sorted user PKs, ensuring it's order-independent.
+    The hash is based on sorted user IDs, ensuring it's order-independent.
     """
-    payload = ",".join(str(pk) for pk in sorted(user_pks)).encode()
+    payload = ",".join(str(uid) for uid in sorted(user_ids)).encode()
     return hashlib.sha256(payload).hexdigest()
 
 
@@ -50,38 +58,55 @@ def _load_grid() -> list[dict]:
     umap2d_metric is swept independently as a list.
     HDBSCAN distance on pass-1 UMAP space is fixed (euclidean); not swept.
     """
-    umap_n_components  = [int(x) for x in os.environ.get("CLUSTERING_UMAP_N_COMPONENTS", "15").split()]
-    umap_n_neighbors   = [int(x) for x in os.environ.get("CLUSTERING_UMAP_N_NEIGHBORS", "15").split()]
-    umap_min_dist      = [float(x) for x in os.environ.get("CLUSTERING_UMAP_MIN_DIST", "0.0").split()]
-    umap_metrics       = os.environ.get("CLUSTERING_UMAP_METRICS", "cosine").split()
+    umap_n_components = [
+        int(x) for x in os.environ.get("CLUSTERING_UMAP_N_COMPONENTS", "15").split()
+    ]
+    umap_n_neighbors = [
+        int(x) for x in os.environ.get("CLUSTERING_UMAP_N_NEIGHBORS", "15").split()
+    ]
+    umap_min_dist = [
+        float(x) for x in os.environ.get("CLUSTERING_UMAP_MIN_DIST", "0.0").split()
+    ]
+    umap_metrics = os.environ.get("CLUSTERING_UMAP_METRICS", "cosine").split()
     umap2d_n_neighbors = int(os.environ.get("CLUSTERING_UMAP2D_N_NEIGHBORS", "15"))
-    umap2d_min_dist    = float(os.environ.get("CLUSTERING_UMAP2D_MIN_DIST", "0.1"))
-    umap2d_metrics     = os.environ.get("CLUSTERING_UMAP2D_METRICS", "cosine").split()
-    hdbscan_min_sizes  = [int(x) for x in os.environ.get("CLUSTERING_HDBSCAN_MIN_CLUSTER_SIZE", "15").split()]
-    hdbscan_selection  = os.environ.get("CLUSTERING_HDBSCAN_SELECTION", "eom").split()
-    random_state       = int(os.environ.get("CLUSTERING_RANDOM_STATE", "42"))
-    cases              = ["video", "sandwich", "audio"]
+    umap2d_min_dist = float(os.environ.get("CLUSTERING_UMAP2D_MIN_DIST", "0.1"))
+    umap2d_metrics = os.environ.get("CLUSTERING_UMAP2D_METRICS", "cosine").split()
+    hdbscan_min_sizes = [
+        int(x)
+        for x in os.environ.get("CLUSTERING_HDBSCAN_MIN_CLUSTER_SIZE", "15").split()
+    ]
+    hdbscan_selection = os.environ.get("CLUSTERING_HDBSCAN_SELECTION", "eom").split()
+    random_state = int(os.environ.get("CLUSTERING_RANDOM_STATE", "42"))
+    cases = ["video", "sandwich", "audio"]
 
     combos = []
     for case, nc, nn, md, um, u2m, mcs, sel in product(
-        cases, umap_n_components, umap_n_neighbors, umap_min_dist, umap_metrics,
-        umap2d_metrics, hdbscan_min_sizes, hdbscan_selection,
+        cases,
+        umap_n_components,
+        umap_n_neighbors,
+        umap_min_dist,
+        umap_metrics,
+        umap2d_metrics,
+        hdbscan_min_sizes,
+        hdbscan_selection,
     ):
-        combos.append(dict(
-            embedding_case=case,
-            umap_n_components=nc,
-            umap_n_neighbors=nn,
-            umap_min_dist=md,
-            umap_metric=um,
-            umap2d_n_neighbors=umap2d_n_neighbors,
-            umap2d_min_dist=umap2d_min_dist,
-            umap2d_metric=u2m,
-            hdbscan_min_cluster_size=mcs,
-            hdbscan_min_samples=None,
-            hdbscan_cluster_selection_method=sel,
-            hdbscan_metric=DEFAULT_HDBSCAN_METRIC,
-            random_state=random_state,
-        ))
+        combos.append(
+            dict(
+                embedding_case=case,
+                umap_n_components=nc,
+                umap_n_neighbors=nn,
+                umap_min_dist=md,
+                umap_metric=um,
+                umap2d_n_neighbors=umap2d_n_neighbors,
+                umap2d_min_dist=umap2d_min_dist,
+                umap2d_metric=u2m,
+                hdbscan_min_cluster_size=mcs,
+                hdbscan_min_samples=None,
+                hdbscan_cluster_selection_method=sel,
+                hdbscan_metric=DEFAULT_HDBSCAN_METRIC,
+                random_state=random_state,
+            )
+        )
     return combos
 
 
@@ -107,15 +132,21 @@ def run_cluster_search() -> None:
     total_skipped = 0
 
     for case, case_combos in combos_by_case.items():
-        matrix, user_pks = load_user_matrix(case)
+        matrix, user_ids = load_user_matrix(case)
         if matrix.shape[0] == 0:
-            log(f"cluster_search:{case}", f"no embeddings — skipping {len(case_combos)} combos", level="warn")
+            log(
+                f"cluster_search:{case}",
+                f"no embeddings — skipping {len(case_combos)} combos",
+                level="warn",
+            )
             total_skipped += len(case_combos)
             session = get_session()
             try:
-                for row in session.query(ClusterRun).filter(
-                    ClusterRun.embedding_case == case
-                ).all():
+                for row in (
+                    session.query(ClusterRun)
+                    .filter(ClusterRun.embedding_case == case)
+                    .all()
+                ):
                     row.in_current_grid = 0
                     row.disqualified = 1
                 session.commit()
@@ -123,19 +154,19 @@ def run_cluster_search() -> None:
                 session.close()
             continue
 
-        dataset_hash = _compute_dataset_hash(user_pks)
+        dataset_hash = _compute_dataset_hash(user_ids)
         current_keys = {_combo_key(c) for c in case_combos}
 
         # Invalidate stale rows: wrong grid params or dataset changed
         session = get_session()
         try:
-            existing_rows = session.query(ClusterRun).filter(
-                ClusterRun.embedding_case == case
-            ).all()
+            existing_rows = (
+                session.query(ClusterRun)
+                .filter(ClusterRun.embedding_case == case)
+                .all()
+            )
             for row in existing_rows:
-                row_key = frozenset(
-                    (k, getattr(row, k)) for k in _PARAM_KEYS
-                )
+                row_key = frozenset((k, getattr(row, k)) for k in _PARAM_KEYS)
                 in_grid = row_key in current_keys
                 fp_match = row.dataset_hash == dataset_hash
                 if in_grid and fp_match:
@@ -156,9 +187,12 @@ def run_cluster_search() -> None:
                 )
                 session = get_session()
                 try:
-                    if session.query(ClusterRun).filter_by(**combo).filter(
-                        ClusterRun.dataset_hash == dataset_hash
-                    ).first():
+                    if (
+                        session.query(ClusterRun)
+                        .filter_by(**combo)
+                        .filter(ClusterRun.dataset_hash == dataset_hash)
+                        .first()
+                    ):
                         total_skipped += 1
                         advance(1, detail=f"{short} | cached")
                     else:
@@ -166,7 +200,14 @@ def run_cluster_search() -> None:
                 finally:
                     session.close()
 
-            def persist_result(combo: dict, result) -> None:
+            def persist_result(
+                combo: dict,
+                result,
+                *,
+                _dataset_hash: str = dataset_hash,
+                _case: str = case,
+                _matrix=matrix,
+            ) -> None:
                 nonlocal total_new, total_skipped
                 short = (
                     f"nc={combo['umap_n_components']} nn={combo['umap_n_neighbors']} "
@@ -175,9 +216,12 @@ def run_cluster_search() -> None:
                 params = {k: v for k, v in combo.items() if k != "embedding_case"}
                 session = get_session()
                 try:
-                    if session.query(ClusterRun).filter_by(**combo).filter(
-                        ClusterRun.dataset_hash == dataset_hash
-                    ).first():
+                    if (
+                        session.query(ClusterRun)
+                        .filter_by(**combo)
+                        .filter(ClusterRun.dataset_hash == _dataset_hash)
+                        .first()
+                    ):
                         total_skipped += 1
                         advance(1, detail=f"{short} | cached")
                         return
@@ -190,7 +234,7 @@ def run_cluster_search() -> None:
                         median_size=int(np.median(sizes)) if sizes else 0,
                         max_size=max(sizes) if sizes else 0,
                         in_current_grid=1,
-                        dataset_hash=dataset_hash,
+                        dataset_hash=_dataset_hash,
                     )
                     session.add(row)
                     session.commit()
@@ -201,9 +245,13 @@ def run_cluster_search() -> None:
                     stale_row = session.query(ClusterRun).filter_by(**combo).first()
                     if stale_row is not None:
                         try:
-                            result = compute_clusters(matrix, **params)
+                            result = compute_clusters(_matrix, **params)
                         except ValueError as exc:
-                            log(f"cluster_search:{case}", f"update-skip — {exc}", level="warn")
+                            log(
+                                f"cluster_search:{_case}",
+                                f"update-skip — {exc}",
+                                level="warn",
+                            )
                             total_skipped += 1
                             advance(1, detail=f"{short} | upd-skip {str(exc)[:40]}")
                             return
@@ -214,7 +262,7 @@ def run_cluster_search() -> None:
                         stale_row.median_size = int(np.median(sizes)) if sizes else 0
                         stale_row.max_size = max(sizes) if sizes else 0
                         stale_row.in_current_grid = 1
-                        stale_row.dataset_hash = dataset_hash
+                        stale_row.dataset_hash = _dataset_hash
                         stale_row.disqualified = None
                         stale_row.dbcv = None
                         stale_row.silhouette = None
@@ -228,9 +276,9 @@ def run_cluster_search() -> None:
                 finally:
                     session.close()
 
-            def run_one_combo(c: dict):
+            def run_one_combo(c: dict, *, _matrix=matrix):
                 p = {k: v for k, v in c.items() if k != "embedding_case"}
-                return c, compute_clusters(matrix, **p)
+                return c, compute_clusters(_matrix, **p)
 
             if grid_workers == 1:
                 for combo in pending:
@@ -259,10 +307,16 @@ def run_cluster_search() -> None:
                         try:
                             combo_done, result = fut.result()
                         except ValueError as exc:
-                            log(f"cluster_search:{case}", f"skipping — {exc}", level="warn")
+                            log(
+                                f"cluster_search:{case}",
+                                f"skipping — {exc}",
+                                level="warn",
+                            )
                             total_skipped += 1
                             advance(1, detail=f"{short} | skip {str(exc)[:48]}")
                             continue
                         persist_result(combo_done, result)
 
-    log("cluster_search", f"done — {total_new} new, {total_skipped} skipped", level="ok")
+    log(
+        "cluster_search", f"done — {total_new} new, {total_skipped} skipped", level="ok"
+    )

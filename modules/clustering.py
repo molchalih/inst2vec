@@ -1,13 +1,15 @@
 """Pure clustering logic: two-pass UMAP + HDBSCAN → ClusterResult."""
-from dataclasses import dataclass, field
-import os
 
-import numpy as np
+import os
+from dataclasses import dataclass, field
+from typing import cast
+
 import hdbscan
+import numpy as np
 from umap import UMAP
 
-from modules.console import progress, log
-from modules.database import Base, engine, get_session, UserEmbedding, UserCluster
+from modules.console import log, progress
+from modules.database import Base, UserCluster, UserEmbedding, engine, get_session
 
 
 def env_positive_int(key: str, default: str = "1") -> int:
@@ -96,7 +98,7 @@ def compute_clusters(
         random_state=random_state,
         n_jobs=umap_n_jobs,
     )
-    matrix_nd = reducer_nd.fit_transform(matrix)
+    matrix_nd = cast(np.ndarray, reducer_nd.fit_transform(matrix))
 
     effective_metric = resolve_hdbscan_metric(hdbscan_metric)
     clusterer = hdbscan.HDBSCAN(
@@ -117,7 +119,7 @@ def compute_clusters(
         random_state=random_state,
         n_jobs=umap_n_jobs,
     )
-    coords_2d = reducer_2d.fit_transform(matrix)
+    coords_2d = cast(np.ndarray, reducer_2d.fit_transform(matrix))
 
     unique_labels = [lbl for lbl in set(labels) if lbl >= 0]
     n_clusters = len(unique_labels)
@@ -138,26 +140,26 @@ def compute_clusters(
 
 
 def load_user_matrix(embedding_case: str) -> tuple[np.ndarray, list[int]]:
-    """Load user embeddings from DB. Returns (matrix, user_pks) in matching order."""
+    """Load user embeddings from DB. Returns (matrix, user_ids) in matching order."""
     session = get_session()
     try:
         rows = (
-            session.query(UserEmbedding.user_pk, UserEmbedding.embedding)
+            session.query(UserEmbedding.user_id, UserEmbedding.embedding)
             .filter(UserEmbedding.embedding_case == embedding_case)
             .all()
         )
         if not rows:
             return np.empty((0, 0), dtype=np.float32), []
-        user_pks = [r.user_pk for r in rows]
+        user_ids = [r.user_id for r in rows]
         arrays = [np.frombuffer(r.embedding, dtype=np.float32).copy() for r in rows]
-        return np.stack(arrays), user_pks
+        return np.stack(arrays), user_ids
     finally:
         session.close()
 
 
 def cluster_users(embedding_case: str, **params) -> None:
     Base.metadata.create_all(engine)
-    matrix, user_pks = load_user_matrix(embedding_case)
+    matrix, user_ids = load_user_matrix(embedding_case)
 
     if matrix.shape[0] == 0:
         log(f"cluster:{embedding_case}", "nothing to do")
@@ -172,26 +174,32 @@ def cluster_users(embedding_case: str, **params) -> None:
         except ValueError as exc:
             log(f"cluster:{embedding_case}", f"skipping — {exc}", level="warn")
             return
-        advance(1, detail=f"{result.n_clusters} clusters, {result.noise_ratio:.1%} noise")
+        advance(
+            1, detail=f"{result.n_clusters} clusters, {result.noise_ratio:.1%} noise"
+        )
 
     session = get_session()
     try:
-        with progress(len(user_pks), f"cluster save · {embedding_case}") as advance:
-            for i, user_pk in enumerate(user_pks):
+        with progress(len(user_ids), f"cluster save · {embedding_case}") as advance:
+            for i, user_id in enumerate(user_ids):
                 row = UserCluster(
-                    user_pk=user_pk,
+                    user_id=user_id,
                     embedding_case=embedding_case,
                     cluster_id=int(result.labels[i]),
                     umap_x=float(result.coords_2d[i, 0]),
                     umap_y=float(result.coords_2d[i, 1]),
                 )
                 session.merge(row)
-                advance(1, detail=f"{i + 1}/{len(user_pks)}")
+                advance(1, detail=f"{i + 1}/{len(user_ids)}")
         session.commit()
     finally:
         session.close()
 
-    sizes_str = f"min={min(result.cluster_sizes)} median={int(np.median(result.cluster_sizes))} max={max(result.cluster_sizes)}" if result.cluster_sizes else "n/a"
+    sizes_str = (
+        f"min={min(result.cluster_sizes)} median={int(np.median(result.cluster_sizes))} max={max(result.cluster_sizes)}"
+        if result.cluster_sizes
+        else "n/a"
+    )
     log(
         f"cluster:{embedding_case}",
         f"{result.n_clusters} clusters, {result.noise_ratio:.1%} noise, sizes: {sizes_str}",

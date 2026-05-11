@@ -1,4 +1,5 @@
 """Caption language detection and translation pipeline."""
+
 from __future__ import annotations
 
 import os
@@ -7,16 +8,21 @@ import re
 from lingua import LanguageDetectorBuilder
 from sqlalchemy import func, or_
 
+from modules.console import log, progress
 from modules.database import Clip, get_session
 from modules.external.gemma_translate import GemmaTranslator
-from modules.console import progress, log
-
 
 COMMIT_EVERY = int(os.environ.get("CAPTIONS_COMMIT_EVERY", 50))
-CAPTION_TRANSLATE_MODEL = os.environ.get("CAPTION_TRANSLATE_MODEL", "google/translategemma-4b-it")
+CAPTION_TRANSLATE_MODEL = os.environ.get(
+    "CAPTION_TRANSLATE_MODEL", "google/translategemma-4b-it"
+)
 CAPTION_TRANSLATE_TARGET_LANG = os.environ.get("CAPTION_TRANSLATE_TARGET_LANG", "en")
-CAPTION_TRANSLATION_MAX_CHARS = int(os.environ.get("CAPTION_TRANSLATION_MAX_CHARS", 1000))
-CAPTION_TRANSLATE_MAX_NEW_TOKENS = int(os.environ.get("CAPTION_TRANSLATE_MAX_NEW_TOKENS", 200))
+CAPTION_TRANSLATION_MAX_CHARS = int(
+    os.environ.get("CAPTION_TRANSLATION_MAX_CHARS", 1000)
+)
+CAPTION_TRANSLATE_MAX_NEW_TOKENS = int(
+    os.environ.get("CAPTION_TRANSLATE_MAX_NEW_TOKENS", 200)
+)
 
 SCOPE_DETECT = "detect_caption_language"
 SCOPE_TRANSLATE = "translate_captions"
@@ -40,7 +46,7 @@ def clean_captions() -> None:
             Clip.caption_text != "",
             (Clip.caption_text.contains("@")) | (Clip.caption_text.contains("\n")),
         )
-        .order_by(Clip.pk)
+        .order_by(Clip.id)
         .all()
     )
     if not clips:
@@ -72,7 +78,7 @@ def detect_caption_language() -> None:
             Clip.caption_text != "",
             (Clip.caption_language.is_(None)) | (Clip.caption_language == ""),
         )
-        .order_by(Clip.pk)
+        .order_by(Clip.id)
         .all()
     )
     if not clips:
@@ -97,7 +103,7 @@ def detect_caption_language() -> None:
                 continue
             clip.caption_language = iso.name.lower()
             detected += 1
-            advance(detail=f"{clip.pk}: {clip.caption_language}")
+            advance(detail=f"{clip.id}: {clip.caption_language}")
 
             if i % COMMIT_EVERY == 0:
                 session.commit()
@@ -121,7 +127,7 @@ def translate_captions() -> None:
             func.lower(Clip.caption_language).notlike("en%"),
             (Clip.caption_translation.is_(None)) | (Clip.caption_translation == ""),
         )
-        .order_by(Clip.pk)
+        .order_by(Clip.id)
         .all()
     )
     if not clips:
@@ -156,7 +162,7 @@ def translate_captions() -> None:
                 translated += 1
                 src_preview = source[:45] + ("…" if len(source) > 45 else "")
                 tr_preview = translation[:45] + ("…" if len(translation) > 45 else "")
-                advance(detail=f'{clip.pk}: "{src_preview}" → "{tr_preview}"')
+                advance(detail=f'{clip.id}: "{src_preview}" → "{tr_preview}"')
             except Exception:
                 advance()
                 continue

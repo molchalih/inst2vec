@@ -1,17 +1,22 @@
 """Phase 6b — clustering validation: filter, score, plateau, select."""
+
 import hashlib
 import json
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import cast
 
-import numpy as np
 import hdbscan.validity
+import numpy as np
 from sklearn.metrics import silhouette_score
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from modules.console import progress, log
-from modules.database import ClusterRun, get_session
+from modules.cluster_results import (
+    get_plateau_drop_threshold,
+    list_eligible_best_rows,
+    pick_best_cluster_run,
+)
 from modules.clustering import (
     DEFAULT_HDBSCAN_METRIC,
     compute_clusters,
@@ -19,25 +24,33 @@ from modules.clustering import (
     load_user_matrix,
     resolve_hdbscan_metric,
 )
-from modules.cluster_results import (
-    get_plateau_drop_threshold,
-    list_eligible_best_rows,
-    pick_best_cluster_run,
-)
-
+from modules.console import log, progress
+from modules.database import ClusterRun, get_session
 
 _PARAM_COLS = [
-    "umap_n_components", "umap_n_neighbors", "umap_min_dist", "umap_metric",
-    "umap2d_n_neighbors", "umap2d_min_dist", "umap2d_metric",
-    "hdbscan_min_cluster_size", "hdbscan_min_samples",
-    "hdbscan_cluster_selection_method", "hdbscan_metric",
+    "umap_n_components",
+    "umap_n_neighbors",
+    "umap_min_dist",
+    "umap_metric",
+    "umap2d_n_neighbors",
+    "umap2d_min_dist",
+    "umap2d_metric",
+    "hdbscan_min_cluster_size",
+    "hdbscan_min_samples",
+    "hdbscan_cluster_selection_method",
+    "hdbscan_metric",
     "random_state",
 ]
 
 _NUMERIC_PARAM_COLS = [
-    "umap_n_components", "umap_n_neighbors", "umap_min_dist",
-    "umap2d_n_neighbors", "umap2d_min_dist",
-    "hdbscan_min_cluster_size", "hdbscan_min_samples", "random_state",
+    "umap_n_components",
+    "umap_n_neighbors",
+    "umap_min_dist",
+    "umap2d_n_neighbors",
+    "umap2d_min_dist",
+    "hdbscan_min_cluster_size",
+    "hdbscan_min_samples",
+    "random_state",
 ]
 
 
@@ -46,7 +59,9 @@ def _compute_validation_config_hash() -> str:
         "max_noise": os.environ.get("VALIDATION_MAX_NOISE_RATIO", "0.3"),
         "min_clusters": os.environ.get("VALIDATION_MIN_CLUSTERS", "3"),
         "max_clusters": os.environ.get("VALIDATION_MAX_CLUSTERS", "20"),
-        "plateau_drop_threshold": os.environ.get("VALIDATION_PLATEAU_DROP_THRESHOLD", "0.05"),
+        "plateau_drop_threshold": os.environ.get(
+            "VALIDATION_PLATEAU_DROP_THRESHOLD", "0.05"
+        ),
     }
     return hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()[:16]
 
@@ -69,7 +84,10 @@ def _invalidate_stale_rows(session: Session, case: str, current_hash: str) -> No
         row.validation_config_hash = current_hash
     if stale:
         session.commit()
-        log(f"validate:{case}", f"invalidated {len(stale)} stale rows (config hash changed)")
+        log(
+            f"validate:{case}",
+            f"invalidated {len(stale)} stale rows (config hash changed)",
+        )
 
 
 def _row_to_params(row: ClusterRun) -> dict:
@@ -83,6 +101,8 @@ def _compute_row_scores(matrix: np.ndarray, params: dict) -> tuple[float, float]
     except ValueError:
         return "value_error"
 
+    if result.matrix_nd is None:
+        return "value_error"
     X_nd = result.matrix_nd.astype(np.float64)
     labels = result.labels
     validation_metric = resolve_hdbscan_metric(
@@ -90,9 +110,10 @@ def _compute_row_scores(matrix: np.ndarray, params: dict) -> tuple[float, float]
     )
 
     try:
-        dbcv = float(hdbscan.validity.validity_index(
+        _vi_result = hdbscan.validity.validity_index(
             X_nd, labels, metric=validation_metric
-        ))
+        )
+        dbcv = float(cast(float, _vi_result))
     except Exception:
         return "dbcv_fail"
 
@@ -100,11 +121,13 @@ def _compute_row_scores(matrix: np.ndarray, params: dict) -> tuple[float, float]
     unique_clusters = np.unique(labels[non_noise])
     if len(unique_clusters) >= 2:
         try:
-            sil = float(silhouette_score(
-                X_nd[non_noise],
-                labels[non_noise],
-                metric=validation_metric,
-            ))
+            sil = float(
+                silhouette_score(
+                    X_nd[non_noise],
+                    labels[non_noise],
+                    metric=validation_metric,
+                )
+            )
         except Exception:
             sil = 0.0
     else:
@@ -138,7 +161,10 @@ def _phase_filter(session: Session, case: str) -> None:
                 n_pass += int(passes)
                 advance(1)
     session.commit()
-    log(f"validate:{case}", f"filter — {n_pass} passed, {len(rows) - n_pass} disqualified")
+    log(
+        f"validate:{case}",
+        f"filter — {n_pass} passed, {len(rows) - n_pass} disqualified",
+    )
 
 
 def _phase_score(session: Session, case: str, matrix: np.ndarray) -> None:
@@ -163,10 +189,18 @@ def _phase_score(session: Session, case: str, matrix: np.ndarray) -> None:
             if row is None:
                 return
             if outcome == "value_error":
-                log(f"validate:{case}", f"score skip id={row_id} — ValueError", level="warn")
+                log(
+                    f"validate:{case}",
+                    f"score skip id={row_id} — ValueError",
+                    level="warn",
+                )
                 row.disqualified = 1
             elif outcome == "dbcv_fail":
-                log(f"validate:{case}", f"dbcv failed id={row_id} — disqualifying", level="err")
+                log(
+                    f"validate:{case}",
+                    f"dbcv failed id={row_id} — disqualifying",
+                    level="err",
+                )
                 row.disqualified = 1
             else:
                 dbcv, sil = outcome
@@ -183,10 +217,18 @@ def _phase_score(session: Session, case: str, matrix: np.ndarray) -> None:
                 advance(0, detail=f"id={row.id} ({i + 1}/{len(rows)})")
                 outcome = _compute_row_scores(matrix, params)
                 if outcome == "value_error":
-                    log(f"validate:{case}", f"score skip id={row.id} — ValueError", level="warn")
+                    log(
+                        f"validate:{case}",
+                        f"score skip id={row.id} — ValueError",
+                        level="warn",
+                    )
                     row.disqualified = 1
                 elif outcome == "dbcv_fail":
-                    log(f"validate:{case}", f"dbcv failed id={row.id} — disqualifying", level="err")
+                    log(
+                        f"validate:{case}",
+                        f"dbcv failed id={row.id} — disqualifying",
+                        level="err",
+                    )
                     row.disqualified = 1
                 else:
                     dbcv, sil = outcome
@@ -202,6 +244,7 @@ def _phase_score(session: Session, case: str, matrix: np.ndarray) -> None:
                     ),
                 )
         else:
+
             def work(item: tuple[int, dict]) -> tuple[int, object]:
                 rid, params = item
                 return rid, _compute_row_scores(matrix, params)
@@ -216,7 +259,11 @@ def _phase_score(session: Session, case: str, matrix: np.ndarray) -> None:
                     try:
                         rid, outcome = fut.result()
                     except Exception as exc:
-                        log(f"validate:{case}", f"score skip id={row_id} — {exc}", level="warn")
+                        log(
+                            f"validate:{case}",
+                            f"score skip id={row_id} — {exc}",
+                            level="warn",
+                        )
                         persist_row_result(row_id, "value_error")
                         advance(1, detail=f"{short} skip")
                         continue
@@ -227,11 +274,15 @@ def _phase_score(session: Session, case: str, matrix: np.ndarray) -> None:
         session.expire_all()
 
 
-def _find_param_neighbors(target: ClusterRun, candidates: list[ClusterRun]) -> list[ClusterRun]:
-    all_rows = [target] + candidates
+def _find_param_neighbors(
+    target: ClusterRun, candidates: list[ClusterRun]
+) -> list[ClusterRun]:
+    all_rows = [target, *candidates]
     distinct: dict[str, list] = {}
     for col in _NUMERIC_PARAM_COLS:
-        vals = sorted(set(getattr(r, col) for r in all_rows if getattr(r, col) is not None))
+        vals = sorted(
+            set(getattr(r, col) for r in all_rows if getattr(r, col) is not None)
+        )
         distinct[col] = vals
 
     neighbors = []
@@ -284,7 +335,9 @@ def _phase_plateau(session: Session, case: str) -> None:
             neighbors = _find_param_neighbors(row, all_scored)
             dbcv_vals = [n.dbcv for n in neighbors if n.dbcv is not None]
             # No neighbors → fallback to own dbcv so drop = 0 (neutral, not rejected)
-            row.param_plateau_score = float(np.mean(dbcv_vals)) if dbcv_vals else row.dbcv
+            row.param_plateau_score = (
+                float(np.mean(dbcv_vals)) if dbcv_vals else row.dbcv
+            )
             advance(
                 1,
                 detail=f"id={row.id} plateau={row.param_plateau_score:.4f} ({len(dbcv_vals)} neighbors)",
@@ -300,7 +353,7 @@ def _select_best(session: Session, case: str) -> ClusterRun | None:
         log(f"validate:{case}", "select — no eligible runs", level="warn")
         return None
 
-    survivors = [r for r in rows if r.dbcv - r.param_plateau_score <= threshold]
+    survivors = [r for r in rows if r.dbcv - r.param_plateau_score <= threshold]  # type: ignore[operator]
     if not survivors:
         log(
             f"validate:{case}",

@@ -240,7 +240,9 @@ def test_summarize_all_to_markdown_delegates_summary(monkeypatch):
             "noise_pct_mean": "10.000",
         }
 
-    monkeypatch.setattr("generators.cluster_results_all.summarize_case_for_markdown", fake_summary)
+    monkeypatch.setattr(
+        "generators.cluster_results_all.summarize_case_for_markdown", fake_summary
+    )
 
     from generators.cluster_results_all import summarize_all_to_markdown
 

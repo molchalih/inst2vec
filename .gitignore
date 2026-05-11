@@ -3,7 +3,7 @@
 .env
 
 # Data folder
-data/*
+data/
 
 # Model weights & checkpoints
 models/

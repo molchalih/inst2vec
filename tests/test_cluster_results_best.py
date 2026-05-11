@@ -201,7 +201,9 @@ def test_best_run_to_markdown_delegates_selection(monkeypatch):
     def fake_select(session, case, threshold=None):
         return session.get(ClusterRun, row_id)
 
-    monkeypatch.setattr("generators.cluster_results_best.select_best_cluster_run", fake_select)
+    monkeypatch.setattr(
+        "generators.cluster_results_best.select_best_cluster_run", fake_select
+    )
 
     from generators.cluster_results_best import best_run_to_markdown
 

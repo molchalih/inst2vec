@@ -1,16 +1,17 @@
 """Paper-facing summary of the validation-best cluster run per embedding case."""
+
 from __future__ import annotations
 
 import math
 
 from sqlalchemy.orm import Session
 
-from modules.database import ClusterRun
 from modules.cluster_results import (
     DEFAULT_CASES,
     get_plateau_drop_threshold,
     select_best_cluster_run,
 )
+from modules.database import ClusterRun
 
 __all__ = ("best_run_to_markdown", "best_runs_all_to_markdown")
 
@@ -36,7 +37,11 @@ def _best_cells(best: ClusterRun | None) -> dict[str, str]:
     keys = [k for _, k in BEST_TABLE_ROWS]
     if best is None:
         return dict.fromkeys(keys, "-")
-    drop = best.dbcv - best.param_plateau_score
+    dbcv_val = best.dbcv if best.dbcv is not None else 0.0
+    plateau_val = (
+        best.param_plateau_score if best.param_plateau_score is not None else 0.0
+    )
+    drop = dbcv_val - plateau_val
     return {
         "dbcv": _fmt(best.dbcv),
         "plateau_score": _fmt(best.param_plateau_score),

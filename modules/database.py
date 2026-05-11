@@ -1,171 +1,214 @@
 import os
+from typing import Optional
 
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, Column, BigInteger, Integer, Float, String, Boolean, ForeignKey, Text, LargeBinary, UniqueConstraint, DateTime
-from sqlalchemy.orm import declarative_base, relationship, Session
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    LargeBinary,
+    String,
+    Text,
+    UniqueConstraint,
+    create_engine,
+)
+from sqlalchemy.orm import (
+    DeclarativeBase,  # type: ignore[name-defined]
+    Mapped,
+    Session,
+    mapped_column,  # type: ignore[name-defined]
+    relationship,
+)
 from sqlalchemy.sql import func
 
 load_dotenv()
 
-# create an instance of the ORM engine
 engine = create_engine(os.environ["DATABASE_URL"])
 
-# create a base class for the ORM models
-Base = declarative_base()
+
+class Base(DeclarativeBase):
+    pass
 
 
 class User(Base):
     __tablename__ = "users"
 
-    pk = Column(BigInteger, primary_key=True)
-    username = Column(String, unique=True, nullable=False)
-    full_name = Column(String)
-    profile_pic_url = Column(String)
-    profile_pic_url_hd = Column(String)
-    following_count = Column(Integer)
-    city_name = Column(String)
-    user_disqualified = Column(Integer, nullable=True)
-    parse_status = Column(String, nullable=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    following_count: Mapped[int | None] = mapped_column(Integer)
+    user_disqualified: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    parse_status: Mapped[str | None] = mapped_column(String, nullable=True)
 
-    clips = relationship("Clip", back_populates="user")
-    embeddings = relationship("UserEmbedding", back_populates="user")
-    clusters = relationship("UserCluster", back_populates="user")
+    clips: Mapped[list["Clip"]] = relationship("Clip", back_populates="user")  # type: ignore[assignment]
+    embeddings: Mapped[list["UserEmbedding"]] = relationship(  # type: ignore[assignment]
+        "UserEmbedding", back_populates="user"
+    )
+    clusters: Mapped[list["UserCluster"]] = relationship(  # type: ignore[assignment]
+        "UserCluster", back_populates="user"
+    )
 
 
 class Clip(Base):
     __tablename__ = "clips"
 
-    pk = Column(BigInteger, primary_key=True)
-    user_pk = Column(BigInteger, ForeignKey("users.pk"), nullable=False)
-    thumbnail_url = Column(String)
-    video_url = Column(String)
-    caption_text = Column(Text)
-    caption_language = Column(Text, nullable=True)
-    caption_translation = Column(Text)
-    comment_count = Column(Integer)
-    reshare_count = Column(Integer)
-    like_count = Column(Integer)
-    play_count = Column(Integer)
-    music_id = Column(Integer, ForeignKey("music.id"), nullable=True)
-    music_confidence = Column(Float)
-    has_music = Column(Integer, nullable=True)
-    speech_transcription = Column(Text)
-    speech_language = Column(String, nullable=True)
-    speech_confidence = Column(Float, nullable=True)
-    speech_avg_logprob = Column(Float, nullable=True)
-    speech_compression_ratio = Column(Float, nullable=True)
-    has_speech = Column(Integer, nullable=True)
-    speech_translation = Column(Text)
-    disqualified = Column(Integer, nullable=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=False
+    )
+    thumbnail_url: Mapped[str | None] = mapped_column(String)
+    video_url: Mapped[str | None] = mapped_column(String)
+    caption_text: Mapped[str | None] = mapped_column(Text)
+    caption_language: Mapped[str | None] = mapped_column(Text, nullable=True)
+    caption_translation: Mapped[str | None] = mapped_column(Text)
+    comment_count: Mapped[int | None] = mapped_column(Integer)
+    reshare_count: Mapped[int | None] = mapped_column(Integer)
+    like_count: Mapped[int | None] = mapped_column(Integer)
+    play_count: Mapped[int | None] = mapped_column(Integer)
+    music_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("music.id"), nullable=True
+    )
+    music_confidence: Mapped[float | None] = mapped_column(Float)
+    has_music: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    speech_transcription: Mapped[str | None] = mapped_column(Text)
+    speech_language: Mapped[str | None] = mapped_column(String, nullable=True)
+    speech_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    speech_avg_logprob: Mapped[float | None] = mapped_column(Float, nullable=True)
+    speech_compression_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
+    has_speech: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    speech_translation: Mapped[str | None] = mapped_column(Text)
+    disqualified: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
-    user = relationship("User", back_populates="clips")
-    music = relationship("Music", back_populates="clips")
-    embeddings = relationship("ClipEmbedding", back_populates="clip")
+    user: Mapped["User"] = relationship("User", back_populates="clips")  # type: ignore[assignment]
+    music: Mapped[Optional["Music"]] = relationship("Music", back_populates="clips")  # type: ignore[assignment]
+    embeddings: Mapped[list["ClipEmbedding"]] = relationship(  # type: ignore[assignment]
+        "ClipEmbedding", back_populates="clip"
+    )
 
 
 class Music(Base):
     __tablename__ = "music"
     __table_args__ = (
         UniqueConstraint("artist", "track", name="uq_music_artist_track"),
-    ) # additional enforcement of artists and tracks
+    )
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    artist = Column(String, nullable=False, default="")
-    track = Column(String, nullable=False, default="")
-    spotify_id = Column(String, nullable=True)
-    reccobeats_id = Column(String, nullable=True)
-    has_features = Column(String, nullable=True)
-    acousticness = Column(Float, nullable=True)
-    danceability = Column(Float, nullable=True)
-    energy = Column(Float, nullable=True)
-    instrumentalness = Column(Float, nullable=True)
-    key = Column(Integer, nullable=True)
-    liveness = Column(Float, nullable=True)
-    loudness = Column(Float, nullable=True)
-    mode = Column(Integer, nullable=True)
-    speechiness = Column(Float, nullable=True)
-    tempo = Column(Float, nullable=True)
-    valence = Column(Float, nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at = Column(
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    artist: Mapped[str] = mapped_column(String, nullable=False, default="")
+    track: Mapped[str] = mapped_column(String, nullable=False, default="")
+    spotify_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    reccobeats_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    has_features: Mapped[str | None] = mapped_column(String, nullable=True)
+    acousticness: Mapped[float | None] = mapped_column(Float, nullable=True)
+    danceability: Mapped[float | None] = mapped_column(Float, nullable=True)
+    energy: Mapped[float | None] = mapped_column(Float, nullable=True)
+    instrumentalness: Mapped[float | None] = mapped_column(Float, nullable=True)
+    key: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    liveness: Mapped[float | None] = mapped_column(Float, nullable=True)
+    loudness: Mapped[float | None] = mapped_column(Float, nullable=True)
+    mode: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    speechiness: Mapped[float | None] = mapped_column(Float, nullable=True)
+    tempo: Mapped[float | None] = mapped_column(Float, nullable=True)
+    valence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    created_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[DateTime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
         onupdate=func.now(),
         nullable=False,
     )
 
-    clips = relationship("Clip", back_populates="music")
+    clips: Mapped[list["Clip"]] = relationship("Clip", back_populates="music")  # type: ignore[assignment]
 
 
 class Download(Base):
     __tablename__ = "downloads"
 
-    entity_pk = Column(BigInteger, primary_key=True)
-    file_type = Column(String, primary_key=True)
-    success = Column(Boolean)
-    # Legacy; unused by fetch_profiles / parse_state (see users.parse_status).
-    parse_available = Column(Boolean, default=True)
+    entity_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    file_type: Mapped[str] = mapped_column(String, primary_key=True)
+    success: Mapped[bool | None] = mapped_column(Boolean)
+    parse_available: Mapped[bool | None] = mapped_column(Boolean, default=True)
 
 
 class ClipEmbedding(Base):
     __tablename__ = "clip_embeddings"
     __table_args__ = (
-        UniqueConstraint("clip_pk", "embedding_case", name="uq_clip_embeddings_clip_case"),
+        UniqueConstraint(
+            "clip_id", "embedding_case", name="uq_clip_embeddings_clip_case"
+        ),
     )
 
-    clip_pk = Column(BigInteger, ForeignKey("clips.pk"), primary_key=True)
-    embedding_case = Column(String, primary_key=True)
-    embedding = Column(LargeBinary, nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at = Column(
+    clip_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("clips.id"), primary_key=True
+    )
+    embedding_case: Mapped[str] = mapped_column(String, primary_key=True)
+    embedding: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    created_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[DateTime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
         onupdate=func.now(),
         nullable=False,
     )
 
-    clip = relationship("Clip", back_populates="embeddings")
+    clip: Mapped["Clip"] = relationship("Clip", back_populates="embeddings")  # type: ignore[assignment]
 
 
 class UserEmbedding(Base):
     __tablename__ = "user_embeddings"
     __table_args__ = (
-        UniqueConstraint("user_pk", "embedding_case", name="uq_user_embeddings_user_case"),
+        UniqueConstraint(
+            "user_id", "embedding_case", name="uq_user_embeddings_user_case"
+        ),
     )
 
-    user_pk = Column(BigInteger, ForeignKey("users.pk"), primary_key=True)
-    embedding_case = Column(String, primary_key=True)
-    embedding = Column(LargeBinary, nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at = Column(
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id"), primary_key=True
+    )
+    embedding_case: Mapped[str] = mapped_column(String, primary_key=True)
+    embedding: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    created_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[DateTime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
         onupdate=func.now(),
         nullable=False,
     )
 
-    user = relationship("User", back_populates="embeddings")
+    user: Mapped["User"] = relationship("User", back_populates="embeddings")  # type: ignore[assignment]
 
 
 class UserCluster(Base):
     __tablename__ = "user_clusters"
     __table_args__ = (
-        UniqueConstraint("user_pk", "embedding_case", name="uq_user_clusters_user_case"),
+        UniqueConstraint(
+            "user_id", "embedding_case", name="uq_user_clusters_user_case"
+        ),
     )
 
-    user_pk = Column(BigInteger, ForeignKey("users.pk"), primary_key=True)
-    embedding_case = Column(String, primary_key=True)
-    cluster_id = Column(Integer, nullable=False)
-    umap_x = Column(Float, nullable=False)
-    umap_y = Column(Float, nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at = Column(
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id"), primary_key=True
+    )
+    embedding_case: Mapped[str] = mapped_column(String, primary_key=True)
+    cluster_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    umap_x: Mapped[float] = mapped_column(Float, nullable=False)
+    umap_y: Mapped[float] = mapped_column(Float, nullable=False)
+    created_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[DateTime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
         onupdate=func.now(),
         nullable=False,
     )
-    user = relationship("User", back_populates="clusters")
+    user: Mapped["User"] = relationship("User", back_populates="clusters")  # type: ignore[assignment]
 
 
 class ClusterRun(Base):
@@ -173,48 +216,107 @@ class ClusterRun(Base):
     __table_args__ = (
         UniqueConstraint(
             "embedding_case",
-            "umap_n_components", "umap_n_neighbors", "umap_min_dist", "umap_metric",
-            "umap2d_n_neighbors", "umap2d_min_dist", "umap2d_metric",
-            "hdbscan_min_cluster_size", "hdbscan_min_samples",
-            "hdbscan_cluster_selection_method", "hdbscan_metric",
+            "umap_n_components",
+            "umap_n_neighbors",
+            "umap_min_dist",
+            "umap_metric",
+            "umap2d_n_neighbors",
+            "umap2d_min_dist",
+            "umap2d_metric",
+            "hdbscan_min_cluster_size",
+            "hdbscan_min_samples",
+            "hdbscan_cluster_selection_method",
+            "hdbscan_metric",
             "random_state",
             name="uq_cluster_runs_params",
         ),
     )
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    embedding_case = Column(String, nullable=False)
-    umap_n_components = Column(Integer, nullable=False)
-    umap_n_neighbors = Column(Integer, nullable=False)
-    umap_min_dist = Column(Float, nullable=False)
-    umap_metric = Column(String, nullable=False)
-    umap2d_n_neighbors = Column(Integer, nullable=False)
-    umap2d_min_dist = Column(Float, nullable=False)
-    umap2d_metric = Column(String, nullable=False)
-    hdbscan_min_cluster_size = Column(Integer, nullable=False)
-    hdbscan_min_samples = Column(Integer, nullable=True)
-    hdbscan_cluster_selection_method = Column(String, nullable=False)
-    hdbscan_metric = Column(String, nullable=False)
-    random_state = Column(Integer, nullable=False)
-    n_clusters = Column(Integer, nullable=False)
-    noise_ratio = Column(Float, nullable=False)
-    min_size = Column(Integer, nullable=False)
-    median_size = Column(Integer, nullable=False)
-    max_size = Column(Integer, nullable=False)
-    disqualified = Column(Integer, nullable=True)
-    dbcv = Column(Float, nullable=True)
-    silhouette = Column(Float, nullable=True)
-    param_plateau_score = Column(Float, nullable=True)
-    in_current_grid = Column(Integer, nullable=True)   # 1=current, 0=stale
-    dataset_hash = Column(String, nullable=True) # SHA-256 of sorted user PKs
-    validation_config_hash = Column(String, nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    embedding_case: Mapped[str] = mapped_column(String, nullable=False)
+    umap_n_components: Mapped[int] = mapped_column(Integer, nullable=False)
+    umap_n_neighbors: Mapped[int] = mapped_column(Integer, nullable=False)
+    umap_min_dist: Mapped[float] = mapped_column(Float, nullable=False)
+    umap_metric: Mapped[str] = mapped_column(String, nullable=False)
+    umap2d_n_neighbors: Mapped[int] = mapped_column(Integer, nullable=False)
+    umap2d_min_dist: Mapped[float] = mapped_column(Float, nullable=False)
+    umap2d_metric: Mapped[str] = mapped_column(String, nullable=False)
+    hdbscan_min_cluster_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    hdbscan_min_samples: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    hdbscan_cluster_selection_method: Mapped[str] = mapped_column(
+        String, nullable=False
+    )
+    hdbscan_metric: Mapped[str] = mapped_column(String, nullable=False)
+    random_state: Mapped[int] = mapped_column(Integer, nullable=False)
+    n_clusters: Mapped[int] = mapped_column(Integer, nullable=False)
+    noise_ratio: Mapped[float] = mapped_column(Float, nullable=False)
+    min_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    median_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    max_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    disqualified: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    dbcv: Mapped[float | None] = mapped_column(Float, nullable=True)
+    silhouette: Mapped[float | None] = mapped_column(Float, nullable=True)
+    param_plateau_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    in_current_grid: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )  # 1=current, 0=stale
+    dataset_hash: Mapped[str | None] = mapped_column(
+        String, nullable=True
+    )  # SHA-256 of sorted user PKs
+    validation_config_hash: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
 
 
 def init_db():
-    """create the database."""
+    """Create main DB tables and identity DB tables."""
+    from modules.identity import init_identity_db
     Base.metadata.create_all(engine)
+    init_identity_db()
 
 
 def get_session() -> Session:
     return Session(engine)
+
+
+def _migrate_users_table(eng) -> None:
+    """Additive migration: add parse_status column to users table if absent."""
+    from sqlalchemy import inspect, text
+
+    with eng.connect() as conn:
+        cols = {c["name"] for c in inspect(eng).get_columns("users")}
+        if "parse_status" not in cols:
+            conn.execute(text("ALTER TABLE users ADD COLUMN parse_status VARCHAR"))
+            conn.commit()
+
+
+def _backfill_parse_status(session: Session) -> None:
+    """Backfill parse_status for users that lack it."""
+    from sqlalchemy import text
+
+    session.execute(
+        text("UPDATE users SET parse_status = 'pending' WHERE parse_status IS NULL")
+    )
+    session.execute(
+        text(
+            """
+            UPDATE users SET parse_status = 'success' WHERE parse_status = 'pending'
+                AND (
+                    following_count IS NOT NULL
+                    OR id IN (SELECT user_id FROM clips)
+                )
+            """
+        )
+    )
+    session.execute(
+        text(
+            """
+            UPDATE users SET parse_status = 'failed' WHERE parse_status = 'pending'
+                AND id IN (
+                    SELECT entity_id FROM downloads
+                    WHERE file_type = 'profile_pic' AND parse_available = 0
+                )
+            """
+        )
+    )
