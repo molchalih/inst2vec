@@ -90,7 +90,9 @@ def _assign_ids(main_db: str) -> tuple[dict[int, int], dict[int, int]]:
     clips = con.execute("SELECT pk, user_pk FROM clips ORDER BY user_pk, pk").fetchall()
     orphaned = [r[0] for r in clips if r[1] not in user_map]
     if orphaned:
-        raise ValueError(f"{len(orphaned)} clip(s) reference unknown user_pk: {orphaned[:5]}")
+        raise ValueError(
+            f"{len(orphaned)} clip(s) reference unknown user_pk: {orphaned[:5]}"
+        )
 
     sorted_clips = sorted(clips, key=lambda r: (user_map[r[1]], r[0]))
     clip_map = {row[0]: i + 1 for i, row in enumerate(sorted_clips)}
@@ -117,15 +119,17 @@ def _write_identity_db(
 
     with Session(eng) as s:
         for api_pk, username, full_name, city_name, pic_url, pic_url_hd in users:
-            s.add(UserIdentity(
-                id=user_map[api_pk],
-                api_pk=api_pk,
-                username=username or "",
-                full_name=full_name,
-                city_name=city_name,
-                profile_pic_url=pic_url,
-                profile_pic_url_hd=pic_url_hd,
-            ))
+            s.add(
+                UserIdentity(
+                    id=user_map[api_pk],
+                    api_pk=api_pk,
+                    username=username or "",
+                    full_name=full_name,
+                    city_name=city_name,
+                    profile_pic_url=pic_url,
+                    profile_pic_url_hd=pic_url_hd,
+                )
+            )
         for (api_pk,) in clips:
             s.add(ClipIdentity(id=clip_map[api_pk], api_pk=api_pk))
         s.commit()
@@ -143,14 +147,30 @@ def _remap_ids(
     con.executemany("INSERT INTO _user_map VALUES (?, ?)", user_map.items())
     con.executemany("INSERT INTO _clip_map VALUES (?, ?)", clip_map.items())
 
-    con.execute("UPDATE clips SET user_pk = (SELECT new_id FROM _user_map WHERE old_pk = clips.user_pk)")
-    con.execute("UPDATE user_embeddings SET user_pk = (SELECT new_id FROM _user_map WHERE old_pk = user_embeddings.user_pk)")
-    con.execute("UPDATE user_clusters SET user_pk = (SELECT new_id FROM _user_map WHERE old_pk = user_clusters.user_pk)")
-    con.execute("UPDATE clip_embeddings SET clip_pk = (SELECT new_id FROM _clip_map WHERE old_pk = clip_embeddings.clip_pk)")
-    con.execute("UPDATE downloads SET entity_pk = (SELECT new_id FROM _user_map WHERE old_pk = downloads.entity_pk) WHERE file_type = 'profile_pic'")
-    con.execute("UPDATE downloads SET entity_pk = (SELECT new_id FROM _clip_map WHERE old_pk = downloads.entity_pk) WHERE file_type IN ('thumbnail', 'video')")
-    con.execute("UPDATE clips SET pk = (SELECT new_id FROM _clip_map WHERE old_pk = clips.pk)")
-    con.execute("UPDATE users SET pk = (SELECT new_id FROM _user_map WHERE old_pk = users.pk)")
+    con.execute(
+        "UPDATE clips SET user_pk = (SELECT new_id FROM _user_map WHERE old_pk = clips.user_pk)"
+    )
+    con.execute(
+        "UPDATE user_embeddings SET user_pk = (SELECT new_id FROM _user_map WHERE old_pk = user_embeddings.user_pk)"
+    )
+    con.execute(
+        "UPDATE user_clusters SET user_pk = (SELECT new_id FROM _user_map WHERE old_pk = user_clusters.user_pk)"
+    )
+    con.execute(
+        "UPDATE clip_embeddings SET clip_pk = (SELECT new_id FROM _clip_map WHERE old_pk = clip_embeddings.clip_pk)"
+    )
+    con.execute(
+        "UPDATE downloads SET entity_pk = (SELECT new_id FROM _user_map WHERE old_pk = downloads.entity_pk) WHERE file_type = 'profile_pic'"
+    )
+    con.execute(
+        "UPDATE downloads SET entity_pk = (SELECT new_id FROM _clip_map WHERE old_pk = downloads.entity_pk) WHERE file_type IN ('thumbnail', 'video')"
+    )
+    con.execute(
+        "UPDATE clips SET pk = (SELECT new_id FROM _clip_map WHERE old_pk = clips.pk)"
+    )
+    con.execute(
+        "UPDATE users SET pk = (SELECT new_id FROM _user_map WHERE old_pk = users.pk)"
+    )
 
     con.execute("PRAGMA foreign_keys = ON")
     con.commit()
@@ -215,7 +235,8 @@ def _update_dataset_hash(main_db: str) -> None:
         "SELECT DISTINCT embedding_case FROM cluster_runs"
     ).fetchall():
         user_ids = sorted(
-            r[0] for r in con.execute(
+            r[0]
+            for r in con.execute(
                 "SELECT user_id FROM user_embeddings WHERE embedding_case = ?",
                 (embedding_case,),
             )
@@ -239,7 +260,9 @@ def _backfill_parse_status(main_db: str) -> None:
         if "parse_status" not in cols:
             con.execute("ALTER TABLE users ADD COLUMN parse_status VARCHAR")
 
-        con.execute("UPDATE users SET parse_status = 'pending' WHERE parse_status IS NULL")
+        con.execute(
+            "UPDATE users SET parse_status = 'pending' WHERE parse_status IS NULL"
+        )
         con.execute("""
             UPDATE users SET parse_status = 'success'
             WHERE parse_status = 'pending'

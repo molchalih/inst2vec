@@ -6,6 +6,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import Session
 
+import modules.identity as identity_mod
 from modules.database import (
     Base,
     Clip,
@@ -14,7 +15,6 @@ from modules.database import (
     _backfill_parse_status,
     _migrate_users_table,
 )
-import modules.identity as identity_mod
 from modules.identity import IdentityBase, UserIdentity
 
 
@@ -36,8 +36,10 @@ def test_backfill_success_failed_pending_and_precedence():
     eng = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(eng)
     with Session(eng) as s:
-        s.add(User(id=1, following_count=100, parse_status=None))  # has following_count → success
-        s.add(User(id=2, parse_status=None))                        # has failed download → failed
+        s.add(
+            User(id=1, following_count=100, parse_status=None)
+        )  # has following_count → success
+        s.add(User(id=2, parse_status=None))  # has failed download → failed
         s.add(
             Download(
                 entity_id=2,
@@ -46,8 +48,8 @@ def test_backfill_success_failed_pending_and_precedence():
                 parse_available=False,
             )
         )
-        s.add(User(id=3, parse_status=None))                        # nothing → pending
-        s.add(User(id=4, following_count=200, parse_status=None))   # both → success wins
+        s.add(User(id=3, parse_status=None))  # nothing → pending
+        s.add(User(id=4, following_count=200, parse_status=None))  # both → success wins
         s.add(
             Download(
                 entity_id=4,
@@ -116,8 +118,10 @@ def test_finalize_unresolved_for_non_success_parse_status(monkeypatch):
 
 # ── Task 5: fetch_profiles tests ──────────────────────────────────────────
 
+
 def _make_identity_engine():
     from sqlalchemy import create_engine
+
     eng = create_engine("sqlite:///:memory:")
     IdentityBase.metadata.create_all(eng)
     return eng
@@ -143,10 +147,16 @@ def test_fetch_profiles_reads_username_from_identity_db(monkeypatch):
     class FakeClient:
         def user_by_username_v1(self, username):
             called_with_username.append(username)
-            return {"user": {"pk": 55555, "full_name": "Fetch Me",
-                             "profile_pic_url": "http://p/fm",
-                             "profile_pic_url_hd": "http://p/fm_hd",
-                             "following_count": 42, "city_name": "NYC"}}
+            return {
+                "user": {
+                    "pk": 55555,
+                    "full_name": "Fetch Me",
+                    "profile_pic_url": "http://p/fm",
+                    "profile_pic_url_hd": "http://p/fm_hd",
+                    "following_count": 42,
+                    "city_name": "NYC",
+                }
+            }
 
         def user_clips_v2(self, pk):
             called_with_pk.append(pk)
@@ -158,6 +168,7 @@ def test_fetch_profiles_reads_username_from_identity_db(monkeypatch):
     monkeypatch.setenv("BATCH_SIZE", "5")
 
     from modules.parse import fetch_profiles
+
     fetch_profiles()
 
     # Must have called the API with the correct username
@@ -182,6 +193,7 @@ def test_fetch_profiles_reads_username_from_identity_db(monkeypatch):
 def test_fetch_profiles_stores_sequential_clip_ids(monkeypatch):
     """Clip rows must use sequential IDs from identity DB, not Instagram PKs."""
     from modules.identity import ClipIdentity
+
     main_eng = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(main_eng)
     id_eng = _make_identity_engine()
@@ -198,16 +210,36 @@ def test_fetch_profiles_stores_sequential_clip_ids(monkeypatch):
 
     class FakeClient:
         def user_by_username_v1(self, username):
-            return {"user": {"pk": 99, "full_name": None, "profile_pic_url": None,
-                             "profile_pic_url_hd": None, "following_count": None,
-                             "city_name": None}}
+            return {
+                "user": {
+                    "pk": 99,
+                    "full_name": None,
+                    "profile_pic_url": None,
+                    "profile_pic_url_hd": None,
+                    "following_count": None,
+                    "city_name": None,
+                }
+            }
 
         def user_clips_v2(self, pk):
-            return {"response": {"items": [{"media": {
-                "pk": LARGE_API_PK, "thumbnail_url": None, "video_url": None,
-                "caption": None, "comment_count": 0, "reshare_count": 0,
-                "like_count": 0, "play_count": 1000,
-            }}]}}
+            return {
+                "response": {
+                    "items": [
+                        {
+                            "media": {
+                                "pk": LARGE_API_PK,
+                                "thumbnail_url": None,
+                                "video_url": None,
+                                "caption": None,
+                                "comment_count": 0,
+                                "reshare_count": 0,
+                                "like_count": 0,
+                                "play_count": 1000,
+                            }
+                        }
+                    ]
+                }
+            }
 
     monkeypatch.setattr("modules.parse.Client", lambda token: FakeClient())
     monkeypatch.setattr("modules.parse.get_session", lambda: Session(main_eng))
@@ -216,6 +248,7 @@ def test_fetch_profiles_stores_sequential_clip_ids(monkeypatch):
     monkeypatch.setenv("MAX_CLIPS", "5")
 
     from modules.parse import fetch_profiles
+
     fetch_profiles()
 
     with Session(main_eng) as s:
@@ -253,9 +286,16 @@ def test_fetch_profiles_retries_then_succeeds_fourth(monkeypatch):
             self.calls += 1
             if self.calls < 4:
                 raise RuntimeError("temporary")
-            return {"user": {"pk": 200, "full_name": "OK",
-                             "profile_pic_url": None, "profile_pic_url_hd": None,
-                             "following_count": None, "city_name": None}}
+            return {
+                "user": {
+                    "pk": 200,
+                    "full_name": "OK",
+                    "profile_pic_url": None,
+                    "profile_pic_url_hd": None,
+                    "following_count": None,
+                    "city_name": None,
+                }
+            }
 
         def user_clips_v2(self, pk):
             return {"response": {"items": []}}
@@ -266,6 +306,7 @@ def test_fetch_profiles_retries_then_succeeds_fourth(monkeypatch):
     monkeypatch.setenv("BATCH_SIZE", "5")
 
     from modules.parse import fetch_profiles
+
     fetch_profiles()
 
     with Session(main_eng) as s:
@@ -303,6 +344,7 @@ def test_fetch_profiles_all_attempts_fail(monkeypatch):
     monkeypatch.setattr("modules.parse.time.sleep", lambda _: None)
 
     from modules.parse import fetch_profiles
+
     fetch_profiles()
 
     with Session(main_eng) as s:

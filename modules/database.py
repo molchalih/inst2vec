@@ -272,6 +272,7 @@ class ClusterRun(Base):
 def init_db():
     """Create main DB tables and identity DB tables."""
     from modules.identity import init_identity_db
+
     Base.metadata.create_all(engine)
     init_identity_db()
 

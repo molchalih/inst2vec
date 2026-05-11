@@ -12,9 +12,9 @@ from modules.identity import (
     ClipIdentity,
     IdentityBase,
     UserIdentity,
+    get_api_pk,
     get_or_create_clip_identity,
     get_or_create_user_identity,
-    get_api_pk,
     get_profile_pic_url,
     get_username,
     init_identity_db,
@@ -35,6 +35,7 @@ def test_init_identity_db_creates_tables(tmp_path):
     db_path = str(tmp_path / "identity_map.db")
     engine = init_identity_db(db_path)
     from sqlalchemy import inspect
+
     tables = inspect(engine).get_table_names()
     assert "user_identities" in tables
     assert "clip_identities" in tables
@@ -70,6 +71,7 @@ def test_update_user_identity_stores_pii():
         profile_pic_url_hd="https://example.com/eve-hd.jpg",
     )
     from modules.identity import get_identity_session
+
     with get_identity_session() as s:
         ui = s.get(UserIdentity, uid)
         assert ui.api_pk == 99999
@@ -86,8 +88,14 @@ def test_get_api_pk_returns_none_before_update():
 
 def test_get_api_pk_returns_value_after_update():
     uid = get_or_create_user_identity("grace")
-    update_user_identity(uid, api_pk=12345, full_name=None, city_name=None,
-                         profile_pic_url=None, profile_pic_url_hd=None)
+    update_user_identity(
+        uid,
+        api_pk=12345,
+        full_name=None,
+        city_name=None,
+        profile_pic_url=None,
+        profile_pic_url_hd=None,
+    )
     assert get_api_pk(uid) == 12345
 
 
@@ -98,9 +106,14 @@ def test_get_profile_pic_url_returns_none_before_update():
 
 def test_get_profile_pic_url_returns_value_after_update():
     uid = get_or_create_user_identity("iris")
-    update_user_identity(uid, api_pk=1, full_name=None, city_name=None,
-                         profile_pic_url="https://example.com/iris.jpg",
-                         profile_pic_url_hd=None)
+    update_user_identity(
+        uid,
+        api_pk=1,
+        full_name=None,
+        city_name=None,
+        profile_pic_url="https://example.com/iris.jpg",
+        profile_pic_url_hd=None,
+    )
     assert get_profile_pic_url(uid) == "https://example.com/iris.jpg"
 
 
@@ -120,6 +133,7 @@ def test_get_or_create_clip_identity_is_idempotent():
 def test_clip_identity_api_pk_stored():
     cid = get_or_create_clip_identity(api_pk=9004)
     from modules.identity import get_identity_session
+
     with get_identity_session() as s:
         ci = s.get(ClipIdentity, cid)
         assert ci.api_pk == 9004
@@ -128,8 +142,9 @@ def test_clip_identity_api_pk_stored():
 def test_load_usernames_from_csv_creates_user_with_sequential_id(tmp_path, monkeypatch):
     """CSV loading must write username to identity DB, not main DB."""
     import csv
+
     from sqlalchemy import create_engine
-    from sqlalchemy.orm import Session
+
     from modules.database import Base, User
 
     # --- main DB: in-memory ---
@@ -143,12 +158,15 @@ def test_load_usernames_from_csv_creates_user_with_sequential_id(tmp_path, monke
     # --- write CSV ---
     csv_path = str(tmp_path / "data.csv")
     with open(csv_path, "w", newline="") as f:
-        csv.writer(f).writerows([
-            ["https://instagram.com/alice"],
-            ["https://instagram.com/bob"],
-        ])
+        csv.writer(f).writerows(
+            [
+                ["https://instagram.com/alice"],
+                ["https://instagram.com/bob"],
+            ]
+        )
 
     from modules.utils import load_usernames_from_csv
+
     load_usernames_from_csv(csv_path=csv_path)
 
     # Main DB: user rows exist with sequential IDs, no username column
@@ -160,28 +178,37 @@ def test_load_usernames_from_csv_creates_user_with_sequential_id(tmp_path, monke
         assert all(1 <= uid <= 1000 for uid in user_ids)
 
     # Identity DB: usernames stored there (via the monkeypatched _engine)
-    from modules.identity import get_identity_session, UserIdentity
+    from modules.identity import UserIdentity, get_identity_session
+
     with get_identity_session() as s:
         usernames = {ui.username for ui in s.query(UserIdentity).all()}
         assert usernames == {"alice", "bob"}
 
 
-def test_download_uses_entity_id_and_fetches_pic_url_from_identity_db(tmp_path, monkeypatch):
+def test_download_uses_entity_id_and_fetches_pic_url_from_identity_db(
+    tmp_path, monkeypatch
+):
     """_try_download must use entity_id (not entity_pk); profile_pic_url from identity DB."""
     import os
+
     from sqlalchemy import create_engine
-    from sqlalchemy.orm import Session
+
     from modules.database import Base, Download, User
-    import modules.identity as identity_mod
 
     main_eng = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(main_eng)
 
     # The autouse fixture already replaced _engine with in-memory; add a UserIdentity
     from modules.identity import UserIdentity, get_identity_session
+
     with get_identity_session() as s:
-        s.add(UserIdentity(id=1, username="downloader",
-                           profile_pic_url="https://example.com/pic.jpg"))
+        s.add(
+            UserIdentity(
+                id=1,
+                username="downloader",
+                profile_pic_url="https://example.com/pic.jpg",
+            )
+        )
         s.commit()
 
     with Session(main_eng) as s:
@@ -191,11 +218,16 @@ def test_download_uses_entity_id_and_fetches_pic_url_from_identity_db(tmp_path, 
     monkeypatch.setattr("modules.download.get_session", lambda: Session(main_eng))
 
     import modules.download as dl_mod
-    monkeypatch.setattr(dl_mod, "DIRS", {
-        "profile_pic": str(tmp_path / "profile_pics"),
-        "thumbnail": str(tmp_path / "thumbnails"),
-        "video": str(tmp_path / "videos"),
-    })
+
+    monkeypatch.setattr(
+        dl_mod,
+        "DIRS",
+        {
+            "profile_pic": str(tmp_path / "profile_pics"),
+            "thumbnail": str(tmp_path / "thumbnails"),
+            "video": str(tmp_path / "videos"),
+        },
+    )
     for d in dl_mod.DIRS.values():
         os.makedirs(d, exist_ok=True)
 
@@ -208,5 +240,7 @@ def test_download_uses_entity_id_and_fetches_pic_url_from_identity_db(tmp_path, 
 
     with Session(main_eng) as s:
         row = s.query(Download).filter_by(entity_id=1, file_type="profile_pic").first()
-        assert row is not None, "Download row not created — likely entity_pk/entity_id bug"
+        assert row is not None, (
+            "Download row not created — likely entity_pk/entity_id bug"
+        )
         assert row.success is True
