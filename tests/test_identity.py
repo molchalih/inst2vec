@@ -123,3 +123,44 @@ def test_clip_identity_api_pk_stored():
     with get_identity_session() as s:
         ci = s.get(ClipIdentity, cid)
         assert ci.api_pk == 9004
+
+
+def test_load_usernames_from_csv_creates_user_with_sequential_id(tmp_path, monkeypatch):
+    """CSV loading must write username to identity DB, not main DB."""
+    import csv
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+    from modules.database import Base, User
+
+    # --- main DB: in-memory ---
+    main_eng = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(main_eng)
+    monkeypatch.setattr("modules.utils.get_session", lambda: Session(main_eng))
+
+    # --- identity DB already isolated by autouse fixture ---
+    # The autouse fixture (isolated_identity_engine) already replaced _engine with in-memory
+
+    # --- write CSV ---
+    csv_path = str(tmp_path / "data.csv")
+    with open(csv_path, "w", newline="") as f:
+        csv.writer(f).writerows([
+            ["https://instagram.com/alice"],
+            ["https://instagram.com/bob"],
+        ])
+
+    from modules.utils import load_usernames_from_csv
+    load_usernames_from_csv(csv_path=csv_path)
+
+    # Main DB: user rows exist with sequential IDs, no username column
+    with Session(main_eng) as s:
+        users = s.query(User).all()
+        assert len(users) == 2
+        user_ids = {u.id for u in users}
+        # IDs are small sequential ints (not large hash values)
+        assert all(1 <= uid <= 1000 for uid in user_ids)
+
+    # Identity DB: usernames stored there (via the monkeypatched _engine)
+    from modules.identity import get_identity_session, UserIdentity
+    with get_identity_session() as s:
+        usernames = {ui.username for ui in s.query(UserIdentity).all()}
+        assert usernames == {"alice", "bob"}
