@@ -17,7 +17,7 @@ renames on-disk files, and recomputes cluster_runs.dataset_hash.
 from __future__ import annotations
 
 import sqlite3
-from sqlalchemy import BigInteger, Integer, String, create_engine
+from sqlalchemy import BigInteger, Engine, Integer, String, create_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
 
@@ -63,7 +63,15 @@ def _assign_ids(main_db: str) -> tuple[dict[int, int], dict[int, int]]:
 
     # Sort clips by (user's new id, clip pk) for stable ordering
     clips = con.execute("SELECT pk, user_pk FROM clips ORDER BY user_pk, pk").fetchall()
-    sorted_clips = sorted(clips, key=lambda r: (user_map.get(r[1], 0), r[0]))
+    
+    # Validate FK integrity: all clips must reference a valid user
+    orphaned = [r[0] for r in clips if r[1] not in user_map]
+    if orphaned:
+        raise ValueError(
+            f"_assign_ids: {len(orphaned)} clip(s) reference unknown user_pk: {orphaned[:5]}"
+        )
+    
+    sorted_clips = sorted(clips, key=lambda r: (user_map[r[1]], r[0]))
     clip_map = {row[0]: i + 1 for i, row in enumerate(sorted_clips)}
     con.close()
     return user_map, clip_map
@@ -71,7 +79,7 @@ def _assign_ids(main_db: str) -> tuple[dict[int, int], dict[int, int]]:
 
 def _write_identity_map(
     main_db: str,
-    identity_engine,
+    identity_engine: Engine,
     user_map: dict[int, int],
     clip_map: dict[int, int],
 ) -> None:
