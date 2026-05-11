@@ -50,7 +50,7 @@ def _policy_reasons(total_clips: int, text_count: int) -> list[str]:
 def _text_ok_clip_ids(session) -> set[int]:
     return {
         row[0]
-        for row in session.query(Clip.pk)
+        for row in session.query(Clip.id)
         .filter(
             ((Clip.caption_text.is_not(None)) & (func.trim(Clip.caption_text) != ""))
             | (
@@ -109,14 +109,14 @@ def _creator_relative_low_outliers(
         for clip, value in zip(clips, logs, strict=False):
             robust_z = (value - med) / scale
             if robust_z < CREATOR_ROBUST_Z_THRESHOLD:
-                outliers.add(clip.pk)
+                outliers.add(clip.id)
     return outliers
 
 
 def main() -> None:
     session = get_session()
     try:
-        users = session.query(User).order_by(User.pk).all()
+        users = session.query(User).order_by(User.id).all()
         if not users:
             print("No users found.")
             return
@@ -129,7 +129,7 @@ def main() -> None:
             text_ok_ids = _text_ok_clip_ids(session)
 
         total_users = len(users)
-        total_clips = session.query(func.count(Clip.pk)).scalar() or 0
+        total_clips = session.query(func.count(Clip.id)).scalar() or 0
 
         projected_disq_users = 0
         projected_kept_users = unresolved_users
@@ -180,10 +180,10 @@ def main() -> None:
                     and clip.play_count is not None
                     and int(clip.play_count) < global_floor
                 )
-                is_creator_low = clip.pk in creator_outlier_ids
+                is_creator_low = clip.id in creator_outlier_ids
                 stat_disq = already_disq or is_global_low or is_creator_low
                 if not stat_disq:
-                    active_clip_ids.append(clip.pk)
+                    active_clip_ids.append(clip.id)
 
             total_user_clips = len(active_clip_ids)
             text_count = sum(1 for clip_id in active_clip_ids if clip_id in text_ok_ids)
@@ -215,7 +215,7 @@ def main() -> None:
                     and clip.play_count is not None
                     and int(clip.play_count) < global_floor
                 )
-                is_creator_low = clip.pk in creator_outlier_ids
+                is_creator_low = clip.id in creator_outlier_ids
                 stat_disq = already_disq or is_global_low or is_creator_low
                 if user_disq or stat_disq:
                     projected_disq_clips += 1

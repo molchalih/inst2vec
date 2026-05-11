@@ -32,12 +32,12 @@ KEPT_CLIP_FILTER = Clip.disqualified == 0
 
 
 def _count(session: Session, *criteria) -> int:
-    return int(session.query(func.count(Clip.pk)).filter(*criteria).scalar() or 0)
+    return int(session.query(func.count(Clip.id)).filter(*criteria).scalar() or 0)
 
 
 def _count_non_empty(session: Session, column, *criteria) -> int:
     return int(
-        session.query(func.count(Clip.pk))
+        session.query(func.count(Clip.id))
         .filter(column.is_not(None), func.trim(column) != "")
         .filter(*criteria)
         .scalar()

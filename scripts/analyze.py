@@ -39,23 +39,23 @@ def section_health(session):
     _header("PIPELINE HEALTH")
 
     # Totals
-    n_users = session.query(func.count(User.pk)).scalar()
-    n_clips = session.query(func.count(Clip.pk)).scalar()
-    n_disq = session.query(func.count(Clip.pk)).filter(Clip.disqualified == 1).scalar()
+    n_users = session.query(func.count(User.id)).scalar()
+    n_clips = session.query(func.count(Clip.id)).scalar()
+    n_disq = session.query(func.count(Clip.id)).filter(Clip.disqualified == 1).scalar()
     print(f"\nUsers:              {n_users:>8,}")
     print(f"Clips total:        {n_clips:>8,}")
     print(f"Clips disqualified: {n_disq:>8,}  ({_pct(n_disq, n_clips)})")
 
     # Music phase
     n_music_resolved = (
-        session.query(func.count(Clip.pk)).filter(Clip.has_music.is_not(None)).scalar()
+        session.query(func.count(Clip.id)).filter(Clip.has_music.is_not(None)).scalar()
     )
     n_has_music = (
-        session.query(func.count(Clip.pk)).filter(Clip.has_music == 1).scalar()
+        session.query(func.count(Clip.id)).filter(Clip.has_music == 1).scalar()
     )
-    n_no_music = session.query(func.count(Clip.pk)).filter(Clip.has_music == 0).scalar()
+    n_no_music = session.query(func.count(Clip.id)).filter(Clip.has_music == 0).scalar()
     n_music_features = (
-        session.query(func.count(Clip.pk))
+        session.query(func.count(Clip.id))
         .join(Music, Clip.music_id == Music.id)
         .filter(Music.has_features == "yes")
         .scalar()
@@ -75,13 +75,13 @@ def section_health(session):
 
     # Speech phase
     n_speech_resolved = (
-        session.query(func.count(Clip.pk)).filter(Clip.has_speech.is_not(None)).scalar()
+        session.query(func.count(Clip.id)).filter(Clip.has_speech.is_not(None)).scalar()
     )
     n_has_speech = (
-        session.query(func.count(Clip.pk)).filter(Clip.has_speech == 1).scalar()
+        session.query(func.count(Clip.id)).filter(Clip.has_speech == 1).scalar()
     )
     n_no_speech = (
-        session.query(func.count(Clip.pk)).filter(Clip.has_speech == 0).scalar()
+        session.query(func.count(Clip.id)).filter(Clip.has_speech == 0).scalar()
     )
     print(
         f"\nSpeech resolved:    {n_speech_resolved:>8,}  ({_pct(n_speech_resolved, n_clips)} of clips)"
@@ -95,17 +95,17 @@ def section_health(session):
 
     # Captions phase
     n_caption = (
-        session.query(func.count(Clip.pk))
+        session.query(func.count(Clip.id))
         .filter(Clip.caption_text.is_not(None), Clip.caption_text != "")
         .scalar()
     )
     n_lang_detected = (
-        session.query(func.count(Clip.pk))
+        session.query(func.count(Clip.id))
         .filter(Clip.caption_language.is_not(None), Clip.caption_language != "")
         .scalar()
     )
     n_non_en = (
-        session.query(func.count(Clip.pk))
+        session.query(func.count(Clip.id))
         .filter(
             Clip.caption_language.is_not(None),
             Clip.caption_language != "",
@@ -114,7 +114,7 @@ def section_health(session):
         .scalar()
     )
     n_translated = (
-        session.query(func.count(Clip.pk))
+        session.query(func.count(Clip.id))
         .filter(
             Clip.caption_language.is_not(None),
             func.lower(Clip.caption_language).notlike("en%"),
@@ -172,9 +172,9 @@ def section_engagement(session):
 
 def section_captions(session):
     _header("CAPTIONS", "-")
-    n_total = session.query(func.count(Clip.pk)).scalar()
+    n_total = session.query(func.count(Clip.id)).scalar()
     n_empty = (
-        session.query(func.count(Clip.pk))
+        session.query(func.count(Clip.id))
         .filter((Clip.caption_text.is_(None)) | (Clip.caption_text == ""))
         .scalar()
     )
@@ -193,10 +193,10 @@ def section_captions(session):
         )
 
     lang_rows = (
-        session.query(Clip.caption_language, func.count(Clip.pk))
+        session.query(Clip.caption_language, func.count(Clip.id))
         .filter(Clip.caption_language.is_not(None), Clip.caption_language != "")
         .group_by(Clip.caption_language)
-        .order_by(func.count(Clip.pk).desc())
+        .order_by(func.count(Clip.id).desc())
         .limit(10)
         .all()
     )
@@ -208,8 +208,8 @@ def section_captions(session):
 
 def section_music(session):
     _header("MUSIC", "-")
-    n_with = session.query(func.count(Clip.pk)).filter(Clip.has_music == 1).scalar()
-    n_without = session.query(func.count(Clip.pk)).filter(Clip.has_music == 0).scalar()
+    n_with = session.query(func.count(Clip.id)).filter(Clip.has_music == 1).scalar()
+    n_without = session.query(func.count(Clip.id)).filter(Clip.has_music == 0).scalar()
     total_resolved = n_with + n_without
     print(
         f"\nWith music: {n_with:,} / {total_resolved:,} ({_pct(n_with, total_resolved)})"
@@ -219,10 +219,10 @@ def section_music(session):
     )
 
     top_tracks = (
-        session.query(Music.artist, Music.track, func.count(Clip.pk))
+        session.query(Music.artist, Music.track, func.count(Clip.id))
         .join(Clip, Clip.music_id == Music.id)
         .group_by(Music.id)
-        .order_by(func.count(Clip.pk).desc())
+        .order_by(func.count(Clip.id).desc())
         .limit(10)
         .all()
     )
@@ -258,8 +258,8 @@ def section_music(session):
 
 def section_speech(session):
     _header("SPEECH", "-")
-    n_with = session.query(func.count(Clip.pk)).filter(Clip.has_speech == 1).scalar()
-    n_without = session.query(func.count(Clip.pk)).filter(Clip.has_speech == 0).scalar()
+    n_with = session.query(func.count(Clip.id)).filter(Clip.has_speech == 1).scalar()
+    n_without = session.query(func.count(Clip.id)).filter(Clip.has_speech == 0).scalar()
     total_resolved = n_with + n_without
     print(
         f"\nWith speech: {n_with:,} / {total_resolved:,} ({_pct(n_with, total_resolved)})"
@@ -269,14 +269,14 @@ def section_speech(session):
     )
 
     lang_rows = (
-        session.query(Clip.speech_language, func.count(Clip.pk))
+        session.query(Clip.speech_language, func.count(Clip.id))
         .filter(
             Clip.has_speech == 1,
             Clip.speech_language.is_not(None),
             Clip.speech_language != "",
         )
         .group_by(Clip.speech_language)
-        .order_by(func.count(Clip.pk).desc())
+        .order_by(func.count(Clip.id).desc())
         .limit(10)
         .all()
     )
