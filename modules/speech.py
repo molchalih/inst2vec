@@ -1,28 +1,32 @@
 """Phase 2 – speech pipeline.
 
-  classify_speech()  Whisper transcription → has_speech + speech_confidence.
-  translate_speech() TranslateGemma        → speech_translation.
+classify_speech()  Whisper transcription → has_speech + speech_confidence.
+translate_speech() TranslateGemma        → speech_translation.
 """
+
 from __future__ import annotations
 
 import os
 import re
-from typing import Optional
 
 import whisper
 from sqlalchemy import func, or_
 
+from modules.console import log, progress
 from modules.database import Clip, get_session
 from modules.external.gemma_translate import GemmaTranslator
-from modules.console import progress, log
 
 VIDEO_DIR = os.environ.get("VIDEO_DIR", "data/source/videos")
 WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "large-v3-turbo")
 COMMIT_EVERY = int(os.environ.get("SPEECH_COMMIT_EVERY", 50))
-SPEECH_TRANSLATE_MODEL = os.environ.get("SPEECH_TRANSLATE_MODEL", "google/translategemma-4b-it")
+SPEECH_TRANSLATE_MODEL = os.environ.get(
+    "SPEECH_TRANSLATE_MODEL", "google/translategemma-4b-it"
+)
 SPEECH_TRANSLATE_TARGET_LANG = os.environ.get("SPEECH_TRANSLATE_TARGET_LANG", "en")
 SPEECH_TRANSLATION_MAX_CHARS = int(os.environ.get("SPEECH_TRANSLATION_MAX_CHARS", 1000))
-SPEECH_TRANSLATE_MAX_NEW_TOKENS = int(os.environ.get("SPEECH_TRANSLATE_MAX_NEW_TOKENS", 200))
+SPEECH_TRANSLATE_MAX_NEW_TOKENS = int(
+    os.environ.get("SPEECH_TRANSLATE_MAX_NEW_TOKENS", 200)
+)
 # Two complementary hallucination gates (both configurable via .env):
 #
 #   SPEECH_LOGPROB_THRESHOLD    — mean avg_logprob across segments.
@@ -69,7 +73,9 @@ def _transcribe(model, path: str) -> tuple[str, str, float, float, float]:
         mean_no_speech = sum(s.get("no_speech_prob", 0.0) for s in segs) / len(segs)
         confidence = max(0.0, min(1.0, 1.0 - mean_no_speech))
         avg_logprob = sum(s.get("avg_logprob", 0.0) for s in segs) / len(segs)
-        compression_ratio = sum(s.get("compression_ratio", 0.0) for s in segs) / len(segs)
+        compression_ratio = sum(s.get("compression_ratio", 0.0) for s in segs) / len(
+            segs
+        )
     else:
         confidence = avg_logprob = compression_ratio = 0.0
     return text, language, confidence, avg_logprob, compression_ratio
@@ -81,6 +87,7 @@ def _has_meaningful_speech_text(text: str) -> bool:
 
 
 # ── public API ─────────────────────────────────────────────────────────────────
+
 
 def clean_speech() -> None:
     """Reset has_speech to 0 for clips whose speech_translation contains hallucination markers."""
@@ -105,7 +112,10 @@ def clean_speech() -> None:
 
     for clip in clips:
         clip.has_speech = 0
-        log(SCOPE_CLEAN, f"{clip.pk}: marked has_speech=0 (translation: \"{(clip.speech_translation or '')[:60]}\")")
+        log(
+            SCOPE_CLEAN,
+            f'{clip.pk}: marked has_speech=0 (translation: "{(clip.speech_translation or "")[:60]}")',
+        )
 
     session.commit()
     session.close()
@@ -120,7 +130,10 @@ def classify_speech() -> None:
     session = get_session()
     clips = (
         session.query(Clip)
-        .filter(Clip.has_speech.is_(None), or_(Clip.disqualified.is_(None), Clip.disqualified == 0))
+        .filter(
+            Clip.has_speech.is_(None),
+            or_(Clip.disqualified.is_(None), Clip.disqualified == 0),
+        )
         .order_by(Clip.pk.desc())
         .all()
     )
@@ -129,7 +142,7 @@ def classify_speech() -> None:
         return
 
     log(SCOPE_CLASSIFY, f"{len(clips)} clips to transcribe")
-    model: Optional[whisper.Whisper] = None
+    model: whisper.Whisper | None = None
     has_speech = no_speech = missing = 0
 
     with progress(len(clips), "Transcribing") as advance:
@@ -144,9 +157,17 @@ def classify_speech() -> None:
                 log(SCOPE_CLASSIFY, f"loading {WHISPER_MODEL}…")
                 model = whisper.load_model(WHISPER_MODEL)
             try:
-                text, language, conf, avg_logprob, compression_ratio = _transcribe(model, path)
+                text, language, conf, avg_logprob, compression_ratio = _transcribe(
+                    model, path
+                )
             except Exception:
-                text, language, conf, avg_logprob, compression_ratio = "", "", 0.0, 0.0, 0.0
+                text, language, conf, avg_logprob, compression_ratio = (
+                    "",
+                    "",
+                    0.0,
+                    0.0,
+                    0.0,
+                )
 
             clip.speech_transcription = text
             clip.speech_language = language or None
@@ -209,7 +230,9 @@ def translate_speech() -> None:
 
     with progress(total, "Translating speech") as advance:
         for i, clip in enumerate(clips, 1):
-            source = (clip.speech_transcription or "").strip()[:SPEECH_TRANSLATION_MAX_CHARS]
+            source = (clip.speech_transcription or "").strip()[
+                :SPEECH_TRANSLATION_MAX_CHARS
+            ]
             source_lang = (clip.speech_language or "").strip().replace("_", "-")
             if not source or not source_lang or source_lang.lower().startswith("en"):
                 advance()

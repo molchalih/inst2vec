@@ -1,4 +1,5 @@
 """Statistical dataset gating with pass A/B."""
+
 from __future__ import annotations
 
 import math
@@ -6,17 +7,23 @@ import os
 
 from sqlalchemy import func
 
-from modules.database import Clip, User, get_session
 from modules.console import log
+from modules.database import Clip, User, get_session
 
 SCOPE = "finalize_dataset"
 
 TARGET_CLIPS_PER_USER = int(os.environ.get("FINALIZE_TARGET_CLIPS_PER_USER", 4))
 REQUIRE_MIN_TEXT_CLIPS = os.environ.get("FINALIZE_REQUIRE_MIN_TEXT_CLIPS", "0") == "1"
-PASS_A_RECOMPUTE_FROM_SCRATCH = os.environ.get("FINALIZE_PASS_A_RECOMPUTE_FROM_SCRATCH", "1") == "1"
+PASS_A_RECOMPUTE_FROM_SCRATCH = (
+    os.environ.get("FINALIZE_PASS_A_RECOMPUTE_FROM_SCRATCH", "1") == "1"
+)
 GLOBAL_MIN_PLAYS = int(os.environ.get("FINALIZE_GLOBAL_MIN_PLAYS", "0"))
-GLOBAL_MIN_PLAYS_PERCENTILE = float(os.environ.get("FINALIZE_GLOBAL_MIN_PLAYS_PERCENTILE", "5"))
-CREATOR_ROBUST_Z_THRESHOLD = float(os.environ.get("FINALIZE_CREATOR_ROBUST_Z_THRESHOLD", "-2.5"))
+GLOBAL_MIN_PLAYS_PERCENTILE = float(
+    os.environ.get("FINALIZE_GLOBAL_MIN_PLAYS_PERCENTILE", "5")
+)
+CREATOR_ROBUST_Z_THRESHOLD = float(
+    os.environ.get("FINALIZE_CREATOR_ROBUST_Z_THRESHOLD", "-2.5")
+)
 CREATOR_MIN_CLIPS = int(os.environ.get("FINALIZE_CREATOR_MIN_CLIPS", "5"))
 
 
@@ -63,10 +70,17 @@ def _median(values: list[float]) -> float:
     return (ordered[mid - 1] + ordered[mid]) / 2.0
 
 
-def _creator_relative_low_outliers(users: list[User], only_active_clips: bool) -> set[int]:
+def _creator_relative_low_outliers(
+    users: list[User], only_active_clips: bool
+) -> set[int]:
     outliers: set[int] = set()
     for user in users:
-        clips = [c for c in user.clips if c.play_count is not None and (not only_active_clips or c.disqualified != 1)]
+        clips = [
+            c
+            for c in user.clips
+            if c.play_count is not None
+            and (not only_active_clips or c.disqualified != 1)
+        ]
         if len(clips) < CREATOR_MIN_CLIPS:
             continue
 
@@ -78,7 +92,7 @@ def _creator_relative_low_outliers(users: list[User], only_active_clips: bool) -
             continue
 
         scale = 1.4826 * mad
-        for clip, value in zip(clips, logs):
+        for clip, value in zip(clips, logs, strict=False):
             robust_z = (value - med) / scale
             if robust_z < CREATOR_ROBUST_Z_THRESHOLD:
                 outliers.add(clip.pk)
@@ -86,8 +100,7 @@ def _creator_relative_low_outliers(users: list[User], only_active_clips: bool) -
 
 
 def finalize_user_dataset(pass_name: str = "A") -> None:
-    """Mark users/clips as disqualified(1) or eligible(0) with staged policy.
-    """
+    """Mark users/clips as disqualified(1) or eligible(0) with staged policy."""
     pass_name = (pass_name or "A").upper()
     if pass_name not in {"A", "B"}:
         raise ValueError("pass_name must be 'A' or 'B'")
@@ -107,7 +120,11 @@ def finalize_user_dataset(pass_name: str = "A") -> None:
 
     disq_count = 0
     reason_counts = {"clip_count": 0, "text_count": 0}
-    clip_reason_counts = {"user_disqualified": 0, "global_low_plays": 0, "creator_low_outlier": 0}
+    clip_reason_counts = {
+        "user_disqualified": 0,
+        "global_low_plays": 0,
+        "creator_low_outlier": 0,
+    }
     clip_kept = 0
     clip_disq = 0
     unresolved_users = 0
@@ -123,7 +140,9 @@ def finalize_user_dataset(pass_name: str = "A") -> None:
 
     # Pass A: pre-gate users with too few raw clips before computing stats
     pre_gate_users: list[User] = []
-    pre_gated_clip_pks: set[int] = set()  # Track clips disqualified in pre-gate for later deduplication
+    pre_gated_clip_pks: set[int] = (
+        set()
+    )  # Track clips disqualified in pre-gate for later deduplication
     if is_pass_a:
         for user in parsed_users:
             if len(user.clips) < TARGET_CLIPS_PER_USER:
@@ -160,12 +179,14 @@ def finalize_user_dataset(pass_name: str = "A") -> None:
             only_active_clips=not PASS_A_RECOMPUTE_FROM_SCRATCH,
         )
 
-    for user in (pre_gate_users if is_pass_a else parsed_users):
+    for user in pre_gate_users if is_pass_a else parsed_users:
         if is_pass_a:
             active_clip_ids: list[int] = []
             stat_disq_by_clip: dict[int, bool] = {}
             for clip in user.clips:
-                already_disq = (not PASS_A_RECOMPUTE_FROM_SCRATCH) and clip.disqualified == 1
+                already_disq = (
+                    not PASS_A_RECOMPUTE_FROM_SCRATCH
+                ) and clip.disqualified == 1
                 is_global_low = bool(
                     global_floor > 0
                     and clip.play_count is not None
@@ -197,36 +218,37 @@ def finalize_user_dataset(pass_name: str = "A") -> None:
 
         for clip in user.clips:
             was_pre_gated = clip.pk in pre_gated_clip_pks
-            should_disqualify_clip = disqualified or stat_disq_by_clip.get(clip.pk, False)
+            should_disqualify_clip = disqualified or stat_disq_by_clip.get(
+                clip.pk, False
+            )
             clip.disqualified = 1 if should_disqualify_clip else 0
 
             if should_disqualify_clip:
                 # Only count this clip if it wasn't already counted in pre-gate
                 if not was_pre_gated:
                     clip_disq += 1
-                if disqualified:
+                if disqualified and not was_pre_gated:
                     # Count user_disqualified reason even if clip was pre-gated
                     # (the user re-gate is what's disqualifying it now, even if stat-disq did too)
-                    if not was_pre_gated:
-                        clip_reason_counts["user_disqualified"] += 1
+                    clip_reason_counts["user_disqualified"] += 1
                 if is_pass_a:
                     if (
                         global_floor > 0
                         and clip.play_count is not None
                         and int(clip.play_count) < global_floor
-                    ):
-                        if not was_pre_gated:
-                            clip_reason_counts["global_low_plays"] += 1
-                    if clip.pk in creator_outlier_ids:
-                        if not was_pre_gated:
-                            clip_reason_counts["creator_low_outlier"] += 1
+                    ) and not was_pre_gated:
+                        clip_reason_counts["global_low_plays"] += 1
+                    if clip.pk in creator_outlier_ids and not was_pre_gated:
+                        clip_reason_counts["creator_low_outlier"] += 1
             else:
                 clip_kept += 1
 
     session.commit()
     total_users = len(users)
     kept = total_users - disq_count
-    eligible_clips = session.query(func.count(Clip.pk)).filter(Clip.disqualified == 0).scalar()
+    eligible_clips = (
+        session.query(func.count(Clip.pk)).filter(Clip.disqualified == 0).scalar()
+    )
     session.close()
 
     log(

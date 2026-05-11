@@ -1,4 +1,5 @@
 """Caption language detection and translation pipeline."""
+
 from __future__ import annotations
 
 import os
@@ -7,16 +8,21 @@ import re
 from lingua import LanguageDetectorBuilder
 from sqlalchemy import func, or_
 
+from modules.console import log, progress
 from modules.database import Clip, get_session
 from modules.external.gemma_translate import GemmaTranslator
-from modules.console import progress, log
-
 
 COMMIT_EVERY = int(os.environ.get("CAPTIONS_COMMIT_EVERY", 50))
-CAPTION_TRANSLATE_MODEL = os.environ.get("CAPTION_TRANSLATE_MODEL", "google/translategemma-4b-it")
+CAPTION_TRANSLATE_MODEL = os.environ.get(
+    "CAPTION_TRANSLATE_MODEL", "google/translategemma-4b-it"
+)
 CAPTION_TRANSLATE_TARGET_LANG = os.environ.get("CAPTION_TRANSLATE_TARGET_LANG", "en")
-CAPTION_TRANSLATION_MAX_CHARS = int(os.environ.get("CAPTION_TRANSLATION_MAX_CHARS", 1000))
-CAPTION_TRANSLATE_MAX_NEW_TOKENS = int(os.environ.get("CAPTION_TRANSLATE_MAX_NEW_TOKENS", 200))
+CAPTION_TRANSLATION_MAX_CHARS = int(
+    os.environ.get("CAPTION_TRANSLATION_MAX_CHARS", 1000)
+)
+CAPTION_TRANSLATE_MAX_NEW_TOKENS = int(
+    os.environ.get("CAPTION_TRANSLATE_MAX_NEW_TOKENS", 200)
+)
 
 SCOPE_DETECT = "detect_caption_language"
 SCOPE_TRANSLATE = "translate_captions"

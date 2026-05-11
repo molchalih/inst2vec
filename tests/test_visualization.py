@@ -1,46 +1,53 @@
-import sys
 import os
+import sys
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import matplotlib
+
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from modules.visualization import _plot_case, plot_clusters
+import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
+
+from generators.cluster_case_plots import _plot_case
+from modules.visualization import plot_clusters
 
 
 def _rows(xs, ys, labels):
-    return [SimpleNamespace(umap_x=x, umap_y=y, cluster_id=c)
-            for x, y, c in zip(xs, ys, labels)]
+    return [
+        SimpleNamespace(umap_x=x, umap_y=y, cluster_id=c)
+        for x, y, c in zip(xs, ys, labels, strict=False)
+    ]
 
 
 def test_plot_case_returns_figure():
     rows = _rows([0.1, 0.2, 0.3], [0.4, 0.5, 0.6], [0, 0, 1])
     fig = _plot_case("video", rows)
-    assert isinstance(fig, plt.Figure)
+    assert isinstance(fig, Figure)
     plt.close(fig)
 
 
 def test_plot_case_handles_noise_points():
     rows = _rows([0.0, 1.0, 2.0], [0.0, 1.0, 2.0], [-1, 0, 1])
     fig = _plot_case("sandwich", rows)
-    assert isinstance(fig, plt.Figure)
+    assert isinstance(fig, Figure)
     plt.close(fig)
 
 
 def test_plot_case_all_noise():
     rows = _rows([0.0, 1.0], [0.0, 1.0], [-1, -1])
     fig = _plot_case("audio", rows)
-    assert isinstance(fig, plt.Figure)
+    assert isinstance(fig, Figure)
     plt.close(fig)
 
 
 def test_plot_case_single_cluster():
     rows = _rows([0.1, 0.2], [0.3, 0.4], [0, 0])
     fig = _plot_case("video", rows)
-    assert isinstance(fig, plt.Figure)
+    assert isinstance(fig, Figure)
     plt.close(fig)
 
 
@@ -59,7 +66,11 @@ def test_plot_clusters_uses_shared_cluster_plot_generator(monkeypatch, tmp_path)
     ]
 
     query = MagicMock()
-    query.distinct.return_value.all.return_value = [("audio",), ("video",), ("sandwich",)]
+    query.distinct.return_value.all.return_value = [
+        ("audio",),
+        ("video",),
+        ("sandwich",),
+    ]
     query.filter.return_value.all.side_effect = [
         [fake_rows[0]],
         [fake_rows[1]],

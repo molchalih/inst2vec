@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 """Preview how much the dataset shrinks under finalization policy."""
+
 from __future__ import annotations
 
 import math
@@ -17,10 +18,16 @@ load_dotenv()
 
 TARGET_CLIPS_PER_USER = int(os.environ.get("FINALIZE_TARGET_CLIPS_PER_USER", 4))
 REQUIRE_MIN_TEXT_CLIPS = os.environ.get("FINALIZE_REQUIRE_MIN_TEXT_CLIPS", "0") == "1"
-PASS_A_RECOMPUTE_FROM_SCRATCH = os.environ.get("FINALIZE_PASS_A_RECOMPUTE_FROM_SCRATCH", "1") == "1"
+PASS_A_RECOMPUTE_FROM_SCRATCH = (
+    os.environ.get("FINALIZE_PASS_A_RECOMPUTE_FROM_SCRATCH", "1") == "1"
+)
 GLOBAL_MIN_PLAYS = int(os.environ.get("FINALIZE_GLOBAL_MIN_PLAYS", "0"))
-GLOBAL_MIN_PLAYS_PERCENTILE = float(os.environ.get("FINALIZE_GLOBAL_MIN_PLAYS_PERCENTILE", "5"))
-CREATOR_ROBUST_Z_THRESHOLD = float(os.environ.get("FINALIZE_CREATOR_ROBUST_Z_THRESHOLD", "-2.5"))
+GLOBAL_MIN_PLAYS_PERCENTILE = float(
+    os.environ.get("FINALIZE_GLOBAL_MIN_PLAYS_PERCENTILE", "5")
+)
+CREATOR_ROBUST_Z_THRESHOLD = float(
+    os.environ.get("FINALIZE_CREATOR_ROBUST_Z_THRESHOLD", "-2.5")
+)
 CREATOR_MIN_CLIPS = int(os.environ.get("FINALIZE_CREATOR_MIN_CLIPS", "5"))
 
 
@@ -79,12 +86,16 @@ def _median(values: list[float]) -> float:
     return (ordered[mid - 1] + ordered[mid]) / 2.0
 
 
-def _creator_relative_low_outliers(users: list[User], only_active_clips: bool) -> set[int]:
+def _creator_relative_low_outliers(
+    users: list[User], only_active_clips: bool
+) -> set[int]:
     outliers: set[int] = set()
     for user in users:
         clips = [
-            c for c in user.clips
-            if c.play_count is not None and (not only_active_clips or c.disqualified != 1)
+            c
+            for c in user.clips
+            if c.play_count is not None
+            and (not only_active_clips or c.disqualified != 1)
         ]
         if len(clips) < CREATOR_MIN_CLIPS:
             continue
@@ -95,7 +106,7 @@ def _creator_relative_low_outliers(users: list[User], only_active_clips: bool) -
         if mad <= 1e-9:
             continue
         scale = 1.4826 * mad
-        for clip, value in zip(clips, logs):
+        for clip, value in zip(clips, logs, strict=False):
             robust_z = (value - med) / scale
             if robust_z < CREATOR_ROBUST_Z_THRESHOLD:
                 outliers.add(clip.pk)
@@ -124,7 +135,11 @@ def main() -> None:
         projected_kept_users = unresolved_users
         projected_disq_clips = projected_kept_clips = 0
         reason_counts = {"clip_count": 0, "text_count": 0}
-        clip_reason_counts = {"user_disqualified": 0, "global_low_plays": 0, "creator_low_outlier": 0}
+        clip_reason_counts = {
+            "user_disqualified": 0,
+            "global_low_plays": 0,
+            "creator_low_outlier": 0,
+        }
         sample_disq = []
 
         play_vals = [
@@ -157,7 +172,9 @@ def main() -> None:
         for user in parsed_users:
             active_clip_ids: list[int] = []
             for clip in user.clips:
-                already_disq = (not PASS_A_RECOMPUTE_FROM_SCRATCH) and clip.disqualified == 1
+                already_disq = (
+                    not PASS_A_RECOMPUTE_FROM_SCRATCH
+                ) and clip.disqualified == 1
                 is_global_low = bool(
                     global_floor > 0
                     and clip.play_count is not None
@@ -217,7 +234,9 @@ def main() -> None:
         print("\nPolicy from .env:")
         print(f"  FINALIZE_TARGET_CLIPS_PER_USER={TARGET_CLIPS_PER_USER}")
         print(f"  FINALIZE_REQUIRE_MIN_TEXT_CLIPS={int(REQUIRE_MIN_TEXT_CLIPS)}")
-        print(f"  FINALIZE_PASS_A_RECOMPUTE_FROM_SCRATCH={int(PASS_A_RECOMPUTE_FROM_SCRATCH)}")
+        print(
+            f"  FINALIZE_PASS_A_RECOMPUTE_FROM_SCRATCH={int(PASS_A_RECOMPUTE_FROM_SCRATCH)}"
+        )
         print(f"  FINALIZE_GLOBAL_MIN_PLAYS={GLOBAL_MIN_PLAYS}")
         print(f"  FINALIZE_GLOBAL_MIN_PLAYS_PERCENTILE={GLOBAL_MIN_PLAYS_PERCENTILE}")
         print(f"  FINALIZE_CREATOR_ROBUST_Z_THRESHOLD={CREATOR_ROBUST_Z_THRESHOLD}")
@@ -226,10 +245,18 @@ def main() -> None:
         print(f"  unresolved_users={unresolved_users}")
 
         print("\nProjected result if disqualified users are removed:")
-        print(f"  users kept:         {projected_kept_users:>6,} / {total_users:,} ({_pct(projected_kept_users, total_users)})")
-        print(f"  users removed:      {projected_disq_users:>6,} / {total_users:,} ({_pct(projected_disq_users, total_users)})")
-        print(f"  clips kept:         {projected_kept_clips:>6,} / {total_clips:,} ({_pct(projected_kept_clips, total_clips)})")
-        print(f"  clips removed:      {projected_disq_clips:>6,} / {total_clips:,} ({_pct(projected_disq_clips, total_clips)})")
+        print(
+            f"  users kept:         {projected_kept_users:>6,} / {total_users:,} ({_pct(projected_kept_users, total_users)})"
+        )
+        print(
+            f"  users removed:      {projected_disq_users:>6,} / {total_users:,} ({_pct(projected_disq_users, total_users)})"
+        )
+        print(
+            f"  clips kept:         {projected_kept_clips:>6,} / {total_clips:,} ({_pct(projected_kept_clips, total_clips)})"
+        )
+        print(
+            f"  clips removed:      {projected_disq_clips:>6,} / {total_clips:,} ({_pct(projected_disq_clips, total_clips)})"
+        )
 
         print("\nDisqualification reason counts (users can have multiple):")
         print(f"  clip_count:         {reason_counts['clip_count']:>6,}")

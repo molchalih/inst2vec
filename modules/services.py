@@ -1,22 +1,25 @@
 """Shared services: Spotify and ReccoBeats HTTP clients."""
+
 from __future__ import annotations
 
 import os
 import random
 import time
-import httpx
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable, Optional
 from urllib.parse import urlparse
 
+import httpx
+
 # ── utilities ─────────────────────────────────────────────────────────────────
+
 
 def chunked(lst: list, n: int):
     for i in range(0, len(lst), n):
         yield lst[i : i + n]
 
 
-def _spotify_id_from_href(href: Optional[str]) -> Optional[str]:
+def _spotify_id_from_href(href: str | None) -> str | None:
     if not href:
         return None
     parts = [p for p in urlparse(href).path.split("/") if p]
@@ -37,7 +40,7 @@ class SpotifyClient:
 
     def __init__(self, http: httpx.Client):
         self._http = http
-        self._token: Optional[str] = None
+        self._token: str | None = None
         self._expires_at = 0.0
 
     def _refresh(self) -> bool:
@@ -48,7 +51,11 @@ class SpotifyClient:
         try:
             r = self._http.post(
                 _SPOTIFY_TOKEN_URL,
-                data={"grant_type": "client_credentials", "client_id": cid, "client_secret": secret},
+                data={
+                    "grant_type": "client_credentials",
+                    "client_id": cid,
+                    "client_secret": secret,
+                },
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
                 timeout=_SEARCH_TIMEOUT,
             )
@@ -57,16 +64,17 @@ class SpotifyClient:
         except Exception:
             return False
         self._token = p.get("access_token")
-        self._expires_at = time.time() + max(0, int(p.get("expires_in", 3600)) - _TOKEN_SKEW)
+        self._expires_at = time.time() + max(
+            0, int(p.get("expires_in", 3600)) - _TOKEN_SKEW
+        )
         return bool(self._token)
 
-    def search_id(self, artist: str, track: str) -> Optional[str]:
+    def search_id(self, artist: str, track: str) -> str | None:
         """Return the Spotify track ID for the best match, or None."""
         if not track.strip():
             return None
-        if not self._token or time.time() >= self._expires_at:
-            if not self._refresh():
-                return None
+        if (not self._token or time.time() >= self._expires_at) and not self._refresh():
+            return None
         q = f"track:{track.strip()}"
         if artist.strip():
             q += f" artist:{artist.strip()}"
@@ -107,14 +115,18 @@ class ReccoBeatsClient:
     def _sleep(self) -> None:
         time.sleep(random.uniform(_RB_DELAY_MIN, _RB_DELAY_MAX))
 
-    def get_ids(self, spotify_ids: list[str], on_batch: Optional[OnBatch] = None) -> dict[str, str]:
+    def get_ids(
+        self, spotify_ids: list[str], on_batch: OnBatch | None = None
+    ) -> dict[str, str]:
         """Return {spotify_id: reccobeats_id} for all matched tracks."""
         out: dict[str, str] = {}
         batches = list(chunked(spotify_ids, _RB_BATCH))
         for i, batch in enumerate(batches, 1):
             matched = 0
             try:
-                r = self._http.get(_RB_TRACK_URL, params={"ids": ",".join(batch)}, timeout=_RB_TIMEOUT)
+                r = self._http.get(
+                    _RB_TRACK_URL, params={"ids": ",".join(batch)}, timeout=_RB_TIMEOUT
+                )
                 r.raise_for_status()
                 for item in r.json().get("content", []):
                     sid = _spotify_id_from_href(item.get("href"))
@@ -129,14 +141,20 @@ class ReccoBeatsClient:
             self._sleep()
         return out
 
-    def get_features(self, rb_ids: list[str], on_batch: Optional[OnBatch] = None) -> dict[str, dict]:
+    def get_features(
+        self, rb_ids: list[str], on_batch: OnBatch | None = None
+    ) -> dict[str, dict]:
         """Return {reccobeats_id: feature_payload} for matched tracks."""
         out: dict[str, dict] = {}
         batches = list(chunked(rb_ids, _RB_BATCH))
         for i, batch in enumerate(batches, 1):
             matched = 0
             try:
-                r = self._http.get(_RB_FEATURES_URL, params={"ids": ",".join(batch)}, timeout=_RB_TIMEOUT)
+                r = self._http.get(
+                    _RB_FEATURES_URL,
+                    params={"ids": ",".join(batch)},
+                    timeout=_RB_TIMEOUT,
+                )
                 r.raise_for_status()
                 for item in r.json().get("content", []):
                     rid = item.get("id")
@@ -150,7 +168,7 @@ class ReccoBeatsClient:
             self._sleep()
         return out
 
-    def upload_features(self, audio: Path) -> Optional[dict]:
+    def upload_features(self, audio: Path) -> dict | None:
         """POST a short audio file to the analysis endpoint; return feature payload or None."""
         mime = "audio/wav" if audio.suffix.lower() == ".wav" else "audio/mpeg"
         try:

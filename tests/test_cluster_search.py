@@ -1,14 +1,15 @@
-import sys
 import os
+import sys
 from unittest.mock import patch
 
-import pytest
 import numpy as np
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
+from modules.clustering import ClusterResult
 from modules.database import Base, ClusterRun
 
 
@@ -19,17 +20,33 @@ def test_cluster_run_tablename():
 def test_cluster_run_columns():
     cols = {c.key for c in ClusterRun.__table__.columns}
     assert cols == {
-        "id", "embedding_case",
-        "umap_n_components", "umap_n_neighbors", "umap_min_dist", "umap_metric",
-        "umap2d_n_neighbors", "umap2d_min_dist", "umap2d_metric",
-        "hdbscan_min_cluster_size", "hdbscan_min_samples",
-        "hdbscan_cluster_selection_method", "hdbscan_metric",
+        "id",
+        "embedding_case",
+        "umap_n_components",
+        "umap_n_neighbors",
+        "umap_min_dist",
+        "umap_metric",
+        "umap2d_n_neighbors",
+        "umap2d_min_dist",
+        "umap2d_metric",
+        "hdbscan_min_cluster_size",
+        "hdbscan_min_samples",
+        "hdbscan_cluster_selection_method",
+        "hdbscan_metric",
         "random_state",
-        "n_clusters", "noise_ratio", "min_size", "median_size", "max_size",
+        "n_clusters",
+        "noise_ratio",
+        "min_size",
+        "median_size",
+        "max_size",
         "created_at",
-        "disqualified", "dbcv", "silhouette",
+        "disqualified",
+        "dbcv",
+        "silhouette",
         "param_plateau_score",
-        "in_current_grid", "dataset_hash", "validation_config_hash",
+        "in_current_grid",
+        "dataset_hash",
+        "validation_config_hash",
     }
 
 
@@ -45,6 +62,7 @@ def test_cluster_run_hdbscan_min_samples_nullable():
 
 def test_load_grid_combo_count():
     from modules.cluster_search import _load_grid
+
     env = {
         "CLUSTERING_UMAP_N_COMPONENTS": "10 15",
         "CLUSTERING_UMAP_N_NEIGHBORS": "10",
@@ -89,6 +107,7 @@ def test_load_grid_ignores_hdbscan_metric_env_dimension():
 
 def test_load_grid_combo_keys():
     from modules.cluster_search import _load_grid
+
     env = {
         "CLUSTERING_UMAP_N_COMPONENTS": "10",
         "CLUSTERING_UMAP_N_NEIGHBORS": "15",
@@ -105,16 +124,26 @@ def test_load_grid_combo_keys():
     with patch.dict(os.environ, env, clear=False):
         combos = _load_grid()
     expected_keys = {
-        "embedding_case", "umap_n_components", "umap_n_neighbors", "umap_min_dist",
-        "umap_metric", "umap2d_n_neighbors", "umap2d_min_dist", "umap2d_metric",
-        "hdbscan_min_cluster_size", "hdbscan_min_samples",
-        "hdbscan_cluster_selection_method", "hdbscan_metric", "random_state",
+        "embedding_case",
+        "umap_n_components",
+        "umap_n_neighbors",
+        "umap_min_dist",
+        "umap_metric",
+        "umap2d_n_neighbors",
+        "umap2d_min_dist",
+        "umap2d_metric",
+        "hdbscan_min_cluster_size",
+        "hdbscan_min_samples",
+        "hdbscan_cluster_selection_method",
+        "hdbscan_metric",
+        "random_state",
     }
     assert set(combos[0].keys()) == expected_keys
 
 
 def test_load_grid_umap2d_fixed_values():
     from modules.cluster_search import _load_grid
+
     env = {
         "CLUSTERING_UMAP_N_COMPONENTS": "10",
         "CLUSTERING_UMAP_N_NEIGHBORS": "15",
@@ -134,8 +163,6 @@ def test_load_grid_umap2d_fixed_values():
         assert combo["umap2d_n_neighbors"] == 20
         assert combo["umap2d_min_dist"] == 0.2
 
-from modules.clustering import ClusterResult
-
 
 def _make_engine():
     eng = create_engine("sqlite:///:memory:")
@@ -145,17 +172,24 @@ def _make_engine():
 
 def _fake_matrix():
     rng = np.random.default_rng(0)
-    return np.vstack([
-        rng.normal(8.0, 0.2, (40, 30)).astype(np.float32),
-        rng.normal(-8.0, 0.2, (40, 30)).astype(np.float32),
-    ])
+    return np.vstack(
+        [
+            rng.normal(8.0, 0.2, (40, 30)).astype(np.float32),
+            rng.normal(-8.0, 0.2, (40, 30)).astype(np.float32),
+        ]
+    )
 
 
 def _fake_result():
     labels = np.array([0] * 40 + [1] * 40)
     coords = np.zeros((80, 2), dtype=np.float32)
-    return ClusterResult(labels=labels, coords_2d=coords, n_clusters=2,
-                         noise_ratio=0.0, cluster_sizes=[40, 40])
+    return ClusterResult(
+        labels=labels,
+        coords_2d=coords,
+        n_clusters=2,
+        noise_ratio=0.0,
+        cluster_sizes=[40, 40],
+    )
 
 
 @pytest.fixture()
@@ -184,12 +218,16 @@ def test_run_cluster_search_inserts_rows(mem_engine, monkeypatch):
         "CLUSTERING_HDBSCAN_METRICS": "euclidean",
         "CLUSTERING_RANDOM_STATE": "42",
     }
-    monkeypatch.setattr("modules.cluster_search.load_user_matrix",
-                        lambda case: (_fake_matrix(), list(range(80))))
-    monkeypatch.setattr("modules.cluster_search.compute_clusters",
-                        lambda matrix, **kw: _fake_result())
+    monkeypatch.setattr(
+        "modules.cluster_search.load_user_matrix",
+        lambda case: (_fake_matrix(), list(range(80))),
+    )
+    monkeypatch.setattr(
+        "modules.cluster_search.compute_clusters", lambda matrix, **kw: _fake_result()
+    )
 
     from modules.cluster_search import run_cluster_search
+
     with patch.dict(os.environ, env, clear=False):
         run_cluster_search()
 
@@ -198,7 +236,9 @@ def test_run_cluster_search_inserts_rows(mem_engine, monkeypatch):
     assert count == 3  # one row per embedding case (video, sandwich, audio)
 
 
-def test_run_cluster_search_invalidates_rows_when_no_embeddings_for_case(mem_engine, monkeypatch):
+def test_run_cluster_search_invalidates_rows_when_no_embeddings_for_case(
+    mem_engine, monkeypatch
+):
     """If a case has zero embeddings, existing ClusterRun rows for that case must not stay current."""
     env = {
         "CLUSTERING_UMAP_N_COMPONENTS": "5",
@@ -217,13 +257,26 @@ def test_run_cluster_search_invalidates_rows_when_no_embeddings_for_case(mem_eng
     with Session(mem_engine) as s:
         row = ClusterRun(
             embedding_case="video",
-            umap_n_components=5, umap_n_neighbors=5, umap_min_dist=0.0, umap_metric="cosine",
-            umap2d_n_neighbors=5, umap2d_min_dist=0.1, umap2d_metric="cosine",
-            hdbscan_min_cluster_size=10, hdbscan_min_samples=None,
-            hdbscan_cluster_selection_method="eom", hdbscan_metric="euclidean",
+            umap_n_components=5,
+            umap_n_neighbors=5,
+            umap_min_dist=0.0,
+            umap_metric="cosine",
+            umap2d_n_neighbors=5,
+            umap2d_min_dist=0.1,
+            umap2d_metric="cosine",
+            hdbscan_min_cluster_size=10,
+            hdbscan_min_samples=None,
+            hdbscan_cluster_selection_method="eom",
+            hdbscan_metric="euclidean",
             random_state=42,
-            n_clusters=3, noise_ratio=0.1, min_size=1, median_size=2, max_size=5,
-            in_current_grid=1, disqualified=0, dataset_hash="old",
+            n_clusters=3,
+            noise_ratio=0.1,
+            min_size=1,
+            median_size=2,
+            max_size=5,
+            in_current_grid=1,
+            disqualified=0,
+            dataset_hash="old",
         )
         s.add(row)
         s.commit()
@@ -235,15 +288,18 @@ def test_run_cluster_search_invalidates_rows_when_no_embeddings_for_case(mem_eng
         return (_fake_matrix(), list(range(80)))
 
     monkeypatch.setattr("modules.cluster_search.load_user_matrix", fake_load)
-    monkeypatch.setattr("modules.cluster_search.compute_clusters",
-                        lambda matrix, **kw: _fake_result())
+    monkeypatch.setattr(
+        "modules.cluster_search.compute_clusters", lambda matrix, **kw: _fake_result()
+    )
 
     from modules.cluster_search import run_cluster_search
+
     with patch.dict(os.environ, env, clear=False):
         run_cluster_search()
 
     with Session(mem_engine) as s:
         video_row = s.get(ClusterRun, video_row_id)
+        assert video_row is not None
         assert video_row.in_current_grid == 0
         assert video_row.disqualified == 1
 
@@ -262,12 +318,16 @@ def test_run_cluster_search_idempotent(mem_engine, monkeypatch):
         "CLUSTERING_HDBSCAN_METRICS": "euclidean",
         "CLUSTERING_RANDOM_STATE": "42",
     }
-    monkeypatch.setattr("modules.cluster_search.load_user_matrix",
-                        lambda case: (_fake_matrix(), list(range(80))))
-    monkeypatch.setattr("modules.cluster_search.compute_clusters",
-                        lambda matrix, **kw: _fake_result())
+    monkeypatch.setattr(
+        "modules.cluster_search.load_user_matrix",
+        lambda case: (_fake_matrix(), list(range(80))),
+    )
+    monkeypatch.setattr(
+        "modules.cluster_search.compute_clusters", lambda matrix, **kw: _fake_result()
+    )
 
     from modules.cluster_search import run_cluster_search
+
     with patch.dict(os.environ, env, clear=False):
         run_cluster_search()
         run_cluster_search()  # second call — must not duplicate
@@ -279,6 +339,7 @@ def test_run_cluster_search_idempotent(mem_engine, monkeypatch):
 
 def test_compute_dataset_hash_deterministic():
     from modules.cluster_search import _compute_dataset_hash
+
     fp1 = _compute_dataset_hash([3, 1, 2])
     fp2 = _compute_dataset_hash([1, 2, 3])
     assert fp1 == fp2  # order-independent
@@ -287,17 +348,28 @@ def test_compute_dataset_hash_deterministic():
 
 def test_compute_dataset_hash_differs_on_different_users():
     from modules.cluster_search import _compute_dataset_hash
+
     assert _compute_dataset_hash([1, 2]) != _compute_dataset_hash([1, 3])
 
 
 def test_combo_key_excludes_embedding_case():
     from modules.cluster_search import _combo_key
-    combo = dict(embedding_case="video", umap_n_components=15, umap_n_neighbors=15,
-                 umap_min_dist=0.0, umap_metric="cosine", umap2d_n_neighbors=15,
-                 umap2d_min_dist=0.1, umap2d_metric="cosine",
-                 hdbscan_min_cluster_size=15, hdbscan_min_samples=None,
-                 hdbscan_cluster_selection_method="eom", hdbscan_metric="euclidean",
-                 random_state=42)
+
+    combo = dict(
+        embedding_case="video",
+        umap_n_components=15,
+        umap_n_neighbors=15,
+        umap_min_dist=0.0,
+        umap_metric="cosine",
+        umap2d_n_neighbors=15,
+        umap2d_min_dist=0.1,
+        umap2d_metric="cosine",
+        hdbscan_min_cluster_size=15,
+        hdbscan_min_samples=None,
+        hdbscan_cluster_selection_method="eom",
+        hdbscan_metric="euclidean",
+        random_state=42,
+    )
     key = _combo_key(combo)
     assert ("embedding_case", "video") not in key
     assert ("umap_n_components", 15) in key
@@ -318,12 +390,18 @@ def test_run_cluster_search_marks_stale_rows_when_grid_shrinks(mem_engine, monke
         "CLUSTERING_HDBSCAN_METRICS": "euclidean",
         "CLUSTERING_RANDOM_STATE": "42",
     }
-    env_new = {**env_old, "CLUSTERING_UMAP_N_COMPONENTS": "5"}  # only one combo per case
+    env_new = {
+        **env_old,
+        "CLUSTERING_UMAP_N_COMPONENTS": "5",
+    }  # only one combo per case
 
-    monkeypatch.setattr("modules.cluster_search.load_user_matrix",
-                        lambda case: (_fake_matrix(), list(range(80))))
-    monkeypatch.setattr("modules.cluster_search.compute_clusters",
-                        lambda matrix, **kw: _fake_result())
+    monkeypatch.setattr(
+        "modules.cluster_search.load_user_matrix",
+        lambda case: (_fake_matrix(), list(range(80))),
+    )
+    monkeypatch.setattr(
+        "modules.cluster_search.compute_clusters", lambda matrix, **kw: _fake_result()
+    )
 
     from modules.cluster_search import run_cluster_search
 
@@ -341,7 +419,7 @@ def test_run_cluster_search_marks_stale_rows_when_grid_shrinks(mem_engine, monke
     with Session(mem_engine) as s:
         stale = s.query(ClusterRun).filter(ClusterRun.in_current_grid == 0).count()
         current = s.query(ClusterRun).filter(ClusterRun.in_current_grid == 1).count()
-        assert stale == 3   # nc=10 rows for each of 3 cases
+        assert stale == 3  # nc=10 rows for each of 3 cases
         assert current == 3  # nc=5 rows for each of 3 cases
 
 
@@ -370,15 +448,18 @@ def test_run_cluster_search_invalidates_rows_on_dataset_change(mem_engine, monke
             return (_fake_matrix(), pks)
         else:
             rng = np.random.default_rng(1)
-            matrix = np.vstack([
-                rng.normal(8.0, 0.2, (50, 30)).astype(np.float32),
-                rng.normal(-8.0, 0.2, (50, 30)).astype(np.float32),
-            ])
+            matrix = np.vstack(
+                [
+                    rng.normal(8.0, 0.2, (50, 30)).astype(np.float32),
+                    rng.normal(-8.0, 0.2, (50, 30)).astype(np.float32),
+                ]
+            )
             return (matrix, list(range(100)))
 
     monkeypatch.setattr("modules.cluster_search.load_user_matrix", fake_matrix)
-    monkeypatch.setattr("modules.cluster_search.compute_clusters",
-                        lambda matrix, **kw: _fake_result())
+    monkeypatch.setattr(
+        "modules.cluster_search.compute_clusters", lambda matrix, **kw: _fake_result()
+    )
 
     from modules.cluster_search import run_cluster_search
 
@@ -386,7 +467,9 @@ def test_run_cluster_search_invalidates_rows_on_dataset_change(mem_engine, monke
         run_cluster_search()  # uses pks 0..79
 
     with Session(mem_engine) as s:
-        fp_before = s.query(ClusterRun).first().dataset_hash
+        result = s.query(ClusterRun).first()
+        assert result is not None
+        fp_before = result.dataset_hash
         assert fp_before is not None
 
     with patch.dict(os.environ, env, clear=False):
@@ -422,11 +505,14 @@ def test_run_cluster_search_uses_single_thread_umap_per_combo(mem_engine, monkey
         "CLUSTERING_HDBSCAN_METRICS": "euclidean",
         "CLUSTERING_RANDOM_STATE": "42",
     }
-    monkeypatch.setattr("modules.cluster_search.load_user_matrix",
-                        lambda case: (_fake_matrix(), list(range(80))))
+    monkeypatch.setattr(
+        "modules.cluster_search.load_user_matrix",
+        lambda case: (_fake_matrix(), list(range(80))),
+    )
     monkeypatch.setattr("modules.cluster_search.compute_clusters", capture_compute)
 
     from modules.cluster_search import run_cluster_search
+
     with patch.dict(os.environ, env, clear=False):
         run_cluster_search()
 
@@ -463,11 +549,14 @@ def test_run_cluster_search_parallel_workers_uses_thread_pool(mem_engine, monkey
         return _fake_result()
 
     monkeypatch.setattr("modules.cluster_search.ThreadPoolExecutor", RecordingPool)
-    monkeypatch.setattr("modules.cluster_search.load_user_matrix",
-                        lambda case: (_fake_matrix(), list(range(80))))
+    monkeypatch.setattr(
+        "modules.cluster_search.load_user_matrix",
+        lambda case: (_fake_matrix(), list(range(80))),
+    )
     monkeypatch.setattr("modules.cluster_search.compute_clusters", tracking_compute)
 
     from modules.cluster_search import run_cluster_search
+
     with patch.dict(os.environ, env, clear=False):
         run_cluster_search()
 
@@ -476,7 +565,9 @@ def test_run_cluster_search_parallel_workers_uses_thread_pool(mem_engine, monkey
     assert max_workers_seen == [3, 3, 3]
 
 
-def test_run_cluster_search_new_rows_have_dataset_hash_and_in_current_grid(mem_engine, monkeypatch):
+def test_run_cluster_search_new_rows_have_dataset_hash_and_in_current_grid(
+    mem_engine, monkeypatch
+):
     env = {
         "CLUSTERING_UMAP_N_COMPONENTS": "5",
         "CLUSTERING_UMAP_N_NEIGHBORS": "5",
@@ -490,12 +581,16 @@ def test_run_cluster_search_new_rows_have_dataset_hash_and_in_current_grid(mem_e
         "CLUSTERING_HDBSCAN_METRICS": "euclidean",
         "CLUSTERING_RANDOM_STATE": "42",
     }
-    monkeypatch.setattr("modules.cluster_search.load_user_matrix",
-                        lambda case: (_fake_matrix(), list(range(80))))
-    monkeypatch.setattr("modules.cluster_search.compute_clusters",
-                        lambda matrix, **kw: _fake_result())
+    monkeypatch.setattr(
+        "modules.cluster_search.load_user_matrix",
+        lambda case: (_fake_matrix(), list(range(80))),
+    )
+    monkeypatch.setattr(
+        "modules.cluster_search.compute_clusters", lambda matrix, **kw: _fake_result()
+    )
 
     from modules.cluster_search import run_cluster_search
+
     with patch.dict(os.environ, env, clear=False):
         run_cluster_search()
 
@@ -505,5 +600,3 @@ def test_run_cluster_search_new_rows_have_dataset_hash_and_in_current_grid(mem_e
             assert row.in_current_grid == 1
             assert row.dataset_hash is not None
             assert len(row.dataset_hash) == 64
-
-

@@ -1,4 +1,5 @@
 """Paper-facing summary table for the users dataset."""
+
 from __future__ import annotations
 
 from statistics import mean, median
@@ -27,7 +28,7 @@ TABLE_ROWS: tuple[tuple[str, str], ...] = (
     (r"$\tilde{x}_{\mathrm{following}}$", "following_count_median"),
     (r"$\mu_\mathrm{following}$", "following_count_mean"),
     (r"$[\min-max]_{\mathrm{following}}$", "following_count_minmax"),
-    (r"$\tilde{x}_{\mathrm{views}}$","play_count_per_user_median"),
+    (r"$\tilde{x}_{\mathrm{views}}$", "play_count_per_user_median"),
     (r"$\mu_\mathrm{views}$", "play_count_per_user_mean"),
 )
 
@@ -69,7 +70,11 @@ def _kept_play_count_distribution(session: Session) -> list[float]:
         .group_by(Clip.user_pk)
         .all()
     )
-    return [float(avg_play_count) for _, avg_play_count in rows if avg_play_count is not None]
+    return [
+        float(avg_play_count)
+        for _, avg_play_count in rows
+        if avg_play_count is not None
+    ]
 
 
 def _summary_cells(session: Session) -> dict[str, str]:

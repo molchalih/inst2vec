@@ -28,9 +28,10 @@ dependencies = [
 [dependency-groups]
 dev = [
     "autoflake>=2.3.3",
-    "pyright>=1.1.409",
+    "pytest>=9.0.3",
+    "radon>=6.0.1",
     "ruff>=0.15.12",
-    "vulture>=2.16",
+    "ty>=0.0.35",
 ]
 gpu = [
     "ninja>=1.13.0",
@@ -45,3 +46,31 @@ no-build-isolation-package = ["flash-attn"]
 openai-whisper = ["setuptools"]
 hdbscan = ["setuptools", "cython"]
 flash-attn = ["torch", "ninja"]
+
+[tool.ruff]
+exclude = ["modules/external"]
+line-length = 88
+
+[tool.ruff.lint]
+select = [
+    "E",
+    "F",
+    "I",
+    "UP",
+    "B",
+    "SIM",
+    "RUF",
+]
+ignore = [
+    "E501",
+    "RUF001",
+    "RUF002",
+    "RUF003",
+]
+
+[tool.ty.src]
+include = ["modules", "scripts"]
+exclude = ["modules/external"]
+
+[tool.ty.analysis]
+replace-imports-with-any = ["sqlalchemy.*", "sqlalchemy.orm.*"]

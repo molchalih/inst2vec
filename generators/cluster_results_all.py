@@ -1,4 +1,5 @@
 """Paper-facing summary table for all embedding cases."""
+
 from __future__ import annotations
 
 from sqlalchemy.orm import Session
@@ -45,10 +46,7 @@ def summarize_all_to_markdown(
         raise ValueError("cases must contain at least one embedding case")
 
     with Session(eng) as session:
-        summaries = {
-            case: summarize_case_for_markdown(session, case)
-            for case in cases
-        }
+        summaries = {case: summarize_case_for_markdown(session, case) for case in cases}
     col_header = " | ".join(cases)
     align_row = "|".join(["---:"] * len(cases))
     table_lines = [

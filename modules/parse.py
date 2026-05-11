@@ -1,10 +1,14 @@
 import os
 import time
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    pass
 
 from hikerapi import Client
 
-from modules.database import get_session, User, Clip
-from modules.console import progress, log
+from modules.console import log, progress
+from modules.database import Clip, User, get_session
 
 SCOPE = "fetch_profiles"
 
@@ -15,16 +19,16 @@ MAX_CLIPS = int(os.environ.get("MAX_CLIPS", 5))
 _FETCH_RETRY_DELAYS_SEC = [0, 30, 60, 90]
 
 
-def _fetch_clips(cl: Client, user: User, session) -> int:
+def _fetch_clips(cl: Any, user: User, session: Any) -> int:
     if user.clips:
         return 0
 
-    data = cl.user_clips_v2(user.pk)
+    data = cl.user_clips_v2(str(user.pk))
     items = data["response"]["items"]
     items.sort(key=lambda x: x["media"].get("play_count") or 0, reverse=True)
 
     count = 0
-    for item in items[:MAX_CLIPS or None]:
+    for item in items[: MAX_CLIPS or None]:
         m = item["media"]
         clip_pk = int(m["pk"])
         if session.query(Clip).filter_by(pk=clip_pk).first():
@@ -32,18 +36,20 @@ def _fetch_clips(cl: Client, user: User, session) -> int:
 
         cap = m.get("caption") or {}
 
-        session.add(Clip(
-            pk=clip_pk,
-            user_pk=user.pk,
-            thumbnail_url=m.get("thumbnail_url"),
-            video_url=m.get("video_url"),
-            caption_text=cap.get("text"),
-            caption_translation=cap.get("text_translation"),
-            comment_count=m.get("comment_count"),
-            reshare_count=m.get("reshare_count"),
-            like_count=m.get("like_count"),
-            play_count=m.get("play_count"),
-        ))
+        session.add(
+            Clip(
+                pk=clip_pk,
+                user_pk=user.pk,
+                thumbnail_url=m.get("thumbnail_url"),
+                video_url=m.get("video_url"),
+                caption_text=cap.get("text"),
+                caption_translation=cap.get("text_translation"),
+                comment_count=m.get("comment_count"),
+                reshare_count=m.get("reshare_count"),
+                like_count=m.get("like_count"),
+                play_count=m.get("play_count"),
+            )
+        )
         count += 1
     return count
 
@@ -53,8 +59,13 @@ def fetch_profiles():
     session = get_session()
 
     users = (
-        session.query(User).filter(User.parse_status.is_(None)).limit(BATCH_SIZE).all()
-    ) 
+        session.query(User)
+        .filter(
+            (User.parse_status.is_(None)) | (User.parse_status == "pending"),
+        )
+        .limit(BATCH_SIZE)
+        .all()
+    )
 
     parsed = skipped = failed = 0
 
@@ -86,7 +97,9 @@ def fetch_profiles():
                     user.parse_status = "success"
                     session.commit()
                     parsed += 1
-                    advance(detail=f"{username} ({user.full_name}, {clips_count} clips)")
+                    advance(
+                        detail=f"{username} ({user.full_name}, {clips_count} clips)"
+                    )
                     break
                 except Exception:
                     session.rollback()
@@ -102,4 +115,8 @@ def fetch_profiles():
     session.close()
 
     total = parsed + skipped + failed
-    log(SCOPE, f"done — total: {total}, parsed: {parsed}, skipped: {skipped}, failed: {failed}", level="ok")
+    log(
+        SCOPE,
+        f"done — total: {total}, parsed: {parsed}, skipped: {skipped}, failed: {failed}",
+        level="ok",
+    )

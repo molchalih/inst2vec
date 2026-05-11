@@ -1,12 +1,12 @@
-import sys
 import os
+import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from modules.database import Base, User, Clip
+from modules.database import Base, Clip, User
 
 
 def _make_engine():
@@ -16,7 +16,9 @@ def _make_engine():
 
 
 def _make_user(session, pk: int, clips_play_counts: list[int]) -> User:
-    user = User(pk=pk, username=f"user{pk}", full_name=f"User {pk}", parse_status="success")
+    user = User(
+        pk=pk, username=f"user{pk}", full_name=f"User {pk}", parse_status="success"
+    )
     session.add(user)
     session.flush()
     for i, plays in enumerate(clips_play_counts):
@@ -34,8 +36,12 @@ def test_pass_a_pre_gates_users_with_too_few_raw_clips(monkeypatch):
     """Users with < TARGET_CLIPS_PER_USER raw clips are disqualified before stats."""
     eng = _make_engine()
     with Session(eng) as s:
-        _make_user(s, pk=1, clips_play_counts=[100000])       # 1 clip — below default TARGET=4
-        _make_user(s, pk=2, clips_play_counts=[100000] * 5)   # 5 clips — survives pre-gate
+        _make_user(
+            s, pk=1, clips_play_counts=[100000]
+        )  # 1 clip — below default TARGET=4
+        _make_user(
+            s, pk=2, clips_play_counts=[100000] * 5
+        )  # 5 clips — survives pre-gate
 
     monkeypatch.setattr("modules.finalize.get_session", lambda: Session(eng))
     monkeypatch.setenv("FINALIZE_TARGET_CLIPS_PER_USER", "4")
@@ -44,14 +50,18 @@ def test_pass_a_pre_gates_users_with_too_few_raw_clips(monkeypatch):
     monkeypatch.setenv("FINALIZE_CREATOR_ROBUST_Z_THRESHOLD", "-99")
 
     import modules.finalize as fin_mod
+
     monkeypatch.setattr(fin_mod, "TARGET_CLIPS_PER_USER", 4)
 
     from modules.finalize import finalize_user_dataset
+
     finalize_user_dataset("A")
 
     with Session(eng) as s:
         u1 = s.get(User, 1)
         u2 = s.get(User, 2)
+        assert u1 is not None
+        assert u2 is not None
         assert u1.user_disqualified == 1  # pre-gated
         assert u2.user_disqualified == 0  # survived
 
@@ -67,8 +77,8 @@ def test_pass_a_pre_gated_users_excluded_from_percentile_floor(monkeypatch):
     """
     eng = _make_engine()
     with Session(eng) as s:
-        _make_user(s, pk=1, clips_play_counts=[1])             # 1 clip, pre-gated out
-        _make_user(s, pk=2, clips_play_counts=[100000] * 5)    # 5 clips, survives
+        _make_user(s, pk=1, clips_play_counts=[1])  # 1 clip, pre-gated out
+        _make_user(s, pk=2, clips_play_counts=[100000] * 5)  # 5 clips, survives
 
     monkeypatch.setattr("modules.finalize.get_session", lambda: Session(eng))
     monkeypatch.setenv("FINALIZE_TARGET_CLIPS_PER_USER", "4")
@@ -78,21 +88,27 @@ def test_pass_a_pre_gated_users_excluded_from_percentile_floor(monkeypatch):
     monkeypatch.setenv("FINALIZE_PASS_A_RECOMPUTE_FROM_SCRATCH", "1")
 
     import modules.finalize as fin_mod
+
     monkeypatch.setattr(fin_mod, "TARGET_CLIPS_PER_USER", 4)
     monkeypatch.setattr(fin_mod, "PASS_A_RECOMPUTE_FROM_SCRATCH", True)
     monkeypatch.setattr(fin_mod, "GLOBAL_MIN_PLAYS_PERCENTILE", 5.0)
 
     from modules.finalize import finalize_user_dataset
+
     finalize_user_dataset("A")
 
     with Session(eng) as s:
         u1 = s.get(User, 1)
         u2 = s.get(User, 2)
+        assert u1 is not None
+        assert u2 is not None
         # User1 must be pre-gated (disqualified immediately, not due to stats)
         assert u1.user_disqualified == 1
         # User2 survives with all clips intact because floor is computed only from user2
         surviving_clips = [c for c in u2.clips if c.disqualified == 0]
-        assert len(surviving_clips) == 5  # all 5 clips survive (dead user excluded from floor)
+        assert (
+            len(surviving_clips) == 5
+        )  # all 5 clips survive (dead user excluded from floor)
 
 
 def test_pass_a_re_gates_after_stat_disq(monkeypatch):
@@ -106,20 +122,25 @@ def test_pass_a_re_gates_after_stat_disq(monkeypatch):
     monkeypatch.setattr("modules.finalize.get_session", lambda: Session(eng))
     monkeypatch.setenv("FINALIZE_TARGET_CLIPS_PER_USER", "4")
     monkeypatch.setenv("FINALIZE_GLOBAL_MIN_PLAYS_PERCENTILE", "0")
-    monkeypatch.setenv("FINALIZE_GLOBAL_MIN_PLAYS", "500000")  # floor disqualifies 4 clips
+    monkeypatch.setenv(
+        "FINALIZE_GLOBAL_MIN_PLAYS", "500000"
+    )  # floor disqualifies 4 clips
     monkeypatch.setenv("FINALIZE_CREATOR_ROBUST_Z_THRESHOLD", "-99")
     monkeypatch.setenv("FINALIZE_PASS_A_RECOMPUTE_FROM_SCRATCH", "1")
 
     import modules.finalize as fin_mod
+
     monkeypatch.setattr(fin_mod, "TARGET_CLIPS_PER_USER", 4)
     monkeypatch.setattr(fin_mod, "GLOBAL_MIN_PLAYS", 500000)
     monkeypatch.setattr(fin_mod, "PASS_A_RECOMPUTE_FROM_SCRATCH", True)
 
     from modules.finalize import finalize_user_dataset
+
     finalize_user_dataset("A")
 
     with Session(eng) as s:
         u = s.get(User, 1)
+        assert u is not None
         assert u.user_disqualified == 1  # re-gated: only 1 clip survives stat disq
 
 
@@ -140,13 +161,16 @@ def test_pass_b_does_not_pre_gate(monkeypatch):
     monkeypatch.setenv("FINALIZE_CREATOR_ROBUST_Z_THRESHOLD", "-99")
 
     import modules.finalize as fin_mod
+
     monkeypatch.setattr(fin_mod, "TARGET_CLIPS_PER_USER", 4)
 
     from modules.finalize import finalize_user_dataset
+
     finalize_user_dataset("B")
 
     with Session(eng) as s:
         u = s.get(User, 1)
+        assert u is not None
         # Pass B does not pre-gate; user gets disqualified only by clip-count re-gate
         # (which is the same behavior as before — 1 clip < 4)
         assert u.user_disqualified == 1  # disqualified by clip count in Pass B loop

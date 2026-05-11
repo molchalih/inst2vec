@@ -16,8 +16,17 @@ def _make_engine():
     return eng
 
 
-def _add_clip(session: Session, *, user_pk: int, pk: int, play_count: int | None, disqualified: int | None):
-    session.add(Clip(user_pk=user_pk, pk=pk, play_count=play_count, disqualified=disqualified))
+def _add_clip(
+    session: Session,
+    *,
+    user_pk: int,
+    pk: int,
+    play_count: int | None,
+    disqualified: int | None,
+):
+    session.add(
+        Clip(user_pk=user_pk, pk=pk, play_count=play_count, disqualified=disqualified)
+    )
 
 
 def test_users_summary_to_markdown_renders_curated_metrics():
@@ -72,17 +81,13 @@ def test_users_summary_to_markdown_renders_curated_metrics():
     out = users_summary_to_markdown(eng)
 
     assert out.startswith("| Metric | Value |")
-    assert "| Total users | 4 |" in out
-    assert "| Users kept | 3 (75.0%) |" in out
-    assert "| Users with full name | 1 (33.3%) |" in out
-    assert "| Users with profile picture | 1 (33.3%) |" in out
-    assert "| Users with HD profile picture | 1 (33.3%) |" in out
-    assert "| Users with city | 1 (33.3%) |" in out
-    assert "| Following count (median) | 100 |" in out
-    assert "| Following count (mean) | 116.7 |" in out
-    assert "| Following count (min-max) | 50-200 |" in out
-    assert "| Play count per user (median) | 21 |" in out
-    assert "| Play count per user (mean) | 22.0 |" in out
+    assert r"| $N$ | 4 |" in out
+    assert r"| $N_{\mathrm{kept}}$ | 3 (75.0%) |" in out
+    assert r"| $\tilde{x}_{\mathrm{following}}$ | 100 |" in out
+    assert r"| $\mu_\mathrm{following}$ | 116.7 |" in out
+    assert r"| $[\min-max]_{\mathrm{following}}$ | 50-200 |" in out
+    assert r"| $\tilde{x}_{\mathrm{views}}$ | 21 |" in out
+    assert r"| $\mu_\mathrm{views}$ | 22.0 |" in out
 
 
 def test_users_summary_to_markdown_scopes_users_to_kept_rows():
@@ -126,14 +131,12 @@ def test_users_summary_to_markdown_scopes_users_to_kept_rows():
 
     out = users_summary_to_markdown(eng)
 
-    assert "| Users kept | 2 (66.7%) |" in out
-    assert "| Users with full name | 1 (50.0%) |" in out
-    assert "| Users with profile picture | 1 (50.0%) |" in out
-    assert "| Following count (median) | 75 |" in out
-    assert "| Following count (mean) | 75.0 |" in out
-    assert "| Following count (min-max) | 50-100 |" in out
-    assert "| Play count per user (median) | 125 |" in out
-    assert "| Play count per user (mean) | 125.0 |" in out
+    assert r"| $N_{\mathrm{kept}}$ | 2 (66.7%) |" in out
+    assert r"| $\tilde{x}_{\mathrm{following}}$ | 75 |" in out
+    assert r"| $\mu_\mathrm{following}$ | 75.0 |" in out
+    assert r"| $[\min-max]_{\mathrm{following}}$ | 50-100 |" in out
+    assert r"| $\tilde{x}_{\mathrm{views}}$ | 125 |" in out
+    assert r"| $\mu_\mathrm{views}$ | 125.0 |" in out
 
 
 def test_users_summary_to_markdown_uses_dash_for_missing_numeric_values():
@@ -146,11 +149,11 @@ def test_users_summary_to_markdown_uses_dash_for_missing_numeric_values():
 
     out = users_summary_to_markdown(eng)
 
-    assert "| Following count (median) | - |" in out
-    assert "| Following count (mean) | - |" in out
-    assert "| Following count (min-max) | - |" in out
-    assert "| Play count per user (median) | - |" in out
-    assert "| Play count per user (mean) | - |" in out
+    assert r"| $\tilde{x}_{\mathrm{following}}$ | - |" in out
+    assert r"| $\mu_\mathrm{following}$ | - |" in out
+    assert r"| $[\min-max]_{\mathrm{following}}$ | - |" in out
+    assert r"| $\tilde{x}_{\mathrm{views}}$ | - |" in out
+    assert r"| $\mu_\mathrm{views}$ | - |" in out
 
 
 def test_render_users_summary_returns_markdown_object():
@@ -171,7 +174,7 @@ def test_render_users_summary_returns_markdown_object():
 def test_users_summary_legacy_db_without_parse_status_column():
     """Older on-disk DBs may lack users.parse_status; summary must not crash."""
     eng = create_engine("sqlite:///:memory:")
-    with eng.connect() as conn:
+    with eng.begin() as conn:
         conn.execute(
             text(
                 """
@@ -194,29 +197,24 @@ def test_users_summary_legacy_db_without_parse_status_column():
                 "VALUES (1, 'a', 'A', 0)"
             )
         )
-        conn.commit()
 
     from generators.dataset_summary_users import users_summary_to_markdown
 
     out = users_summary_to_markdown(eng)
 
-    assert "| Total users | 1 |" in out
-    assert "| Users kept | 1 (100.0%) |" in out
-    assert "| Users with full name | 1 (100.0%) |" in out
-    assert "| Users with profile picture | 0 (0.0%) |" in out
-    assert "| Users with HD profile picture | 0 (0.0%) |" in out
-    assert "| Users with city | 0 (0.0%) |" in out
-    assert "| Following count (median) | - |" in out
-    assert "| Following count (mean) | - |" in out
-    assert "| Following count (min-max) | - |" in out
-    assert "| Play count per user (median) | - |" in out
-    assert "| Play count per user (mean) | - |" in out
+    assert r"| $N$ | 1 |" in out
+    assert r"| $N_{\mathrm{kept}}$ | 1 (100.0%) |" in out
+    assert r"| $\tilde{x}_{\mathrm{following}}$ | - |" in out
+    assert r"| $\mu_\mathrm{following}$ | - |" in out
+    assert r"| $[\min-max]_{\mathrm{following}}$ | - |" in out
+    assert r"| $\tilde{x}_{\mathrm{views}}$ | - |" in out
+    assert r"| $\mu_\mathrm{views}$ | - |" in out
 
 
 def test_users_summary_legacy_db_without_play_count_columns():
     """Legacy DB with legacy clips schema should still render safely."""
     eng = create_engine("sqlite:///:memory:")
-    with eng.connect() as conn:
+    with eng.begin() as conn:
         conn.execute(
             text(
                 """
@@ -243,17 +241,15 @@ def test_users_summary_legacy_db_without_play_count_columns():
             )
         )
         conn.execute(text("INSERT INTO clips (pk, user_pk) VALUES (1, 1)"))
-        conn.commit()
 
     from generators.dataset_summary_users import users_summary_to_markdown
 
     out = users_summary_to_markdown(eng)
 
-    assert "| Total users | 1 |" in out
-    assert "| Users kept | 1 (100.0%) |" in out
-    assert "| Following count (median) | - |" in out
-    assert "| Following count (mean) | - |" in out
-    assert "| Following count (min-max) | - |" in out
-    assert "| Play count per user (median) | - |" in out
-    assert "| Play count per user (mean) | - |" in out
-
+    assert r"| $N$ | 1 |" in out
+    assert r"| $N_{\mathrm{kept}}$ | 1 (100.0%) |" in out
+    assert r"| $\tilde{x}_{\mathrm{following}}$ | - |" in out
+    assert r"| $\mu_\mathrm{following}$ | - |" in out
+    assert r"| $[\min-max]_{\mathrm{following}}$ | - |" in out
+    assert r"| $\tilde{x}_{\mathrm{views}}$ | - |" in out
+    assert r"| $\mu_\mathrm{views}$ | - |" in out

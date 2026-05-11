@@ -1,9 +1,11 @@
 """Unified console output for the inst2vec pipeline."""
+
 from __future__ import annotations
 
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from datetime import datetime
-from typing import Callable, Generator, Literal
+from typing import Literal
 
 from rich.console import Console
 from rich.progress import (
@@ -28,26 +30,33 @@ _LEVEL_STYLES: dict[str, str] = {
 def startup() -> None:
     """print a startup banner."""
     _console.rule(style="dim")
-    _console.print(f"  inst2vec execution {datetime.now().strftime('%Y-%m-%d %H:%M')}", style="bold")
+    _console.print(
+        f"  inst2vec execution {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+        style="bold",
+    )
     _console.rule(style="dim")
     _console.print()
 
 
 def phase(name: str) -> None:
     """print a section header."""
-    _console.print() # empty line
-    title = Text() # create a new text object
-    title.append("▸ ", style="dim cyan").append(name, style="bold") # apply styles
-    _console.print(title) # print the text object
-    _console.print() # empty line
+    _console.print()  # empty line
+    title = Text()  # create a new text object
+    title.append("▸ ", style="dim cyan").append(name, style="bold")  # apply styles
+    _console.print(title)  # print the text object
+    _console.print()  # empty line
 
 
-def log(scope: str, msg: str, level: Literal["info", "ok", "warn", "err"] = "info") -> None:
+def log(
+    scope: str, msg: str, level: Literal["info", "ok", "warn", "err"] = "info"
+) -> None:
     """print a log line (controls the message text color)."""
     style = _LEVEL_STYLES.get(level, "")
     line = Text()
-    line.append(f"[{scope}]", style="dim").append(f" {msg}", style=style) # apply styles
-    _console.print(line) # print the text object
+    line.append(f"[{scope}]", style="dim").append(
+        f" {msg}", style=style
+    )  # apply styles
+    _console.print(line)  # print the text object
 
 
 @contextmanager
