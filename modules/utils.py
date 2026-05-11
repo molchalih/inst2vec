@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 
 from modules.console import log
 from modules.database import User, get_session
+from modules.identity import get_or_create_user_identity
 
 load_dotenv()
 
@@ -17,11 +18,10 @@ def load_usernames_from_csv(
         reader = csv.reader(f)
         urls = [row[0].strip() for row in reader if row]
 
-    usernames = set()
+    usernames: set[str] = set()
     for url in urls:
         path = urlparse(url).path.strip("/")
         if path:
-            # extract username from URL
             username = path.split("/")[0]
             if username:
                 usernames.add(username)
@@ -33,8 +33,9 @@ def load_usernames_from_csv(
     session = get_session()
     loaded = 0
     for username in sorted(usernames):
-        if not session.query(User).filter_by(username=username).first():
-            session.add(User(id=hash(username) & 0x7FFFFFFFFFFFFFFF, username=username))
+        user_id = get_or_create_user_identity(username)
+        if not session.query(User).filter_by(id=user_id).first():
+            session.add(User(id=user_id, parse_status="pending"))
             loaded += 1
     session.commit()
     already_in_db = unique - loaded

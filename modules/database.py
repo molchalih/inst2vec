@@ -36,13 +36,8 @@ class Base(DeclarativeBase):
 class User(Base):
     __tablename__ = "users"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    username: Mapped[str | None] = mapped_column(String, unique=True, nullable=True)
-    full_name: Mapped[str | None] = mapped_column(String)
-    profile_pic_url: Mapped[str | None] = mapped_column(String)
-    profile_pic_url_hd: Mapped[str | None] = mapped_column(String)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
     following_count: Mapped[int | None] = mapped_column(Integer)
-    city_name: Mapped[str | None] = mapped_column(String)
     user_disqualified: Mapped[int | None] = mapped_column(Integer, nullable=True)
     parse_status: Mapped[str | None] = mapped_column(String, nullable=True)
 
@@ -60,7 +55,7 @@ class Clip(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     user_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("users.id"), nullable=False
+        Integer, ForeignKey("users.id"), nullable=False
     )
     thumbnail_url: Mapped[str | None] = mapped_column(String)
     video_url: Mapped[str | None] = mapped_column(String)
@@ -172,7 +167,7 @@ class UserEmbedding(Base):
     )
 
     user_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("users.id"), primary_key=True
+        Integer, ForeignKey("users.id"), primary_key=True
     )
     embedding_case: Mapped[str] = mapped_column(String, primary_key=True)
     embedding: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
@@ -198,7 +193,7 @@ class UserCluster(Base):
     )
 
     user_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("users.id"), primary_key=True
+        Integer, ForeignKey("users.id"), primary_key=True
     )
     embedding_case: Mapped[str] = mapped_column(String, primary_key=True)
     cluster_id: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -275,8 +270,10 @@ class ClusterRun(Base):
 
 
 def init_db():
-    """create the database."""
+    """Create main DB tables and identity DB tables."""
+    from modules.identity import init_identity_db
     Base.metadata.create_all(engine)
+    init_identity_db()
 
 
 def get_session() -> Session:
@@ -295,7 +292,7 @@ def _migrate_users_table(eng) -> None:
 
 
 def _backfill_parse_status(session: Session) -> None:
-    """Backfill parse_status from legacy data for users that lack it."""
+    """Backfill parse_status for users that lack it."""
     from sqlalchemy import text
 
     session.execute(
@@ -304,20 +301,18 @@ def _backfill_parse_status(session: Session) -> None:
     session.execute(
         text(
             """
-            UPDATE users SET parse_status = 'success' WHERE
-                full_name IS NOT NULL
-                OR profile_pic_url IS NOT NULL
-                OR profile_pic_url_hd IS NOT NULL
-                OR following_count IS NOT NULL
-                OR city_name IS NOT NULL
-                OR id IN (SELECT user_id FROM clips)
+            UPDATE users SET parse_status = 'success' WHERE parse_status = 'pending'
+                AND (
+                    following_count IS NOT NULL
+                    OR id IN (SELECT user_id FROM clips)
+                )
             """
         )
     )
     session.execute(
         text(
             """
-            UPDATE users SET parse_status = 'failed' WHERE parse_status != 'success'
+            UPDATE users SET parse_status = 'failed' WHERE parse_status = 'pending'
                 AND id IN (
                     SELECT entity_id FROM downloads
                     WHERE file_type = 'profile_pic' AND parse_available = 0

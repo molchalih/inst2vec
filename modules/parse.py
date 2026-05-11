@@ -9,6 +9,12 @@ from hikerapi import Client
 
 from modules.console import log, progress
 from modules.database import Clip, User, get_session
+from modules.identity import (
+    get_api_pk,
+    get_or_create_clip_identity,
+    get_username,
+    update_user_identity,
+)
 
 SCOPE = "fetch_profiles"
 
@@ -23,14 +29,20 @@ def _fetch_clips(cl: Any, user: User, session: Any) -> int:
     if user.clips:
         return 0
 
-    data = cl.user_clips_v2(str(user.id))
+    api_pk = get_api_pk(user.id)
+    if api_pk is None:
+        return 0
+
+    data = cl.user_clips_v2(str(api_pk))
     items = data["response"]["items"]
     items.sort(key=lambda x: x["media"].get("play_count") or 0, reverse=True)
 
     count = 0
     for item in items[: MAX_CLIPS or None]:
         m = item["media"]
-        clip_id = int(m["pk"])
+        clip_api_pk = int(m["pk"])
+        clip_id = get_or_create_clip_identity(clip_api_pk)
+
         if session.query(Clip).filter_by(id=clip_id).first():
             continue
 
@@ -78,7 +90,8 @@ def fetch_profiles():
 
     with progress(len(users), "Fetching profiles") as advance:
         for user in users:
-            username = user.username
+            user_id = user.id
+            username = get_username(user_id)
             for attempt in range(4):
                 if _FETCH_RETRY_DELAYS_SEC[attempt]:
                     time.sleep(_FETCH_RETRY_DELAYS_SEC[attempt])
@@ -86,24 +99,28 @@ def fetch_profiles():
                     data = cl.user_by_username_v1(username)
                     info = data.get("user", data)
 
-                    user.id = info["pk"]
-                    user.full_name = info.get("full_name")
-                    user.profile_pic_url = info.get("profile_pic_url")
-                    user.profile_pic_url_hd = info.get("profile_pic_url_hd")
+                    update_user_identity(
+                        user_id,
+                        api_pk=info["pk"],
+                        full_name=info.get("full_name"),
+                        city_name=info.get("city_name"),
+                        profile_pic_url=info.get("profile_pic_url"),
+                        profile_pic_url_hd=info.get("profile_pic_url_hd"),
+                    )
+
                     user.following_count = info.get("following_count")
-                    user.city_name = info.get("city_name")
 
                     clips_count = _fetch_clips(cl, user, session)
                     user.parse_status = "success"
                     session.commit()
                     parsed += 1
                     advance(
-                        detail=f"{username} ({user.full_name}, {clips_count} clips)"
+                        detail=f"{username} ({info.get('full_name')}, {clips_count} clips)"
                     )
                     break
                 except Exception:
                     session.rollback()
-                    user = session.query(User).filter_by(username=username).one()
+                    user = session.query(User).filter_by(id=user_id).one()
                     if attempt == 3:
                         user.parse_status = "failed"
                         session.commit()

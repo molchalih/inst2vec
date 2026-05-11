@@ -4,11 +4,11 @@ import time
 import httpx
 
 from modules.console import log, progress
-from modules.database import Download, User, get_session
+from modules.database import Clip, Download, User, get_session
+from modules.identity import get_profile_pic_url
 
 SCOPE = "download"
 
-# Download rows track file attempts only; parse eligibility uses users.parse_status.
 DIRS = {
     "profile_pic": "data/source/profile_pics",
     "thumbnail": "data/source/thumbnails",
@@ -34,10 +34,10 @@ def _download(url, path):
     return False
 
 
-def _try_download(session, entity_pk, file_type, url):
+def _try_download(session, entity_id, file_type, url):
     if (
         session.query(Download)
-        .filter_by(entity_pk=entity_pk, file_type=file_type)
+        .filter_by(entity_id=entity_id, file_type=file_type)
         .first()
     ):
         return
@@ -45,7 +45,7 @@ def _try_download(session, entity_pk, file_type, url):
     if not url:
         session.add(
             Download(
-                entity_pk=entity_pk,
+                entity_id=entity_id,
                 file_type=file_type,
                 success=False,
                 parse_available=True,
@@ -54,12 +54,12 @@ def _try_download(session, entity_pk, file_type, url):
         return
 
     ext = "mp4" if file_type == "video" else "jpg"
-    path = os.path.join(DIRS[file_type], f"{entity_pk}.{ext}")
+    path = os.path.join(DIRS[file_type], f"{entity_id}.{ext}")
 
     if os.path.exists(path):
         session.add(
             Download(
-                entity_pk=entity_pk,
+                entity_id=entity_id,
                 file_type=file_type,
                 success=True,
                 parse_available=True,
@@ -70,7 +70,7 @@ def _try_download(session, entity_pk, file_type, url):
     ok = _download(url, path)
     session.add(
         Download(
-            entity_pk=entity_pk,
+            entity_id=entity_id,
             file_type=file_type,
             success=ok,
             parse_available=True,
@@ -103,7 +103,8 @@ def download_files():
     log(SCOPE, f"{len(users)} users to download")
     with progress(len(users), "Downloading") as advance:
         for user in users:
-            _try_download(session, user.id, "profile_pic", user.profile_pic_url)
+            pic_url = get_profile_pic_url(user.id)
+            _try_download(session, user.id, "profile_pic", pic_url)
             for clip in user.clips[: MAX_CLIPS or None]:
                 if clip.disqualified == 1:
                     continue
