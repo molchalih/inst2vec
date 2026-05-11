@@ -1,5 +1,9 @@
 import os
 import time
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    pass
 
 from hikerapi import Client
 
@@ -15,7 +19,7 @@ MAX_CLIPS = int(os.environ.get("MAX_CLIPS", 5))
 _FETCH_RETRY_DELAYS_SEC = [0, 30, 60, 90]
 
 
-def _fetch_clips(cl: Client, user: User, session) -> int:
+def _fetch_clips(cl: Any, user: User, session: Any) -> int:
     if user.clips:
         return 0
 

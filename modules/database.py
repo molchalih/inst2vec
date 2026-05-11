@@ -80,9 +80,7 @@ class Clip(Base):
     speech_language: Mapped[str | None] = mapped_column(String, nullable=True)
     speech_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     speech_avg_logprob: Mapped[float | None] = mapped_column(Float, nullable=True)
-    speech_compression_ratio: Mapped[float | None] = mapped_column(
-        Float, nullable=True
-    )
+    speech_compression_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
     has_speech: Mapped[int | None] = mapped_column(Integer, nullable=True)
     speech_translation: Mapped[str | None] = mapped_column(Text)
     disqualified: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -270,9 +268,7 @@ class ClusterRun(Base):
     dataset_hash: Mapped[str | None] = mapped_column(
         String, nullable=True
     )  # SHA-256 of sorted user PKs
-    validation_config_hash: Mapped[str | None] = mapped_column(
-        String, nullable=True
-    )
+    validation_config_hash: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[DateTime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

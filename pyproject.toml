@@ -28,13 +28,10 @@ dependencies = [
 [dependency-groups]
 dev = [
     "autoflake>=2.3.3",
-    "pyright>=1.1.409",
     "pytest>=9.0.3",
     "radon>=6.0.1",
     "ruff>=0.15.12",
-    "sqlalchemy2-stubs>=0.0.2a38",
     "ty>=0.0.35",
-    "vulture>=2.16",
 ]
 gpu = [
     "ninja>=1.13.0",
@@ -51,6 +48,7 @@ hdbscan = ["setuptools", "cython"]
 flash-attn = ["torch", "ninja"]
 
 [tool.ruff]
+exclude = ["modules/external"]
 line-length = 88
 
 [tool.ruff.lint]
@@ -70,15 +68,9 @@ ignore = [
     "RUF003",
 ]
 
-[tool.ruff.lint.per-file-ignores]
-"modules/external/qwen3_vl_embedding.py" = ["ALL"]
-"modules/external/gemma_translate.py" = ["ALL"]
+[tool.ty.src]
+include = ["modules", "scripts"]
+exclude = ["modules/external"]
 
-[tool.vulture]
-exclude = ["modules/external/*"]
-min_confidence = 80
-sort_by_size = true
-
-[tool.pyright]
-include = ["modules", "tests", "scripts", "generators"]
-exclude = ["modules/external/**"]
+[tool.ty.analysis]
+replace-imports-with-any = ["sqlalchemy.*", "sqlalchemy.orm.*"]
