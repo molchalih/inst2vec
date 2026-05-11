@@ -1,4 +1,5 @@
 """Tests for scripts/migrate_to_identity_db.py."""
+
 import hashlib
 import os
 import sqlite3
@@ -94,28 +95,43 @@ def _seed_old_db(path: str):
 def test_migrate_guard_already_migrated(tmp_path):
     """Migration must refuse if DB already has `id` not `pk`."""
     from scripts.migrate_to_identity_db import migrate
+
     db = str(tmp_path / "inst2vec.db")
     con = sqlite3.connect(db)
     con.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, following_count INTEGER)")
     con.commit()
     con.close()
     with pytest.raises(RuntimeError, match="already migrated"):
-        migrate(main_db=db, identity_db=str(tmp_path / "identity_map.db"), data_dir=str(tmp_path))
+        migrate(
+            main_db=db,
+            identity_db=str(tmp_path / "identity_map.db"),
+            data_dir=str(tmp_path),
+        )
 
 
 def test_migrate_creates_backup(tmp_path):
     from scripts.migrate_to_identity_db import migrate
+
     db = str(tmp_path / "inst2vec.db")
     _seed_old_db(db)
-    migrate(main_db=db, identity_db=str(tmp_path / "identity_map.db"), data_dir=str(tmp_path))
+    migrate(
+        main_db=db,
+        identity_db=str(tmp_path / "identity_map.db"),
+        data_dir=str(tmp_path),
+    )
     assert os.path.exists(db + ".premigration")
 
 
 def test_migrate_renames_columns(tmp_path):
     from scripts.migrate_to_identity_db import migrate
+
     db = str(tmp_path / "inst2vec.db")
     _seed_old_db(db)
-    migrate(main_db=db, identity_db=str(tmp_path / "identity_map.db"), data_dir=str(tmp_path))
+    migrate(
+        main_db=db,
+        identity_db=str(tmp_path / "identity_map.db"),
+        data_dir=str(tmp_path),
+    )
     con = sqlite3.connect(db)
     user_cols = {r[1] for r in con.execute("PRAGMA table_info(users)")}
     clip_cols = {r[1] for r in con.execute("PRAGMA table_info(clips)")}
@@ -134,9 +150,14 @@ def test_migrate_renames_columns(tmp_path):
 
 def test_migrate_nulls_pii(tmp_path):
     from scripts.migrate_to_identity_db import migrate
+
     db = str(tmp_path / "inst2vec.db")
     _seed_old_db(db)
-    migrate(main_db=db, identity_db=str(tmp_path / "identity_map.db"), data_dir=str(tmp_path))
+    migrate(
+        main_db=db,
+        identity_db=str(tmp_path / "identity_map.db"),
+        data_dir=str(tmp_path),
+    )
     con = sqlite3.connect(db)
     rows = con.execute(
         "SELECT username, full_name, city_name, profile_pic_url, profile_pic_url_hd FROM users"
@@ -148,22 +169,32 @@ def test_migrate_nulls_pii(tmp_path):
 
 def test_migrate_sequential_ids(tmp_path):
     from scripts.migrate_to_identity_db import migrate
+
     db = str(tmp_path / "inst2vec.db")
     _seed_old_db(db)
-    migrate(main_db=db, identity_db=str(tmp_path / "identity_map.db"), data_dir=str(tmp_path))
+    migrate(
+        main_db=db,
+        identity_db=str(tmp_path / "identity_map.db"),
+        data_dir=str(tmp_path),
+    )
     con = sqlite3.connect(db)
     user_ids = {r[0] for r in con.execute("SELECT id FROM users")}
     clip_ids = {r[0] for r in con.execute("SELECT id FROM clips")}
-    assert user_ids == {1, 2}   # alice=1, bob=2 (alphabetical)
+    assert user_ids == {1, 2}  # alice=1, bob=2 (alphabetical)
     assert clip_ids == {1, 2, 3}
     con.close()
 
 
 def test_migrate_fk_references_correct(tmp_path):
     from scripts.migrate_to_identity_db import migrate
+
     db = str(tmp_path / "inst2vec.db")
     _seed_old_db(db)
-    migrate(main_db=db, identity_db=str(tmp_path / "identity_map.db"), data_dir=str(tmp_path))
+    migrate(
+        main_db=db,
+        identity_db=str(tmp_path / "identity_map.db"),
+        data_dir=str(tmp_path),
+    )
     con = sqlite3.connect(db)
     rows = {row for row in con.execute("SELECT id, user_id FROM clips")}
     assert (1, 1) in rows  # alice's clip 901 → id=1, user_id=1
@@ -175,7 +206,9 @@ def test_migrate_fk_references_correct(tmp_path):
     assert ce_ids == {1}
     uc_ids = {r[0] for r in con.execute("SELECT user_id FROM user_clusters")}
     assert uc_ids == {1}
-    dl_rows = {(r[0], r[1]) for r in con.execute("SELECT entity_id, file_type FROM downloads")}
+    dl_rows = {
+        (r[0], r[1]) for r in con.execute("SELECT entity_id, file_type FROM downloads")
+    }
     assert (1, "profile_pic") in dl_rows
     assert (1, "thumbnail") in dl_rows
     assert (1, "video") in dl_rows
@@ -184,9 +217,12 @@ def test_migrate_fk_references_correct(tmp_path):
 
 def test_migrate_populates_identity_db(tmp_path):
     from scripts.migrate_to_identity_db import migrate
+
     idb = str(tmp_path / "identity_map.db")
     _seed_old_db(str(tmp_path / "inst2vec.db"))
-    migrate(main_db=str(tmp_path / "inst2vec.db"), identity_db=idb, data_dir=str(tmp_path))
+    migrate(
+        main_db=str(tmp_path / "inst2vec.db"), identity_db=idb, data_dir=str(tmp_path)
+    )
     eng = create_engine(f"sqlite:///{idb}")
     assert "user_identities" in inspect(eng).get_table_names()
     with Session(eng) as s:
@@ -200,9 +236,14 @@ def test_migrate_populates_identity_db(tmp_path):
 
 def test_migrate_backfills_parse_status(tmp_path):
     from scripts.migrate_to_identity_db import migrate
+
     db = str(tmp_path / "inst2vec.db")
     _seed_old_db(db)
-    migrate(main_db=db, identity_db=str(tmp_path / "identity_map.db"), data_dir=str(tmp_path))
+    migrate(
+        main_db=db,
+        identity_db=str(tmp_path / "identity_map.db"),
+        data_dir=str(tmp_path),
+    )
     con = sqlite3.connect(db)
     statuses = {r[0] for r in con.execute("SELECT parse_status FROM users")}
     assert statuses == {"success"}
@@ -211,16 +252,24 @@ def test_migrate_backfills_parse_status(tmp_path):
 
 def test_migrate_updates_dataset_hash(tmp_path):
     from scripts.migrate_to_identity_db import migrate
+
     db = str(tmp_path / "inst2vec.db")
     _seed_old_db(db)
-    migrate(main_db=db, identity_db=str(tmp_path / "identity_map.db"), data_dir=str(tmp_path))
+    migrate(
+        main_db=db,
+        identity_db=str(tmp_path / "identity_map.db"),
+        data_dir=str(tmp_path),
+    )
     con = sqlite3.connect(db)
     new_user_ids = sorted(
-        r[0] for r in con.execute(
+        r[0]
+        for r in con.execute(
             "SELECT user_id FROM user_embeddings WHERE embedding_case='video'"
         )
     )
-    expected_hash = hashlib.sha256(",".join(str(x) for x in new_user_ids).encode()).hexdigest()
+    expected_hash = hashlib.sha256(
+        ",".join(str(x) for x in new_user_ids).encode()
+    ).hexdigest()
     stored_hash = con.execute(
         "SELECT dataset_hash FROM cluster_runs WHERE embedding_case='video'"
     ).fetchone()[0]
@@ -230,6 +279,7 @@ def test_migrate_updates_dataset_hash(tmp_path):
 
 def test_migrate_renames_disk_files(tmp_path):
     from scripts.migrate_to_identity_db import migrate
+
     db = str(tmp_path / "inst2vec.db")
     _seed_old_db(db)
     for subdir, ext, name in [
@@ -240,7 +290,11 @@ def test_migrate_renames_disk_files(tmp_path):
         d = tmp_path / "source" / subdir
         d.mkdir(parents=True, exist_ok=True)
         (d / f"{name}.{ext}").write_bytes(b"fake")
-    migrate(main_db=db, identity_db=str(tmp_path / "identity_map.db"), data_dir=str(tmp_path))
+    migrate(
+        main_db=db,
+        identity_db=str(tmp_path / "identity_map.db"),
+        data_dir=str(tmp_path),
+    )
     assert (tmp_path / "source" / "profile_pics" / "1.jpg").exists()
     assert not (tmp_path / "source" / "profile_pics" / "111.jpg").exists()
     assert (tmp_path / "source" / "thumbnails" / "1.jpg").exists()

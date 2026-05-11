@@ -4,7 +4,7 @@ import time
 import httpx
 
 from modules.console import log, progress
-from modules.database import Clip, Download, User, get_session
+from modules.database import Download, User, get_session
 from modules.identity import get_profile_pic_url
 
 SCOPE = "download"

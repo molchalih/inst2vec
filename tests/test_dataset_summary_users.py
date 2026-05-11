@@ -165,12 +165,7 @@ def test_users_summary_legacy_db_without_parse_status_column():
                 """
             )
         )
-        conn.execute(
-            text(
-                "INSERT INTO users (id, user_disqualified) "
-                "VALUES (1, 0)"
-            )
-        )
+        conn.execute(text("INSERT INTO users (id, user_disqualified) VALUES (1, 0)"))
 
     from generators.dataset_summary_users import users_summary_to_markdown
 
@@ -203,12 +198,7 @@ def test_users_summary_legacy_db_without_play_count_columns():
         conn.execute(
             text("CREATE TABLE clips (id BIGINT PRIMARY KEY, user_id BIGINT NOT NULL)")
         )
-        conn.execute(
-            text(
-                "INSERT INTO users (id, user_disqualified) "
-                "VALUES (1, 0)"
-            )
-        )
+        conn.execute(text("INSERT INTO users (id, user_disqualified) VALUES (1, 0)"))
         conn.execute(text("INSERT INTO clips (id, user_id) VALUES (1, 1)"))
 
     from generators.dataset_summary_users import users_summary_to_markdown
