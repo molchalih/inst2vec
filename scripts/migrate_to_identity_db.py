@@ -170,6 +170,7 @@ def _null_pii_and_rename(main_db: str) -> None:
                following_count,
                NULL AS city_name,
                user_disqualified,
+               parse_status,
                NULL AS profile_pic_url,
                NULL AS profile_pic_url_hd
         FROM users

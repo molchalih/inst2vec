@@ -55,7 +55,7 @@ class Clip(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     user_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("users.id"), nullable=False
+        Integer, ForeignKey("users.id"), nullable=False
     )
     thumbnail_url: Mapped[str | None] = mapped_column(String)
     video_url: Mapped[str | None] = mapped_column(String)
@@ -167,7 +167,7 @@ class UserEmbedding(Base):
     )
 
     user_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("users.id"), primary_key=True
+        Integer, ForeignKey("users.id"), primary_key=True
     )
     embedding_case: Mapped[str] = mapped_column(String, primary_key=True)
     embedding: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
@@ -193,7 +193,7 @@ class UserCluster(Base):
     )
 
     user_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("users.id"), primary_key=True
+        Integer, ForeignKey("users.id"), primary_key=True
     )
     embedding_case: Mapped[str] = mapped_column(String, primary_key=True)
     cluster_id: Mapped[int] = mapped_column(Integer, nullable=False)
