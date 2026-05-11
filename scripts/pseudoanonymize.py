@@ -12,6 +12,9 @@ Replaces Instagram API PKs with sequential internal IDs in the main DB,
 renames pk/user_pk/clip_pk/entity_pk columns to id/user_id/clip_id/entity_id,
 strips PII fields (username, full_name, city_name, profile_pic_*) from main DB,
 renames on-disk files, and recomputes cluster_runs.dataset_hash.
+
+Recovery: if migration fails, restore from backup:
+    mv data/inst2vec.db.bak data/inst2vec.db
 """
 
 from __future__ import annotations
@@ -278,6 +281,15 @@ def pseudoanonymize(
     data_dir: str = "data",
 ) -> None:
     """Pseudoanonymize main DB: replace API PKs with sequential IDs, strip PII."""
+    # Guard: detect if migration already ran
+    with sqlite3.connect(main_db) as con:
+        cols = {r[1] for r in con.execute("PRAGMA table_info(users)")}
+        if "id" in cols and "pk" not in cols:
+            raise RuntimeError(
+                f"{main_db!r} appears already migrated (users.id exists, users.pk absent). "
+                "Delete identity_map.db and restore the .bak file to re-run."
+            )
+    
     print(f"[pseudoanonymize] backing up {main_db} → {main_db}.bak")
     shutil.copy2(main_db, main_db + ".bak")
     
