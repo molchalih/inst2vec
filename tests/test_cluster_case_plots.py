@@ -2,6 +2,7 @@ import os
 import sys
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pytest
@@ -23,14 +24,54 @@ def _seed_clusters(eng):
     with Session(eng) as s:
         s.add_all(
             [
-                User(pk=1, username="alpha", parse_status="success", user_disqualified=0),
-                User(pk=2, username="beta", parse_status="success", user_disqualified=0),
-                UserCluster(user_pk=1, embedding_case="audio", cluster_id=0, umap_x=0.1, umap_y=0.2),
-                UserCluster(user_pk=2, embedding_case="audio", cluster_id=-1, umap_x=0.3, umap_y=0.4),
-                UserCluster(user_pk=1, embedding_case="video", cluster_id=1, umap_x=1.1, umap_y=1.2),
-                UserCluster(user_pk=2, embedding_case="video", cluster_id=1, umap_x=1.3, umap_y=1.4),
-                UserCluster(user_pk=1, embedding_case="sandwich", cluster_id=2, umap_x=2.1, umap_y=2.2),
-                UserCluster(user_pk=2, embedding_case="sandwich", cluster_id=2, umap_x=2.3, umap_y=2.4),
+                User(
+                    pk=1, username="alpha", parse_status="success", user_disqualified=0
+                ),
+                User(
+                    pk=2, username="beta", parse_status="success", user_disqualified=0
+                ),
+                UserCluster(
+                    user_pk=1,
+                    embedding_case="audio",
+                    cluster_id=0,
+                    umap_x=0.1,
+                    umap_y=0.2,
+                ),
+                UserCluster(
+                    user_pk=2,
+                    embedding_case="audio",
+                    cluster_id=-1,
+                    umap_x=0.3,
+                    umap_y=0.4,
+                ),
+                UserCluster(
+                    user_pk=1,
+                    embedding_case="video",
+                    cluster_id=1,
+                    umap_x=1.1,
+                    umap_y=1.2,
+                ),
+                UserCluster(
+                    user_pk=2,
+                    embedding_case="video",
+                    cluster_id=1,
+                    umap_x=1.3,
+                    umap_y=1.4,
+                ),
+                UserCluster(
+                    user_pk=1,
+                    embedding_case="sandwich",
+                    cluster_id=2,
+                    umap_x=2.1,
+                    umap_y=2.2,
+                ),
+                UserCluster(
+                    user_pk=2,
+                    embedding_case="sandwich",
+                    cluster_id=2,
+                    umap_x=2.3,
+                    umap_y=2.4,
+                ),
             ]
         )
         s.commit()

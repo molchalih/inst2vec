@@ -21,8 +21,12 @@ def test_clips_summary_to_markdown_renders_curated_metrics():
     with Session(eng) as s:
         s.add_all(
             [
-                User(pk=1, username="alpha", parse_status="success", user_disqualified=0),
-                User(pk=2, username="beta", parse_status="success", user_disqualified=1),
+                User(
+                    pk=1, username="alpha", parse_status="success", user_disqualified=0
+                ),
+                User(
+                    pk=2, username="beta", parse_status="success", user_disqualified=1
+                ),
                 Clip(
                     pk=11,
                     user_pk=1,

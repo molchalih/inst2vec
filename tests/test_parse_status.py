@@ -6,7 +6,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import Session
 
-from modules.database import Base, User, Clip, Download, _migrate_users_table, _backfill_parse_status
+from modules.database import (
+    Base,
+    Clip,
+    Download,
+    User,
+    _backfill_parse_status,
+    _migrate_users_table,
+)
 
 
 def test_migrate_users_table_adds_parse_status_column():

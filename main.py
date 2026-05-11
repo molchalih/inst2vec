@@ -1,18 +1,21 @@
-from modules.console import phase, startup
-from modules.console import log
-from modules.database import init_db
-from modules.parse import fetch_profiles
-from modules.download import download_files
-from modules.music import classify_music, extract_music_features
-from modules.speech import classify_speech, translate_speech, clean_speech
-from modules.captions import detect_caption_language, translate_captions, clean_captions
-from modules.finalize import finalize_user_dataset
-from modules.embeddings import embed_video_clips, embed_sandwich_clips, embed_audio_clips, embed_user_clips
+from modules.captions import clean_captions, detect_caption_language, translate_captions
 from modules.cluster_search import run_cluster_search
 from modules.cluster_validation import validate_clustering
 from modules.clustering import cluster_users
+from modules.console import log, phase, startup
+from modules.database import init_db
+from modules.download import download_files
+from modules.embeddings import (
+    embed_audio_clips,
+    embed_sandwich_clips,
+    embed_user_clips,
+    embed_video_clips,
+)
+from modules.finalize import finalize_user_dataset
+from modules.music import classify_music, extract_music_features
+from modules.parse import fetch_profiles
+from modules.speech import classify_speech, clean_speech, translate_speech
 from modules.visualization import plot_clusters
-
 
 startup()
 

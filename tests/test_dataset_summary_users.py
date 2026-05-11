@@ -16,8 +16,17 @@ def _make_engine():
     return eng
 
 
-def _add_clip(session: Session, *, user_pk: int, pk: int, play_count: int | None, disqualified: int | None):
-    session.add(Clip(user_pk=user_pk, pk=pk, play_count=play_count, disqualified=disqualified))
+def _add_clip(
+    session: Session,
+    *,
+    user_pk: int,
+    pk: int,
+    play_count: int | None,
+    disqualified: int | None,
+):
+    session.add(
+        Clip(user_pk=user_pk, pk=pk, play_count=play_count, disqualified=disqualified)
+    )
 
 
 def test_users_summary_to_markdown_renders_curated_metrics():
@@ -256,4 +265,3 @@ def test_users_summary_legacy_db_without_play_count_columns():
     assert "| Following count (min-max) | - |" in out
     assert "| Play count per user (median) | - |" in out
     assert "| Play count per user (mean) | - |" in out
-

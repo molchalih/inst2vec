@@ -1,4 +1,5 @@
 """Helpers for rendering project outputs inside Quarto documents."""
+
 from __future__ import annotations
 
 import os
@@ -45,6 +46,7 @@ def _get_default_engine() -> Engine:
 
 # ── CLUSTERING-related ───────────────────────────────────────────────────────────
 
+
 def render_clustering_summary(*, eng=None) -> Markdown:
     _ensure_project_root_on_path()
 
@@ -61,6 +63,7 @@ def render_clustering_summary(*, eng=None) -> Markdown:
         )
     )
 
+
 def render_clustering_summary_by_case(case: str, *, eng=None) -> Markdown:
     _ensure_project_root_on_path()
 
@@ -70,6 +73,7 @@ def render_clustering_summary_by_case(case: str, *, eng=None) -> Markdown:
         eng = _get_default_engine()
 
     return Markdown(summarize_to_markdown(eng, case))
+
 
 def render_best_cluster_run(*, eng=None) -> Markdown:
     _ensure_project_root_on_path()
@@ -82,7 +86,9 @@ def render_best_cluster_run(*, eng=None) -> Markdown:
 
     return Markdown(best_runs_all_to_markdown(eng, cases=DEFAULT_CASES))
 
+
 # ── USER-related ─────────────────────────────────────────────────────────────────
+
 
 def render_users_summary(*, eng=None) -> Markdown:
     _ensure_project_root_on_path()
@@ -105,7 +111,9 @@ def get_users_summary_cells(*, eng=None) -> dict[str, str]:
 
     return get_users_summary_cells(eng)
 
+
 # ── CLIP-related ──────────────────────────────────────────────────────────────────
+
 
 def render_clips_summary(*, eng=None) -> Markdown:
     _ensure_project_root_on_path()

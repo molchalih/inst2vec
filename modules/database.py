@@ -1,8 +1,21 @@
 import os
 
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, Column, BigInteger, Integer, Float, String, Boolean, ForeignKey, Text, LargeBinary, UniqueConstraint, DateTime
-from sqlalchemy.orm import declarative_base, relationship, Session
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    LargeBinary,
+    String,
+    Text,
+    UniqueConstraint,
+    create_engine,
+)
+from sqlalchemy.orm import Session, declarative_base, relationship
 from sqlalchemy.sql import func
 
 load_dotenv()
@@ -67,7 +80,7 @@ class Music(Base):
     __tablename__ = "music"
     __table_args__ = (
         UniqueConstraint("artist", "track", name="uq_music_artist_track"),
-    ) # additional enforcement of artists and tracks
+    )  # additional enforcement of artists and tracks
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     artist = Column(String, nullable=False, default="")
@@ -86,7 +99,9 @@ class Music(Base):
     speechiness = Column(Float, nullable=True)
     tempo = Column(Float, nullable=True)
     valence = Column(Float, nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
     updated_at = Column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -110,13 +125,17 @@ class Download(Base):
 class ClipEmbedding(Base):
     __tablename__ = "clip_embeddings"
     __table_args__ = (
-        UniqueConstraint("clip_pk", "embedding_case", name="uq_clip_embeddings_clip_case"),
+        UniqueConstraint(
+            "clip_pk", "embedding_case", name="uq_clip_embeddings_clip_case"
+        ),
     )
 
     clip_pk = Column(BigInteger, ForeignKey("clips.pk"), primary_key=True)
     embedding_case = Column(String, primary_key=True)
     embedding = Column(LargeBinary, nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
     updated_at = Column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -130,13 +149,17 @@ class ClipEmbedding(Base):
 class UserEmbedding(Base):
     __tablename__ = "user_embeddings"
     __table_args__ = (
-        UniqueConstraint("user_pk", "embedding_case", name="uq_user_embeddings_user_case"),
+        UniqueConstraint(
+            "user_pk", "embedding_case", name="uq_user_embeddings_user_case"
+        ),
     )
 
     user_pk = Column(BigInteger, ForeignKey("users.pk"), primary_key=True)
     embedding_case = Column(String, primary_key=True)
     embedding = Column(LargeBinary, nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
     updated_at = Column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -150,7 +173,9 @@ class UserEmbedding(Base):
 class UserCluster(Base):
     __tablename__ = "user_clusters"
     __table_args__ = (
-        UniqueConstraint("user_pk", "embedding_case", name="uq_user_clusters_user_case"),
+        UniqueConstraint(
+            "user_pk", "embedding_case", name="uq_user_clusters_user_case"
+        ),
     )
 
     user_pk = Column(BigInteger, ForeignKey("users.pk"), primary_key=True)
@@ -158,7 +183,9 @@ class UserCluster(Base):
     cluster_id = Column(Integer, nullable=False)
     umap_x = Column(Float, nullable=False)
     umap_y = Column(Float, nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
     updated_at = Column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -173,10 +200,17 @@ class ClusterRun(Base):
     __table_args__ = (
         UniqueConstraint(
             "embedding_case",
-            "umap_n_components", "umap_n_neighbors", "umap_min_dist", "umap_metric",
-            "umap2d_n_neighbors", "umap2d_min_dist", "umap2d_metric",
-            "hdbscan_min_cluster_size", "hdbscan_min_samples",
-            "hdbscan_cluster_selection_method", "hdbscan_metric",
+            "umap_n_components",
+            "umap_n_neighbors",
+            "umap_min_dist",
+            "umap_metric",
+            "umap2d_n_neighbors",
+            "umap2d_min_dist",
+            "umap2d_metric",
+            "hdbscan_min_cluster_size",
+            "hdbscan_min_samples",
+            "hdbscan_cluster_selection_method",
+            "hdbscan_metric",
             "random_state",
             name="uq_cluster_runs_params",
         ),
@@ -205,10 +239,12 @@ class ClusterRun(Base):
     dbcv = Column(Float, nullable=True)
     silhouette = Column(Float, nullable=True)
     param_plateau_score = Column(Float, nullable=True)
-    in_current_grid = Column(Integer, nullable=True)   # 1=current, 0=stale
-    dataset_hash = Column(String, nullable=True) # SHA-256 of sorted user PKs
+    in_current_grid = Column(Integer, nullable=True)  # 1=current, 0=stale
+    dataset_hash = Column(String, nullable=True)  # SHA-256 of sorted user PKs
     validation_config_hash = Column(String, nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
 
 
 def init_db():

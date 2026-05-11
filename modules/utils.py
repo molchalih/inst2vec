@@ -9,7 +9,10 @@ from modules.database import User, get_session
 
 load_dotenv()
 
-def load_usernames_from_csv(csv_path: str = os.environ.get("DATA_CSV_PATH", "data/data.csv")):
+
+def load_usernames_from_csv(
+    csv_path: str = os.environ.get("DATA_CSV_PATH", "data/data.csv"),
+):
     with open(csv_path) as f:
         reader = csv.reader(f)
         urls = [row[0].strip() for row in reader if row]
@@ -35,5 +38,8 @@ def load_usernames_from_csv(csv_path: str = os.environ.get("DATA_CSV_PATH", "dat
             loaded += 1
     session.commit()
     already_in_db = unique - loaded
-    log("database", f"loaded {loaded} usernames ({duplicates_in_csv} duplicates in csv, {already_in_db} already in db)")
+    log(
+        "database",
+        f"loaded {loaded} usernames ({duplicates_in_csv} duplicates in csv, {already_in_db} already in db)",
+    )
     session.close()

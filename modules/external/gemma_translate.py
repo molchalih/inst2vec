@@ -1,4 +1,5 @@
 """Shared TranslateGemma pipeline wrapper for text translation."""
+
 from __future__ import annotations
 
 import os
@@ -6,8 +7,9 @@ import os
 import torch
 from transformers import pipeline
 
-
-DEFAULT_MODEL_ID = os.environ.get("GEMMA_TRANSLATE_MODEL", "google/translategemma-4b-it")
+DEFAULT_MODEL_ID = os.environ.get(
+    "GEMMA_TRANSLATE_MODEL", "google/translategemma-4b-it"
+)
 DEFAULT_MAX_NEW_TOKENS = int(os.environ.get("GEMMA_TRANSLATE_MAX_NEW_TOKENS", 200))
 
 
@@ -29,7 +31,9 @@ class GemmaTranslator:
         # Keep generation config compatible with explicit max_new_tokens usage.
         if getattr(self.pipe.model, "generation_config", None) is not None:
             self.pipe.model.generation_config.max_length = None
-            self.pipe.model.generation_config.pad_token_id = self.pipe.tokenizer.eos_token_id
+            self.pipe.model.generation_config.pad_token_id = (
+                self.pipe.tokenizer.eos_token_id
+            )
         if getattr(self.pipe, "generation_config", None) is not None:
             self.pipe.generation_config.max_length = None
             self.pipe.generation_config.pad_token_id = self.pipe.tokenizer.eos_token_id

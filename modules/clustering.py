@@ -1,13 +1,14 @@
 """Pure clustering logic: two-pass UMAP + HDBSCAN → ClusterResult."""
-from dataclasses import dataclass, field
-import os
 
-import numpy as np
+import os
+from dataclasses import dataclass, field
+
 import hdbscan
+import numpy as np
 from umap import UMAP
 
-from modules.console import progress, log
-from modules.database import Base, engine, get_session, UserEmbedding, UserCluster
+from modules.console import log, progress
+from modules.database import Base, UserCluster, UserEmbedding, engine, get_session
 
 
 def env_positive_int(key: str, default: str = "1") -> int:
@@ -172,7 +173,9 @@ def cluster_users(embedding_case: str, **params) -> None:
         except ValueError as exc:
             log(f"cluster:{embedding_case}", f"skipping — {exc}", level="warn")
             return
-        advance(1, detail=f"{result.n_clusters} clusters, {result.noise_ratio:.1%} noise")
+        advance(
+            1, detail=f"{result.n_clusters} clusters, {result.noise_ratio:.1%} noise"
+        )
 
     session = get_session()
     try:
@@ -191,7 +194,11 @@ def cluster_users(embedding_case: str, **params) -> None:
     finally:
         session.close()
 
-    sizes_str = f"min={min(result.cluster_sizes)} median={int(np.median(result.cluster_sizes))} max={max(result.cluster_sizes)}" if result.cluster_sizes else "n/a"
+    sizes_str = (
+        f"min={min(result.cluster_sizes)} median={int(np.median(result.cluster_sizes))} max={max(result.cluster_sizes)}"
+        if result.cluster_sizes
+        else "n/a"
+    )
     log(
         f"cluster:{embedding_case}",
         f"{result.n_clusters} clusters, {result.noise_ratio:.1%} noise, sizes: {sizes_str}",

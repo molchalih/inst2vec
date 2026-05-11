@@ -1,7 +1,9 @@
 """Paper-facing cluster plot generators for Quarto and pipeline reuse."""
+
 from __future__ import annotations
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
@@ -30,9 +32,14 @@ def _plot_case(case: str, rows: list) -> plt.Figure:
     noise_mask = labels == -1
     if noise_mask.any():
         ax.scatter(
-            xs[noise_mask], ys[noise_mask],
-            c="lightgray", s=12, alpha=0.5, linewidths=0,
-            label="noise", zorder=1,
+            xs[noise_mask],
+            ys[noise_mask],
+            c="lightgray",
+            s=12,
+            alpha=0.5,
+            linewidths=0,
+            label="noise",
+            zorder=1,
         )
 
     unique_clusters = sorted(set(labels[~noise_mask].tolist()))
@@ -40,9 +47,14 @@ def _plot_case(case: str, rows: list) -> plt.Figure:
     for i, cid in enumerate(unique_clusters):
         mask = labels == cid
         ax.scatter(
-            xs[mask], ys[mask],
-            color=cmap(i % 20), s=18, alpha=0.8, linewidths=0,
-            label=f"cluster {cid}", zorder=2,
+            xs[mask],
+            ys[mask],
+            color=cmap(i % 20),
+            s=18,
+            alpha=0.8,
+            linewidths=0,
+            label=f"cluster {cid}",
+            zorder=2,
         )
 
     n_clusters = len(unique_clusters)
@@ -56,9 +68,7 @@ def cluster_plot_figure_for_case(eng, case: str, *, title_label: str | None = No
     case = _validate_case(case)
     with Session(eng) as session:
         rows = (
-            session.query(UserCluster)
-            .filter(UserCluster.embedding_case == case)
-            .all()
+            session.query(UserCluster).filter(UserCluster.embedding_case == case).all()
         )
 
     if not rows:

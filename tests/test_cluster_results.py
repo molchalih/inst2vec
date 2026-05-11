@@ -92,9 +92,38 @@ def test_pick_best_cluster_run_rejects_sharp_peak(monkeypatch):
 def test_list_eligible_best_rows_filters_like_validation():
     eng = _make_engine()
     with Session(eng) as s:
-        s.add(_run_row(embedding_case="audio", dbcv=0.7, silhouette=0.2, n_clusters=4, noise_ratio=0.1, param_plateau_score=0.68))
-        s.add(_run_row(embedding_case="audio", dbcv=0.9, silhouette=0.4, n_clusters=5, noise_ratio=0.1, param_plateau_score=0.85, disqualified=1))
-        s.add(_run_row(embedding_case="audio", dbcv=0.6, silhouette=0.1, n_clusters=3, noise_ratio=0.2, param_plateau_score=0.55, in_current_grid=0))
+        s.add(
+            _run_row(
+                embedding_case="audio",
+                dbcv=0.7,
+                silhouette=0.2,
+                n_clusters=4,
+                noise_ratio=0.1,
+                param_plateau_score=0.68,
+            )
+        )
+        s.add(
+            _run_row(
+                embedding_case="audio",
+                dbcv=0.9,
+                silhouette=0.4,
+                n_clusters=5,
+                noise_ratio=0.1,
+                param_plateau_score=0.85,
+                disqualified=1,
+            )
+        )
+        s.add(
+            _run_row(
+                embedding_case="audio",
+                dbcv=0.6,
+                silhouette=0.1,
+                n_clusters=3,
+                noise_ratio=0.2,
+                param_plateau_score=0.55,
+                in_current_grid=0,
+            )
+        )
         s.commit()
 
         from modules.cluster_results import list_eligible_best_rows
@@ -134,9 +163,33 @@ def test_summarize_case_rows_counts_and_means():
     from modules.cluster_results import summarize_case_rows
 
     rows = [
-        _run_row(embedding_case="audio", dbcv=0.2, silhouette=-0.5, n_clusters=2, noise_ratio=0.1, disqualified=0, in_current_grid=1),
-        _run_row(embedding_case="audio", dbcv=0.9, silhouette=0.0, n_clusters=4, noise_ratio=0.0, disqualified=1, in_current_grid=1),
-        _run_row(embedding_case="audio", dbcv=0.1, silhouette=0.0, n_clusters=2, noise_ratio=0.2, disqualified=0, in_current_grid=0),
+        _run_row(
+            embedding_case="audio",
+            dbcv=0.2,
+            silhouette=-0.5,
+            n_clusters=2,
+            noise_ratio=0.1,
+            disqualified=0,
+            in_current_grid=1,
+        ),
+        _run_row(
+            embedding_case="audio",
+            dbcv=0.9,
+            silhouette=0.0,
+            n_clusters=4,
+            noise_ratio=0.0,
+            disqualified=1,
+            in_current_grid=1,
+        ),
+        _run_row(
+            embedding_case="audio",
+            dbcv=0.1,
+            silhouette=0.0,
+            n_clusters=2,
+            noise_ratio=0.2,
+            disqualified=0,
+            in_current_grid=0,
+        ),
     ]
     out = summarize_case_rows(rows)
     assert out["n_runs"] == "3"
@@ -152,11 +205,33 @@ def test_select_best_cluster_run_matches_pick_best(monkeypatch):
     monkeypatch.setenv("VALIDATION_PLATEAU_DROP_THRESHOLD", "0.05")
     eng = _make_engine()
     with Session(eng) as s:
-        s.add(_run_row(embedding_case="video", dbcv=0.90, silhouette=0.10, n_clusters=6, noise_ratio=0.20, param_plateau_score=0.80))
-        s.add(_run_row(embedding_case="video", dbcv=0.82, silhouette=0.25, n_clusters=4, noise_ratio=0.10, param_plateau_score=0.79))
+        s.add(
+            _run_row(
+                embedding_case="video",
+                dbcv=0.90,
+                silhouette=0.10,
+                n_clusters=6,
+                noise_ratio=0.20,
+                param_plateau_score=0.80,
+            )
+        )
+        s.add(
+            _run_row(
+                embedding_case="video",
+                dbcv=0.82,
+                silhouette=0.25,
+                n_clusters=4,
+                noise_ratio=0.10,
+                param_plateau_score=0.79,
+            )
+        )
         s.commit()
 
-        from modules.cluster_results import list_eligible_best_rows, pick_best_cluster_run, select_best_cluster_run
+        from modules.cluster_results import (
+            list_eligible_best_rows,
+            pick_best_cluster_run,
+            select_best_cluster_run,
+        )
 
         by_rows = pick_best_cluster_run(list_eligible_best_rows(s, "video"))
         by_query = select_best_cluster_run(s, "video")

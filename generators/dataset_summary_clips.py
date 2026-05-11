@@ -1,4 +1,5 @@
 """Paper-facing summary table for the clips dataset."""
+
 from __future__ import annotations
 
 from statistics import mean, median
@@ -20,7 +21,7 @@ TABLE_ROWS: tuple[tuple[str, str], ...] = (
     (r"$N_{\mathrm{music}}$", "with_music"),
     (r"$\tilde{x}_{\mathrm{views}}$", "play_count_median"),
     (r"$\mu_\mathrm{views}$", "play_count_mean"),
-    (r"$[\min-max]_{\mathrm{views}}$", "play_count_minmax")
+    (r"$[\min-max]_{\mathrm{views}}$", "play_count_minmax"),
     # (r"$\tilde{x}_{\mathrm{likes}}$", "like_count_median"),
     # (r"$\mu_\mathrm{likes}$", "like_count_mean"),
     # (r"$[\min-max]_{\mathrm{likes}}$", "like_count_minmax")
@@ -53,7 +54,9 @@ def _fmt_count_share(count: int, total: int) -> str:
 def _fmt_distribution(values: list[int]) -> str:
     if not values:
         return "-"
-    return f"{median(values):,.0f}, {mean(values):,.1f}, {min(values):,}-{max(values):,}"
+    return (
+        f"{median(values):,.0f}, {mean(values):,.1f}, {min(values):,}-{max(values):,}"
+    )
 
 
 def _numeric_values(session: Session, column, *criteria) -> list[int]:
@@ -88,9 +91,7 @@ def _summary_cells(session: Session) -> dict[str, str]:
     total_clips = _count(session)
     kept_clips = _count(session, KEPT_CLIP_FILTER)
 
-    caption_text_counts = _count_non_empty(
-        session, Clip.caption_text, KEPT_CLIP_FILTER
-    )
+    caption_text_counts = _count_non_empty(session, Clip.caption_text, KEPT_CLIP_FILTER)
     caption_translation_counts = _count_non_empty(
         session, Clip.caption_translation, KEPT_CLIP_FILTER
     )
@@ -100,8 +101,6 @@ def _summary_cells(session: Session) -> dict[str, str]:
     )
     music_counts = _count(session, Clip.has_music == 1, KEPT_CLIP_FILTER)
     play_counts = _numeric_values(session, Clip.play_count, KEPT_CLIP_FILTER)
-    like_counts = _numeric_values(session, Clip.like_count, KEPT_CLIP_FILTER)
-
     return {
         "total_clips": f"{total_clips:,}",
         "kept_clips": _fmt_count_share(kept_clips, total_clips),
@@ -110,11 +109,13 @@ def _summary_cells(session: Session) -> dict[str, str]:
             caption_translation_counts, kept_clips
         ),
         "with_speech": _fmt_count_share(speech_counts, kept_clips),
-        "with_speech_translation": _fmt_count_share(speech_translation_counts, kept_clips),
+        "with_speech_translation": _fmt_count_share(
+            speech_translation_counts, kept_clips
+        ),
         "with_music": _fmt_count_share(music_counts, kept_clips),
         "play_count_median": _fmt_median(play_counts),
         "play_count_mean": _fmt_mean(play_counts),
-        "play_count_minmax": _fmt_min_max(play_counts)
+        "play_count_minmax": _fmt_min_max(play_counts),
         # "like_count_median": _fmt_median(like_counts),
         # "like_count_mean": _fmt_mean(like_counts),
         # "like_count_minmax": _fmt_min_max(like_counts),

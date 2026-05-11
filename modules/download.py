@@ -3,8 +3,8 @@ import time
 
 import httpx
 
-from modules.database import get_session, User, Download
-from modules.console import progress, log
+from modules.console import log, progress
+from modules.database import Download, User, get_session
 
 SCOPE = "download"
 
@@ -35,25 +35,47 @@ def _download(url, path):
 
 
 def _try_download(session, entity_pk, file_type, url):
-    if session.query(Download).filter_by(entity_pk=entity_pk, file_type=file_type).first():
+    if (
+        session.query(Download)
+        .filter_by(entity_pk=entity_pk, file_type=file_type)
+        .first()
+    ):
         return
 
     if not url:
-        session.add(Download(entity_pk=entity_pk, file_type=file_type, success=False, parse_available=True))
+        session.add(
+            Download(
+                entity_pk=entity_pk,
+                file_type=file_type,
+                success=False,
+                parse_available=True,
+            )
+        )
         return
 
     ext = "mp4" if file_type == "video" else "jpg"
     path = os.path.join(DIRS[file_type], f"{entity_pk}.{ext}")
 
     if os.path.exists(path):
-        session.add(Download(entity_pk=entity_pk, file_type=file_type, success=True, parse_available=True))
+        session.add(
+            Download(
+                entity_pk=entity_pk,
+                file_type=file_type,
+                success=True,
+                parse_available=True,
+            )
+        )
         return
 
     ok = _download(url, path)
-    session.add(Download(
-        entity_pk=entity_pk, file_type=file_type,
-        success=ok, parse_available=True,
-    ))
+    session.add(
+        Download(
+            entity_pk=entity_pk,
+            file_type=file_type,
+            success=ok,
+            parse_available=True,
+        )
+    )
 
 
 def download_files():
@@ -61,10 +83,15 @@ def download_files():
         os.makedirs(d, exist_ok=True)
 
     session = get_session()
-    done_pks = session.query(Download.entity_pk).filter(Download.file_type == "profile_pic")
+    done_pks = session.query(Download.entity_pk).filter(
+        Download.file_type == "profile_pic"
+    )
     users = (
         session.query(User)
-        .filter(~User.pk.in_(done_pks), (User.user_disqualified.is_(None)) | (User.user_disqualified == 0))
+        .filter(
+            ~User.pk.in_(done_pks),
+            (User.user_disqualified.is_(None)) | (User.user_disqualified == 0),
+        )
         .limit(BATCH_SIZE)
         .all()
     )
@@ -77,7 +104,7 @@ def download_files():
     with progress(len(users), "Downloading") as advance:
         for user in users:
             _try_download(session, user.pk, "profile_pic", user.profile_pic_url)
-            for clip in user.clips[:MAX_CLIPS or None]:
+            for clip in user.clips[: MAX_CLIPS or None]:
                 if clip.disqualified == 1:
                     continue
                 _try_download(session, clip.pk, "thumbnail", clip.thumbnail_url)

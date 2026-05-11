@@ -1,19 +1,24 @@
-import sys
 import os
+import sys
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import matplotlib
+
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 from types import SimpleNamespace
 from unittest.mock import MagicMock
+
+import matplotlib.pyplot as plt
 
 from modules.visualization import _plot_case, plot_clusters
 
 
 def _rows(xs, ys, labels):
-    return [SimpleNamespace(umap_x=x, umap_y=y, cluster_id=c)
-            for x, y, c in zip(xs, ys, labels)]
+    return [
+        SimpleNamespace(umap_x=x, umap_y=y, cluster_id=c)
+        for x, y, c in zip(xs, ys, labels, strict=False)
+    ]
 
 
 def test_plot_case_returns_figure():
@@ -59,7 +64,11 @@ def test_plot_clusters_uses_shared_cluster_plot_generator(monkeypatch, tmp_path)
     ]
 
     query = MagicMock()
-    query.distinct.return_value.all.return_value = [("audio",), ("video",), ("sandwich",)]
+    query.distinct.return_value.all.return_value = [
+        ("audio",),
+        ("video",),
+        ("sandwich",),
+    ]
     query.filter.return_value.all.side_effect = [
         [fake_rows[0]],
         [fake_rows[1]],

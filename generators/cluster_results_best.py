@@ -1,16 +1,17 @@
 """Paper-facing summary of the validation-best cluster run per embedding case."""
+
 from __future__ import annotations
 
 import math
 
 from sqlalchemy.orm import Session
 
-from modules.database import ClusterRun
 from modules.cluster_results import (
     DEFAULT_CASES,
     get_plateau_drop_threshold,
     select_best_cluster_run,
 )
+from modules.database import ClusterRun
 
 __all__ = ("best_run_to_markdown", "best_runs_all_to_markdown")
 

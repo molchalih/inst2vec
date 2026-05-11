@@ -1,13 +1,15 @@
 """Save UMAP cluster scatter plots to data/plots/ as PNG files."""
+
 import os
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from generators.cluster_case_plots import cluster_plot_figure_for_case
-from modules.database import get_session, UserCluster
 from modules.console import log
+from modules.database import UserCluster, get_session
 
 PLOTS_DIR = "data/plots"
 
@@ -19,8 +21,7 @@ def plot_clusters() -> None:
     try:
         eng = session.get_bind()
         cases = sorted(
-            r[0]
-            for r in session.query(UserCluster.embedding_case).distinct().all()
+            r[0] for r in session.query(UserCluster.embedding_case).distinct().all()
         )
         for case in cases:
             fig = cluster_plot_figure_for_case(eng, case)

@@ -3,7 +3,7 @@ name = "inst2vec"
 version = "0.1.0"
 description = "A research-oriented codebase related to parse, embed and interpret Instagram accounts."
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.12"
 dependencies = [
     "hdbscan>=0.8.42",
     "hikerapi>=1.7.9",
@@ -14,26 +14,65 @@ dependencies = [
     "openai-whisper>=20250625",
     "pyacrcloud>=1.0.11",
     "python-dotenv>=1.2.2",
+    "qwen-vl-utils>=0.0.14",
     "quarto>=0.1.0",
     "rich>=15.0.0",
     "sqlalchemy>=2.0.41",
     "torch>=2.11.0",
+    "torchvision>=0.26.0",
     "transformers>=5.8.0",
     "umap-learn>=0.5.12",
+    "setuptools",
 ]
-
-[tool.uv.extra-build-dependencies]
-openai-whisper = ["setuptools"]
-hdbscan = ["setuptools", "cython"]
 
 [dependency-groups]
 dev = [
     "autoflake>=2.3.3",
     "pyright>=1.1.409",
+    "pytest>=9.0.3",
     "ruff>=0.15.12",
+    "ty>=0.0.35",
     "vulture>=2.16",
 ]
 gpu = [
     "ninja>=1.13.0",
     "flash-attn>=2.8.3",
+    "cython",
 ]
+
+[tool.uv]
+no-build-isolation-package = ["flash-attn"]
+
+[tool.uv.extra-build-dependencies]
+openai-whisper = ["setuptools"]
+hdbscan = ["setuptools", "cython"]
+flash-attn = ["torch", "ninja"]
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+select = [
+    "E",
+    "F",
+    "I",
+    "UP",
+    "B",
+    "SIM",
+    "RUF",
+]
+ignore = [
+    "E501",
+    "RUF001",
+    "RUF002",
+    "RUF003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"modules/external/qwen3_vl_embedding.py" = ["ALL"]
+"modules/external/gemma_translate.py" = ["ALL"]
+
+[tool.vulture]
+exclude = ["modules/external/*"]
+min_confidence = 80
+sort_by_size = true
