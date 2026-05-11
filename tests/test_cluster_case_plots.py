@@ -26,10 +26,10 @@ def _seed_clusters(eng):
         s.add_all(
             [
                 User(
-                    id=1, username="alpha", parse_status="success", user_disqualified=0
+                    id=1, parse_status="success", user_disqualified=0
                 ),
                 User(
-                    id=2, username="beta", parse_status="success", user_disqualified=0
+                    id=2, parse_status="success", user_disqualified=0
                 ),
                 UserCluster(
                     user_id=1,
