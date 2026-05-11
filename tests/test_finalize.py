@@ -17,14 +17,14 @@ def _make_engine():
 
 def _make_user(session, pk: int, clips_play_counts: list[int]) -> User:
     user = User(
-        pk=pk, username=f"user{pk}", full_name=f"User {pk}", parse_status="success"
+        id=pk, username=f"user{pk}", full_name=f"User {pk}", parse_status="success"
     )
     session.add(user)
     session.flush()
     for i, plays in enumerate(clips_play_counts):
         clip = Clip(
-            pk=pk * 1000 + i,
-            user_pk=pk,
+            id=pk * 1000 + i,
+            user_id=pk,
             play_count=plays,
         )
         session.add(clip)
@@ -151,7 +151,7 @@ def test_pass_b_does_not_pre_gate(monkeypatch):
         # User with only 1 clip — would be pre-gated in Pass A, but not in Pass B
         u = _make_user(s, pk=1, clips_play_counts=[100000])
         # Pre-set clip as eligible (disqualified=0) so Pass B considers it
-        s.query(Clip).filter(Clip.user_pk == 1).update({"disqualified": 0})
+        s.query(Clip).filter(Clip.user_id == 1).update({"disqualified": 0})
         s.commit()
 
     monkeypatch.setattr("modules.finalize.get_session", lambda: Session(eng))

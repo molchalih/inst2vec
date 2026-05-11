@@ -26,48 +26,48 @@ def _seed_clusters(eng):
         s.add_all(
             [
                 User(
-                    pk=1, username="alpha", parse_status="success", user_disqualified=0
+                    id=1, username="alpha", parse_status="success", user_disqualified=0
                 ),
                 User(
-                    pk=2, username="beta", parse_status="success", user_disqualified=0
+                    id=2, username="beta", parse_status="success", user_disqualified=0
                 ),
                 UserCluster(
-                    user_pk=1,
+                    user_id=1,
                     embedding_case="audio",
                     cluster_id=0,
                     umap_x=0.1,
                     umap_y=0.2,
                 ),
                 UserCluster(
-                    user_pk=2,
+                    user_id=2,
                     embedding_case="audio",
                     cluster_id=-1,
                     umap_x=0.3,
                     umap_y=0.4,
                 ),
                 UserCluster(
-                    user_pk=1,
+                    user_id=1,
                     embedding_case="video",
                     cluster_id=1,
                     umap_x=1.1,
                     umap_y=1.2,
                 ),
                 UserCluster(
-                    user_pk=2,
+                    user_id=2,
                     embedding_case="video",
                     cluster_id=1,
                     umap_x=1.3,
                     umap_y=1.4,
                 ),
                 UserCluster(
-                    user_pk=1,
+                    user_id=1,
                     embedding_case="sandwich",
                     cluster_id=2,
                     umap_x=2.1,
                     umap_y=2.2,
                 ),
                 UserCluster(
-                    user_pk=2,
+                    user_id=2,
                     embedding_case="sandwich",
                     cluster_id=2,
                     umap_x=2.3,
