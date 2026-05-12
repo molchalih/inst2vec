@@ -17,6 +17,7 @@ plots_dir = "data/plots"
 model_path = "./models/Qwen3-VL-Embedding-8B"
 profile_pic_dir = "data/source/profile_pics"
 thumbnail_dir = "data/source/thumbnails"
+data_csv_path = "data/data.csv"
 
 [parse]
 fetch_retry_delays_sec = [0, 30, 60, 90]
@@ -156,6 +157,11 @@ def test_secrets_from_env(tmp_path):
     assert secrets.arc_host == "arc-host"
     assert secrets.spotify_client_id == "sp-id"
     assert secrets.huggingface_token == "hf-token"
+
+
+def test_paths_data_csv_path_present(tmp_path):
+    settings, _ = _load_with_fake_toml(tmp_path)
+    assert settings.paths.data_csv_path == "data/data.csv"
 
 
 def test_missing_secret_raises(tmp_path):
