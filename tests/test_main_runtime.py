@@ -86,24 +86,64 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
 
     monkeypatch.setattr(main, "load_runtime_config", lambda: (settings, secrets))
     monkeypatch.setattr(main, "startup", lambda: calls.append("startup"))
-    monkeypatch.setattr(main, "init_db", lambda database_url, identity_db_url: calls.append(f"init:{database_url}:{identity_db_url}"))
+    monkeypatch.setattr(
+        main,
+        "init_db",
+        lambda database_url, identity_db_url: calls.append(
+            f"init:{database_url}:{identity_db_url}"
+        ),
+    )
     monkeypatch.setattr(main, "fetch_profiles", lambda **kwargs: calls.append("parse"))
-    monkeypatch.setattr(main, "finalize_user_dataset", lambda pass_name, **kwargs: calls.append(f"finalize:{pass_name}"))
-    monkeypatch.setattr(main, "download_files", lambda **kwargs: calls.append("download"))
-    monkeypatch.setattr(main, "classify_music", lambda **kwargs: calls.append("music:classify"))
-    monkeypatch.setattr(main, "extract_music_features", lambda **kwargs: calls.append("music:features"))
-    monkeypatch.setattr(main, "classify_speech", lambda **kwargs: calls.append("speech:classify"))
-    monkeypatch.setattr(main, "translate_speech", lambda **kwargs: calls.append("speech:translate"))
+    monkeypatch.setattr(
+        main,
+        "finalize_user_dataset",
+        lambda pass_name, **kwargs: calls.append(f"finalize:{pass_name}"),
+    )
+    monkeypatch.setattr(
+        main, "download_files", lambda **kwargs: calls.append("download")
+    )
+    monkeypatch.setattr(
+        main, "classify_music", lambda **kwargs: calls.append("music:classify")
+    )
+    monkeypatch.setattr(
+        main, "extract_music_features", lambda **kwargs: calls.append("music:features")
+    )
+    monkeypatch.setattr(
+        main, "classify_speech", lambda **kwargs: calls.append("speech:classify")
+    )
+    monkeypatch.setattr(
+        main, "translate_speech", lambda **kwargs: calls.append("speech:translate")
+    )
     monkeypatch.setattr(main, "clean_speech", lambda: calls.append("speech:clean"))
-    monkeypatch.setattr(main, "clean_captions", lambda **kwargs: calls.append("captions:clean"))
-    monkeypatch.setattr(main, "detect_caption_language", lambda: calls.append("captions:detect"))
-    monkeypatch.setattr(main, "translate_captions", lambda **kwargs: calls.append("captions:translate"))
-    monkeypatch.setattr(main, "embed_video_clips", lambda **kwargs: calls.append("embed:video"))
-    monkeypatch.setattr(main, "embed_sandwich_clips", lambda **kwargs: calls.append("embed:sandwich"))
-    monkeypatch.setattr(main, "embed_audio_clips", lambda **kwargs: calls.append("embed:audio"))
-    monkeypatch.setattr(main, "embed_user_clips", lambda **kwargs: calls.append("embed:user"))
-    monkeypatch.setattr(main, "run_cluster_search", lambda **kwargs: calls.append("cluster:search"))
-    monkeypatch.setattr(main, "validate_clustering", lambda **kwargs: {"video": None, "sandwich": None, "audio": None})
+    monkeypatch.setattr(
+        main, "clean_captions", lambda **kwargs: calls.append("captions:clean")
+    )
+    monkeypatch.setattr(
+        main, "detect_caption_language", lambda: calls.append("captions:detect")
+    )
+    monkeypatch.setattr(
+        main, "translate_captions", lambda **kwargs: calls.append("captions:translate")
+    )
+    monkeypatch.setattr(
+        main, "embed_video_clips", lambda **kwargs: calls.append("embed:video")
+    )
+    monkeypatch.setattr(
+        main, "embed_sandwich_clips", lambda **kwargs: calls.append("embed:sandwich")
+    )
+    monkeypatch.setattr(
+        main, "embed_audio_clips", lambda **kwargs: calls.append("embed:audio")
+    )
+    monkeypatch.setattr(
+        main, "embed_user_clips", lambda **kwargs: calls.append("embed:user")
+    )
+    monkeypatch.setattr(
+        main, "run_cluster_search", lambda **kwargs: calls.append("cluster:search")
+    )
+    monkeypatch.setattr(
+        main,
+        "validate_clustering",
+        lambda **kwargs: {"video": None, "sandwich": None, "audio": None},
+    )
     monkeypatch.setattr(main, "plot_clusters", lambda **kwargs: calls.append("viz"))
 
     main.run_pipeline()

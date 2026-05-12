@@ -103,7 +103,10 @@ def _load_with_fake_toml(tmp_path, env_overrides=None):
     toml_file = tmp_path / "config.toml"
     toml_file.write_bytes(MINIMAL_TOML)
     env = {**FAKE_SECRETS, **(env_overrides or {})}
-    with patch.object(config_mod, "_CONFIG_PATH", toml_file), patch.dict(os.environ, env, clear=True):
+    with (
+        patch.object(config_mod, "_CONFIG_PATH", toml_file),
+        patch.dict(os.environ, env, clear=True),
+    ):
         return config_mod.load_runtime_config()
 
 
@@ -118,9 +121,20 @@ def test_returns_two_objects(tmp_path):
 
 def test_settings_sections_present(tmp_path):
     settings, _ = _load_with_fake_toml(tmp_path)
-    for section in ("pipeline", "paths", "parse", "download", "finalize",
-                    "music", "speech", "captions", "embeddings", "search",
-                    "validation", "overrides"):
+    for section in (
+        "pipeline",
+        "paths",
+        "parse",
+        "download",
+        "finalize",
+        "music",
+        "speech",
+        "captions",
+        "embeddings",
+        "search",
+        "validation",
+        "overrides",
+    ):
         assert hasattr(settings, section), f"settings.{section} missing"
 
 
@@ -150,6 +164,9 @@ def test_missing_secret_raises(tmp_path):
     toml_file = tmp_path / "config.toml"
     toml_file.write_bytes(MINIMAL_TOML)
     incomplete = {k: v for k, v in FAKE_SECRETS.items() if k != "HIKER_API_KEY"}
-    with patch.object(config_mod, "_CONFIG_PATH", toml_file), patch.dict(os.environ, incomplete, clear=True):
-        with pytest.raises(KeyError):
-            config_mod.load_runtime_config()
+    with (
+        patch.object(config_mod, "_CONFIG_PATH", toml_file),
+        patch.dict(os.environ, incomplete, clear=True),
+        pytest.raises(KeyError),
+    ):
+        config_mod.load_runtime_config()

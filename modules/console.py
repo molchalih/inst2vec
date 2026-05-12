@@ -50,9 +50,7 @@ def log(
 ) -> None:
     style = _LEVEL_STYLES.get(level, "")
     line = Text()
-    line.append(f"[{scope}]", style="dim").append(
-        f" {msg}", style=style
-    )
+    line.append(f"[{scope}]", style="dim").append(f" {msg}", style=style)
     _console.print(line)
 
 
