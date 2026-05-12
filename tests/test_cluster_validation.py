@@ -1,6 +1,6 @@
 import os
 import sys
-from unittest.mock import patch
+from types import SimpleNamespace
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
@@ -10,6 +10,18 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from modules.database import Base, ClusterRun
+
+
+def _make_settings(**overrides):
+    """Create a settings object for validation tests."""
+    defaults = {
+        "plateau_drop_threshold": 0.05,
+        "max_noise_ratio": 0.3,
+        "min_clusters": 3,
+        "max_clusters": 20,
+    }
+    defaults.update(overrides)
+    return SimpleNamespace(**defaults)
 
 
 def _make_engine():
@@ -56,11 +68,6 @@ def _insert_run(session, **kwargs):
 
 def test_filter_passes_run_within_bounds():
     eng = _make_engine()
-    env = {
-        "VALIDATION_MAX_NOISE_RATIO": "0.3",
-        "VALIDATION_MIN_CLUSTERS": "3",
-        "VALIDATION_MAX_CLUSTERS": "20",
-    }
     with Session(eng) as s:
         row = _insert_run(s, noise_ratio=0.1, n_clusters=5)
         row.in_current_grid = 1
@@ -69,8 +76,8 @@ def test_filter_passes_run_within_bounds():
 
     from modules.cluster_validation import _phase_filter
 
-    with patch.dict(os.environ, env), Session(eng) as s:
-        _phase_filter(s, "video")
+    with Session(eng) as s:
+        _phase_filter(s, "video", _make_settings())
         result = s.get(ClusterRun, row_id)
         assert result is not None
         assert result.disqualified == 0
@@ -78,11 +85,6 @@ def test_filter_passes_run_within_bounds():
 
 def test_filter_disqualifies_high_noise():
     eng = _make_engine()
-    env = {
-        "VALIDATION_MAX_NOISE_RATIO": "0.3",
-        "VALIDATION_MIN_CLUSTERS": "3",
-        "VALIDATION_MAX_CLUSTERS": "20",
-    }
     with Session(eng) as s:
         row = _insert_run(s, noise_ratio=0.5, n_clusters=5)
         row.in_current_grid = 1
@@ -91,8 +93,8 @@ def test_filter_disqualifies_high_noise():
 
     from modules.cluster_validation import _phase_filter
 
-    with patch.dict(os.environ, env), Session(eng) as s:
-        _phase_filter(s, "video")
+    with Session(eng) as s:
+        _phase_filter(s, "video", _make_settings())
         result = s.get(ClusterRun, row_id)
         assert result is not None
         assert result.disqualified == 1
@@ -100,11 +102,6 @@ def test_filter_disqualifies_high_noise():
 
 def test_filter_disqualifies_too_few_clusters():
     eng = _make_engine()
-    env = {
-        "VALIDATION_MAX_NOISE_RATIO": "0.3",
-        "VALIDATION_MIN_CLUSTERS": "3",
-        "VALIDATION_MAX_CLUSTERS": "20",
-    }
     with Session(eng) as s:
         row = _insert_run(s, noise_ratio=0.1, n_clusters=1)
         row.in_current_grid = 1
@@ -113,8 +110,8 @@ def test_filter_disqualifies_too_few_clusters():
 
     from modules.cluster_validation import _phase_filter
 
-    with patch.dict(os.environ, env), Session(eng) as s:
-        _phase_filter(s, "video")
+    with Session(eng) as s:
+        _phase_filter(s, "video", _make_settings())
         result = s.get(ClusterRun, row_id)
         assert result is not None
         assert result.disqualified == 1
@@ -122,11 +119,6 @@ def test_filter_disqualifies_too_few_clusters():
 
 def test_filter_disqualifies_too_many_clusters():
     eng = _make_engine()
-    env = {
-        "VALIDATION_MAX_NOISE_RATIO": "0.3",
-        "VALIDATION_MIN_CLUSTERS": "3",
-        "VALIDATION_MAX_CLUSTERS": "20",
-    }
     with Session(eng) as s:
         row = _insert_run(s, noise_ratio=0.1, n_clusters=25)
         row.in_current_grid = 1
@@ -135,8 +127,8 @@ def test_filter_disqualifies_too_many_clusters():
 
     from modules.cluster_validation import _phase_filter
 
-    with patch.dict(os.environ, env), Session(eng) as s:
-        _phase_filter(s, "video")
+    with Session(eng) as s:
+        _phase_filter(s, "video", _make_settings())
         result = s.get(ClusterRun, row_id)
         assert result is not None
         assert result.disqualified == 1
@@ -145,11 +137,6 @@ def test_filter_disqualifies_too_many_clusters():
 def test_filter_ignores_stale_rows():
     """_phase_filter must not touch rows with in_current_grid=0."""
     eng = _make_engine()
-    env = {
-        "VALIDATION_MAX_NOISE_RATIO": "0.3",
-        "VALIDATION_MIN_CLUSTERS": "3",
-        "VALIDATION_MAX_CLUSTERS": "20",
-    }
     with Session(eng) as s:
         row = _insert_run(s, noise_ratio=0.1, n_clusters=5)
         row.in_current_grid = 0
@@ -159,8 +146,8 @@ def test_filter_ignores_stale_rows():
 
     from modules.cluster_validation import _phase_filter
 
-    with patch.dict(os.environ, env), Session(eng) as s:
-        _phase_filter(s, "video")
+    with Session(eng) as s:
+        _phase_filter(s, "video", _make_settings())
         result = s.get(ClusterRun, row_id)
         assert result is not None
         assert result.disqualified == 1
@@ -386,7 +373,7 @@ def test_phase_plateau_uses_dbcv_of_neighbors():
     from modules.cluster_validation import _phase_plateau
 
     with Session(eng) as s:
-        _phase_plateau(s, "video")
+        _phase_plateau(s, "video", _make_settings())
         r1_updated = s.get(ClusterRun, id1)
         assert r1_updated is not None
         # r1's only neighbor is r2 (dbcv=0.6), so plateau = 0.6
@@ -416,7 +403,7 @@ def test_phase_plateau_covers_all_scored_rows():
     from modules.cluster_validation import _phase_plateau
 
     with Session(eng) as s:
-        _phase_plateau(s, "video")
+        _phase_plateau(s, "video", _make_settings())
         for rid in ids:
             result = s.get(ClusterRun, rid)
             assert result is not None
@@ -443,7 +430,7 @@ def test_phase_plateau_no_neighbors_falls_back_to_own_dbcv():
     from modules.cluster_validation import _phase_plateau
 
     with Session(eng) as s:
-        _phase_plateau(s, "video")
+        _phase_plateau(s, "video", _make_settings())
         updated = s.get(ClusterRun, rid)
         assert updated is not None
         # No neighbors → fallback to own dbcv → drop = 0 → not rejected by filter
@@ -470,7 +457,7 @@ def test_phase_plateau_skips_already_set():
     from modules.cluster_validation import _phase_plateau
 
     with Session(eng) as s:
-        _phase_plateau(s, "video")
+        _phase_plateau(s, "video", _make_settings())
         result = s.get(ClusterRun, row_id)
         assert result is not None
         assert result.param_plateau_score == pytest.approx(0.5)
@@ -510,11 +497,8 @@ def test_select_best_picks_highest_dbcv():
 
     from modules.cluster_validation import _select_best
 
-    with (
-        patch.dict(os.environ, {"VALIDATION_PLATEAU_DROP_THRESHOLD": "0.05"}),
-        Session(eng) as s,
-    ):
-        result = _select_best(s, "video")
+    with Session(eng) as s:
+        result = _select_best(s, "video", _make_settings())
         assert result is not None
         assert result.id == id1
 
@@ -552,11 +536,8 @@ def test_select_best_rejects_sharp_peak_by_plateau_filter():
 
     from modules.cluster_validation import _select_best
 
-    with (
-        patch.dict(os.environ, {"VALIDATION_PLATEAU_DROP_THRESHOLD": "0.05"}),
-        Session(eng) as s,
-    ):
-        result = _select_best(s, "video")
+    with Session(eng) as s:
+        result = _select_best(s, "video", _make_settings())
         assert result is not None
         assert result.id == id2
 
@@ -592,11 +573,8 @@ def test_select_best_falls_back_when_all_rejected():
 
     from modules.cluster_validation import _select_best
 
-    with (
-        patch.dict(os.environ, {"VALIDATION_PLATEAU_DROP_THRESHOLD": "0.05"}),
-        Session(eng) as s,
-    ):
-        result = _select_best(s, "video")
+    with Session(eng) as s:
+        result = _select_best(s, "video", _make_settings())
         assert result is not None
         assert result.id == id1  # fallback: highest DBCV wins
 
@@ -612,7 +590,7 @@ def test_select_best_returns_none_when_no_eligible_runs():
     from modules.cluster_validation import _select_best
 
     with Session(eng) as s:
-        assert _select_best(s, "video") is None
+        assert _select_best(s, "video", _make_settings()) is None
 
 
 def test_select_best_ignores_disqualified():
@@ -634,7 +612,7 @@ def test_select_best_ignores_disqualified():
     from modules.cluster_validation import _select_best
 
     with Session(eng) as s:
-        assert _select_best(s, "video") is None
+        assert _select_best(s, "video", _make_settings()) is None
 
 
 def test_select_best_ignores_cluster_override_env(monkeypatch):
@@ -670,7 +648,7 @@ def test_select_best_ignores_cluster_override_env(monkeypatch):
     from modules.cluster_validation import _select_best
 
     with Session(eng) as s:
-        result = _select_best(s, "video")
+        result = _select_best(s, "video", _make_settings())
         assert result is not None
         assert result.id != low_id
         assert result.dbcv == 0.9
@@ -704,7 +682,7 @@ def test_select_best_delegates_to_shared_selector(monkeypatch):
     from modules.cluster_validation import _select_best
 
     with Session(eng) as s:
-        result = _select_best(s, "video")
+        result = _select_best(s, "video", _make_settings())
 
     assert result is not None
     assert result.id == row_id
@@ -717,52 +695,35 @@ def test_select_best_delegates_to_shared_selector(monkeypatch):
 def test_compute_validation_config_hash_is_deterministic():
     from modules.cluster_validation import _compute_validation_config_hash
 
-    env = {
-        "VALIDATION_MAX_NOISE_RATIO": "0.3",
-        "VALIDATION_MIN_CLUSTERS": "3",
-        "VALIDATION_MAX_CLUSTERS": "20",
-        "VALIDATION_PLATEAU_DROP_THRESHOLD": "0.05",
-    }
-    with patch.dict(os.environ, env, clear=False):
-        h1 = _compute_validation_config_hash()
-        h2 = _compute_validation_config_hash()
+    settings = _make_settings()
+    h1 = _compute_validation_config_hash(settings)
+    h2 = _compute_validation_config_hash(settings)
     assert h1 == h2
     assert len(h1) == 16
 
 
-def test_compute_validation_config_hash_changes_with_env():
+def test_compute_validation_config_hash_changes_with_settings():
     from modules.cluster_validation import _compute_validation_config_hash
 
-    base_env = {
-        "VALIDATION_MAX_NOISE_RATIO": "0.3",
-        "VALIDATION_MIN_CLUSTERS": "3",
-        "VALIDATION_MAX_CLUSTERS": "20",
-        "VALIDATION_PLATEAU_DROP_THRESHOLD": "0.05",
-    }
-    changed_env = {**base_env, "VALIDATION_PLATEAU_DROP_THRESHOLD": "0.10"}
-    with patch.dict(os.environ, base_env, clear=False):
-        h_base = _compute_validation_config_hash()
-    with patch.dict(os.environ, changed_env, clear=False):
-        h_changed = _compute_validation_config_hash()
+    base_settings = _make_settings()
+    changed_settings = _make_settings(plateau_drop_threshold=0.10)
+    h_base = _compute_validation_config_hash(base_settings)
+    h_changed = _compute_validation_config_hash(changed_settings)
     assert h_base != h_changed
 
 
-def test_compute_validation_config_hash_uses_defaults_when_env_absent():
+def test_compute_validation_config_hash_with_custom_settings():
     from modules.cluster_validation import _compute_validation_config_hash
 
-    keys = [
-        "VALIDATION_MAX_NOISE_RATIO",
-        "VALIDATION_MIN_CLUSTERS",
-        "VALIDATION_MAX_CLUSTERS",
-        "VALIDATION_PLATEAU_DROP_THRESHOLD",
-    ]
-    original = {k: os.environ.pop(k) for k in keys if k in os.environ}
-    try:
-        h1 = _compute_validation_config_hash()
-        h2 = _compute_validation_config_hash()
-        assert h1 == h2
-    finally:
-        os.environ.update(original)
+    custom_settings = _make_settings(
+        plateau_drop_threshold=0.1,
+        max_noise_ratio=0.5,
+        min_clusters=2,
+        max_clusters=30,
+    )
+    h = _compute_validation_config_hash(custom_settings)
+    assert len(h) == 16
+    assert all(ch in "0123456789abcdef" for ch in h)
 
 
 # --- Stale row invalidation ---
@@ -920,16 +881,16 @@ def test_validate_clustering_phase_order(monkeypatch):
             return (np.ones((5, 10), dtype=np.float32), list(range(5)))
         return (np.zeros((0, 10), dtype=np.float32), [])
 
-    def fake_phase_filter(session, case):
+    def fake_phase_filter(session, case, settings):
         sequence.append(("filter", case))
 
-    def fake_phase_score(session, case, matrix):
+    def fake_phase_score(session, case, matrix, clustering_grid_workers=1):
         sequence.append(("score", case))
 
-    def fake_phase_plateau(session, case):
+    def fake_phase_plateau(session, case, settings):
         sequence.append(("plateau", case))
 
-    def fake_select_best(session, case):
+    def fake_select_best(session, case, settings):
         return None
 
     monkeypatch.setattr(
@@ -944,7 +905,7 @@ def test_validate_clustering_phase_order(monkeypatch):
 
     from modules.cluster_validation import validate_clustering
 
-    validate_clustering()
+    validate_clustering(_make_settings())
 
     video_seq = [(op, c) for op, c, *_ in sequence if c == "video"]
     assert video_seq, "no calls recorded for video case"
@@ -1014,10 +975,9 @@ def test_phase_score_uses_thread_pool_when_workers_gt_one(monkeypatch):
     from modules.cluster_validation import _phase_score
 
     matrix = np.ones((20, 8), dtype=np.float32)
-    env = {"CLUSTERING_GRID_WORKERS": "4"}
 
-    with patch.dict(os.environ, env, clear=False), Session(eng) as session:
-        _phase_score(session, "video", matrix)
+    with Session(eng) as session:
+        _phase_score(session, "video", matrix, clustering_grid_workers=4)
 
     assert calls["n"] == 2
     assert max_workers_seen == [4]

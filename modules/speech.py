@@ -6,7 +6,6 @@ translate_speech() TranslateGemma        → speech_translation.
 
 from __future__ import annotations
 
-import os
 import re
 
 import whisper
@@ -16,32 +15,18 @@ from modules.console import log, progress
 from modules.database import Clip, get_session
 from modules.external.gemma_translate import GemmaTranslator
 
-VIDEO_DIR = os.environ.get("VIDEO_DIR", "data/source/videos")
-WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "large-v3-turbo")
-COMMIT_EVERY = int(os.environ.get("SPEECH_COMMIT_EVERY", 50))
-SPEECH_TRANSLATE_MODEL = os.environ.get(
-    "SPEECH_TRANSLATE_MODEL", "google/translategemma-4b-it"
-)
-SPEECH_TRANSLATE_TARGET_LANG = os.environ.get("SPEECH_TRANSLATE_TARGET_LANG", "en")
-SPEECH_TRANSLATION_MAX_CHARS = int(os.environ.get("SPEECH_TRANSLATION_MAX_CHARS", 1000))
-SPEECH_TRANSLATE_MAX_NEW_TOKENS = int(
-    os.environ.get("SPEECH_TRANSLATE_MAX_NEW_TOKENS", 200)
-)
-# Two complementary hallucination gates (both configurable via .env):
+# Two complementary hallucination gates (both configurable via parameters):
 #
-#   SPEECH_LOGPROB_THRESHOLD    — mean avg_logprob across segments.
-#                                 Genuine speech is typically > -0.5; hallucinations on
-#                                 music/silence fall in -0.8 to -1.5+. Fires on uncertain text.
+#   logprob_threshold    — mean avg_logprob across segments.
+#                         Genuine speech is typically > -0.5; hallucinations on
+#                         music/silence fall in -0.8 to -1.5+. Fires on uncertain text.
 #
-#   SPEECH_COMPRESSION_THRESHOLD — mean compression_ratio across segments.
-#                                 Whisper default ceiling is 2.4; repetitive loops like
-#                                 "Thank you. Thank you." score high even with low logprob,
-#                                 so this catches confident-but-repetitive hallucinations.
+#   compression_threshold — mean compression_ratio across segments.
+#                         Whisper default ceiling is 2.4; repetitive loops like
+#                         "Thank you. Thank you." score high even with low logprob,
+#                         so this catches confident-but-repetitive hallucinations.
 #
 # A clip is marked has_speech=0 if EITHER gate fires. Text is always stored regardless.
-LOGPROB_THRESHOLD = float(os.environ.get("SPEECH_LOGPROB_THRESHOLD", "-0.8"))
-COMPRESSION_THRESHOLD = float(os.environ.get("SPEECH_COMPRESSION_THRESHOLD", "2.4"))
-SPEECH_MIN_MEANINGFUL_CHARS = int(os.environ.get("SPEECH_MIN_MEANINGFUL_CHARS", "8"))
 
 SCOPE_CLASSIFY = "classify_speech"
 SCOPE_TRANSLATE = "translate_speech"
@@ -81,9 +66,9 @@ def _transcribe(model, path: str) -> tuple[str, str, float, float, float]:
     return text, language, confidence, avg_logprob, compression_ratio
 
 
-def _has_meaningful_speech_text(text: str) -> bool:
+def _has_meaningful_speech_text(text: str, min_meaningful_chars: int) -> bool:
     cleaned = _NON_LETTER_RE.sub("", (text or "").strip())
-    return len(cleaned) >= SPEECH_MIN_MEANINGFUL_CHARS
+    return len(cleaned) >= min_meaningful_chars
 
 
 # ── public API ─────────────────────────────────────────────────────────────────
@@ -122,11 +107,20 @@ def clean_speech() -> None:
     log(SCOPE_CLEAN, f"done — {len(clips)} clips cleared")
 
 
-def classify_speech() -> None:
+def classify_speech(
+    video_dir: str,
+    whisper_model: str,
+    commit_every: int,
+    logprob_threshold: float,
+    compression_threshold: float,
+    min_meaningful_chars: int,
+) -> None:
     """Transcribe all unresolved clips with Whisper, tagging has_speech and speech_confidence.
 
     Clips with missing video files are skipped and retried next run.
     """
+    import os
+
     session = get_session()
     clips = (
         session.query(Clip)
@@ -147,15 +141,15 @@ def classify_speech() -> None:
 
     with progress(len(clips), "Transcribing") as advance:
         for i, clip in enumerate(clips, 1):
-            path = f"{VIDEO_DIR}/{clip.id}.mp4"
+            path = f"{video_dir}/{clip.id}.mp4"
             if not os.path.exists(path):
                 missing += 1
                 advance()
                 continue
 
             if model is None:
-                log(SCOPE_CLASSIFY, f"loading {WHISPER_MODEL}…")
-                model = whisper.load_model(WHISPER_MODEL)
+                log(SCOPE_CLASSIFY, f"loading {whisper_model}…")
+                model = whisper.load_model(whisper_model)
             try:
                 text, language, conf, avg_logprob, compression_ratio = _transcribe(
                     model, path
@@ -175,10 +169,10 @@ def classify_speech() -> None:
             clip.speech_avg_logprob = avg_logprob if text else None
             clip.speech_compression_ratio = compression_ratio if text else None
 
-            low_logprob = bool(text) and avg_logprob < LOGPROB_THRESHOLD
-            high_compression = bool(text) and compression_ratio > COMPRESSION_THRESHOLD
+            low_logprob = bool(text) and avg_logprob < logprob_threshold
+            high_compression = bool(text) and compression_ratio > compression_threshold
             hallucination = low_logprob or high_compression
-            meaningful = _has_meaningful_speech_text(text)
+            meaningful = _has_meaningful_speech_text(text, min_meaningful_chars)
 
             if meaningful and not hallucination:
                 clip.has_speech = 1
@@ -190,7 +184,7 @@ def classify_speech() -> None:
                 no_speech += 1
                 advance()
 
-            if i % COMMIT_EVERY == 0:
+            if i % commit_every == 0:
                 session.commit()
 
     session.commit()
@@ -201,7 +195,13 @@ def classify_speech() -> None:
     log(SCOPE_CLASSIFY, f"done — {', '.join(parts)}", level="ok")
 
 
-def translate_speech() -> None:
+def translate_speech(
+    commit_every: int,
+    translate_model: str,
+    translate_target_lang: str,
+    translation_max_chars: int,
+    translate_max_new_tokens: int,
+) -> None:
     """Translate all non-empty transcriptions with missing translation using TranslateGemma."""
     session = get_session()
     clips = (
@@ -224,15 +224,13 @@ def translate_speech() -> None:
 
     total = len(clips)
     log(SCOPE_TRANSLATE, f"{total} clips to translate")
-    translator = GemmaTranslator(model_id=SPEECH_TRANSLATE_MODEL)
+    translator = GemmaTranslator(model_id=translate_model)
     log(SCOPE_TRANSLATE, f"loading {translator.model_id} on {translator.device}…")
     translated = 0
 
     with progress(total, "Translating speech") as advance:
         for i, clip in enumerate(clips, 1):
-            source = (clip.speech_transcription or "").strip()[
-                :SPEECH_TRANSLATION_MAX_CHARS
-            ]
+            source = (clip.speech_transcription or "").strip()[:translation_max_chars]
             source_lang = (clip.speech_language or "").strip().replace("_", "-")
             if not source or not source_lang or source_lang.lower().startswith("en"):
                 advance()
@@ -242,8 +240,8 @@ def translate_speech() -> None:
                 translation = translator.translate_text(
                     text=source,
                     source_lang_code=source_lang,
-                    target_lang_code=SPEECH_TRANSLATE_TARGET_LANG,
-                    max_new_tokens=SPEECH_TRANSLATE_MAX_NEW_TOKENS,
+                    target_lang_code=translate_target_lang,
+                    max_new_tokens=translate_max_new_tokens,
                 )
                 if not translation:
                     advance()
@@ -257,7 +255,7 @@ def translate_speech() -> None:
                 advance()
                 continue
 
-            if i % COMMIT_EVERY == 0:
+            if i % commit_every == 0:
                 session.commit()
 
     session.commit()

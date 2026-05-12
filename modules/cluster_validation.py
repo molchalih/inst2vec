@@ -2,7 +2,6 @@
 
 import hashlib
 import json
-import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import cast
 
@@ -13,14 +12,12 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from modules.cluster_results import (
-    get_plateau_drop_threshold,
     list_eligible_best_rows,
     pick_best_cluster_run,
 )
 from modules.clustering import (
     DEFAULT_HDBSCAN_METRIC,
     compute_clusters,
-    env_positive_int,
     load_user_matrix,
     resolve_hdbscan_metric,
 )
@@ -54,14 +51,12 @@ _NUMERIC_PARAM_COLS = [
 ]
 
 
-def _compute_validation_config_hash() -> str:
+def _compute_validation_config_hash(settings) -> str:
     config = {
-        "max_noise": os.environ.get("VALIDATION_MAX_NOISE_RATIO", "0.3"),
-        "min_clusters": os.environ.get("VALIDATION_MIN_CLUSTERS", "3"),
-        "max_clusters": os.environ.get("VALIDATION_MAX_CLUSTERS", "20"),
-        "plateau_drop_threshold": os.environ.get(
-            "VALIDATION_PLATEAU_DROP_THRESHOLD", "0.05"
-        ),
+        "max_noise": str(settings.max_noise_ratio),
+        "min_clusters": str(settings.min_clusters),
+        "max_clusters": str(settings.max_clusters),
+        "plateau_drop_threshold": str(settings.plateau_drop_threshold),
     }
     return hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()[:16]
 
@@ -136,10 +131,10 @@ def _compute_row_scores(matrix: np.ndarray, params: dict) -> tuple[float, float]
     return dbcv, sil
 
 
-def _phase_filter(session: Session, case: str) -> None:
-    max_noise = float(os.environ.get("VALIDATION_MAX_NOISE_RATIO", "0.3"))
-    min_clusters = int(os.environ.get("VALIDATION_MIN_CLUSTERS", "3"))
-    max_clusters = int(os.environ.get("VALIDATION_MAX_CLUSTERS", "20"))
+def _phase_filter(session: Session, case: str, settings) -> None:
+    max_noise = float(settings.max_noise_ratio)
+    min_clusters = int(settings.min_clusters)
+    max_clusters = int(settings.max_clusters)
 
     rows = (
         session.query(ClusterRun)
@@ -167,7 +162,9 @@ def _phase_filter(session: Session, case: str) -> None:
     )
 
 
-def _phase_score(session: Session, case: str, matrix: np.ndarray) -> None:
+def _phase_score(
+    session: Session, case: str, matrix: np.ndarray, clustering_grid_workers: int = 1
+) -> None:
     rows = (
         session.query(ClusterRun)
         .filter(
@@ -180,7 +177,7 @@ def _phase_score(session: Session, case: str, matrix: np.ndarray) -> None:
     if not rows:
         return
 
-    workers = env_positive_int("CLUSTERING_GRID_WORKERS")
+    workers = max(1, clustering_grid_workers)
 
     def persist_row_result(row_id: int, outcome) -> None:
         sess = get_session()
@@ -313,7 +310,7 @@ def _find_param_neighbors(
     return neighbors
 
 
-def _phase_plateau(session: Session, case: str) -> None:
+def _phase_plateau(session: Session, case: str, settings) -> None:
     """Compute local DBCV neighborhood mean for every qualifying run in the current grid."""
     all_scored = (
         session.query(ClusterRun)
@@ -346,8 +343,8 @@ def _phase_plateau(session: Session, case: str) -> None:
     log(f"validate:{case}", f"plateau — scored {len(needs_plateau)} rows")
 
 
-def _select_best(session: Session, case: str) -> ClusterRun | None:
-    threshold = get_plateau_drop_threshold()
+def _select_best(session: Session, case: str, settings) -> ClusterRun | None:
+    threshold = float(settings.plateau_drop_threshold)
     rows = list_eligible_best_rows(session, case)
     if not rows:
         log(f"validate:{case}", "select — no eligible runs", level="warn")
@@ -372,9 +369,11 @@ def _select_best(session: Session, case: str) -> ClusterRun | None:
     return best
 
 
-def validate_clustering() -> dict[str, dict | None]:
+def validate_clustering(
+    settings, clustering_grid_workers: int = 1
+) -> dict[str, dict | None]:
     """Phase 6b entry point: filter → score → plateau → select, per embedding case."""
-    current_hash = _compute_validation_config_hash()
+    current_hash = _compute_validation_config_hash(settings)
     result: dict[str, dict | None] = {}
     for case in ["video", "sandwich", "audio"]:
         log(f"validate:{case}", "starting")
@@ -386,10 +385,10 @@ def validate_clustering() -> dict[str, dict | None]:
         session = get_session()
         try:
             _invalidate_stale_rows(session, case, current_hash)
-            _phase_filter(session, case)
-            _phase_score(session, case, matrix)
-            _phase_plateau(session, case)
-            best = _select_best(session, case)
+            _phase_filter(session, case, settings)
+            _phase_score(session, case, matrix, clustering_grid_workers)
+            _phase_plateau(session, case, settings)
+            best = _select_best(session, case, settings)
             result[case] = _row_to_params(best) if best is not None else None
         finally:
             session.close()

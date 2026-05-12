@@ -1,4 +1,3 @@
-import os
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -18,14 +17,10 @@ from modules.identity import (
 
 SCOPE = "fetch_profiles"
 
-HIKER_TOKEN = os.environ.get("HIKER_API_KEY", "")
-BATCH_SIZE = int(os.environ.get("BATCH_SIZE", 5))
-MAX_CLIPS = int(os.environ.get("MAX_CLIPS", 5))
-
 _FETCH_RETRY_DELAYS_SEC = [0, 30, 60, 90]
 
 
-def _fetch_clips(cl: Any, user: User, session: Any) -> int:
+def _fetch_clips(cl: Any, user: User, session: Any, max_clips: int) -> int:
     if user.clips:
         return 0
 
@@ -38,7 +33,7 @@ def _fetch_clips(cl: Any, user: User, session: Any) -> int:
     items.sort(key=lambda x: x["media"].get("play_count") or 0, reverse=True)
 
     count = 0
-    for item in items[: MAX_CLIPS or None]:
+    for item in items[: max_clips or None]:
         m = item["media"]
         clip_api_pk = int(m["pk"])
         clip_id = get_or_create_clip_identity(clip_api_pk)
@@ -66,8 +61,12 @@ def _fetch_clips(cl: Any, user: User, session: Any) -> int:
     return count
 
 
-def fetch_profiles():
-    cl = Client(token=HIKER_TOKEN)
+def fetch_profiles(
+    batch_size: int,
+    max_clips: int,
+    hiker_api_key: str,
+) -> None:
+    cl = Client(token=hiker_api_key)
     session = get_session()
 
     users = (
@@ -75,7 +74,7 @@ def fetch_profiles():
         .filter(
             (User.parse_status.is_(None)) | (User.parse_status == "pending"),
         )
-        .limit(BATCH_SIZE)
+        .limit(batch_size)
         .all()
     )
 
@@ -110,7 +109,7 @@ def fetch_profiles():
 
                     user.following_count = info.get("following_count")
 
-                    clips_count = _fetch_clips(cl, user, session)
+                    clips_count = _fetch_clips(cl, user, session, max_clips)
                     user.parse_status = "success"
                     session.commit()
                     parsed += 1

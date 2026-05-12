@@ -65,9 +65,23 @@ adaptive_max_frames = 96
 adaptive_default_fps = 2.0
 
 [search]
+umap_n_components = [15]
+umap_n_neighbors = [15]
+umap_min_dist = [0.0]
+umap_metrics = ["cosine"]
+umap2d_n_neighbors = 15
+umap2d_min_dist = 0.1
+umap2d_metrics = ["cosine"]
+hdbscan_min_cluster_size = [15]
+hdbscan_selection = ["eom"]
+random_state = 42
+clustering_grid_workers = 1
 
 [validation]
 plateau_drop_threshold = 0.05
+max_noise_ratio = 0.3
+min_clusters = 3
+max_clusters = 20
 
 [overrides]
 video = ""

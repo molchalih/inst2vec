@@ -7,7 +7,6 @@ extract_music_features() Spotify → ReccoBeats IDs → audio features (upload f
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import tempfile
 from pathlib import Path
@@ -19,10 +18,6 @@ from sqlalchemy import or_
 from modules.console import log, progress
 from modules.database import Clip, Music, get_session
 from modules.services import ReccoBeatsClient, SpotifyClient
-
-VIDEO_DIR = Path(os.environ.get("VIDEO_DIR", "data/source/videos"))
-MIN_CONFIDENCE = float(os.environ.get("AUDIO_FINGERPRINT_CONFIDENCE", 0.8))
-COMMIT_EVERY = int(os.environ.get("MUSIC_COMMIT_EVERY", 50))
 
 FEATURE_FIELDS = [
     "acousticness",
@@ -40,13 +35,6 @@ FEATURE_FIELDS = [
 UPLOAD_FIELDS = [f for f in FEATURE_FIELDS if f not in ("key", "mode")]
 _NO_MATCH = "none"
 
-_SAMPLE_SECS = int(os.environ.get("MANUAL_FEATURES_MAX_SECONDS", 20))
-_SAMPLE_RATE = int(os.environ.get("MANUAL_FEATURES_SAMPLE_RATE", 44100))
-_SAMPLE_MAX_BYTES = int(
-    float(os.environ.get("MANUAL_FEATURES_MAX_MB", 5)) * 1024 * 1024
-)
-_SAMPLE_BITRATE = os.environ.get("MANUAL_FEATURES_MP3_BITRATE", "128k")
-
 SCOPE_CLASSIFY = "classify_music"
 SCOPE_FEATURES = "extract_features"
 
@@ -54,7 +42,9 @@ SCOPE_FEATURES = "extract_features"
 # ── helpers ────────────────────────────────────────────────────────────────────
 
 
-def _fingerprint(acr: ACRCloudRecognizer, path: str) -> tuple[str, str, float] | None:
+def _fingerprint(
+    acr: ACRCloudRecognizer, path: str, min_confidence: float
+) -> tuple[str, str, float] | None:
     try:
         data = json.loads(acr.recognize_by_file(path, 0) or "")
     except Exception:
@@ -66,7 +56,7 @@ def _fingerprint(acr: ACRCloudRecognizer, path: str) -> tuple[str, str, float] |
         return None
     best = music[0]
     score = best.get("score", 0) / 100.0
-    if score < MIN_CONFIDENCE:
+    if score < min_confidence:
         return None
     artists = best.get("artists", [])
     artist = (artists[0].get("name") or "").strip() if artists else ""
@@ -84,7 +74,8 @@ def _get_or_create_music(session, artist: str, track: str) -> Music:
     return row
 
 
-def _pick_video(session, music_id: int) -> Path | None:
+def _pick_video(session, music_id: int, video_dir: str) -> Path | None:
+    video_dir_path = Path(video_dir)
     for (clip_id,) in (
         session.query(Clip.id)
         .filter(
@@ -93,13 +84,20 @@ def _pick_video(session, music_id: int) -> Path | None:
         )
         .order_by(Clip.play_count.desc(), Clip.id.desc())
     ):
-        p = VIDEO_DIR / f"{clip_id}.mp4"
+        p = video_dir_path / f"{clip_id}.mp4"
         if p.exists():
             return p
     return None
 
 
-def _extract_audio_sample(video: Path, out_dir: Path) -> Path | None:
+def _extract_audio_sample(
+    video: Path,
+    out_dir: Path,
+    sample_secs: int,
+    sample_rate: int,
+    sample_max_bytes: int,
+    sample_bitrate: str,
+) -> Path | None:
     """ffmpeg: extract a short stereo clip. WAV preferred; MP3 as size fallback.
 
     ReccoBeats analysis rejects low-rate mono input, so we always use 44.1 kHz stereo.
@@ -111,11 +109,11 @@ def _extract_audio_sample(video: Path, out_dir: Path) -> Path | None:
         str(video),
         "-vn",
         "-t",
-        str(_SAMPLE_SECS),
+        str(sample_secs),
         "-ac",
         "2",
         "-ar",
-        str(_SAMPLE_RATE),
+        str(sample_rate),
     ]
     wav = out_dir / f"{video.stem}.wav"
     if (
@@ -124,17 +122,17 @@ def _extract_audio_sample(video: Path, out_dir: Path) -> Path | None:
         ).returncode
         == 0
         and wav.exists()
-        and wav.stat().st_size <= _SAMPLE_MAX_BYTES
+        and wav.stat().st_size <= sample_max_bytes
     ):
         return wav
     mp3 = out_dir / f"{video.stem}.mp3"
     if (
         subprocess.run(
-            [*base, "-b:a", _SAMPLE_BITRATE, str(mp3)], capture_output=True
+            [*base, "-b:a", sample_bitrate, str(mp3)], capture_output=True
         ).returncode
         == 0
         and mp3.exists()
-        and mp3.stat().st_size <= _SAMPLE_MAX_BYTES
+        and mp3.stat().st_size <= sample_max_bytes
     ):
         return mp3
     return None
@@ -143,13 +141,21 @@ def _extract_audio_sample(video: Path, out_dir: Path) -> Path | None:
 # ── public API ─────────────────────────────────────────────────────────────────
 
 
-def classify_music() -> None:
+def classify_music(
+    video_dir: str,
+    min_confidence: float,
+    commit_every: int,
+    arc_host: str,
+    arc_access_key: str,
+    arc_secret_key: str,
+) -> None:
     """Fingerprint all unresolved clips with ACRCloud and link them to Music rows.
 
     Sets has_music=1 (match found) or has_music=0 (no match). Clips with missing
     video files are skipped and retried on the next run.
     """
     session = get_session()
+    video_dir_path = Path(video_dir)
 
     clips = (
         session.query(Clip)
@@ -166,9 +172,9 @@ def classify_music() -> None:
 
     acr = ACRCloudRecognizer(
         {
-            "host": os.environ["ARC_HOST"],
-            "access_key": os.environ["ARC_ACCESS_KEY"],
-            "access_secret": os.environ["ARC_SECRET_KEY"],
+            "host": arc_host,
+            "access_key": arc_access_key,
+            "access_secret": arc_secret_key,
             "timeout": 10,
         }
     )
@@ -177,7 +183,7 @@ def classify_music() -> None:
 
     with progress(len(clips), "Fingerprinting") as advance:
         for i, clip in enumerate(clips, 1):
-            path = VIDEO_DIR / f"{clip.id}.mp4"
+            path = video_dir_path / f"{clip.id}.mp4"
             if not path.exists():
                 missing += 1
                 advance()
@@ -185,7 +191,7 @@ def classify_music() -> None:
 
             clip.music_id = None
             clip.music_confidence = None
-            result = _fingerprint(acr, str(path))
+            result = _fingerprint(acr, str(path), min_confidence)
             if result:
                 artist, track, confidence = result
                 music = _get_or_create_music(session, artist, track)
@@ -199,7 +205,7 @@ def classify_music() -> None:
                 no_match += 1
                 advance()
 
-            if i % COMMIT_EVERY == 0:
+            if i % commit_every == 0:
                 session.commit()
 
     session.commit()
@@ -210,7 +216,23 @@ def classify_music() -> None:
     log(SCOPE_CLASSIFY, f"done — {', '.join(parts)}", level="ok")
 
 
-def extract_music_features() -> None:
+def extract_music_features(
+    video_dir: str,
+    http_timeout: float,
+    commit_every: int,
+    spotify_client_id: str,
+    spotify_client_secret: str,
+    spotify_token_skew_seconds: int,
+    spotify_search_limit: int,
+    spotify_request_timeout: float,
+    reccobeats_batch_size: int,
+    reccobeats_delay_min: float,
+    reccobeats_delay_max: float,
+    manual_features_max_seconds: int,
+    manual_features_sample_rate: int,
+    manual_features_max_mb: float,
+    manual_features_mp3_bitrate: str,
+) -> None:
     """Fill Spotify IDs, ReccoBeats IDs, and audio features for all linked Music rows.
 
     Steps run in order:
@@ -220,9 +242,23 @@ def extract_music_features() -> None:
       4. Upload fallback   → same columns, for tracks not in the ReccoBeats catalog
     """
     session = get_session()
-    with httpx.Client(timeout=float(os.environ.get("MUSIC_HTTP_TIMEOUT", 20))) as http:
-        spotify = SpotifyClient(http)
-        rb = ReccoBeatsClient(http)
+    sample_max_bytes = int(manual_features_max_mb * 1024 * 1024)
+    with httpx.Client(timeout=http_timeout) as http:
+        spotify = SpotifyClient(
+            http,
+            client_id=spotify_client_id,
+            client_secret=spotify_client_secret,
+            token_skew=spotify_token_skew_seconds,
+            search_limit=spotify_search_limit,
+            search_timeout=spotify_request_timeout,
+        )
+        rb = ReccoBeatsClient(
+            http,
+            batch=reccobeats_batch_size,
+            delay_min=reccobeats_delay_min,
+            delay_max=reccobeats_delay_max,
+            timeout=http_timeout,
+        )
 
         # 1. Spotify IDs — one request per track
         rows = session.query(Music).filter(Music.spotify_id.is_(None)).all()
@@ -236,7 +272,7 @@ def extract_music_features() -> None:
                     row.spotify_id = sid or _NO_MATCH
                     if sid:
                         found += 1
-                    if i % COMMIT_EVERY == 0:
+                    if i % commit_every == 0:
                         session.commit()
                     advance(detail=f"{row.artist} – {row.track}")
             session.commit()
@@ -326,14 +362,21 @@ def extract_music_features() -> None:
             enriched = 0
             with progress(total, "Upload fallback") as advance:
                 for i, row in enumerate(rows, 1):
-                    video = _pick_video(session, row.id)
+                    video = _pick_video(session, row.id, video_dir)
                     if not video:
                         row.has_features = "none"
                         advance(detail=f"{row.artist} – {row.track} (no video)")
                         continue
 
                     with tempfile.TemporaryDirectory(prefix="rb-audio-") as tmp:
-                        audio = _extract_audio_sample(video, Path(tmp))
+                        audio = _extract_audio_sample(
+                            video,
+                            Path(tmp),
+                            manual_features_max_seconds,
+                            manual_features_sample_rate,
+                            sample_max_bytes,
+                            manual_features_mp3_bitrate,
+                        )
                         if not audio:
                             row.has_features = "none"
                             advance(
@@ -353,7 +396,7 @@ def extract_music_features() -> None:
                         row.has_features = "none"
                         advance(detail=f"{row.artist} – {row.track} (no features)")
 
-                    if i % COMMIT_EVERY == 0:
+                    if i % commit_every == 0:
                         session.commit()
 
             session.commit()

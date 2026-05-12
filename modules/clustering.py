@@ -1,6 +1,5 @@
 """Pure clustering logic: two-pass UMAP + HDBSCAN → ClusterResult."""
 
-import os
 from dataclasses import dataclass, field
 from typing import cast
 
@@ -9,17 +8,7 @@ import numpy as np
 from umap import UMAP
 
 from modules.console import log, progress
-from modules.database import Base, UserCluster, UserEmbedding, engine, get_session
-
-
-def env_positive_int(key: str, default: str = "1") -> int:
-    raw = os.environ.get(key, default).strip()
-    try:
-        n = int(raw)
-    except ValueError:
-        n = int(default)
-    return max(1, n)
-
+from modules.database import Base, UserCluster, UserEmbedding, get_engine, get_session
 
 DEFAULT_HDBSCAN_METRIC = "euclidean"
 
@@ -158,7 +147,7 @@ def load_user_matrix(embedding_case: str) -> tuple[np.ndarray, list[int]]:
 
 
 def cluster_users(embedding_case: str, **params) -> None:
-    Base.metadata.create_all(engine)
+    Base.metadata.create_all(get_engine())
     matrix, user_ids = load_user_matrix(embedding_case)
 
     if matrix.shape[0] == 0:

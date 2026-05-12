@@ -2,6 +2,7 @@ import importlib
 import sys
 from pathlib import Path
 
+import pytest
 from sqlalchemy import text
 
 
@@ -27,3 +28,21 @@ def test_quarto_default_engine_resolves_relative_sqlite_url(monkeypatch):
     finally:
         quarto_helpers._get_default_engine().dispose()
         db_path.unlink(missing_ok=True)
+
+
+def test_get_engine_raises_before_init(monkeypatch):
+    import modules.database as db_mod
+
+    monkeypatch.setattr(db_mod, "_engine", None)
+    with pytest.raises((AssertionError, RuntimeError)):
+        db_mod.get_engine()
+
+
+def test_init_db_sets_engine(tmp_path, monkeypatch):
+    import modules.database as db_mod
+
+    monkeypatch.setattr(db_mod, "_engine", None)
+    url = f"sqlite:///{tmp_path}/test.db"
+    identity_url = "sqlite:///:memory:"
+    db_mod.init_db(url, identity_url)
+    assert db_mod.get_engine() is not None

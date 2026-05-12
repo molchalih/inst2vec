@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import math
-import os
 from statistics import median
+from types import SimpleNamespace
 
 from sqlalchemy.orm import Session
 
@@ -13,8 +13,16 @@ from modules.database import ClusterRun
 DEFAULT_CASES: tuple[str, ...] = ("audio", "video", "sandwich")
 
 
-def get_plateau_drop_threshold() -> float:
-    return float(os.environ.get("VALIDATION_PLATEAU_DROP_THRESHOLD", "0.05"))
+def get_plateau_drop_threshold(settings: SimpleNamespace | None = None) -> float:
+    """Get plateau drop threshold from settings, or use hardcoded default.
+
+    Args:
+        settings: SimpleNamespace with a 'plateau_drop_threshold' attribute.
+                 If None, uses hardcoded default of 0.05.
+    """
+    if settings is None or not hasattr(settings, "plateau_drop_threshold"):
+        return 0.05
+    return float(settings.plateau_drop_threshold)
 
 
 def list_case_rows(session: Session, case: str) -> list[ClusterRun]:
@@ -38,10 +46,11 @@ def list_eligible_best_rows(session: Session, case: str) -> list[ClusterRun]:
 def pick_best_cluster_run(
     rows: list[ClusterRun],
     threshold: float | None = None,
+    settings: SimpleNamespace | None = None,
 ) -> ClusterRun | None:
     if not rows:
         return None
-    t = get_plateau_drop_threshold() if threshold is None else threshold
+    t = get_plateau_drop_threshold(settings) if threshold is None else threshold
     survivors = [r for r in rows if (r.dbcv - r.param_plateau_score) <= t]  # type: ignore[operator]
     pool = survivors if survivors else rows
     return max(pool, key=lambda r: r.dbcv if r.dbcv is not None else 0.0)  # type: ignore[arg-type]
@@ -51,9 +60,10 @@ def select_best_cluster_run(
     session: Session,
     case: str,
     threshold: float | None = None,
+    settings: SimpleNamespace | None = None,
 ) -> ClusterRun | None:
     rows = list_eligible_best_rows(session, case)
-    return pick_best_cluster_run(rows, threshold=threshold)
+    return pick_best_cluster_run(rows, threshold=threshold, settings=settings)
 
 
 def _mean(vals: list[float]) -> float:
