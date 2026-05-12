@@ -16,6 +16,7 @@ from modules.finalize import finalize_user_dataset
 from modules.music import classify_music, extract_music_features
 from modules.parse import fetch_profiles
 from modules.speech import classify_speech, clean_speech, translate_speech
+from modules.utils import load_usernames_from_csv
 from modules.visualization import plot_clusters
 
 
@@ -31,9 +32,12 @@ def run_pipeline() -> None:
     phase("Database")
     init_db(secrets.database_url, secrets.identity_db_url)
 
-    # TODO: return load data.json function: 
-    # phase("Importing")
-    # load_usernames_from_csv()
+    """
+    0.1. IMPORTING: seed the identity and main DBs from a CSV of Instagram profile URLs.
+    Skipped silently if the file does not exist.
+    """
+    phase("Importing")
+    load_usernames_from_csv(csv_path=settings.paths.data_csv_path)
 
     """
     1. PARSING: fetches profiles and corresponding clips metadata via hiker api, populates the database.
