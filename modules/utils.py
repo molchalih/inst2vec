@@ -28,7 +28,7 @@ def load_usernames_from_csv(csv_path: str = "data/data.csv"):
     for username in sorted(usernames):
         user_id = get_or_create_user_identity(username)
         if not session.query(User).filter_by(id=user_id).first():
-            session.add(User(id=user_id, parse_status="pending"))
+            session.add(User(id=user_id))
             loaded += 1
     session.commit()
     already_in_db = unique - loaded

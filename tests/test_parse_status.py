@@ -32,7 +32,7 @@ def test_migrate_users_table_adds_parse_status_column():
     assert "parse_status" in names
 
 
-def test_backfill_success_failed_pending_and_precedence():
+def test_backfill_success_failed_and_precedence():
     eng = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(eng)
     with Session(eng) as s:
@@ -65,7 +65,7 @@ def test_backfill_success_failed_pending_and_precedence():
     with Session(eng) as s:
         assert s.get(User, 1).parse_status == "success"
         assert s.get(User, 2).parse_status == "failed"
-        assert s.get(User, 3).parse_status == "pending"
+        assert s.get(User, 3).parse_status is None
         assert s.get(User, 4).parse_status == "success"
 
 
@@ -76,7 +76,7 @@ def test_finalize_unresolved_for_non_success_parse_status(monkeypatch):
     eng = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(eng)
     with Session(eng) as s:
-        s.add(User(id=1, parse_status="pending"))
+        s.add(User(id=1, parse_status=None))
         s.add(User(id=2, parse_status="failed"))
         s.add(User(id=3, parse_status="success"))
         for i in range(4):
@@ -139,7 +139,7 @@ def test_fetch_profiles_reads_username_from_identity_db(monkeypatch):
         s.add(UserIdentity(id=1, username="fetchme"))
         s.commit()
     with Session(main_eng) as s:
-        s.add(User(id=1, parse_status="pending"))
+        s.add(User(id=1, parse_status=None))
         s.commit()
 
     called_with_username = []
@@ -203,7 +203,7 @@ def test_fetch_profiles_stores_sequential_clip_ids(monkeypatch):
         s.add(UserIdentity(id=1, username="clipper"))
         s.commit()
     with Session(main_eng) as s:
-        s.add(User(id=1, parse_status="pending"))
+        s.add(User(id=1, parse_status=None))
         s.commit()
 
     LARGE_API_PK = 3770212309156376545
@@ -273,7 +273,7 @@ def test_fetch_profiles_retries_then_succeeds_third(monkeypatch):
         s.add(UserIdentity(id=100, username="retry_user"))
         s.commit()
     with Session(main_eng) as s:
-        s.add(User(id=100, parse_status="pending"))
+        s.add(User(id=100, parse_status=None))
         s.commit()
 
     class FakeClient:
@@ -326,7 +326,7 @@ def test_fetch_profiles_all_attempts_fail(monkeypatch):
         s.add(UserIdentity(id=101, username="fail_user"))
         s.commit()
     with Session(main_eng) as s:
-        s.add(User(id=101, parse_status="pending"))
+        s.add(User(id=101, parse_status=None))
         s.commit()
 
     class FakeClient:

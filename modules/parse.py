@@ -89,9 +89,7 @@ def fetch_profiles(
 
     users = (
         session.query(User)
-        .filter(
-            (User.parse_status.is_(None)) | (User.parse_status == "pending"),
-        )
+        .filter(User.parse_status.is_(None))
         .all()
     )
 

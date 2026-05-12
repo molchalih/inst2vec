@@ -305,12 +305,9 @@ def _backfill_parse_status(session: Session) -> None:
     from sqlalchemy import text
 
     session.execute(
-        text("UPDATE users SET parse_status = 'pending' WHERE parse_status IS NULL")
-    )
-    session.execute(
         text(
             """
-            UPDATE users SET parse_status = 'success' WHERE parse_status = 'pending'
+            UPDATE users SET parse_status = 'success' WHERE parse_status IS NULL
                 AND (
                     following_count IS NOT NULL
                     OR id IN (SELECT user_id FROM clips)
@@ -321,7 +318,7 @@ def _backfill_parse_status(session: Session) -> None:
     session.execute(
         text(
             """
-            UPDATE users SET parse_status = 'failed' WHERE parse_status = 'pending'
+            UPDATE users SET parse_status = 'failed' WHERE parse_status IS NULL
                 AND id IN (
                     SELECT entity_id FROM downloads
                     WHERE file_type = 'profile_pic' AND parse_available = 0
