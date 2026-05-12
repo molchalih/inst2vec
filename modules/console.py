@@ -28,10 +28,9 @@ _LEVEL_STYLES: dict[str, str] = {
 
 
 def startup() -> None:
-    """print a startup banner."""
     _console.rule(style="dim")
     _console.print(
-        f"  inst2vec execution {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+        f"inst2vec execution {datetime.now().strftime('%Y-%m-%d %H:%M')}",
         style="bold",
     )
     _console.rule(style="dim")
@@ -39,35 +38,28 @@ def startup() -> None:
 
 
 def phase(name: str) -> None:
-    """print a section header."""
-    _console.print()  # empty line
-    title = Text()  # create a new text object
-    title.append("▸ ", style="dim cyan").append(name, style="bold")  # apply styles
-    _console.print(title)  # print the text object
-    _console.print()  # empty line
+    _console.print()
+    title = Text()
+    title.append("▸ ", style="dim cyan").append(name, style="bold")
+    _console.print(title)
+    _console.print()
 
 
 def log(
     scope: str, msg: str, level: Literal["info", "ok", "warn", "err"] = "info"
 ) -> None:
-    """print a log line (controls the message text color)."""
     style = _LEVEL_STYLES.get(level, "")
     line = Text()
     line.append(f"[{scope}]", style="dim").append(
         f" {msg}", style=style
-    )  # apply styles
-    _console.print(line)  # print the text object
+    )
+    _console.print(line)
 
 
 @contextmanager
 def progress(
     total: int, description: str
 ) -> Generator[Callable[..., None], None, None]:
-    """Context manager yielding advance(n=1, detail="").
-
-    Renders a live rich progress bar for the duration of the block.
-    detail is displayed inline after the bar, overwriting on each call.
-    """
     with Progress(
         SpinnerColumn(),
         TextColumn("  {task.description}"),
