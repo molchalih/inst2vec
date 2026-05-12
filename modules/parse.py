@@ -1,8 +1,5 @@
 import time
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    pass
+from typing import Any
 
 from hikerapi import Client
 
@@ -16,8 +13,6 @@ from modules.identity import (
 )
 
 SCOPE = "fetch_profiles"
-
-_FETCH_RETRY_DELAYS_SEC = [0, 30, 60, 90]
 
 
 def _fetch_clips(cl: Any, user: User, session: Any, max_clips: int) -> int:
@@ -60,6 +55,32 @@ def _fetch_clips(cl: Any, user: User, session: Any, max_clips: int) -> int:
         count += 1
     return count
 
+
+def _process_user(cl: Any, user: User, session: Any, max_clips: int) -> dict[str, Any]:
+    username = get_username(user.id)
+    data = cl.user_by_username_v1(username)
+    info = data.get("user", data)
+
+    update_user_identity(
+        user.id,
+        api_pk=info["pk"],
+        full_name=info.get("full_name"),
+        city_name=info.get("city_name"),
+        profile_pic_url=info.get("profile_pic_url"),
+        profile_pic_url_hd=info.get("profile_pic_url_hd"),
+    )
+
+    user.following_count = info.get("following_count")
+    clips_count = _fetch_clips(cl, user, session, max_clips)
+    user.parse_status = "success"
+
+    return {
+        "username": username,
+        "full_name": info.get("full_name"),
+        "clips_count": clips_count,
+    }
+
+
 # TODO: explore batch size, mb drop it
 # TODO: explore max_clips, mb drop it
 # TODO: get rid of pending, use None as default for empty fields
@@ -80,8 +101,6 @@ def fetch_profiles(
         .all()
     )
 
-    parsed = skipped = failed = 0
-
     if not users:
         log(SCOPE, "no new users provided", level="warn")
         session.close()
@@ -89,44 +108,30 @@ def fetch_profiles(
 
     log(SCOPE, f"{len(users)} users to process")
 
+    parsed = skipped = failed = 0
+
     with progress(len(users), "Fetching profiles") as advance:
         for user in users:
             user_id = user.id
-            username = get_username(user_id)
-            for attempt in range(4):
-                if _FETCH_RETRY_DELAYS_SEC[attempt]:
-                    time.sleep(_FETCH_RETRY_DELAYS_SEC[attempt])
+            for attempt in range(3):
+                if attempt:
+                    time.sleep(30)
                 try:
-                    data = cl.user_by_username_v1(username)
-                    info = data.get("user", data)
-
-                    update_user_identity(
-                        user_id,
-                        api_pk=info["pk"],
-                        full_name=info.get("full_name"),
-                        city_name=info.get("city_name"),
-                        profile_pic_url=info.get("profile_pic_url"),
-                        profile_pic_url_hd=info.get("profile_pic_url_hd"),
-                    )
-
-                    user.following_count = info.get("following_count")
-
-                    clips_count = _fetch_clips(cl, user, session, max_clips)
-                    user.parse_status = "success"
+                    result = _process_user(cl, user, session, max_clips)
                     session.commit()
                     parsed += 1
                     advance(
-                        detail=f"{username} ({info.get('full_name')}, {clips_count} clips)"
+                        detail=f"{result['username']} ({result['full_name']}, {result['clips_count']} clips)"
                     )
                     break
                 except Exception:
                     session.rollback()
                     user = session.query(User).filter_by(id=user_id).one()
-                    if attempt == 3:
+                    if attempt == 2:
                         user.parse_status = "failed"
                         session.commit()
                         failed += 1
-                        advance(detail=f"{username} — error")
+                        advance(detail=f"{get_username(user_id)} — error")
 
     session.close()
 
