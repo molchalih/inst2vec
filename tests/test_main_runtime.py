@@ -8,9 +8,7 @@ import main
 def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
     calls: list[str] = []
 
-    runtime = SimpleNamespace(
-        database_url="sqlite:///:memory:",
-        identity_db_url="sqlite:///:memory:",
+    settings = SimpleNamespace(
         pipeline=SimpleNamespace(batch_size=5, max_clips=5),
         paths=SimpleNamespace(
             video_dir="data/source/videos",
@@ -72,18 +70,21 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
         search=SimpleNamespace(),
         validation=SimpleNamespace(plateau_drop_threshold=0.05),
         overrides=SimpleNamespace(video="", sandwich="", audio=""),
-        secrets=SimpleNamespace(
-            hiker_api_key="hiker",
-            arc_host="arc-host",
-            arc_access_key="arc-key",
-            arc_secret_key="arc-secret",
-            spotify_client_id="spotify-id",
-            spotify_client_secret="spotify-secret",
-            huggingface_token="hf",
-        ),
     )
 
-    monkeypatch.setattr(main, "load_runtime_config", lambda: runtime)
+    secrets = SimpleNamespace(
+        database_url="sqlite:///:memory:",
+        identity_db_url="sqlite:///:memory:",
+        hiker_api_key="hiker",
+        arc_host="arc-host",
+        arc_access_key="arc-key",
+        arc_secret_key="arc-secret",
+        spotify_client_id="spotify-id",
+        spotify_client_secret="spotify-secret",
+        huggingface_token="hf",
+    )
+
+    monkeypatch.setattr(main, "load_runtime_config", lambda: (settings, secrets))
     monkeypatch.setattr(main, "startup", lambda: calls.append("startup"))
     monkeypatch.setattr(main, "init_db", lambda database_url, identity_db_url: calls.append(f"init:{database_url}:{identity_db_url}"))
     monkeypatch.setattr(main, "fetch_profiles", lambda **kwargs: calls.append("parse"))
