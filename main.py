@@ -20,6 +20,7 @@ from modules.visualization import plot_clusters
 
 
 def run_pipeline() -> None:
+
     settings, secrets = load_runtime_config()
 
     startup()
@@ -157,10 +158,16 @@ def run_pipeline() -> None:
     embed_user_clips()
 
     phase("Cluster Search")
-    run_cluster_search(settings=settings.search)
+    run_cluster_search(
+        settings=settings.search,
+        clustering_grid_workers=getattr(settings.search, "clustering_grid_workers", 1),
+    )
 
     phase("Cluster Validation")
-    best_params = validate_clustering(settings=settings.validation)
+    best_params = validate_clustering(
+        settings=settings.validation,
+        clustering_grid_workers=getattr(settings.search, "clustering_grid_workers", 1),
+    )
 
     phase("Clustering")
     for case, params in best_params.items():

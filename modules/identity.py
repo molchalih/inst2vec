@@ -2,16 +2,10 @@
 
 from __future__ import annotations
 
-import os
 from contextlib import contextmanager
 
-from dotenv import load_dotenv
 from sqlalchemy import BigInteger, Integer, String, create_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
-
-load_dotenv()
-
-_IDENTITY_DB_URL = os.environ.get("IDENTITY_DB_URL", "sqlite:///data/identity_map.db")
 
 
 class IdentityBase(DeclarativeBase):
@@ -37,16 +31,25 @@ class ClipIdentity(IdentityBase):
     api_pk: Mapped[int] = mapped_column(BigInteger, nullable=False, unique=True)
 
 
-def init_identity_db(db_path: str | None = None):
-    """Create identity DB tables and return engine. Uses _IDENTITY_DB_URL if db_path omitted."""
-    url = f"sqlite:///{db_path}" if db_path else _IDENTITY_DB_URL
+def init_identity_db(identity_db_url: str):
+    """Create identity DB tables and set the module-level engine. Returns the engine.
+
+    identity_db_url can be a full SQLAlchemy URL or a file path (auto-wrapped with sqlite:///).
+    """
+    global _engine
+    if identity_db_url.startswith("sqlite://"):
+        url = identity_db_url
+    else:
+        # Treat as file path, wrap with sqlite:///
+        url = f"sqlite:///{identity_db_url}"
     eng = create_engine(url)
     IdentityBase.metadata.create_all(eng)
+    _engine = eng
     return eng
 
 
 # Module-level engine (replaced in tests via monkeypatch on `_engine`)
-_engine = init_identity_db()
+_engine = None
 
 
 @contextmanager

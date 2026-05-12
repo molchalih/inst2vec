@@ -1,7 +1,6 @@
 """Grid search over UMAP + HDBSCAN hyperparameters; saves aggregate metrics to ClusterRun."""
 
 import hashlib
-import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from itertools import product
 
@@ -11,11 +10,10 @@ from sqlalchemy.exc import IntegrityError
 from modules.clustering import (
     DEFAULT_HDBSCAN_METRIC,
     compute_clusters,
-    env_positive_int,
     load_user_matrix,
 )
 from modules.console import log, progress
-from modules.database import Base, ClusterRun, engine, get_session
+from modules.database import Base, ClusterRun, get_engine, get_session
 
 _PARAM_KEYS = (
     "umap_n_components",
@@ -51,32 +49,23 @@ def _combo_key(combo: dict) -> frozenset:
     return frozenset((k, combo[k]) for k in _PARAM_KEYS)
 
 
-def _load_grid() -> list[dict]:
-    """Build cartesian product of hyperparameter combos from env vars.
+def _load_grid(settings) -> list[dict]:
+    """Build cartesian product of hyperparameter combos from settings.
 
     umap2d_n_neighbors and umap2d_min_dist are fixed scalars (not swept);
     umap2d_metric is swept independently as a list.
     HDBSCAN distance on pass-1 UMAP space is fixed (euclidean); not swept.
     """
-    umap_n_components = [
-        int(x) for x in os.environ.get("CLUSTERING_UMAP_N_COMPONENTS", "15").split()
-    ]
-    umap_n_neighbors = [
-        int(x) for x in os.environ.get("CLUSTERING_UMAP_N_NEIGHBORS", "15").split()
-    ]
-    umap_min_dist = [
-        float(x) for x in os.environ.get("CLUSTERING_UMAP_MIN_DIST", "0.0").split()
-    ]
-    umap_metrics = os.environ.get("CLUSTERING_UMAP_METRICS", "cosine").split()
-    umap2d_n_neighbors = int(os.environ.get("CLUSTERING_UMAP2D_N_NEIGHBORS", "15"))
-    umap2d_min_dist = float(os.environ.get("CLUSTERING_UMAP2D_MIN_DIST", "0.1"))
-    umap2d_metrics = os.environ.get("CLUSTERING_UMAP2D_METRICS", "cosine").split()
-    hdbscan_min_sizes = [
-        int(x)
-        for x in os.environ.get("CLUSTERING_HDBSCAN_MIN_CLUSTER_SIZE", "15").split()
-    ]
-    hdbscan_selection = os.environ.get("CLUSTERING_HDBSCAN_SELECTION", "eom").split()
-    random_state = int(os.environ.get("CLUSTERING_RANDOM_STATE", "42"))
+    umap_n_components = list(settings.umap_n_components)
+    umap_n_neighbors = list(settings.umap_n_neighbors)
+    umap_min_dist = [float(x) for x in settings.umap_min_dist]
+    umap_metrics = list(settings.umap_metrics)
+    umap2d_n_neighbors = int(settings.umap2d_n_neighbors)
+    umap2d_min_dist = float(settings.umap2d_min_dist)
+    umap2d_metrics = list(settings.umap2d_metrics)
+    hdbscan_min_sizes = list(settings.hdbscan_min_cluster_size)
+    hdbscan_selection = list(settings.hdbscan_selection)
+    random_state = int(settings.random_state)
     cases = ["video", "sandwich", "audio"]
 
     combos = []
@@ -110,8 +99,8 @@ def _load_grid() -> list[dict]:
     return combos
 
 
-def run_cluster_search() -> None:
-    """Run grid search over all hyperparameter combos from env; save metrics to ClusterRun.
+def run_cluster_search(settings, clustering_grid_workers: int = 1) -> None:
+    """Run grid search over all hyperparameter combos from settings; save metrics to ClusterRun.
 
     At the start of each run: marks existing rows as in_current_grid=0/disqualified=1
     if they belong to a combo not in the current grid, or were computed on a different
@@ -120,9 +109,9 @@ def run_cluster_search() -> None:
     Idempotent: skips any combo already present in the DB with matching dataset hash.
     Groups combos by embedding_case so the user embedding matrix is loaded once per case.
     """
-    Base.metadata.create_all(engine)
-    combos = _load_grid()
-    grid_workers = env_positive_int("CLUSTERING_GRID_WORKERS")
+    Base.metadata.create_all(get_engine())
+    combos = _load_grid(settings)
+    grid_workers = max(1, clustering_grid_workers)
 
     combos_by_case: dict[str, list[dict]] = {}
     for combo in combos:

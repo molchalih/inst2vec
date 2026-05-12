@@ -31,29 +31,30 @@ def _make_user(session, id: int, clips_play_counts: list[int]) -> User:
 
 
 def test_pass_a_pre_gates_users_with_too_few_raw_clips(monkeypatch):
-    """Users with < TARGET_CLIPS_PER_USER raw clips are disqualified before stats."""
+    """Users with < target_clips_per_user raw clips are disqualified before stats."""
     eng = _make_engine()
     with Session(eng) as s:
         _make_user(
             s, id=1, clips_play_counts=[100000]
-        )  # 1 clip — below default TARGET=4
+        )  # 1 clip — below default target=4
         _make_user(
             s, id=2, clips_play_counts=[100000] * 5
         )  # 5 clips — survives pre-gate
 
     monkeypatch.setattr("modules.finalize.get_session", lambda: Session(eng))
-    monkeypatch.setenv("FINALIZE_TARGET_CLIPS_PER_USER", "4")
-    monkeypatch.setenv("FINALIZE_GLOBAL_MIN_PLAYS_PERCENTILE", "0")
-    monkeypatch.setenv("FINALIZE_GLOBAL_MIN_PLAYS", "0")
-    monkeypatch.setenv("FINALIZE_CREATOR_ROBUST_Z_THRESHOLD", "-99")
-
-    import modules.finalize as fin_mod
-
-    monkeypatch.setattr(fin_mod, "TARGET_CLIPS_PER_USER", 4)
 
     from modules.finalize import finalize_user_dataset
 
-    finalize_user_dataset("A")
+    finalize_user_dataset(
+        pass_name="A",
+        target_clips_per_user=4,
+        require_min_text_clips=False,
+        pass_a_recompute_from_scratch=True,
+        global_min_plays=0,
+        global_min_plays_percentile=0.0,
+        creator_robust_z_threshold=-99.0,
+        creator_min_clips=4,
+    )
 
     with Session(eng) as s:
         u1 = s.get(User, 1)
@@ -79,21 +80,19 @@ def test_pass_a_pre_gated_users_excluded_from_percentile_floor(monkeypatch):
         _make_user(s, id=2, clips_play_counts=[100000] * 5)  # 5 clips, survives
 
     monkeypatch.setattr("modules.finalize.get_session", lambda: Session(eng))
-    monkeypatch.setenv("FINALIZE_TARGET_CLIPS_PER_USER", "4")
-    monkeypatch.setenv("FINALIZE_GLOBAL_MIN_PLAYS_PERCENTILE", "5")
-    monkeypatch.setenv("FINALIZE_GLOBAL_MIN_PLAYS", "0")
-    monkeypatch.setenv("FINALIZE_CREATOR_ROBUST_Z_THRESHOLD", "-99")
-    monkeypatch.setenv("FINALIZE_PASS_A_RECOMPUTE_FROM_SCRATCH", "1")
-
-    import modules.finalize as fin_mod
-
-    monkeypatch.setattr(fin_mod, "TARGET_CLIPS_PER_USER", 4)
-    monkeypatch.setattr(fin_mod, "PASS_A_RECOMPUTE_FROM_SCRATCH", True)
-    monkeypatch.setattr(fin_mod, "GLOBAL_MIN_PLAYS_PERCENTILE", 5.0)
 
     from modules.finalize import finalize_user_dataset
 
-    finalize_user_dataset("A")
+    finalize_user_dataset(
+        pass_name="A",
+        target_clips_per_user=4,
+        require_min_text_clips=False,
+        pass_a_recompute_from_scratch=True,
+        global_min_plays=0,
+        global_min_plays_percentile=5.0,
+        creator_robust_z_threshold=-99.0,
+        creator_min_clips=4,
+    )
 
     with Session(eng) as s:
         u1 = s.get(User, 1)
@@ -110,7 +109,7 @@ def test_pass_a_pre_gated_users_excluded_from_percentile_floor(monkeypatch):
 
 
 def test_pass_a_re_gates_after_stat_disq(monkeypatch):
-    """A user who passes pre-gate but loses clips to stat disq gets re-gated if below TARGET."""
+    """A user who passes pre-gate but loses clips to stat disq gets re-gated if below target."""
     eng = _make_engine()
     with Session(eng) as s:
         # 5 clips total — passes pre-gate (5 >= 4)
@@ -118,23 +117,19 @@ def test_pass_a_re_gates_after_stat_disq(monkeypatch):
         _make_user(s, id=1, clips_play_counts=[1, 1, 1, 1, 1000000])
 
     monkeypatch.setattr("modules.finalize.get_session", lambda: Session(eng))
-    monkeypatch.setenv("FINALIZE_TARGET_CLIPS_PER_USER", "4")
-    monkeypatch.setenv("FINALIZE_GLOBAL_MIN_PLAYS_PERCENTILE", "0")
-    monkeypatch.setenv(
-        "FINALIZE_GLOBAL_MIN_PLAYS", "500000"
-    )  # floor disqualifies 4 clips
-    monkeypatch.setenv("FINALIZE_CREATOR_ROBUST_Z_THRESHOLD", "-99")
-    monkeypatch.setenv("FINALIZE_PASS_A_RECOMPUTE_FROM_SCRATCH", "1")
-
-    import modules.finalize as fin_mod
-
-    monkeypatch.setattr(fin_mod, "TARGET_CLIPS_PER_USER", 4)
-    monkeypatch.setattr(fin_mod, "GLOBAL_MIN_PLAYS", 500000)
-    monkeypatch.setattr(fin_mod, "PASS_A_RECOMPUTE_FROM_SCRATCH", True)
 
     from modules.finalize import finalize_user_dataset
 
-    finalize_user_dataset("A")
+    finalize_user_dataset(
+        pass_name="A",
+        target_clips_per_user=4,
+        require_min_text_clips=False,
+        pass_a_recompute_from_scratch=True,
+        global_min_plays=500000,
+        global_min_plays_percentile=0.0,
+        creator_robust_z_threshold=-99.0,
+        creator_min_clips=4,
+    )
 
     with Session(eng) as s:
         u = s.get(User, 1)
@@ -153,18 +148,19 @@ def test_pass_b_does_not_pre_gate(monkeypatch):
         s.commit()
 
     monkeypatch.setattr("modules.finalize.get_session", lambda: Session(eng))
-    monkeypatch.setenv("FINALIZE_TARGET_CLIPS_PER_USER", "4")
-    monkeypatch.setenv("FINALIZE_GLOBAL_MIN_PLAYS_PERCENTILE", "0")
-    monkeypatch.setenv("FINALIZE_GLOBAL_MIN_PLAYS", "0")
-    monkeypatch.setenv("FINALIZE_CREATOR_ROBUST_Z_THRESHOLD", "-99")
-
-    import modules.finalize as fin_mod
-
-    monkeypatch.setattr(fin_mod, "TARGET_CLIPS_PER_USER", 4)
 
     from modules.finalize import finalize_user_dataset
 
-    finalize_user_dataset("B")
+    finalize_user_dataset(
+        pass_name="B",
+        target_clips_per_user=4,
+        require_min_text_clips=False,
+        pass_a_recompute_from_scratch=True,
+        global_min_plays=0,
+        global_min_plays_percentile=0.0,
+        creator_robust_z_threshold=-99.0,
+        creator_min_clips=4,
+    )
 
     with Session(eng) as s:
         u = s.get(User, 1)
@@ -172,3 +168,23 @@ def test_pass_b_does_not_pre_gate(monkeypatch):
         # Pass B does not pre-gate; user gets disqualified only by clip-count re-gate
         # (which is the same behavior as before — 1 clip < 4)
         assert u.user_disqualified == 1  # disqualified by clip count in Pass B loop
+
+
+def test_finalize_user_dataset_accepts_params():
+    """finalize_user_dataset must accept all config parameters."""
+    import inspect
+
+    from modules import finalize as finalize_mod
+
+    sig = inspect.signature(finalize_mod.finalize_user_dataset)
+    for name in (
+        "pass_name",
+        "target_clips_per_user",
+        "require_min_text_clips",
+        "pass_a_recompute_from_scratch",
+        "global_min_plays",
+        "global_min_plays_percentile",
+        "creator_robust_z_threshold",
+        "creator_min_clips",
+    ):
+        assert name in sig.parameters, f"missing: {name}"

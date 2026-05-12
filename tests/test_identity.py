@@ -219,24 +219,26 @@ def test_download_uses_entity_id_and_fetches_pic_url_from_identity_db(
 
     import modules.download as dl_mod
 
-    monkeypatch.setattr(
-        dl_mod,
-        "DIRS",
-        {
-            "profile_pic": str(tmp_path / "profile_pics"),
-            "thumbnail": str(tmp_path / "thumbnails"),
-            "video": str(tmp_path / "videos"),
-        },
-    )
-    for d in dl_mod.DIRS.values():
+    profile_pic_dir = str(tmp_path / "profile_pics")
+    thumbnail_dir = str(tmp_path / "thumbnails")
+    video_dir = str(tmp_path / "videos")
+    for d in [profile_pic_dir, thumbnail_dir, video_dir]:
         os.makedirs(d, exist_ok=True)
 
     # Stub _download to succeed without actually fetching HTTP
-    monkeypatch.setattr(dl_mod, "_download", lambda url, path: True)
-    monkeypatch.setenv("BATCH_SIZE", "10")
-    monkeypatch.setenv("MAX_CLIPS", "0")
+    monkeypatch.setattr(
+        dl_mod, "_download", lambda url, path, max_attempts, retry_delay: True
+    )
 
-    dl_mod.download_files()
+    dl_mod.download_files(
+        batch_size=10,
+        max_clips=0,
+        max_attempts=3,
+        retry_delay=2,
+        profile_pic_dir=profile_pic_dir,
+        thumbnail_dir=thumbnail_dir,
+        video_dir=video_dir,
+    )
 
     with Session(main_eng) as s:
         row = s.query(Download).filter_by(entity_id=1, file_type="profile_pic").first()

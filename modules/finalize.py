@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import math
-import os
 
 from sqlalchemy import func
 
@@ -11,20 +10,6 @@ from modules.console import log
 from modules.database import Clip, User, get_session
 
 SCOPE = "finalize_dataset"
-
-TARGET_CLIPS_PER_USER = int(os.environ.get("FINALIZE_TARGET_CLIPS_PER_USER", 4))
-REQUIRE_MIN_TEXT_CLIPS = os.environ.get("FINALIZE_REQUIRE_MIN_TEXT_CLIPS", "0") == "1"
-PASS_A_RECOMPUTE_FROM_SCRATCH = (
-    os.environ.get("FINALIZE_PASS_A_RECOMPUTE_FROM_SCRATCH", "1") == "1"
-)
-GLOBAL_MIN_PLAYS = int(os.environ.get("FINALIZE_GLOBAL_MIN_PLAYS", "0"))
-GLOBAL_MIN_PLAYS_PERCENTILE = float(
-    os.environ.get("FINALIZE_GLOBAL_MIN_PLAYS_PERCENTILE", "5")
-)
-CREATOR_ROBUST_Z_THRESHOLD = float(
-    os.environ.get("FINALIZE_CREATOR_ROBUST_Z_THRESHOLD", "-2.5")
-)
-CREATOR_MIN_CLIPS = int(os.environ.get("FINALIZE_CREATOR_MIN_CLIPS", "5"))
 
 
 def _count_for_user_clip_set(clip_ids: list[int], allowed: set[int]) -> int:
@@ -71,7 +56,10 @@ def _median(values: list[float]) -> float:
 
 
 def _creator_relative_low_outliers(
-    users: list[User], only_active_clips: bool
+    users: list[User],
+    only_active_clips: bool,
+    creator_min_clips: int,
+    creator_robust_z_threshold: float,
 ) -> set[int]:
     outliers: set[int] = set()
     for user in users:
@@ -81,7 +69,7 @@ def _creator_relative_low_outliers(
             if c.play_count is not None
             and (not only_active_clips or c.disqualified != 1)
         ]
-        if len(clips) < CREATOR_MIN_CLIPS:
+        if len(clips) < creator_min_clips:
             continue
 
         logs = [math.log1p(int(c.play_count or 0)) for c in clips]
@@ -94,19 +82,28 @@ def _creator_relative_low_outliers(
         scale = 1.4826 * mad
         for clip, value in zip(clips, logs, strict=False):
             robust_z = (value - med) / scale
-            if robust_z < CREATOR_ROBUST_Z_THRESHOLD:
+            if robust_z < creator_robust_z_threshold:
                 outliers.add(clip.id)
     return outliers
 
 
-def finalize_user_dataset(pass_name: str = "A") -> None:
+def finalize_user_dataset(
+    pass_name: str,
+    target_clips_per_user: int,
+    require_min_text_clips: bool,
+    pass_a_recompute_from_scratch: bool,
+    global_min_plays: int,
+    global_min_plays_percentile: float,
+    creator_robust_z_threshold: float,
+    creator_min_clips: int,
+) -> None:
     """Mark users/clips as disqualified(1) or eligible(0) with staged policy."""
     pass_name = (pass_name or "A").upper()
     if pass_name not in {"A", "B"}:
         raise ValueError("pass_name must be 'A' or 'B'")
 
     is_pass_a = pass_name == "A"
-    use_text_gate = pass_name == "B" and REQUIRE_MIN_TEXT_CLIPS
+    use_text_gate = pass_name == "B" and require_min_text_clips
 
     session = get_session()
     users = session.query(User).order_by(User.id).all()
@@ -145,7 +142,7 @@ def finalize_user_dataset(pass_name: str = "A") -> None:
     )  # Track clips disqualified in pre-gate for later deduplication
     if is_pass_a:
         for user in parsed_users:
-            if len(user.clips) < TARGET_CLIPS_PER_USER:
+            if len(user.clips) < target_clips_per_user:
                 user.user_disqualified = 1
                 disq_count += 1
                 reason_counts["clip_count"] += 1
@@ -169,14 +166,16 @@ def finalize_user_dataset(pass_name: str = "A") -> None:
             for clip in user.clips
             if (
                 clip.play_count is not None
-                and (PASS_A_RECOMPUTE_FROM_SCRATCH or clip.disqualified != 1)
+                and (pass_a_recompute_from_scratch or clip.disqualified != 1)
             )
         ]
-        percentile_floor = _quantile_int(all_play_counts, GLOBAL_MIN_PLAYS_PERCENTILE)
-        global_floor = max(GLOBAL_MIN_PLAYS, percentile_floor)
+        percentile_floor = _quantile_int(all_play_counts, global_min_plays_percentile)
+        global_floor = max(global_min_plays, percentile_floor)
         creator_outlier_ids = _creator_relative_low_outliers(
             pre_gate_users,
-            only_active_clips=not PASS_A_RECOMPUTE_FROM_SCRATCH,
+            only_active_clips=not pass_a_recompute_from_scratch,
+            creator_min_clips=creator_min_clips,
+            creator_robust_z_threshold=creator_robust_z_threshold,
         )
 
     for user in pre_gate_users if is_pass_a else parsed_users:
@@ -185,7 +184,7 @@ def finalize_user_dataset(pass_name: str = "A") -> None:
             stat_disq_by_clip: dict[int, bool] = {}
             for clip in user.clips:
                 already_disq = (
-                    not PASS_A_RECOMPUTE_FROM_SCRATCH
+                    not pass_a_recompute_from_scratch
                 ) and clip.disqualified == 1
                 is_global_low = bool(
                     global_floor > 0
@@ -204,8 +203,8 @@ def finalize_user_dataset(pass_name: str = "A") -> None:
         total_clips = len(active_clip_ids)
         text_count = _count_for_user_clip_set(active_clip_ids, text_ok_ids)
 
-        bad_clip_count = total_clips < TARGET_CLIPS_PER_USER
-        bad_text_count = use_text_gate and text_count < TARGET_CLIPS_PER_USER
+        bad_clip_count = total_clips < target_clips_per_user
+        bad_text_count = use_text_gate and text_count < target_clips_per_user
         disqualified = bad_clip_count or bad_text_count
         user.user_disqualified = 1 if disqualified else 0
 
@@ -257,15 +256,15 @@ def finalize_user_dataset(pass_name: str = "A") -> None:
             f"pass {pass_name} done — kept {kept}/{total_users} users; kept {eligible_clips} clips "
             f"(clip_kept={clip_kept}, clip_disqualified={clip_disq}); "
             f"disqualified {disq_count}, unresolved {unresolved_users}; "
-            f"policy [target={TARGET_CLIPS_PER_USER}, text_gate={int(REQUIRE_MIN_TEXT_CLIPS)}, "
-            f"recompute={int(PASS_A_RECOMPUTE_FROM_SCRATCH)}, global_min={GLOBAL_MIN_PLAYS}, "
-            f"global_pct={GLOBAL_MIN_PLAYS_PERCENTILE}, creator_rz={CREATOR_ROBUST_Z_THRESHOLD}, "
-            f"creator_min={CREATOR_MIN_CLIPS}] "
+            f"policy [target={target_clips_per_user}, text_gate={int(require_min_text_clips)}, "
+            f"recompute={int(pass_a_recompute_from_scratch)}, global_min={global_min_plays}, "
+            f"global_pct={global_min_plays_percentile}, creator_rz={creator_robust_z_threshold}, "
+            f"creator_min={creator_min_clips}] "
             f"reasons "
             f"[clip_count={reason_counts['clip_count']}, "
             f"text_count={reason_counts['text_count']}], "
             f"clip reasons [user={clip_reason_counts['user_disqualified']}, "
             f"global_low={clip_reason_counts['global_low_plays']} (<{global_floor}), "
-            f"creator_low={clip_reason_counts['creator_low_outlier']} (rz<{CREATOR_ROBUST_Z_THRESHOLD})]"
+            f"creator_low={clip_reason_counts['creator_low_outlier']} (rz<{creator_robust_z_threshold})]"
         ),
     )

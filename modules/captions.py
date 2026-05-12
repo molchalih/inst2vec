@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import re
 
 from lingua import LanguageDetectorBuilder
@@ -11,18 +10,6 @@ from sqlalchemy import func, or_
 from modules.console import log, progress
 from modules.database import Clip, get_session
 from modules.external.gemma_translate import GemmaTranslator
-
-COMMIT_EVERY = int(os.environ.get("CAPTIONS_COMMIT_EVERY", 50))
-CAPTION_TRANSLATE_MODEL = os.environ.get(
-    "CAPTION_TRANSLATE_MODEL", "google/translategemma-4b-it"
-)
-CAPTION_TRANSLATE_TARGET_LANG = os.environ.get("CAPTION_TRANSLATE_TARGET_LANG", "en")
-CAPTION_TRANSLATION_MAX_CHARS = int(
-    os.environ.get("CAPTION_TRANSLATION_MAX_CHARS", 1000)
-)
-CAPTION_TRANSLATE_MAX_NEW_TOKENS = int(
-    os.environ.get("CAPTION_TRANSLATE_MAX_NEW_TOKENS", 200)
-)
 
 SCOPE_DETECT = "detect_caption_language"
 SCOPE_TRANSLATE = "translate_captions"
@@ -35,7 +22,7 @@ def _clean(text: str) -> str:
     return " ".join(_MENTION_RE.sub("", text).split())
 
 
-def clean_captions() -> None:
+def clean_captions(commit_every: int) -> None:
     """Strip @mentions and collapse whitespace/newlines in caption_text."""
     session = get_session()
     clips = (
@@ -59,7 +46,7 @@ def clean_captions() -> None:
         if result != clip.caption_text:
             clip.caption_text = result
             cleaned += 1
-        if i % COMMIT_EVERY == 0:
+        if i % commit_every == 0:
             session.commit()
 
     session.commit()
@@ -89,6 +76,7 @@ def detect_caption_language() -> None:
     log(SCOPE_DETECT, f"{total} captions to detect")
     detector = LanguageDetectorBuilder.from_all_languages().build()
     detected = 0
+    commit_every = 50
 
     with progress(total, "Detecting languages") as advance:
         for i, clip in enumerate(clips, 1):
@@ -105,7 +93,7 @@ def detect_caption_language() -> None:
             detected += 1
             advance(detail=f"{clip.id}: {clip.caption_language}")
 
-            if i % COMMIT_EVERY == 0:
+            if i % commit_every == 0:
                 session.commit()
 
     session.commit()
@@ -113,7 +101,13 @@ def detect_caption_language() -> None:
     log(SCOPE_DETECT, f"done — {detected}/{total} detected", level="ok")
 
 
-def translate_captions() -> None:
+def translate_captions(
+    commit_every: int,
+    translate_model: str,
+    translate_target_lang: str,
+    translation_max_chars: int,
+    translate_max_new_tokens: int,
+) -> None:
     """Translate non-English captions with missing translation using TranslateGemma."""
     session = get_session()
     clips = (
@@ -136,13 +130,13 @@ def translate_captions() -> None:
 
     total = len(clips)
     log(SCOPE_TRANSLATE, f"{total} captions to translate")
-    translator = GemmaTranslator(model_id=CAPTION_TRANSLATE_MODEL)
+    translator = GemmaTranslator(model_id=translate_model)
     log(SCOPE_TRANSLATE, f"loading {translator.model_id} on {translator.device}…")
     translated = 0
 
     with progress(total, "Translating captions") as advance:
         for i, clip in enumerate(clips, 1):
-            source = (clip.caption_text or "").strip()[:CAPTION_TRANSLATION_MAX_CHARS]
+            source = (clip.caption_text or "").strip()[:translation_max_chars]
             source_lang = (clip.caption_language or "").strip().replace("_", "-")
             if not source or not source_lang or source_lang.lower().startswith("en"):
                 advance()
@@ -152,8 +146,8 @@ def translate_captions() -> None:
                 translation = translator.translate_text(
                     text=source,
                     source_lang_code=source_lang,
-                    target_lang_code=CAPTION_TRANSLATE_TARGET_LANG,
-                    max_new_tokens=CAPTION_TRANSLATE_MAX_NEW_TOKENS,
+                    target_lang_code=translate_target_lang,
+                    max_new_tokens=translate_max_new_tokens,
                 )
                 if not translation:
                     advance()
@@ -167,7 +161,7 @@ def translate_captions() -> None:
                 advance()
                 continue
 
-            if i % COMMIT_EVERY == 0:
+            if i % commit_every == 0:
                 session.commit()
 
     session.commit()

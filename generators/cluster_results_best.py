@@ -8,7 +8,6 @@ from sqlalchemy.orm import Session
 
 from modules.cluster_results import (
     DEFAULT_CASES,
-    get_plateau_drop_threshold,
     select_best_cluster_run,
 )
 from modules.database import ClusterRun
@@ -58,10 +57,8 @@ def best_run_to_markdown(eng, case: str) -> str:
     if case not in DEFAULT_CASES:
         raise ValueError(f"unknown embedding case: {case}")
 
-    threshold = get_plateau_drop_threshold()
-
     with Session(eng) as session:
-        best = select_best_cluster_run(session, case, threshold=threshold)
+        best = select_best_cluster_run(session, case)
     if best is None:
         return f"No eligible cluster runs found for `{case}`."
 
@@ -80,12 +77,10 @@ def best_runs_all_to_markdown(
     if not cases:
         raise ValueError("cases must contain at least one embedding case")
 
-    threshold = get_plateau_drop_threshold()
-
     summaries: dict[str, dict[str, str]] = {}
     with Session(eng) as session:
         for case in cases:
-            best = select_best_cluster_run(session, case, threshold=threshold)
+            best = select_best_cluster_run(session, case)
             summaries[case] = _best_cells(best)
 
     col_header = " | ".join(cases)

@@ -1,19 +1,12 @@
 import csv
-import os
 from urllib.parse import urlparse
-
-from dotenv import load_dotenv
 
 from modules.console import log
 from modules.database import User, get_session
 from modules.identity import get_or_create_user_identity
 
-load_dotenv()
 
-
-def load_usernames_from_csv(
-    csv_path: str = os.environ.get("DATA_CSV_PATH", "data/data.csv"),
-):
+def load_usernames_from_csv(csv_path: str = "data/data.csv"):
     with open(csv_path) as f:
         reader = csv.reader(f)
         urls = [row[0].strip() for row in reader if row]

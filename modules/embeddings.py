@@ -1,4 +1,3 @@
-import os
 import subprocess
 from collections import defaultdict
 
@@ -13,19 +12,10 @@ from modules.database import (
     Music,
     User,
     UserEmbedding,
-    engine,
+    get_engine,
     get_session,
 )
 from modules.external.qwen3_vl_embedding import Qwen3VLEmbedder
-
-MODEL_PATH = "./models/Qwen3-VL-Embedding-8B"
-VIDEO_DIR = "data/source/videos"
-EXCLUDE_DISQUALIFIED_USERS = (
-    os.environ.get("EMBEDDINGS_EXCLUDE_DISQUALIFIED_USERS", "1") == "1"
-)
-EMBED_MAX_LENGTH = 32768
-ADAPTIVE_MAX_FRAMES = 96
-ADAPTIVE_DEFAULT_FPS = 2.0
 
 _KEY_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
@@ -118,19 +108,21 @@ def _aggregate_user_embeddings(rows: list[tuple[bytes, int]]) -> dict[int, bytes
     }
 
 
-def _eligible_clips(session):
+def _eligible_clips(session, exclude_disqualified_users: bool):
     clips_q = session.query(Clip).filter(
         or_(Clip.disqualified.is_(None), Clip.disqualified == 0)
     )
-    if EXCLUDE_DISQUALIFIED_USERS:
+    if exclude_disqualified_users:
         clips_q = clips_q.join(User, Clip.user_id == User.id).filter(
             or_(User.user_disqualified.is_(None), User.user_disqualified == 0),
         )
     return clips_q.all()
 
 
-def _video_path(clip_id: int) -> str:
-    return os.path.abspath(os.path.join(VIDEO_DIR, f"{clip_id}.mp4"))
+def _video_path(clip_id: int, video_dir: str) -> str:
+    import os
+
+    return os.path.abspath(os.path.join(video_dir, f"{clip_id}.mp4"))
 
 
 def _build_text(clip, music_map: dict) -> str | None:
@@ -215,16 +207,18 @@ def _probe_duration_seconds(path: str) -> float | None:
     return duration if duration > 0 else None
 
 
-def _adaptive_video_sampling(path: str) -> tuple[float, int, float | None]:
+def _adaptive_video_sampling(
+    path: str, adaptive_max_frames: int, adaptive_default_fps: float
+) -> tuple[float, int, float | None]:
     """Choose fps/max_frames from clip duration."""
     duration = _probe_duration_seconds(path)
     if duration is None:
-        return ADAPTIVE_DEFAULT_FPS, ADAPTIVE_MAX_FRAMES, None
+        return adaptive_default_fps, adaptive_max_frames, None
     if duration < 15:
-        return 3.0, ADAPTIVE_MAX_FRAMES, duration
+        return 3.0, adaptive_max_frames, duration
     if duration <= 45:
-        return 2.0, ADAPTIVE_MAX_FRAMES, duration
-    return 1.0, ADAPTIVE_MAX_FRAMES, duration
+        return 2.0, adaptive_max_frames, duration
+    return 1.0, adaptive_max_frames, duration
 
 
 def _frame_retry_schedule(initial_max_frames: int) -> list[int]:
@@ -247,8 +241,17 @@ def _is_token_mismatch_error(exc: Exception) -> bool:
     )
 
 
-def embed_video_clips():
-    Base.metadata.create_all(engine)
+def embed_video_clips(
+    model_path: str,
+    video_dir: str,
+    embed_max_length: int,
+    adaptive_max_frames: int,
+    adaptive_default_fps: float,
+    exclude_disqualified_users: bool,
+) -> None:
+    import os
+
+    Base.metadata.create_all(get_engine())
     session = get_session()
     try:
         done_video = {
@@ -258,12 +261,12 @@ def embed_video_clips():
             .all()
         }
 
-        clips = _eligible_clips(session)
+        clips = _eligible_clips(session, exclude_disqualified_users)
         todo = []
         for clip in clips:
             if clip.id in done_video:
                 continue
-            path = _video_path(clip.id)
+            path = _video_path(clip.id, video_dir)
             if not os.path.exists(path):
                 continue
             todo.append(clip)
@@ -279,16 +282,18 @@ def embed_video_clips():
         from modules.external.qwen3_vl_embedding import Qwen3VLEmbedder
 
         model = Qwen3VLEmbedder(
-            model_name_or_path=MODEL_PATH,
-            max_length=EMBED_MAX_LENGTH,
-            max_frames=ADAPTIVE_MAX_FRAMES,
-            fps=ADAPTIVE_DEFAULT_FPS,
+            model_name_or_path=model_path,
+            max_length=embed_max_length,
+            max_frames=adaptive_max_frames,
+            fps=adaptive_default_fps,
         )
 
         with progress(len(todo), "Embedding video") as advance:
             for _, clip in enumerate(todo, 1):
-                path = _video_path(clip.id)
-                fps, max_frames, _duration = _adaptive_video_sampling(path)
+                path = _video_path(clip.id, video_dir)
+                fps, max_frames, _duration = _adaptive_video_sampling(
+                    path, adaptive_max_frames, adaptive_default_fps
+                )
                 frame_caps = _frame_retry_schedule(max_frames)
                 embeddings = None
                 for attempt_idx, frame_cap in enumerate(frame_caps):
@@ -322,8 +327,17 @@ def embed_video_clips():
         session.close()
 
 
-def embed_sandwich_clips():
-    Base.metadata.create_all(engine)
+def embed_sandwich_clips(
+    model_path: str,
+    video_dir: str,
+    embed_max_length: int,
+    adaptive_max_frames: int,
+    adaptive_default_fps: float,
+    exclude_disqualified_users: bool,
+) -> None:
+    import os
+
+    Base.metadata.create_all(get_engine())
     session = get_session()
     try:
         done_sandwich = {
@@ -335,12 +349,12 @@ def embed_sandwich_clips():
 
         music_map = {m.id: m for m in session.query(Music).all()}
 
-        clips = _eligible_clips(session)
+        clips = _eligible_clips(session, exclude_disqualified_users)
         todo = []
         for clip in clips:
             if clip.id in done_sandwich:
                 continue
-            path = _video_path(clip.id)
+            path = _video_path(clip.id, video_dir)
             if not os.path.exists(path):
                 continue
             text = _build_text(clip, music_map)
@@ -359,16 +373,18 @@ def embed_sandwich_clips():
         from modules.external.qwen3_vl_embedding import Qwen3VLEmbedder
 
         model = Qwen3VLEmbedder(
-            model_name_or_path=MODEL_PATH,
-            max_length=EMBED_MAX_LENGTH,
-            max_frames=ADAPTIVE_MAX_FRAMES,
-            fps=ADAPTIVE_DEFAULT_FPS,
+            model_name_or_path=model_path,
+            max_length=embed_max_length,
+            max_frames=adaptive_max_frames,
+            fps=adaptive_default_fps,
         )
 
         with progress(len(todo), "Embedding sandwich") as advance:
             for _, (clip, text) in enumerate(todo, 1):
-                path = _video_path(clip.id)
-                fps, max_frames, _duration = _adaptive_video_sampling(path)
+                path = _video_path(clip.id, video_dir)
+                fps, max_frames, _duration = _adaptive_video_sampling(
+                    path, adaptive_max_frames, adaptive_default_fps
+                )
                 frame_caps = _frame_retry_schedule(max_frames)
                 embedding = None
                 for attempt_idx, frame_cap in enumerate(frame_caps):
@@ -417,8 +433,15 @@ AUDIO_INSTRUCTION = (
 )
 
 
-def embed_audio_clips():
-    Base.metadata.create_all(engine)
+def embed_audio_clips(
+    model_path: str,
+    video_dir: str,
+    embed_max_length: int,
+    adaptive_max_frames: int,
+    adaptive_default_fps: float,
+    exclude_disqualified_users: bool,
+) -> None:
+    Base.metadata.create_all(get_engine())
     session = get_session()
     try:
         done_audio = {
@@ -430,7 +453,7 @@ def embed_audio_clips():
 
         music_map = {m.id: m for m in session.query(Music).all()}
 
-        clips = _eligible_clips(session)
+        clips = _eligible_clips(session, exclude_disqualified_users)
         todo = []
         for clip in clips:
             if clip.id in done_audio:
@@ -449,8 +472,8 @@ def embed_audio_clips():
             f"{len(todo)} clips to embed ({len(done_audio)} already done)",
         )
         model = Qwen3VLEmbedder(
-            model_name_or_path=MODEL_PATH,
-            max_length=EMBED_MAX_LENGTH,
+            model_name_or_path=model_path,
+            max_length=embed_max_length,
         )
 
         with progress(len(todo), "Embedding audio") as advance:
@@ -481,7 +504,7 @@ def embed_audio_clips():
 def embed_user_clips(cases: list[str] | None = None):
     if cases is None:
         cases = ["video", "sandwich", "audio"]
-    Base.metadata.create_all(engine)
+    Base.metadata.create_all(get_engine())
     session = get_session()
     try:
         for case in cases:

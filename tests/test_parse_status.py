@@ -91,18 +91,19 @@ def test_finalize_unresolved_for_non_success_parse_status(monkeypatch):
         s.commit()
 
     monkeypatch.setattr("modules.finalize.get_session", lambda: Session(eng))
-    monkeypatch.setenv("FINALIZE_TARGET_CLIPS_PER_USER", "4")
-    monkeypatch.setenv("FINALIZE_GLOBAL_MIN_PLAYS_PERCENTILE", "0")
-    monkeypatch.setenv("FINALIZE_GLOBAL_MIN_PLAYS", "0")
-    monkeypatch.setenv("FINALIZE_CREATOR_ROBUST_Z_THRESHOLD", "-99")
-
-    import modules.finalize as fin_mod
-
-    monkeypatch.setattr(fin_mod, "TARGET_CLIPS_PER_USER", 4)
 
     from modules.finalize import finalize_user_dataset
 
-    finalize_user_dataset("A")
+    finalize_user_dataset(
+        pass_name="A",
+        target_clips_per_user=4,
+        require_min_text_clips=False,
+        pass_a_recompute_from_scratch=True,
+        global_min_plays=0,
+        global_min_plays_percentile=0.0,
+        creator_robust_z_threshold=-99.0,
+        creator_min_clips=4,
+    )
 
     with Session(eng) as s:
         u1 = s.get(User, 1)
@@ -165,11 +166,10 @@ def test_fetch_profiles_reads_username_from_identity_db(monkeypatch):
     monkeypatch.setattr("modules.parse.Client", lambda token: FakeClient())
     monkeypatch.setattr("modules.parse.get_session", lambda: Session(main_eng))
     monkeypatch.setattr("modules.parse.time.sleep", lambda _: None)
-    monkeypatch.setenv("BATCH_SIZE", "5")
 
     from modules.parse import fetch_profiles
 
-    fetch_profiles()
+    fetch_profiles(batch_size=5, max_clips=5, hiker_api_key="test_key")
 
     # Must have called the API with the correct username
     assert called_with_username == ["fetchme"]
@@ -244,12 +244,10 @@ def test_fetch_profiles_stores_sequential_clip_ids(monkeypatch):
     monkeypatch.setattr("modules.parse.Client", lambda token: FakeClient())
     monkeypatch.setattr("modules.parse.get_session", lambda: Session(main_eng))
     monkeypatch.setattr("modules.parse.time.sleep", lambda _: None)
-    monkeypatch.setenv("BATCH_SIZE", "5")
-    monkeypatch.setenv("MAX_CLIPS", "5")
 
     from modules.parse import fetch_profiles
 
-    fetch_profiles()
+    fetch_profiles(batch_size=5, max_clips=5, hiker_api_key="test_key")
 
     with Session(main_eng) as s:
         clips = s.query(Clip).all()
@@ -303,11 +301,10 @@ def test_fetch_profiles_retries_then_succeeds_fourth(monkeypatch):
     monkeypatch.setattr("modules.parse.Client", lambda token: FakeClient())
     monkeypatch.setattr("modules.parse.get_session", lambda: Session(main_eng))
     monkeypatch.setattr("modules.parse.time.sleep", lambda _: None)
-    monkeypatch.setenv("BATCH_SIZE", "5")
 
     from modules.parse import fetch_profiles
 
-    fetch_profiles()
+    fetch_profiles(batch_size=5, max_clips=5, hiker_api_key="test_key")
 
     with Session(main_eng) as s:
         u = s.get(User, 100)
@@ -345,7 +342,7 @@ def test_fetch_profiles_all_attempts_fail(monkeypatch):
 
     from modules.parse import fetch_profiles
 
-    fetch_profiles()
+    fetch_profiles(batch_size=5, max_clips=5, hiker_api_key="test_key")
 
     with Session(main_eng) as s:
         u = s.get(User, 101)

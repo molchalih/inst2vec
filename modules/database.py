@@ -1,7 +1,5 @@
-import os
 from typing import Optional
 
-from dotenv import load_dotenv
 from sqlalchemy import (
     BigInteger,
     Boolean,
@@ -15,6 +13,7 @@ from sqlalchemy import (
     UniqueConstraint,
     create_engine,
 )
+from sqlalchemy.engine import Engine as _Engine
 from sqlalchemy.orm import (
     DeclarativeBase,  # type: ignore[name-defined]
     Mapped,
@@ -24,9 +23,12 @@ from sqlalchemy.orm import (
 )
 from sqlalchemy.sql import func
 
-load_dotenv()
+_engine: _Engine | None = None
 
-engine = create_engine(os.environ["DATABASE_URL"])
+
+def get_engine() -> _Engine:
+    assert _engine is not None, "Call init_db() before using the database"
+    return _engine
 
 
 class Base(DeclarativeBase):
@@ -269,16 +271,22 @@ class ClusterRun(Base):
     )
 
 
-def init_db():
-    """Create main DB tables and identity DB tables."""
+def init_db(database_url: str, identity_db_url: str) -> None:
+    """Create main DB tables, run migrations, and initialize identity DB."""
+    global _engine
     from modules.identity import init_identity_db
 
-    Base.metadata.create_all(engine)
-    init_identity_db()
+    _engine = create_engine(database_url)
+    Base.metadata.create_all(_engine)
+    _migrate_users_table(_engine)
+    with Session(_engine) as s:
+        _backfill_parse_status(s)
+        s.commit()
+    init_identity_db(identity_db_url)
 
 
 def get_session() -> Session:
-    return Session(engine)
+    return Session(get_engine())
 
 
 def _migrate_users_table(eng) -> None:
