@@ -25,6 +25,9 @@ def run_pipeline() -> None:
 
     startup()
 
+    """
+    0. DATABASE: initializes the databases (identity and main). Populate from .csv if neccessary.
+    """
     phase("Database")
     init_db(secrets.database_url, secrets.identity_db_url)
 
@@ -37,8 +40,6 @@ def run_pipeline() -> None:
     """
     phase("Profile Parsing")
     fetch_profiles(
-        batch_size=settings.pipeline.batch_size,
-        max_clips=settings.pipeline.max_clips,
         hiker_api_key=secrets.hiker_api_key,
     )
 

@@ -15,7 +15,7 @@ from modules.identity import (
 SCOPE = "fetch_profiles"
 
 
-def _fetch_clips(cl: Any, user: User, session: Any, max_clips: int) -> int:
+def _fetch_clips(cl: Any, user: User, session: Any) -> int:
     if user.clips:
         return 0
 
@@ -28,7 +28,7 @@ def _fetch_clips(cl: Any, user: User, session: Any, max_clips: int) -> int:
     items.sort(key=lambda x: x["media"].get("play_count") or 0, reverse=True)
 
     count = 0
-    for item in items[: max_clips or None]:
+    for item in items:
         m = item["media"]
         clip_api_pk = int(m["pk"])
         clip_id = get_or_create_clip_identity(clip_api_pk)
@@ -56,7 +56,7 @@ def _fetch_clips(cl: Any, user: User, session: Any, max_clips: int) -> int:
     return count
 
 
-def _process_user(cl: Any, user: User, session: Any, max_clips: int) -> dict[str, Any]:
+def _process_user(cl: Any, user: User, session: Any) -> dict[str, Any]:
     username = get_username(user.id)
     data = cl.user_by_username_v1(username)
     info = data.get("user", data)
@@ -71,7 +71,7 @@ def _process_user(cl: Any, user: User, session: Any, max_clips: int) -> dict[str
     )
 
     user.following_count = info.get("following_count")
-    clips_count = _fetch_clips(cl, user, session, max_clips)
+    clips_count = _fetch_clips(cl, user, session)
     user.parse_status = "success"
 
     return {
@@ -81,12 +81,7 @@ def _process_user(cl: Any, user: User, session: Any, max_clips: int) -> dict[str
     }
 
 
-# TODO: explore batch size, mb drop it
-# TODO: explore max_clips, mb drop it
-# TODO: get rid of pending, use None as default for empty fields
 def fetch_profiles(
-    batch_size: int,
-    max_clips: int,
     hiker_api_key: str,
 ) -> None:
     cl = Client(token=hiker_api_key)
@@ -97,7 +92,6 @@ def fetch_profiles(
         .filter(
             (User.parse_status.is_(None)) | (User.parse_status == "pending"),
         )
-        .limit(batch_size)
         .all()
     )
 
@@ -112,12 +106,11 @@ def fetch_profiles(
 
     with progress(len(users), "Fetching profiles") as advance:
         for user in users:
-            user_id = user.id
             for attempt in range(3):
                 if attempt:
                     time.sleep(30)
                 try:
-                    result = _process_user(cl, user, session, max_clips)
+                    result = _process_user(cl, user, session)
                     session.commit()
                     parsed += 1
                     advance(
@@ -126,12 +119,12 @@ def fetch_profiles(
                     break
                 except Exception:
                     session.rollback()
-                    user = session.query(User).filter_by(id=user_id).one()
+                    user = session.query(User).filter_by(id=user.id).one()
                     if attempt == 2:
                         user.parse_status = "failed"
                         session.commit()
                         failed += 1
-                        advance(detail=f"{get_username(user_id)} — error")
+                        advance(detail=f"{get_username(user.id)} — error")
 
     session.close()
 

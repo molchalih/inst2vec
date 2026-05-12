@@ -169,7 +169,7 @@ def test_fetch_profiles_reads_username_from_identity_db(monkeypatch):
 
     from modules.parse import fetch_profiles
 
-    fetch_profiles(batch_size=5, max_clips=5, hiker_api_key="test_key")
+    fetch_profiles(hiker_api_key="test_key")
 
     # Must have called the API with the correct username
     assert called_with_username == ["fetchme"]
@@ -247,7 +247,7 @@ def test_fetch_profiles_stores_sequential_clip_ids(monkeypatch):
 
     from modules.parse import fetch_profiles
 
-    fetch_profiles(batch_size=5, max_clips=5, hiker_api_key="test_key")
+    fetch_profiles(hiker_api_key="test_key")
 
     with Session(main_eng) as s:
         clips = s.query(Clip).all()
@@ -263,7 +263,7 @@ def test_fetch_profiles_stores_sequential_clip_ids(monkeypatch):
         assert ci.id == clips[0].id  # IDs must match
 
 
-def test_fetch_profiles_retries_then_succeeds_fourth(monkeypatch):
+def test_fetch_profiles_retries_then_succeeds_third(monkeypatch):
     main_eng = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(main_eng)
     id_eng = _make_identity_engine()
@@ -282,7 +282,7 @@ def test_fetch_profiles_retries_then_succeeds_fourth(monkeypatch):
 
         def user_by_username_v1(self, username):
             self.calls += 1
-            if self.calls < 4:
+            if self.calls < 3:
                 raise RuntimeError("temporary")
             return {
                 "user": {
@@ -304,7 +304,7 @@ def test_fetch_profiles_retries_then_succeeds_fourth(monkeypatch):
 
     from modules.parse import fetch_profiles
 
-    fetch_profiles(batch_size=5, max_clips=5, hiker_api_key="test_key")
+    fetch_profiles(hiker_api_key="test_key")
 
     with Session(main_eng) as s:
         u = s.get(User, 100)
@@ -342,7 +342,7 @@ def test_fetch_profiles_all_attempts_fail(monkeypatch):
 
     from modules.parse import fetch_profiles
 
-    fetch_profiles(batch_size=5, max_clips=5, hiker_api_key="test_key")
+    fetch_profiles(hiker_api_key="test_key")
 
     with Session(main_eng) as s:
         u = s.get(User, 101)
