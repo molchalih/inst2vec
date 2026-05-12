@@ -28,6 +28,13 @@ def run_pipeline() -> None:
     phase("Database")
     init_db(secrets.database_url, secrets.identity_db_url)
 
+    # TODO: return load data.json function: 
+    # phase("Importing")
+    # load_usernames_from_csv()
+
+    """
+    1. PARSING: fetches profiles and corresponding clips metadata via hiker api, populates the database.
+    """
     phase("Profile Parsing")
     fetch_profiles(
         batch_size=settings.pipeline.batch_size,
@@ -35,6 +42,9 @@ def run_pipeline() -> None:
         hiker_api_key=secrets.hiker_api_key,
     )
 
+    """
+    2. FILTERING: preprocessing the dataset to flag low quality profiles and their clips based on provided policy.
+    """
     phase("Dataset Filtering — Pass A")
     finalize_user_dataset(
         "A",
@@ -47,6 +57,9 @@ def run_pipeline() -> None:
         creator_min_clips=settings.finalize.creator_min_clips,
     )
 
+    """
+    3. DOWNLOADING: downloads profile pics, videos and thumbnails of the filtered profiles.
+    """
     phase("Download")
     download_files(
         batch_size=settings.pipeline.batch_size,
@@ -58,7 +71,10 @@ def run_pipeline() -> None:
         video_dir=settings.paths.video_dir,
     )
 
-    phase("Music Classification")
+    """
+    4.1 MUSIC: fingerprints the music in videos.
+    """
+    phase("Music fingerprinting")
     classify_music(
         video_dir=settings.paths.video_dir,
         min_confidence=settings.music.audio_fingerprint_confidence,
@@ -67,8 +83,10 @@ def run_pipeline() -> None:
         arc_access_key=secrets.arc_access_key,
         arc_secret_key=secrets.arc_secret_key,
     )
-
-    phase("Music Feature Extraction")
+    """
+    4.2. MUSIC: extracts the music features (its textual representation).
+    """
+    phase("Music feature extraction")
     extract_music_features(
         video_dir=settings.paths.video_dir,
         http_timeout=settings.music.http_timeout,
@@ -87,7 +105,10 @@ def run_pipeline() -> None:
         manual_features_mp3_bitrate=settings.music.manual_features_mp3_bitrate,
     )
 
-    phase("Speech")
+    """
+    5. SPEECH: transcribes the speech and translates applicable entries if needed.
+    """
+    phase("Speech transcription")
     classify_speech(
         video_dir=settings.paths.video_dir,
         whisper_model=settings.speech.whisper_model,
@@ -105,7 +126,10 @@ def run_pipeline() -> None:
     )
     clean_speech()
 
-    phase("Captions")
+    """
+    6. CAPTIONS: translates applicable captions.
+    """
+    phase("Captions translation")
     clean_captions(commit_every=settings.captions.commit_every)
     detect_caption_language()
     translate_captions(
@@ -116,6 +140,9 @@ def run_pipeline() -> None:
         translate_max_new_tokens=settings.captions.translate_max_new_tokens,
     )
 
+    """
+    7. FILTERING: postprocessing of the dataset after features extraction.
+    """
     phase("Dataset Filtering — Pass B")
     finalize_user_dataset(
         "B",
@@ -128,6 +155,12 @@ def run_pipeline() -> None:
         creator_min_clips=settings.finalize.creator_min_clips,
     )
 
+    """
+    8. EMBEDDINGS: embeds the features into a vector space (various modalities).
+    - video: only video
+    - sandwich: video + music features
+    - audio: only audio
+    """
     phase("Video Embeddings")
     embed_video_clips(
         model_path=settings.paths.model_path,
@@ -154,21 +187,33 @@ def run_pipeline() -> None:
         exclude_disqualified_users=settings.embeddings.exclude_disqualified_users,
     )
 
+    """
+    9. USER EMBEDDINGS: calculates the average embedding of the clips belonging to a user, generating a user-level representation.
+    """
     phase("User Embeddings")
     embed_user_clips()
 
+    """
+    10. CLUSTER SEARCH: ...
+    """
     phase("Cluster Search")
     run_cluster_search(
         settings=settings.search,
         clustering_grid_workers=getattr(settings.search, "clustering_grid_workers", 1),
     )
 
+    """
+    11. CLUSTER VALIDATION: ...
+    """
     phase("Cluster Validation")
     best_params = validate_clustering(
         settings=settings.validation,
         clustering_grid_workers=getattr(settings.search, "clustering_grid_workers", 1),
     )
 
+    """
+    12. CLUSTERING: ...
+    """
     phase("Clustering")
     for case, params in best_params.items():
         if params is None:
@@ -176,6 +221,9 @@ def run_pipeline() -> None:
             continue
         cluster_users(case, **params)
 
+    """
+    13. VISUALIZATION: ...
+    """
     phase("Visualization")
     plot_clusters(plots_dir=settings.paths.plots_dir)
 

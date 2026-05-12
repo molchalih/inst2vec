@@ -60,7 +60,9 @@ def _fetch_clips(cl: Any, user: User, session: Any, max_clips: int) -> int:
         count += 1
     return count
 
-
+# TODO: explore batch size, mb drop it
+# TODO: explore max_clips, mb drop it
+# TODO: get rid of pending, use None as default for empty fields
 def fetch_profiles(
     batch_size: int,
     max_clips: int,
@@ -125,8 +127,6 @@ def fetch_profiles(
                         session.commit()
                         failed += 1
                         advance(detail=f"{username} — error")
-
-            time.sleep(0.3)
 
     session.close()
 
