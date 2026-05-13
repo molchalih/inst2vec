@@ -39,7 +39,6 @@ def _fetch_clips(cl: Any, user: User, session: Any) -> int:
 
     all_items.sort(key=lambda x: x["media"].get("play_count") or 0, reverse=True)
 
-    count = 0
     for item in all_items:
         m = item["media"]
         clip_api_pk = int(m["pk"])
@@ -66,8 +65,7 @@ def _fetch_clips(cl: Any, user: User, session: Any) -> int:
                 taken_at=m.get("taken_at"),
             )
         )
-        count += 1
-    return count
+    return None
 
 
 def _process_user(cl: Any, user: User, session: Any) -> None:
