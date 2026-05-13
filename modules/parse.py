@@ -16,9 +16,6 @@ SCOPE = "fetch_profiles"
 
 
 def _fetch_clips(cl: Any, user: User, session: Any) -> None:
-    if user.clips:
-        return
-
     api_pk = get_api_pk(user.id)
     if api_pk is None:
         return
@@ -33,7 +30,7 @@ def _fetch_clips(cl: Any, user: User, session: Any) -> None:
             data = cl.user_clips_v2(str(api_pk))
         page = data["response"]
         all_items.extend(page.get("items", []))
-        next_page_id = page.get("next_page_id") or None
+        next_page_id = data.get("next_page_id") or None
         if not next_page_id:
             break
 

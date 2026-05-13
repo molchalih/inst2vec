@@ -49,7 +49,7 @@ def test_process_user_stores_follower_count():
             "follower_count": 1234,
         }
     }
-    cl.user_clips_v2.return_value = {"response": {"items": [], "next_page_id": None}}
+    cl.user_clips_v2.return_value = {"response": {"items": []}, "next_page_id": None}
 
     user = session.query(User).filter_by(id=user_id).one()
     parse_mod._process_user(cl, user, session)
@@ -91,8 +91,8 @@ def test_fetch_clips_stores_video_duration_and_taken_at():
             "items": [
                 _make_clip_item(pk=20001, video_duration=8.3, taken_at=1710000000)
             ],
-            "next_page_id": None,
-        }
+        },
+        "next_page_id": None,
     }
 
     user = session.query(User).filter_by(id=user_id).one()
@@ -110,28 +110,28 @@ def test_fetch_clips_paginates_up_to_5_pages():
 
     pages = [
         {
-            "items": [_make_clip_item(pk=30001 + i) for i in range(12)],
+            "response": {"items": [_make_clip_item(pk=30001 + i) for i in range(12)]},
             "next_page_id": "page2",
         },
         {
-            "items": [_make_clip_item(pk=30013 + i) for i in range(12)],
+            "response": {"items": [_make_clip_item(pk=30013 + i) for i in range(12)]},
             "next_page_id": "page3",
         },
         {
-            "items": [_make_clip_item(pk=30025 + i) for i in range(12)],
+            "response": {"items": [_make_clip_item(pk=30025 + i) for i in range(12)]},
             "next_page_id": "page4",
         },
         {
-            "items": [_make_clip_item(pk=30037 + i) for i in range(12)],
+            "response": {"items": [_make_clip_item(pk=30037 + i) for i in range(12)]},
             "next_page_id": "page5",
         },
         {
-            "items": [_make_clip_item(pk=30049 + i) for i in range(12)],
+            "response": {"items": [_make_clip_item(pk=30049 + i) for i in range(12)]},
             "next_page_id": None,
         },
     ]
     cl = MagicMock()
-    cl.user_clips_v2.side_effect = [{"response": p} for p in pages]
+    cl.user_clips_v2.side_effect = pages
 
     user = session.query(User).filter_by(id=user_id).one()
     parse_mod._fetch_clips(cl, user, session)
@@ -150,8 +150,8 @@ def test_fetch_clips_stops_when_no_next_page():
     cl.user_clips_v2.return_value = {
         "response": {
             "items": [_make_clip_item(pk=40001 + i) for i in range(12)],
-            "next_page_id": None,
-        }
+        },
+        "next_page_id": None,
     }
 
     user = session.query(User).filter_by(id=user_id).one()
@@ -168,7 +168,7 @@ def test_fetch_clips_first_call_has_no_page_id():
     user_id, session = _make_user_with_identity("test_first_call_user", api_pk=111005)
 
     cl = MagicMock()
-    cl.user_clips_v2.return_value = {"response": {"items": [], "next_page_id": None}}
+    cl.user_clips_v2.return_value = {"response": {"items": []}, "next_page_id": None}
 
     user = session.query(User).filter_by(id=user_id).one()
     parse_mod._fetch_clips(cl, user, session)
