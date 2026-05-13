@@ -22,7 +22,7 @@ def _add_clip(
     user_id: int,
     id: int,
     play_count: int | None,
-    disqualified: int | None,
+    disqualified: bool | None,
 ):
     session.add(
         Clip(user_id=user_id, id=id, play_count=play_count, disqualified=disqualified)
@@ -37,32 +37,32 @@ def test_users_summary_to_markdown_renders_curated_metrics():
                 User(
                     id=1,
                     following_count=100,
-                    user_disqualified=0,
+                    user_disqualified=False,
                 ),
                 User(
                     id=2,
                     following_count=500,
-                    user_disqualified=1,
+                    user_disqualified=True,
                 ),
                 User(
                     id=3,
                     following_count=50,
-                    user_disqualified=0,
+                    user_disqualified=False,
                 ),
                 User(
                     id=4,
                     following_count=200,
-                    user_disqualified=0,
+                    user_disqualified=False,
                 ),
             ]
         )
-        _add_clip(s, user_id=1, id=100, play_count=10, disqualified=0)
-        _add_clip(s, user_id=1, id=101, play_count=20, disqualified=0)
-        _add_clip(s, user_id=1, id=102, play_count=None, disqualified=0)
-        _add_clip(s, user_id=2, id=200, play_count=40, disqualified=0)
-        _add_clip(s, user_id=3, id=300, play_count=None, disqualified=1)
-        _add_clip(s, user_id=4, id=400, play_count=30, disqualified=0)
-        _add_clip(s, user_id=3, id=401, play_count=21, disqualified=0)
+        _add_clip(s, user_id=1, id=100, play_count=10, disqualified=False)
+        _add_clip(s, user_id=1, id=101, play_count=20, disqualified=False)
+        _add_clip(s, user_id=1, id=102, play_count=None, disqualified=False)
+        _add_clip(s, user_id=2, id=200, play_count=40, disqualified=False)
+        _add_clip(s, user_id=3, id=300, play_count=None, disqualified=True)
+        _add_clip(s, user_id=4, id=400, play_count=30, disqualified=False)
+        _add_clip(s, user_id=3, id=401, play_count=21, disqualified=False)
         s.commit()
 
     from generators.dataset_summary_users import users_summary_to_markdown
@@ -87,23 +87,23 @@ def test_users_summary_to_markdown_scopes_users_to_kept_rows():
                 User(
                     id=1,
                     following_count=100,
-                    user_disqualified=0,
+                    user_disqualified=False,
                 ),
                 User(
                     id=2,
                     following_count=500,
-                    user_disqualified=1,
+                    user_disqualified=True,
                 ),
                 User(
                     id=3,
                     following_count=50,
-                    user_disqualified=0,
+                    user_disqualified=False,
                 ),
             ]
         )
-        _add_clip(s, user_id=1, id=100, play_count=200, disqualified=0)
-        _add_clip(s, user_id=1, id=101, play_count=100, disqualified=1)
-        _add_clip(s, user_id=3, id=300, play_count=50, disqualified=0)
+        _add_clip(s, user_id=1, id=100, play_count=200, disqualified=False)
+        _add_clip(s, user_id=1, id=101, play_count=100, disqualified=True)
+        _add_clip(s, user_id=3, id=300, play_count=50, disqualified=False)
         s.commit()
 
     from generators.dataset_summary_users import users_summary_to_markdown
@@ -121,7 +121,7 @@ def test_users_summary_to_markdown_scopes_users_to_kept_rows():
 def test_users_summary_to_markdown_uses_dash_for_missing_numeric_values():
     eng = _make_engine()
     with Session(eng) as s:
-        s.add(User(id=1, user_disqualified=0))
+        s.add(User(id=1, user_disqualified=False))
         s.commit()
 
     from generators.dataset_summary_users import users_summary_to_markdown
@@ -138,7 +138,7 @@ def test_users_summary_to_markdown_uses_dash_for_missing_numeric_values():
 def test_render_users_summary_returns_markdown_object():
     eng = _make_engine()
     with Session(eng) as s:
-        s.add(User(id=1, user_disqualified=0))
+        s.add(User(id=1, user_disqualified=False))
         s.commit()
 
     from docs.quarto_helpers import render_users_summary

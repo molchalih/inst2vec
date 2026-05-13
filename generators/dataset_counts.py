@@ -15,7 +15,7 @@ def get_users_count(eng) -> dict[str, int]:
         all = int(session.query(func.count(User.id)).scalar() or 0)
         kept = int(
             session.query(func.count(User.id))
-            .filter(User.user_disqualified == 0)
+            .filter(~User.user_disqualified)
             .scalar()
             or 0
         )
@@ -29,7 +29,7 @@ def get_clips_count(eng) -> dict[str, int]:
     with Session(eng) as session:
         all = int(session.query(func.count(Clip.id)).scalar() or 0)
         kept = int(
-            session.query(func.count(Clip.id)).filter(Clip.disqualified == 0).scalar()
+            session.query(func.count(Clip.id)).filter(~Clip.disqualified).scalar()
             or 0
         )
 

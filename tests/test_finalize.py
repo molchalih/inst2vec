@@ -61,8 +61,8 @@ def test_pass_a_pre_gates_users_with_too_few_raw_clips(monkeypatch):
         u2 = s.get(User, 2)
         assert u1 is not None
         assert u2 is not None
-        assert u1.user_disqualified == 1  # pre-gated
-        assert u2.user_disqualified == 0  # survived
+        assert u1.user_disqualified == True  # pre-gated
+        assert u2.user_disqualified == False  # survived
 
 
 def test_pass_a_pre_gated_users_excluded_from_percentile_floor(monkeypatch):
@@ -100,9 +100,9 @@ def test_pass_a_pre_gated_users_excluded_from_percentile_floor(monkeypatch):
         assert u1 is not None
         assert u2 is not None
         # User1 must be pre-gated (disqualified immediately, not due to stats)
-        assert u1.user_disqualified == 1
+        assert u1.user_disqualified == True
         # User2 survives with all clips intact because floor is computed only from user2
-        surviving_clips = [c for c in u2.clips if c.disqualified == 0]
+        surviving_clips = [c for c in u2.clips if c.disqualified == False]
         assert (
             len(surviving_clips) == 5
         )  # all 5 clips survive (dead user excluded from floor)
@@ -134,7 +134,7 @@ def test_pass_a_re_gates_after_stat_disq(monkeypatch):
     with Session(eng) as s:
         u = s.get(User, 1)
         assert u is not None
-        assert u.user_disqualified == 1  # re-gated: only 1 clip survives stat disq
+        assert u.user_disqualified == True  # re-gated: only 1 clip survives stat disq
 
 
 def test_pass_b_does_not_pre_gate(monkeypatch):
@@ -144,7 +144,7 @@ def test_pass_b_does_not_pre_gate(monkeypatch):
         # User with only 1 clip — would be pre-gated in Pass A, but not in Pass B
         u = _make_user(s, id=1, clips_play_counts=[100000])
         # Pre-set clip as eligible (disqualified=0) so Pass B considers it
-        s.query(Clip).filter(Clip.user_id == 1).update({"disqualified": 0})
+        s.query(Clip).filter(Clip.user_id == 1).update({"disqualified": False})
         s.commit()
 
     monkeypatch.setattr("modules.finalize.get_session", lambda: Session(eng))
@@ -167,7 +167,7 @@ def test_pass_b_does_not_pre_gate(monkeypatch):
         assert u is not None
         # Pass B does not pre-gate; user gets disqualified only by clip-count re-gate
         # (which is the same behavior as before — 1 clip < 4)
-        assert u.user_disqualified == 1  # disqualified by clip count in Pass B loop
+        assert u.user_disqualified == True  # disqualified by clip count in Pass B loop
 
 
 def test_finalize_user_dataset_accepts_params():

@@ -80,7 +80,7 @@ def _pick_video(session, music_id: int, video_dir: str) -> Path | None:
         session.query(Clip.id)
         .filter(
             Clip.music_id == music_id,
-            or_(Clip.disqualified.is_(None), Clip.disqualified == 0),
+            or_(Clip.disqualified.is_(None), ~Clip.disqualified),
         )
         .order_by(Clip.play_count.desc(), Clip.id.desc())
     ):
@@ -151,7 +151,7 @@ def classify_music(
 ) -> None:
     """Fingerprint all unresolved clips with ACRCloud and link them to Music rows.
 
-    Sets has_music=1 (match found) or has_music=0 (no match). Clips with missing
+    Sets has_music=True (match found) or has_music=False (no match). Clips with missing
     video files are skipped and retried on the next run.
     """
     session = get_session()
@@ -161,7 +161,7 @@ def classify_music(
         session.query(Clip)
         .filter(
             Clip.has_music.is_(None),
-            or_(Clip.disqualified.is_(None), Clip.disqualified == 0),
+            or_(Clip.disqualified.is_(None), ~Clip.disqualified),
         )
         .order_by(Clip.id.desc())
         .all()
@@ -197,11 +197,11 @@ def classify_music(
                 music = _get_or_create_music(session, artist, track)
                 clip.music_id = music.id
                 clip.music_confidence = confidence
-                clip.has_music = 1
+                clip.has_music = True
                 matched += 1
                 advance(detail=f"{clip.id}: {artist} – {track} ({confidence:.0%})")
             else:
-                clip.has_music = 0
+                clip.has_music = False
                 no_match += 1
                 advance()
 
@@ -345,7 +345,7 @@ def extract_music_features(
             session.query(Music)
             .join(Clip, Clip.music_id == Music.id)
             .filter(
-                or_(Clip.disqualified.is_(None), Clip.disqualified == 0),
+                or_(Clip.disqualified.is_(None), ~Clip.disqualified),
                 (Music.reccobeats_id.is_(None)) | (Music.reccobeats_id == _NO_MATCH),
                 (Music.has_features.is_(None)) | (Music.has_features != "yes"),
             )

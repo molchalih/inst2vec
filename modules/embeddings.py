@@ -110,11 +110,11 @@ def _aggregate_user_embeddings(rows: list[tuple[bytes, int]]) -> dict[int, bytes
 
 def _eligible_clips(session, exclude_disqualified_users: bool):
     clips_q = session.query(Clip).filter(
-        or_(Clip.disqualified.is_(None), Clip.disqualified == 0)
+        or_(Clip.disqualified.is_(None), ~Clip.disqualified)
     )
     if exclude_disqualified_users:
         clips_q = clips_q.join(User, Clip.user_id == User.id).filter(
-            or_(User.user_disqualified.is_(None), User.user_disqualified == 0),
+            or_(User.user_disqualified.is_(None), ~User.user_disqualified),
         )
     return clips_q.all()
 

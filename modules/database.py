@@ -41,7 +41,7 @@ class User(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     following_count: Mapped[int | None] = mapped_column(Integer)
     follower_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    user_disqualified: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    user_disqualified: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     parse_status: Mapped[str | None] = mapped_column(String, nullable=True)
 
     clips: Mapped[list["Clip"]] = relationship("Clip", back_populates="user")  # type: ignore[assignment]
@@ -75,15 +75,15 @@ class Clip(Base):
         Integer, ForeignKey("music.id"), nullable=True
     )
     music_confidence: Mapped[float | None] = mapped_column(Float)
-    has_music: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    has_music: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     speech_transcription: Mapped[str | None] = mapped_column(Text)
     speech_language: Mapped[str | None] = mapped_column(String, nullable=True)
     speech_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     speech_avg_logprob: Mapped[float | None] = mapped_column(Float, nullable=True)
     speech_compression_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
-    has_speech: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    has_speech: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     speech_translation: Mapped[str | None] = mapped_column(Text)
-    disqualified: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    disqualified: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 
     user: Mapped["User"] = relationship("User", back_populates="clips")  # type: ignore[assignment]
     music: Mapped[Optional["Music"]] = relationship("Music", back_populates="clips")  # type: ignore[assignment]
@@ -258,13 +258,13 @@ class ClusterRun(Base):
     min_size: Mapped[int] = mapped_column(Integer, nullable=False)
     median_size: Mapped[int] = mapped_column(Integer, nullable=False)
     max_size: Mapped[int] = mapped_column(Integer, nullable=False)
-    disqualified: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    disqualified: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     dbcv: Mapped[float | None] = mapped_column(Float, nullable=True)
     silhouette: Mapped[float | None] = mapped_column(Float, nullable=True)
     param_plateau_score: Mapped[float | None] = mapped_column(Float, nullable=True)
-    in_current_grid: Mapped[int | None] = mapped_column(
-        Integer, nullable=True
-    )  # 1=current, 0=stale
+    in_current_grid: Mapped[bool | None] = mapped_column(
+        Boolean, nullable=True
+    )  # True=current, False=stale
     dataset_hash: Mapped[str | None] = mapped_column(
         String, nullable=True
     )  # SHA-256 of sorted user PKs

@@ -34,8 +34,8 @@ def list_eligible_best_rows(session: Session, case: str) -> list[ClusterRun]:
         session.query(ClusterRun)
         .filter(
             ClusterRun.embedding_case == case,
-            ClusterRun.in_current_grid == 1,
-            ClusterRun.disqualified == 0,
+            ClusterRun.in_current_grid,
+            ~ClusterRun.disqualified,
             ClusterRun.dbcv.isnot(None),
             ClusterRun.param_plateau_score.isnot(None),
         )
@@ -79,7 +79,7 @@ def _std_ddof1(vals: list[float]) -> float:
 
 
 def summarize_case_rows(rows: list[ClusterRun]) -> dict[str, str]:
-    filtered_rows = [r for r in rows if r.disqualified != 1 and r.in_current_grid != 0]
+    filtered_rows = [r for r in rows if not r.disqualified and r.in_current_grid]
     dbcv_vals = [
         float(r.dbcv)
         for r in rows

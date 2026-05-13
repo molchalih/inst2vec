@@ -15,13 +15,10 @@ from modules.identity import (
 SCOPE = "fetch_profiles"
 
 
-def _fetch_clips(cl: Any, user: User, session: Any) -> int:
-    if user.clips:
-        return 0
-
+def _fetch_clips(cl: Any, user: User, session: Any) -> None:
     api_pk = get_api_pk(user.id)
     if api_pk is None:
-        return 0
+        return
 
     all_items: list[Any] = []
     next_page_id: str | None = None
@@ -33,13 +30,12 @@ def _fetch_clips(cl: Any, user: User, session: Any) -> int:
             data = cl.user_clips_v2(str(api_pk))
         page = data["response"]
         all_items.extend(page.get("items", []))
-        next_page_id = page.get("next_page_id") or None
+        next_page_id = data.get("next_page_id") or None
         if not next_page_id:
             break
 
     all_items.sort(key=lambda x: x["media"].get("play_count") or 0, reverse=True)
 
-    count = 0
     for item in all_items:
         m = item["media"]
         clip_api_pk = int(m["pk"])
@@ -66,8 +62,6 @@ def _fetch_clips(cl: Any, user: User, session: Any) -> int:
                 taken_at=m.get("taken_at"),
             )
         )
-        count += 1
-    return count
 
 
 def _process_user(cl: Any, user: User, session: Any) -> None:
@@ -120,7 +114,7 @@ def fetch_profiles(
                     advance(detail=f"{parsed}/{total_users}")
                     break
                 except Exception as e:
-                    log(SCOPE, f"error fetching user: {e}", level="error")
+                    log(SCOPE, f"error fetching user: {e}", level="err")
                     session.rollback()
                     user = session.query(User).filter_by(id=user.id).one()
                     if attempt == 2:

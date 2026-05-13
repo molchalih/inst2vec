@@ -102,9 +102,9 @@ def _load_grid(settings) -> list[dict]:
 def run_cluster_search(settings, clustering_grid_workers: int = 1) -> None:
     """Run grid search over all hyperparameter combos from settings; save metrics to ClusterRun.
 
-    At the start of each run: marks existing rows as in_current_grid=0/disqualified=1
+    At the start of each run: marks existing rows as in_current_grid=False/disqualified=True
     if they belong to a combo not in the current grid, or were computed on a different
-    dataset (hash mismatch). New rows get in_current_grid=1 and dataset_hash.
+    dataset (hash mismatch). New rows get in_current_grid=True and dataset_hash.
 
     Idempotent: skips any combo already present in the DB with matching dataset hash.
     Groups combos by embedding_case so the user embedding matrix is loaded once per case.
@@ -136,8 +136,8 @@ def run_cluster_search(settings, clustering_grid_workers: int = 1) -> None:
                     .filter(ClusterRun.embedding_case == case)
                     .all()
                 ):
-                    row.in_current_grid = 0
-                    row.disqualified = 1
+                    row.in_current_grid = False
+                    row.disqualified = True
                 session.commit()
             finally:
                 session.close()
@@ -159,10 +159,10 @@ def run_cluster_search(settings, clustering_grid_workers: int = 1) -> None:
                 in_grid = row_key in current_keys
                 fp_match = row.dataset_hash == dataset_hash
                 if in_grid and fp_match:
-                    row.in_current_grid = 1
+                    row.in_current_grid = True
                 else:
-                    row.in_current_grid = 0
-                    row.disqualified = 1
+                    row.in_current_grid = False
+                    row.disqualified = True
             session.commit()
         finally:
             session.close()
@@ -222,7 +222,7 @@ def run_cluster_search(settings, clustering_grid_workers: int = 1) -> None:
                         min_size=min(sizes) if sizes else 0,
                         median_size=int(np.median(sizes)) if sizes else 0,
                         max_size=max(sizes) if sizes else 0,
-                        in_current_grid=1,
+                        in_current_grid=True,
                         dataset_hash=_dataset_hash,
                     )
                     session.add(row)
@@ -250,7 +250,7 @@ def run_cluster_search(settings, clustering_grid_workers: int = 1) -> None:
                         stale_row.min_size = min(sizes) if sizes else 0
                         stale_row.median_size = int(np.median(sizes)) if sizes else 0
                         stale_row.max_size = max(sizes) if sizes else 0
-                        stale_row.in_current_grid = 1
+                        stale_row.in_current_grid = True
                         stale_row.dataset_hash = _dataset_hash
                         stale_row.disqualified = None
                         stale_row.dbcv = None

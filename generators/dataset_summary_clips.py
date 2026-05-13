@@ -28,7 +28,7 @@ TABLE_ROWS: tuple[tuple[str, str], ...] = (
 )
 
 
-KEPT_CLIP_FILTER = Clip.disqualified == 0
+KEPT_CLIP_FILTER = ~Clip.disqualified
 
 
 def _count(session: Session, *criteria) -> int:
@@ -95,11 +95,11 @@ def _summary_cells(session: Session) -> dict[str, str]:
     caption_translation_counts = _count_non_empty(
         session, Clip.caption_translation, KEPT_CLIP_FILTER
     )
-    speech_counts = _count(session, Clip.has_speech == 1, KEPT_CLIP_FILTER)
+    speech_counts = _count(session, Clip.has_speech, KEPT_CLIP_FILTER)
     speech_translation_counts = _count_non_empty(
         session, Clip.speech_translation, KEPT_CLIP_FILTER
     )
-    music_counts = _count(session, Clip.has_music == 1, KEPT_CLIP_FILTER)
+    music_counts = _count(session, Clip.has_music, KEPT_CLIP_FILTER)
     play_counts = _numeric_values(session, Clip.play_count, KEPT_CLIP_FILTER)
     return {
         "total_clips": f"{total_clips:,}",

@@ -27,15 +27,11 @@ def run_pipeline() -> None:
     startup()
 
     """
-    0. DATABASE: initializes the databases (identity and main). Populate from .csv if neccessary.
+    0. DATABASE: initializes the databases (identity and main). Populate / seed from .csv if neccessary.
     """
     phase("Database")
     init_db(secrets.database_url, secrets.identity_db_url)
 
-    """
-    0.1. IMPORTING: seed the identity and main DBs from a CSV of Instagram profile URLs.
-    Skipped silently if the file does not exist.
-    """
     phase("Importing")
     load_usernames_from_csv(csv_path=settings.paths.data_csv_path)
 

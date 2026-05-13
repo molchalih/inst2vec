@@ -50,14 +50,17 @@ def test_init_db_sets_engine(tmp_path, monkeypatch):
 
 def test_user_has_follower_count_column():
     from modules.database import User
+
     assert hasattr(User, "follower_count")
 
 
 def test_clip_has_video_duration_column():
     from modules.database import Clip
+
     assert hasattr(Clip, "video_duration")
 
 
 def test_clip_has_taken_at_column():
     from modules.database import Clip
+
     assert hasattr(Clip, "taken_at")

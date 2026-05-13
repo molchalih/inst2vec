@@ -30,7 +30,7 @@ def load_usernames_from_csv(csv_path: str = "data/data.csv"):
 
     session = get_session()
     loaded = 0
-    for username in sorted(usernames):
+    for username in usernames:
         user_id = get_or_create_user_identity(username)
         if not session.query(User).filter_by(id=user_id).first():
             session.add(User(id=user_id))

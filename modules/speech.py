@@ -26,14 +26,14 @@ from modules.external.gemma_translate import GemmaTranslator
 #                         "Thank you. Thank you." score high even with low logprob,
 #                         so this catches confident-but-repetitive hallucinations.
 #
-# A clip is marked has_speech=0 if EITHER gate fires. Text is always stored regardless.
+# A clip is marked has_speech=False if EITHER gate fires. Text is always stored regardless.
 
 SCOPE_CLASSIFY = "classify_speech"
 SCOPE_TRANSLATE = "translate_speech"
 SCOPE_CLEAN = "clean_speech"
 
 # Substrings in speech_translation that indicate a hallucination / bad transcription.
-# Any clip whose translation matches one of these will have has_speech reset to 0.
+# Any clip whose translation matches one of these will have has_speech reset to False.
 _HALLUCINATION_MARKERS = [
     "DimaTorzok",
 ]
@@ -75,7 +75,7 @@ def _has_meaningful_speech_text(text: str, min_meaningful_chars: int) -> bool:
 
 
 def clean_speech() -> None:
-    """Reset has_speech to 0 for clips whose speech_translation contains hallucination markers."""
+    """Reset has_speech to False for clips whose speech_translation contains hallucination markers."""
     session = get_session()
     filter_conditions = [
         Clip.speech_translation.contains(marker) for marker in _HALLUCINATION_MARKERS
@@ -83,8 +83,8 @@ def clean_speech() -> None:
     clips = (
         session.query(Clip)
         .filter(
-            or_(Clip.disqualified.is_(None), Clip.disqualified == 0),
-            Clip.has_speech == 1,
+            or_(Clip.disqualified.is_(None), ~Clip.disqualified),
+            Clip.has_speech,
             Clip.speech_translation.is_not(None),
             or_(*filter_conditions),
         )
@@ -96,10 +96,10 @@ def clean_speech() -> None:
         return
 
     for clip in clips:
-        clip.has_speech = 0
+        clip.has_speech = False
         log(
             SCOPE_CLEAN,
-            f'{clip.id}: marked has_speech=0 (translation: "{(clip.speech_translation or "")[:60]}")',
+            f'{clip.id}: marked has_speech=False (translation: "{(clip.speech_translation or "")[:60]}")',
         )
 
     session.commit()
@@ -126,7 +126,7 @@ def classify_speech(
         session.query(Clip)
         .filter(
             Clip.has_speech.is_(None),
-            or_(Clip.disqualified.is_(None), Clip.disqualified == 0),
+            or_(Clip.disqualified.is_(None), ~Clip.disqualified),
         )
         .order_by(Clip.id.desc())
         .all()
@@ -175,12 +175,12 @@ def classify_speech(
             meaningful = _has_meaningful_speech_text(text, min_meaningful_chars)
 
             if meaningful and not hallucination:
-                clip.has_speech = 1
+                clip.has_speech = True
                 has_speech += 1
                 preview = text[:60] + ("…" if len(text) > 60 else "")
                 advance(detail=f'{clip.id}: "{preview}"')
             else:
-                clip.has_speech = 0
+                clip.has_speech = False
                 no_speech += 1
                 advance()
 
@@ -207,7 +207,7 @@ def translate_speech(
     clips = (
         session.query(Clip)
         .filter(
-            or_(Clip.disqualified.is_(None), Clip.disqualified == 0),
+            or_(Clip.disqualified.is_(None), ~Clip.disqualified),
             Clip.speech_transcription.is_not(None),
             Clip.speech_transcription != "",
             Clip.speech_language.is_not(None),

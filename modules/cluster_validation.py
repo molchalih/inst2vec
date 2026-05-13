@@ -66,7 +66,7 @@ def _invalidate_stale_rows(session: Session, case: str, current_hash: str) -> No
         session.query(ClusterRun)
         .filter(
             ClusterRun.embedding_case == case,
-            ClusterRun.in_current_grid == 1,
+            ClusterRun.in_current_grid,
             or_(
                 ClusterRun.validation_config_hash.is_(None),
                 ClusterRun.validation_config_hash != current_hash,
@@ -140,7 +140,7 @@ def _phase_filter(session: Session, case: str, settings) -> None:
         session.query(ClusterRun)
         .filter(
             ClusterRun.embedding_case == case,
-            ClusterRun.in_current_grid == 1,
+            ClusterRun.in_current_grid,
         )
         .all()
     )
@@ -152,7 +152,7 @@ def _phase_filter(session: Session, case: str, settings) -> None:
                     row.noise_ratio <= max_noise
                     and min_clusters <= row.n_clusters <= max_clusters
                 )
-                row.disqualified = 0 if passes else 1
+                row.disqualified = not passes
                 n_pass += int(passes)
                 advance(1)
     session.commit()
@@ -169,7 +169,7 @@ def _phase_score(
         session.query(ClusterRun)
         .filter(
             ClusterRun.embedding_case == case,
-            ClusterRun.disqualified == 0,
+            ~ClusterRun.disqualified,
             ClusterRun.dbcv.is_(None),
         )
         .all()
@@ -191,14 +191,14 @@ def _phase_score(
                     f"score skip id={row_id} — ValueError",
                     level="warn",
                 )
-                row.disqualified = 1
+                row.disqualified = True
             elif outcome == "dbcv_fail":
                 log(
                     f"validate:{case}",
                     f"dbcv failed id={row_id} — disqualifying",
                     level="err",
                 )
-                row.disqualified = 1
+                row.disqualified = True
             else:
                 dbcv, sil = outcome
                 row.dbcv = dbcv
@@ -219,14 +219,14 @@ def _phase_score(
                         f"score skip id={row.id} — ValueError",
                         level="warn",
                     )
-                    row.disqualified = 1
+                    row.disqualified = True
                 elif outcome == "dbcv_fail":
                     log(
                         f"validate:{case}",
                         f"dbcv failed id={row.id} — disqualifying",
                         level="err",
                     )
-                    row.disqualified = 1
+                    row.disqualified = True
                 else:
                     dbcv, sil = outcome
                     row.dbcv = dbcv
@@ -316,8 +316,8 @@ def _phase_plateau(session: Session, case: str, settings) -> None:
         session.query(ClusterRun)
         .filter(
             ClusterRun.embedding_case == case,
-            ClusterRun.in_current_grid == 1,
-            ClusterRun.disqualified == 0,
+            ClusterRun.in_current_grid,
+            ~ClusterRun.disqualified,
             ClusterRun.dbcv.isnot(None),
         )
         .all()
