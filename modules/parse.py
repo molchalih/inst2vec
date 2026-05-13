@@ -23,12 +23,24 @@ def _fetch_clips(cl: Any, user: User, session: Any) -> int:
     if api_pk is None:
         return 0
 
-    data = cl.user_clips_v2(str(api_pk))
-    items = data["response"]["items"]
-    items.sort(key=lambda x: x["media"].get("play_count") or 0, reverse=True)
+    all_items: list[Any] = []
+    next_page_id: str | None = None
+
+    for _ in range(5):
+        if next_page_id is not None:
+            data = cl.user_clips_v2(str(api_pk), next_page_id)
+        else:
+            data = cl.user_clips_v2(str(api_pk))
+        page = data["response"]
+        all_items.extend(page.get("items", []))
+        next_page_id = page.get("next_page_id") or None
+        if not next_page_id:
+            break
+
+    all_items.sort(key=lambda x: x["media"].get("play_count") or 0, reverse=True)
 
     count = 0
-    for item in items:
+    for item in all_items:
         m = item["media"]
         clip_api_pk = int(m["pk"])
         clip_id = get_or_create_clip_identity(clip_api_pk)
@@ -50,6 +62,8 @@ def _fetch_clips(cl: Any, user: User, session: Any) -> int:
                 reshare_count=m.get("reshare_count"),
                 like_count=m.get("like_count"),
                 play_count=m.get("play_count"),
+                video_duration=m.get("video_duration"),
+                taken_at=m.get("taken_at"),
             )
         )
         count += 1
@@ -71,6 +85,7 @@ def _process_user(cl: Any, user: User, session: Any) -> None:
     )
 
     user.following_count = info.get("following_count")
+    user.follower_count = info.get("follower_count")
     _fetch_clips(cl, user, session)
     user.parse_status = "success"
 
