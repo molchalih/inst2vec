@@ -56,7 +56,7 @@ def _fetch_clips(cl: Any, user: User, session: Any) -> int:
     return count
 
 
-def _process_user(cl: Any, user: User, session: Any) -> dict[str, Any]:
+def _process_user(cl: Any, user: User, session: Any) -> None:
     username = get_username(user.id)
     data = cl.user_by_username_v1(username)
     info = data.get("user", data)
@@ -71,14 +71,8 @@ def _process_user(cl: Any, user: User, session: Any) -> dict[str, Any]:
     )
 
     user.following_count = info.get("following_count")
-    clips_count = _fetch_clips(cl, user, session)
+    _fetch_clips(cl, user, session)
     user.parse_status = "success"
-
-    return {
-        "username": username,
-        "full_name": info.get("full_name"),
-        "clips_count": clips_count,
-    }
 
 
 def fetch_profiles(
@@ -87,11 +81,7 @@ def fetch_profiles(
     cl = Client(token=hiker_api_key)
     session = get_session()
 
-    users = (
-        session.query(User)
-        .filter(User.parse_status.is_(None))
-        .all()
-    )
+    users = session.query(User).filter(User.parse_status.is_(None)).all()
 
     if not users:
         log(SCOPE, "no new users provided", level="warn")
@@ -101,28 +91,28 @@ def fetch_profiles(
     log(SCOPE, f"{len(users)} users to process")
 
     parsed = skipped = failed = 0
+    total_users = len(users)
 
-    with progress(len(users), "Fetching profiles") as advance:
+    with progress(total_users, "Fetching profiles") as advance:
         for user in users:
             for attempt in range(3):
                 if attempt:
                     time.sleep(30)
                 try:
-                    result = _process_user(cl, user, session)
+                    _process_user(cl, user, session)
                     session.commit()
                     parsed += 1
-                    advance(
-                        detail=f"{result['username']} ({result['full_name']}, {result['clips_count']} clips)"
-                    )
+                    advance(detail=f"{parsed}/{total_users}")
                     break
-                except Exception:
+                except Exception as e:
+                    log(SCOPE, f"error fetching user: {e}", level="error")
                     session.rollback()
                     user = session.query(User).filter_by(id=user.id).one()
                     if attempt == 2:
                         user.parse_status = "failed"
                         session.commit()
                         failed += 1
-                        advance(detail=f"{get_username(user.id)} — error")
+                        advance(detail=f"{parsed}/{total_users} ({failed} failed)")
 
     session.close()
 
