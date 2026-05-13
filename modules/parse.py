@@ -15,13 +15,13 @@ from modules.identity import (
 SCOPE = "fetch_profiles"
 
 
-def _fetch_clips(cl: Any, user: User, session: Any) -> int:
+def _fetch_clips(cl: Any, user: User, session: Any) -> None:
     if user.clips:
-        return 0
+        return
 
     api_pk = get_api_pk(user.id)
     if api_pk is None:
-        return 0
+        return
 
     all_items: list[Any] = []
     next_page_id: str | None = None
@@ -65,7 +65,6 @@ def _fetch_clips(cl: Any, user: User, session: Any) -> int:
                 taken_at=m.get("taken_at"),
             )
         )
-    return None
 
 
 def _process_user(cl: Any, user: User, session: Any) -> None:
@@ -118,7 +117,7 @@ def fetch_profiles(
                     advance(detail=f"{parsed}/{total_users}")
                     break
                 except Exception as e:
-                    log(SCOPE, f"error fetching user: {e}", level="error")
+                    log(SCOPE, f"error fetching user: {e}", level="err")
                     session.rollback()
                     user = session.query(User).filter_by(id=user.id).one()
                     if attempt == 2:
