@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import os
-from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+
+from modules.config import Secrets, Settings
 
 MINIMAL_TOML = b"""
 [pipeline]
@@ -78,6 +79,9 @@ adaptive_default_fps = 2.0
 
 [validation]
 plateau_drop_threshold = 0.05
+max_noise_ratio = 0.3
+min_clusters = 3
+max_clusters = 20
 
 [overrides]
 video = ""
@@ -116,8 +120,8 @@ def test_returns_two_objects(tmp_path):
     assert isinstance(result, tuple)
     assert len(result) == 2
     settings, secrets = result
-    assert isinstance(settings, SimpleNamespace)
-    assert isinstance(secrets, SimpleNamespace)
+    assert isinstance(settings, Settings)
+    assert isinstance(secrets, Secrets)
 
 
 def test_settings_sections_present(tmp_path):
