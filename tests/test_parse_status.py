@@ -3,71 +3,16 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 import modules.identity as identity_mod
 from modules.database import (
     Base,
     Clip,
-    Download,
     User,
-    _backfill_parse_status,
-    _migrate_users_table,
 )
 from modules.identity import IdentityBase, UserIdentity
-
-
-def test_migrate_users_table_adds_parse_status_column():
-    eng = create_engine("sqlite:///:memory:")
-    with eng.begin() as conn:
-        conn.execute(
-            text(
-                "CREATE TABLE users (pk BIGINT PRIMARY KEY, username VARCHAR NOT NULL UNIQUE)"
-            )
-        )
-    assert "parse_status" not in {c["name"] for c in inspect(eng).get_columns("users")}
-    _migrate_users_table(eng)
-    names = {c["name"] for c in inspect(eng).get_columns("users")}
-    assert "parse_status" in names
-
-
-def test_backfill_success_failed_pending_and_precedence():
-    eng = create_engine("sqlite:///:memory:")
-    Base.metadata.create_all(eng)
-    with Session(eng) as s:
-        s.add(
-            User(id=1, following_count=100, parse_status=None)
-        )  # has following_count → success
-        s.add(User(id=2, parse_status=None))  # has failed download → failed
-        s.add(
-            Download(
-                entity_id=2,
-                file_type="profile_pic",
-                success=False,
-                parse_available=False,
-            )
-        )
-        s.add(User(id=3, parse_status=None))  # nothing → pending
-        s.add(User(id=4, following_count=200, parse_status=None))  # both → success wins
-        s.add(
-            Download(
-                entity_id=4,
-                file_type="profile_pic",
-                success=False,
-                parse_available=False,
-            )
-        )
-        s.commit()
-        _backfill_parse_status(s)
-        s.commit()
-
-    with Session(eng) as s:
-        assert s.get(User, 1).parse_status == "success"
-        assert s.get(User, 2).parse_status == "failed"
-        assert s.get(User, 3).parse_status == "pending"
-        assert s.get(User, 4).parse_status == "success"
-
 
 # fetch_profiles tests updated in Task 5 (parse.py now reads username from identity DB)
 
@@ -76,7 +21,7 @@ def test_finalize_unresolved_for_non_success_parse_status(monkeypatch):
     eng = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(eng)
     with Session(eng) as s:
-        s.add(User(id=1, parse_status="pending"))
+        s.add(User(id=1, parse_status=None))
         s.add(User(id=2, parse_status="failed"))
         s.add(User(id=3, parse_status="success"))
         for i in range(4):
@@ -139,7 +84,7 @@ def test_fetch_profiles_reads_username_from_identity_db(monkeypatch):
         s.add(UserIdentity(id=1, username="fetchme"))
         s.commit()
     with Session(main_eng) as s:
-        s.add(User(id=1, parse_status="pending"))
+        s.add(User(id=1, parse_status=None))
         s.commit()
 
     called_with_username = []
@@ -169,7 +114,7 @@ def test_fetch_profiles_reads_username_from_identity_db(monkeypatch):
 
     from modules.parse import fetch_profiles
 
-    fetch_profiles(batch_size=5, max_clips=5, hiker_api_key="test_key")
+    fetch_profiles(hiker_api_key="test_key")
 
     # Must have called the API with the correct username
     assert called_with_username == ["fetchme"]
@@ -203,7 +148,7 @@ def test_fetch_profiles_stores_sequential_clip_ids(monkeypatch):
         s.add(UserIdentity(id=1, username="clipper"))
         s.commit()
     with Session(main_eng) as s:
-        s.add(User(id=1, parse_status="pending"))
+        s.add(User(id=1, parse_status=None))
         s.commit()
 
     LARGE_API_PK = 3770212309156376545
@@ -247,7 +192,7 @@ def test_fetch_profiles_stores_sequential_clip_ids(monkeypatch):
 
     from modules.parse import fetch_profiles
 
-    fetch_profiles(batch_size=5, max_clips=5, hiker_api_key="test_key")
+    fetch_profiles(hiker_api_key="test_key")
 
     with Session(main_eng) as s:
         clips = s.query(Clip).all()
@@ -263,7 +208,7 @@ def test_fetch_profiles_stores_sequential_clip_ids(monkeypatch):
         assert ci.id == clips[0].id  # IDs must match
 
 
-def test_fetch_profiles_retries_then_succeeds_fourth(monkeypatch):
+def test_fetch_profiles_retries_then_succeeds_third(monkeypatch):
     main_eng = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(main_eng)
     id_eng = _make_identity_engine()
@@ -273,7 +218,7 @@ def test_fetch_profiles_retries_then_succeeds_fourth(monkeypatch):
         s.add(UserIdentity(id=100, username="retry_user"))
         s.commit()
     with Session(main_eng) as s:
-        s.add(User(id=100, parse_status="pending"))
+        s.add(User(id=100, parse_status=None))
         s.commit()
 
     class FakeClient:
@@ -282,7 +227,7 @@ def test_fetch_profiles_retries_then_succeeds_fourth(monkeypatch):
 
         def user_by_username_v1(self, username):
             self.calls += 1
-            if self.calls < 4:
+            if self.calls < 3:
                 raise RuntimeError("temporary")
             return {
                 "user": {
@@ -304,7 +249,7 @@ def test_fetch_profiles_retries_then_succeeds_fourth(monkeypatch):
 
     from modules.parse import fetch_profiles
 
-    fetch_profiles(batch_size=5, max_clips=5, hiker_api_key="test_key")
+    fetch_profiles(hiker_api_key="test_key")
 
     with Session(main_eng) as s:
         u = s.get(User, 100)
@@ -326,7 +271,7 @@ def test_fetch_profiles_all_attempts_fail(monkeypatch):
         s.add(UserIdentity(id=101, username="fail_user"))
         s.commit()
     with Session(main_eng) as s:
-        s.add(User(id=101, parse_status="pending"))
+        s.add(User(id=101, parse_status=None))
         s.commit()
 
     class FakeClient:
@@ -342,7 +287,7 @@ def test_fetch_profiles_all_attempts_fail(monkeypatch):
 
     from modules.parse import fetch_profiles
 
-    fetch_profiles(batch_size=5, max_clips=5, hiker_api_key="test_key")
+    fetch_profiles(hiker_api_key="test_key")
 
     with Session(main_eng) as s:
         u = s.get(User, 101)

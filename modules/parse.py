@@ -1,8 +1,5 @@
 import time
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    pass
+from typing import Any
 
 from hikerapi import Client
 
@@ -17,10 +14,8 @@ from modules.identity import (
 
 SCOPE = "fetch_profiles"
 
-_FETCH_RETRY_DELAYS_SEC = [0, 30, 60, 90]
 
-
-def _fetch_clips(cl: Any, user: User, session: Any, max_clips: int) -> int:
+def _fetch_clips(cl: Any, user: User, session: Any) -> int:
     if user.clips:
         return 0
 
@@ -28,12 +23,24 @@ def _fetch_clips(cl: Any, user: User, session: Any, max_clips: int) -> int:
     if api_pk is None:
         return 0
 
-    data = cl.user_clips_v2(str(api_pk))
-    items = data["response"]["items"]
-    items.sort(key=lambda x: x["media"].get("play_count") or 0, reverse=True)
+    all_items: list[Any] = []
+    next_page_id: str | None = None
+
+    for _ in range(5):
+        if next_page_id is not None:
+            data = cl.user_clips_v2(str(api_pk), next_page_id)
+        else:
+            data = cl.user_clips_v2(str(api_pk))
+        page = data["response"]
+        all_items.extend(page.get("items", []))
+        next_page_id = page.get("next_page_id") or None
+        if not next_page_id:
+            break
+
+    all_items.sort(key=lambda x: x["media"].get("play_count") or 0, reverse=True)
 
     count = 0
-    for item in items[: max_clips or None]:
+    for item in all_items:
         m = item["media"]
         clip_api_pk = int(m["pk"])
         clip_id = get_or_create_clip_identity(clip_api_pk)
@@ -55,30 +62,41 @@ def _fetch_clips(cl: Any, user: User, session: Any, max_clips: int) -> int:
                 reshare_count=m.get("reshare_count"),
                 like_count=m.get("like_count"),
                 play_count=m.get("play_count"),
+                video_duration=m.get("video_duration"),
+                taken_at=m.get("taken_at"),
             )
         )
         count += 1
     return count
 
 
+def _process_user(cl: Any, user: User, session: Any) -> None:
+    username = get_username(user.id)
+    data = cl.user_by_username_v1(username)
+    info = data.get("user", data)
+
+    update_user_identity(
+        user.id,
+        api_pk=info["pk"],
+        full_name=info.get("full_name"),
+        city_name=info.get("city_name"),
+        profile_pic_url=info.get("profile_pic_url"),
+        profile_pic_url_hd=info.get("profile_pic_url_hd"),
+    )
+
+    user.following_count = info.get("following_count")
+    user.follower_count = info.get("follower_count")
+    _fetch_clips(cl, user, session)
+    user.parse_status = "success"
+
+
 def fetch_profiles(
-    batch_size: int,
-    max_clips: int,
     hiker_api_key: str,
 ) -> None:
     cl = Client(token=hiker_api_key)
     session = get_session()
 
-    users = (
-        session.query(User)
-        .filter(
-            (User.parse_status.is_(None)) | (User.parse_status == "pending"),
-        )
-        .limit(batch_size)
-        .all()
-    )
-
-    parsed = skipped = failed = 0
+    users = session.query(User).filter(User.parse_status.is_(None)).all()
 
     if not users:
         log(SCOPE, "no new users provided", level="warn")
@@ -87,46 +105,29 @@ def fetch_profiles(
 
     log(SCOPE, f"{len(users)} users to process")
 
-    with progress(len(users), "Fetching profiles") as advance:
+    parsed = skipped = failed = 0
+    total_users = len(users)
+
+    with progress(total_users, "Fetching profiles") as advance:
         for user in users:
-            user_id = user.id
-            username = get_username(user_id)
-            for attempt in range(4):
-                if _FETCH_RETRY_DELAYS_SEC[attempt]:
-                    time.sleep(_FETCH_RETRY_DELAYS_SEC[attempt])
+            for attempt in range(3):
+                if attempt:
+                    time.sleep(30)
                 try:
-                    data = cl.user_by_username_v1(username)
-                    info = data.get("user", data)
-
-                    update_user_identity(
-                        user_id,
-                        api_pk=info["pk"],
-                        full_name=info.get("full_name"),
-                        city_name=info.get("city_name"),
-                        profile_pic_url=info.get("profile_pic_url"),
-                        profile_pic_url_hd=info.get("profile_pic_url_hd"),
-                    )
-
-                    user.following_count = info.get("following_count")
-
-                    clips_count = _fetch_clips(cl, user, session, max_clips)
-                    user.parse_status = "success"
+                    _process_user(cl, user, session)
                     session.commit()
                     parsed += 1
-                    advance(
-                        detail=f"{username} ({info.get('full_name')}, {clips_count} clips)"
-                    )
+                    advance(detail=f"{parsed}/{total_users}")
                     break
-                except Exception:
+                except Exception as e:
+                    log(SCOPE, f"error fetching user: {e}", level="error")
                     session.rollback()
-                    user = session.query(User).filter_by(id=user_id).one()
-                    if attempt == 3:
+                    user = session.query(User).filter_by(id=user.id).one()
+                    if attempt == 2:
                         user.parse_status = "failed"
                         session.commit()
                         failed += 1
-                        advance(detail=f"{username} — error")
-
-            time.sleep(0.3)
+                        advance(detail=f"{parsed}/{total_users} ({failed} failed)")
 
     session.close()
 

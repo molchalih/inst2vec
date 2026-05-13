@@ -16,6 +16,7 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
             model_path="./models/Qwen3-VL-Embedding-8B",
             profile_pic_dir="data/source/profile_pics",
             thumbnail_dir="data/source/thumbnails",
+            data_csv_path="data/data.csv",
         ),
         parse=SimpleNamespace(fetch_retry_delays_sec=[0, 30, 60, 90]),
         download=SimpleNamespace(max_attempts=3, retry_delay=2),
@@ -93,6 +94,11 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
             f"init:{database_url}:{identity_db_url}"
         ),
     )
+    monkeypatch.setattr(
+        main,
+        "load_usernames_from_csv",
+        lambda **kwargs: calls.append("import:csv"),
+    )
     monkeypatch.setattr(main, "fetch_profiles", lambda **kwargs: calls.append("parse"))
     monkeypatch.setattr(
         main,
@@ -150,7 +156,8 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
 
     assert calls[0] == "startup"
     assert calls[1].startswith("init:sqlite:///:memory:")
-    assert "parse" in calls
+    assert calls[2] == "import:csv"
+    assert calls[3] == "parse"
     assert "download" in calls
     assert "cluster:search" in calls
     assert calls[-1] == "viz"

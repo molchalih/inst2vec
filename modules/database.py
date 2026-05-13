@@ -40,6 +40,7 @@ class User(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     following_count: Mapped[int | None] = mapped_column(Integer)
+    follower_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     user_disqualified: Mapped[int | None] = mapped_column(Integer, nullable=True)
     parse_status: Mapped[str | None] = mapped_column(String, nullable=True)
 
@@ -68,6 +69,8 @@ class Clip(Base):
     reshare_count: Mapped[int | None] = mapped_column(Integer)
     like_count: Mapped[int | None] = mapped_column(Integer)
     play_count: Mapped[int | None] = mapped_column(Integer)
+    video_duration: Mapped[float | None] = mapped_column(Float, nullable=True)
+    taken_at: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     music_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("music.id"), nullable=True
     )
@@ -272,60 +275,13 @@ class ClusterRun(Base):
 
 
 def init_db(database_url: str, identity_db_url: str) -> None:
-    """Create main DB tables, run migrations, and initialize identity DB."""
     global _engine
     from modules.identity import init_identity_db
 
     _engine = create_engine(database_url)
     Base.metadata.create_all(_engine)
-    _migrate_users_table(_engine)
-    with Session(_engine) as s:
-        _backfill_parse_status(s)
-        s.commit()
     init_identity_db(identity_db_url)
 
 
 def get_session() -> Session:
     return Session(get_engine())
-
-
-def _migrate_users_table(eng) -> None:
-    """Additive migration: add parse_status column to users table if absent."""
-    from sqlalchemy import inspect, text
-
-    with eng.connect() as conn:
-        cols = {c["name"] for c in inspect(eng).get_columns("users")}
-        if "parse_status" not in cols:
-            conn.execute(text("ALTER TABLE users ADD COLUMN parse_status VARCHAR"))
-            conn.commit()
-
-
-def _backfill_parse_status(session: Session) -> None:
-    """Backfill parse_status for users that lack it."""
-    from sqlalchemy import text
-
-    session.execute(
-        text("UPDATE users SET parse_status = 'pending' WHERE parse_status IS NULL")
-    )
-    session.execute(
-        text(
-            """
-            UPDATE users SET parse_status = 'success' WHERE parse_status = 'pending'
-                AND (
-                    following_count IS NOT NULL
-                    OR id IN (SELECT user_id FROM clips)
-                )
-            """
-        )
-    )
-    session.execute(
-        text(
-            """
-            UPDATE users SET parse_status = 'failed' WHERE parse_status = 'pending'
-                AND id IN (
-                    SELECT entity_id FROM downloads
-                    WHERE file_type = 'profile_pic' AND parse_available = 0
-                )
-            """
-        )
-    )

@@ -185,6 +185,18 @@ def test_load_usernames_from_csv_creates_user_with_sequential_id(tmp_path, monke
         assert usernames == {"alice", "bob"}
 
 
+def test_load_usernames_from_csv_missing_file_is_noop(monkeypatch):
+    """If the CSV does not exist the function returns without raising."""
+    from modules.utils import load_usernames_from_csv
+
+    load_usernames_from_csv(csv_path="/nonexistent/path/data.csv")
+
+    from modules.identity import UserIdentity, get_identity_session
+
+    with get_identity_session() as s:
+        assert s.query(UserIdentity).count() == 0
+
+
 def test_download_uses_entity_id_and_fetches_pic_url_from_identity_db(
     tmp_path, monkeypatch
 ):

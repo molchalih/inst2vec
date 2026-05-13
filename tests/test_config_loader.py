@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import os
-from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+
+from modules.config import Secrets, Settings
 
 MINIMAL_TOML = b"""
 [pipeline]
@@ -17,6 +18,7 @@ plots_dir = "data/plots"
 model_path = "./models/Qwen3-VL-Embedding-8B"
 profile_pic_dir = "data/source/profile_pics"
 thumbnail_dir = "data/source/thumbnails"
+data_csv_path = "data/data.csv"
 
 [parse]
 fetch_retry_delays_sec = [0, 30, 60, 90]
@@ -77,6 +79,9 @@ adaptive_default_fps = 2.0
 
 [validation]
 plateau_drop_threshold = 0.05
+max_noise_ratio = 0.3
+min_clusters = 3
+max_clusters = 20
 
 [overrides]
 video = ""
@@ -115,8 +120,8 @@ def test_returns_two_objects(tmp_path):
     assert isinstance(result, tuple)
     assert len(result) == 2
     settings, secrets = result
-    assert isinstance(settings, SimpleNamespace)
-    assert isinstance(secrets, SimpleNamespace)
+    assert isinstance(settings, Settings)
+    assert isinstance(secrets, Secrets)
 
 
 def test_settings_sections_present(tmp_path):
@@ -156,6 +161,11 @@ def test_secrets_from_env(tmp_path):
     assert secrets.arc_host == "arc-host"
     assert secrets.spotify_client_id == "sp-id"
     assert secrets.huggingface_token == "hf-token"
+
+
+def test_paths_data_csv_path_present(tmp_path):
+    settings, _ = _load_with_fake_toml(tmp_path)
+    assert settings.paths.data_csv_path == "data/data.csv"
 
 
 def test_missing_secret_raises(tmp_path):

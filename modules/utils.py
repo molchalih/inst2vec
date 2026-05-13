@@ -1,4 +1,5 @@
 import csv
+import os
 from urllib.parse import urlparse
 
 from modules.console import log
@@ -7,6 +8,10 @@ from modules.identity import get_or_create_user_identity
 
 
 def load_usernames_from_csv(csv_path: str = "data/data.csv"):
+    if not os.path.exists(csv_path):
+        log("database", f"data CSV not found at {csv_path!r} — skipping import")
+        return
+
     with open(csv_path) as f:
         reader = csv.reader(f)
         urls = [row[0].strip() for row in reader if row]
@@ -28,7 +33,7 @@ def load_usernames_from_csv(csv_path: str = "data/data.csv"):
     for username in sorted(usernames):
         user_id = get_or_create_user_identity(username)
         if not session.query(User).filter_by(id=user_id).first():
-            session.add(User(id=user_id, parse_status="pending"))
+            session.add(User(id=user_id))
             loaded += 1
     session.commit()
     already_in_db = unique - loaded
