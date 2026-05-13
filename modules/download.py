@@ -95,7 +95,7 @@ def download_files(
         session.query(User)
         .filter(
             ~User.id.in_(done_ids),
-            (User.user_disqualified.is_(None)) | (User.user_disqualified == 0),
+            (User.user_disqualified.is_(None)) | (~User.user_disqualified),
         )
         .limit(batch_size)
         .all()
@@ -119,7 +119,7 @@ def download_files(
                 retry_delay,
             )
             for clip in user.clips[: max_clips or None]:
-                if clip.disqualified == 1:
+                if clip.disqualified:
                     continue
                 _try_download(
                     session,

@@ -28,7 +28,7 @@ def clean_captions(commit_every: int) -> None:
     clips = (
         session.query(Clip)
         .filter(
-            or_(Clip.disqualified.is_(None), Clip.disqualified == 0),
+            or_(Clip.disqualified.is_(None), ~Clip.disqualified),
             Clip.caption_text.is_not(None),
             Clip.caption_text != "",
             (Clip.caption_text.contains("@")) | (Clip.caption_text.contains("\n")),
@@ -60,7 +60,7 @@ def detect_caption_language() -> None:
     clips = (
         session.query(Clip)
         .filter(
-            or_(Clip.disqualified.is_(None), Clip.disqualified == 0),
+            or_(Clip.disqualified.is_(None), ~Clip.disqualified),
             Clip.caption_text.is_not(None),
             Clip.caption_text != "",
             (Clip.caption_language.is_(None)) | (Clip.caption_language == ""),
@@ -113,7 +113,7 @@ def translate_captions(
     clips = (
         session.query(Clip)
         .filter(
-            or_(Clip.disqualified.is_(None), Clip.disqualified == 0),
+            or_(Clip.disqualified.is_(None), ~Clip.disqualified),
             Clip.caption_text.is_not(None),
             Clip.caption_text != "",
             Clip.caption_language.is_not(None),

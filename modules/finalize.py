@@ -23,7 +23,7 @@ def _text_ok_clip_ids(session) -> set[int]:
         .filter(
             ((Clip.caption_text.is_not(None)) & (func.trim(Clip.caption_text) != ""))
             | (
-                (Clip.has_speech == 1)
+                Clip.has_speech
                 & (Clip.speech_transcription.is_not(None))
                 & (func.trim(Clip.speech_transcription) != "")
             )
@@ -67,7 +67,7 @@ def _creator_relative_low_outliers(
             c
             for c in user.clips
             if c.play_count is not None
-            and (not only_active_clips or c.disqualified != 1)
+            and (not only_active_clips or not c.disqualified)
         ]
         if len(clips) < creator_min_clips:
             continue
@@ -143,11 +143,11 @@ def finalize_user_dataset(
     if is_pass_a:
         for user in parsed_users:
             if len(user.clips) < target_clips_per_user:
-                user.user_disqualified = 1
+                user.user_disqualified = True
                 disq_count += 1
                 reason_counts["clip_count"] += 1
                 for clip in user.clips:
-                    clip.disqualified = 1
+                    clip.disqualified = True
                     clip_disq += 1
                     clip_reason_counts["user_disqualified"] += 1
                     pre_gated_clip_ids.add(clip.id)
@@ -166,7 +166,7 @@ def finalize_user_dataset(
             for clip in user.clips
             if (
                 clip.play_count is not None
-                and (pass_a_recompute_from_scratch or clip.disqualified != 1)
+                and (pass_a_recompute_from_scratch or not clip.disqualified)
             )
         ]
         percentile_floor = _quantile_int(all_play_counts, global_min_plays_percentile)
@@ -185,7 +185,7 @@ def finalize_user_dataset(
             for clip in user.clips:
                 already_disq = (
                     not pass_a_recompute_from_scratch
-                ) and clip.disqualified == 1
+                ) and clip.disqualified
                 is_global_low = bool(
                     global_floor > 0
                     and clip.play_count is not None
@@ -197,8 +197,8 @@ def finalize_user_dataset(
                 if not stat_disq:
                     active_clip_ids.append(clip.id)
         else:
-            active_clip_ids = [clip.id for clip in user.clips if clip.disqualified != 1]
-            stat_disq_by_clip = {clip.id: clip.disqualified == 1 for clip in user.clips}
+            active_clip_ids = [clip.id for clip in user.clips if not clip.disqualified]
+            stat_disq_by_clip = {clip.id: clip.disqualified for clip in user.clips}
 
         total_clips = len(active_clip_ids)
         text_count = _count_for_user_clip_set(active_clip_ids, text_ok_ids)
@@ -206,7 +206,7 @@ def finalize_user_dataset(
         bad_clip_count = total_clips < target_clips_per_user
         bad_text_count = use_text_gate and text_count < target_clips_per_user
         disqualified = bad_clip_count or bad_text_count
-        user.user_disqualified = 1 if disqualified else 0
+        user.user_disqualified = disqualified
 
         if disqualified:
             disq_count += 1
@@ -220,7 +220,7 @@ def finalize_user_dataset(
             should_disqualify_clip = disqualified or stat_disq_by_clip.get(
                 clip.id, False
             )
-            clip.disqualified = 1 if should_disqualify_clip else 0
+            clip.disqualified = should_disqualify_clip
 
             if should_disqualify_clip:
                 # Only count this clip if it wasn't already counted in pre-gate
@@ -246,7 +246,7 @@ def finalize_user_dataset(
     total_users = len(users)
     kept = total_users - disq_count
     eligible_clips = (
-        session.query(func.count(Clip.id)).filter(Clip.disqualified == 0).scalar()
+        session.query(func.count(Clip.id)).filter(~Clip.disqualified).scalar()
     )
     session.close()
 
