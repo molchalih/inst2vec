@@ -490,3 +490,99 @@ def test_derive_eligibility_no_nulls_after_run():
         clips = s.query(Clip).all()
         for c in clips:
             assert c.is_eligible is not None
+
+
+def _seed_eligible_clips(s, user_id: int, play_counts: list, id_offset: int = 0):
+    """Add eligible clips with given play counts for a user."""
+    from modules.database import Clip
+    for i, plays in enumerate(play_counts):
+        s.add(Clip(
+            id=id_offset + i + 1,
+            user_id=user_id,
+            play_count=plays,
+            video_duration=10.0, taken_at=1700000000,
+            video_url="http://x.com/v.mp4", like_count=5,
+            is_garbage=False, is_low_play_count=False,
+            is_too_short=False, is_too_long=False, is_too_old=False,
+            is_low_percentile=False, is_creator_low_outlier=False,
+            is_eligible=True,
+        ))
+
+def test_select_clips_for_embedding_basic():
+    from modules.config import FilterSettings
+    from modules.filter import select_clips_for_embedding
+    from modules.database import Clip, User
+    eng = _make_db()
+    cfg = FilterSettings(
+        selection_pool_percent=0.50,
+        selected_clips_per_user=2,
+        selection_random_seed=42,
+    )
+    with Session(eng) as s:
+        s.add(User(id=1, is_low_plays_median=False, is_not_enough_clips=False))
+        _seed_eligible_clips(s, user_id=1,
+                             play_counts=[100 * i for i in range(1, 11)])
+        s.commit()
+        select_clips_for_embedding(s, cfg)
+        s.commit()
+        selected = [c for c in s.query(Clip).all() if c.is_selected]
+        assert len(selected) == 2
+        u = s.get(User, 1)
+        assert u.is_selected is True
+
+def test_select_clips_for_embedding_stable_across_new_users():
+    from modules.config import FilterSettings
+    from modules.filter import select_clips_for_embedding
+    from modules.database import Clip, User
+    eng = _make_db()
+    cfg = FilterSettings(
+        selection_pool_percent=1.0,
+        selected_clips_per_user=3,
+        selection_random_seed=42,
+    )
+    with Session(eng) as s:
+        s.add(User(id=1, is_low_plays_median=False, is_not_enough_clips=False))
+        _seed_eligible_clips(s, user_id=1,
+                             play_counts=[1000, 2000, 3000, 4000, 5000])
+        s.commit()
+        select_clips_for_embedding(s, cfg)
+        s.commit()
+        selected_run1 = {c.id for c in s.query(Clip).all() if c.is_selected}
+
+    eng2 = _make_db()
+    with Session(eng2) as s:
+        s.add(User(id=1, is_low_plays_median=False, is_not_enough_clips=False))
+        s.add(User(id=2, is_low_plays_median=False, is_not_enough_clips=False))
+        _seed_eligible_clips(s, user_id=1,
+                             play_counts=[1000, 2000, 3000, 4000, 5000])
+        _seed_eligible_clips(s, user_id=2,
+                             play_counts=[500, 600, 700], id_offset=100)
+        s.commit()
+        select_clips_for_embedding(s, cfg)
+        s.commit()
+        selected_run2 = {c.id for c in s.query(Clip).filter(Clip.user_id == 1).all()
+                         if c.is_selected}
+
+    assert selected_run1 == selected_run2
+
+def test_select_clips_user_with_no_eligible_clips_not_selected():
+    from modules.config import FilterSettings
+    from modules.filter import select_clips_for_embedding
+    from modules.database import Clip, User
+    eng = _make_db()
+    cfg = FilterSettings(
+        selection_pool_percent=0.5,
+        selected_clips_per_user=2,
+        selection_random_seed=42,
+    )
+    with Session(eng) as s:
+        s.add(User(id=1, is_low_plays_median=False, is_not_enough_clips=False))
+        s.add(Clip(id=1, user_id=1, play_count=5000,
+                   video_duration=10.0, taken_at=1700000000,
+                   video_url="http://x.com/v.mp4", like_count=5,
+                   is_garbage=True, is_eligible=False))
+        s.commit()
+        select_clips_for_embedding(s, cfg)
+        s.commit()
+        u = s.get(User, 1)
+        assert u.is_selected is False

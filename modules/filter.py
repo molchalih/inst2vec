@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import random
 import statistics
 from typing import Any
 
@@ -194,3 +195,31 @@ def _derive_eligibility(session: Session) -> None:
             user.is_low_plays_median,
             user.is_not_enough_clips,
         ])
+
+
+def select_clips_for_embedding(session: Session, cfg: FilterSettings) -> None:
+    for clip in session.query(Clip).all():
+        clip.is_selected = False
+    for user in session.query(User).all():
+        user.is_selected = False
+
+    users = session.query(User).all()
+    for user in users:
+        eligible = sorted(
+            [c for c in user.clips if c.is_eligible],
+            key=lambda c: c.play_count or 0,
+            reverse=True,
+        )
+        if not eligible:
+            continue
+
+        pool_size = max(1, math.ceil(len(eligible) * cfg.selection_pool_percent))
+        pool = eligible[:pool_size]
+
+        n = min(cfg.selected_clips_per_user, len(pool))
+        rng = random.Random(f"{cfg.selection_random_seed}:{user.id}")
+        chosen = rng.sample(pool, n)
+
+        for clip in chosen:
+            clip.is_selected = True
+        user.is_selected = True
