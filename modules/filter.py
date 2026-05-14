@@ -223,3 +223,43 @@ def select_clips_for_embedding(session: Session, cfg: FilterSettings) -> None:
         for clip in chosen:
             clip.is_selected = True
         user.is_selected = True
+
+
+def preprocess_new_data(
+    cfg: FilterSettings,
+    *,
+    engine=None,
+) -> None:
+    from modules.database import get_engine
+    eng = engine or get_engine()
+    with Session(eng) as session:
+        for clip in session.query(Clip).all():
+            clip.is_garbage = None
+            clip.is_low_play_count = None
+            clip.is_too_short = None
+            clip.is_too_long = None
+            clip.is_too_old = None
+            clip.is_low_percentile = None
+            clip.is_high_percentile = None
+            clip.is_creator_low_outlier = None
+            clip.log_plays = None
+            clip.creator_relative_robust_z = None
+            clip.is_eligible = None
+            clip.is_selected = None
+        for user in session.query(User).all():
+            user.is_low_plays_median = None
+            user.is_not_enough_clips = None
+            user.is_selected = None
+            user.log_plays_median = None
+            user.log_plays_mad = None
+
+        _flag_garbage_clips(session)
+        _flag_basic_policy_clips(session, cfg)
+        _flag_low_median_creators(session, cfg)
+        _flag_users_without_enough_clips(session, cfg)
+        _flag_global_percentile_clips(session, cfg)
+        _compute_creator_robust_stats(session, cfg)
+        _derive_eligibility(session)
+        select_clips_for_embedding(session, cfg)
+
+        session.commit()

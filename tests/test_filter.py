@@ -586,3 +586,76 @@ def test_select_clips_user_with_no_eligible_clips_not_selected():
         s.commit()
         u = s.get(User, 1)
         assert u.is_selected is False
+
+
+def test_preprocess_new_data_end_to_end():
+    from modules.config import FilterSettings
+    from modules.filter import preprocess_new_data
+    from modules.database import Clip, User
+    eng = _make_db()
+    cfg = FilterSettings(
+        min_play_count=500,
+        min_video_duration=3,
+        max_video_duration=80,
+        min_taken_at=1600000000,
+        creator_min_median_views=1000,
+        min_eligible_clips_per_user=2,
+        global_low_percentile=0,
+        global_high_percentile=100,
+        creator_low_z_threshold=-3.5,
+        selection_pool_percent=1.0,
+        selected_clips_per_user=2,
+        selection_random_seed=42,
+    )
+    with Session(eng) as s:
+        s.add(User(id=1))
+        for i, plays in enumerate([2000, 3000, 4000, 5000, 6000], start=1):
+            s.add(Clip(id=i, user_id=1,
+                       play_count=plays, video_duration=15.0, taken_at=1700000000,
+                       video_url="http://x.com/v.mp4", like_count=10))
+        # garbage clip
+        s.add(Clip(id=99, user_id=1, play_count=None, video_duration=None,
+                   taken_at=None, video_url=None, like_count=None))
+        s.commit()
+
+    preprocess_new_data(cfg, engine=eng)
+
+    with Session(eng) as s:
+        clips = s.query(Clip).all()
+        for c in clips:
+            assert c.is_eligible is not None
+        garbage = s.get(Clip, 99)
+        assert garbage.is_eligible is False
+        healthy = [c for c in clips if c.id != 99]
+        assert all(c.is_eligible is True for c in healthy)
+        u = s.get(User, 1)
+        assert u.is_selected is True
+
+def test_preprocess_new_data_is_idempotent():
+    from modules.config import FilterSettings
+    from modules.filter import preprocess_new_data
+    from modules.database import Clip, User
+    eng = _make_db()
+    cfg = FilterSettings(
+        min_play_count=500, min_video_duration=3, max_video_duration=80,
+        min_taken_at=1600000000, creator_min_median_views=1000,
+        min_eligible_clips_per_user=2, global_low_percentile=0,
+        global_high_percentile=100, creator_low_z_threshold=-3.5,
+        selection_pool_percent=1.0, selected_clips_per_user=2,
+        selection_random_seed=42,
+    )
+    with Session(eng) as s:
+        s.add(User(id=1))
+        for i, plays in enumerate([2000, 3000, 4000, 5000, 6000], start=1):
+            s.add(Clip(id=i, user_id=1,
+                       play_count=plays, video_duration=15.0, taken_at=1700000000,
+                       video_url="http://x.com/v.mp4", like_count=10))
+        s.commit()
+
+    preprocess_new_data(cfg, engine=eng)
+    preprocess_new_data(cfg, engine=eng)
+
+    with Session(eng) as s:
+        clips = s.query(Clip).all()
+        for c in clips:
+            assert c.is_eligible is True
