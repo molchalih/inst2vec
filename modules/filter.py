@@ -40,7 +40,7 @@ def _surviving_clips(user: Any) -> list:
 
 
 def _count_surviving_clips(user: Any) -> int:
-    return sum(1 for _ in _surviving_clips(user))
+    return len(_surviving_clips(user))
 
 
 def _is_garbage(clip: Any) -> bool:
