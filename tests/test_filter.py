@@ -4,7 +4,6 @@ from sqlalchemy.orm import Session
 from modules.database import Base, Clip, User
 from modules.filter import (
     _is_garbage,
-    _is_low_play_count,
     _is_too_long,
     _is_too_old,
     _is_too_short,
@@ -156,16 +155,6 @@ def test_is_garbage_missing_like_count():
 def test_is_garbage_valid_clip():
     c = _make_clip()
     assert _is_garbage(c) is False
-
-
-def test_is_low_play_count_below():
-    c = _make_clip(play_count=999)
-    assert _is_low_play_count(c, min_play_count=1000) is True
-
-
-def test_is_low_play_count_at():
-    c = _make_clip(play_count=1000)
-    assert _is_low_play_count(c, min_play_count=1000) is False
 
 
 def test_is_too_short_below():
@@ -369,7 +358,6 @@ def test_flag_basic_policy_clips():
 
     eng = _make_db()
     cfg = FilterSettings(
-        min_play_count=1000,
         min_video_duration=3,
         max_video_duration=80,
         min_taken_at=1640995200,
@@ -440,11 +428,9 @@ def test_flag_basic_policy_clips():
         _flag_basic_policy_clips(s, cfg)
         s.commit()
         clips = {c.id: c for c in s.query(Clip).all()}
-        assert clips[1].is_low_play_count is True
         assert clips[2].is_too_short is True
         assert clips[3].is_too_long is True
         assert clips[4].is_too_old is True
-        assert clips[5].is_low_play_count is False
         assert clips[5].is_too_short is False
         assert clips[5].is_too_long is False
         assert clips[5].is_too_old is False
@@ -472,7 +458,6 @@ def test_flag_low_median_creators():
                     video_url="http://x.com/v.mp4",
                     like_count=5,
                     is_garbage=False,
-                    is_low_play_count=False,
                     is_too_short=False,
                     is_too_long=False,
                     is_too_old=False,
@@ -490,7 +475,6 @@ def test_flag_low_median_creators():
                     video_url="http://x.com/v.mp4",
                     like_count=5,
                     is_garbage=False,
-                    is_low_play_count=False,
                     is_too_short=False,
                     is_too_long=False,
                     is_too_old=False,
@@ -526,7 +510,6 @@ def test_flag_low_median_creators_excludes_garbage():
                     video_url="http://x.com/v.mp4",
                     like_count=5,
                     is_garbage=True,
-                    is_low_play_count=False,
                     is_too_short=False,
                     is_too_long=False,
                     is_too_old=False,
@@ -544,7 +527,6 @@ def test_flag_low_median_creators_excludes_garbage():
                     video_url="http://x.com/v.mp4",
                     like_count=5,
                     is_garbage=False,
-                    is_low_play_count=False,
                     is_too_short=False,
                     is_too_long=False,
                     is_too_old=False,
@@ -580,7 +562,6 @@ def test_flag_users_without_enough_clips():
                     video_url="http://x.com/v.mp4",
                     like_count=5,
                     is_garbage=False,
-                    is_low_play_count=False,
                     is_too_short=False,
                     is_too_long=False,
                     is_too_old=False,
@@ -598,7 +579,6 @@ def test_flag_users_without_enough_clips():
                     video_url="http://x.com/v.mp4",
                     like_count=5,
                     is_garbage=False,
-                    is_low_play_count=False,
                     is_too_short=False,
                     is_too_long=False,
                     is_too_old=False,
@@ -634,7 +614,6 @@ def test_flag_global_percentile_clips():
                     video_url="http://x.com/v.mp4",
                     like_count=5,
                     is_garbage=False,
-                    is_low_play_count=False,
                     is_too_short=False,
                     is_too_long=False,
                     is_too_old=False,
@@ -673,7 +652,6 @@ def test_compute_creator_robust_stats():
                     video_url="http://x.com/v.mp4",
                     like_count=5,
                     is_garbage=False,
-                    is_low_play_count=False,
                     is_too_short=False,
                     is_too_long=False,
                     is_too_old=False,
@@ -713,7 +691,6 @@ def test_compute_creator_robust_stats_mad_zero_no_crash():
                     video_url="http://x.com/v.mp4",
                     like_count=5,
                     is_garbage=False,
-                    is_low_play_count=False,
                     is_too_short=False,
                     is_too_long=False,
                     is_too_old=False,
@@ -749,7 +726,6 @@ def test_compute_creator_robust_stats_outlier_flagged():
                     video_url="http://x.com/v.mp4",
                     like_count=5,
                     is_garbage=False,
-                    is_low_play_count=False,
                     is_too_short=False,
                     is_too_long=False,
                     is_too_old=False,
@@ -776,7 +752,6 @@ def test_derive_eligibility_sets_all_clips():
                 id=1,
                 user_id=1,
                 is_garbage=False,
-                is_low_play_count=False,
                 is_too_old=False,
                 is_too_long=False,
                 is_too_short=False,
@@ -790,7 +765,6 @@ def test_derive_eligibility_sets_all_clips():
                 id=2,
                 user_id=1,
                 is_garbage=True,
-                is_low_play_count=False,
                 is_too_old=False,
                 is_too_long=False,
                 is_too_short=False,
@@ -805,7 +779,6 @@ def test_derive_eligibility_sets_all_clips():
                 id=3,
                 user_id=2,
                 is_garbage=False,
-                is_low_play_count=False,
                 is_too_old=False,
                 is_too_long=False,
                 is_too_short=False,
@@ -836,7 +809,6 @@ def test_derive_eligibility_no_nulls_after_run():
                 id=1,
                 user_id=1,
                 is_garbage=False,
-                is_low_play_count=False,
                 is_too_old=False,
                 is_too_long=False,
                 is_too_short=False,
@@ -867,7 +839,6 @@ def _seed_eligible_clips(s, user_id: int, play_counts: list, id_offset: int = 0)
                 video_url="http://x.com/v.mp4",
                 like_count=5,
                 is_garbage=False,
-                is_low_play_count=False,
                 is_too_short=False,
                 is_too_long=False,
                 is_too_old=False,
@@ -976,7 +947,6 @@ def test_preprocess_new_data_end_to_end():
 
     eng = _make_db()
     cfg = FilterSettings(
-        min_play_count=500,
         min_video_duration=3,
         max_video_duration=80,
         min_taken_at=1600000000,
@@ -1038,7 +1008,6 @@ def test_preprocess_new_data_is_idempotent():
 
     eng = _make_db()
     cfg = FilterSettings(
-        min_play_count=500,
         min_video_duration=3,
         max_video_duration=80,
         min_taken_at=1600000000,
@@ -1074,3 +1043,86 @@ def test_preprocess_new_data_is_idempotent():
         clips = s.query(Clip).all()
         for c in clips:
             assert c.is_eligible is True
+
+
+def test_not_enough_clips_independent_of_low_plays_median():
+    """A user flagged as low_plays_median MUST still get is_not_enough_clips
+    computed from surviving-clip count, not short-circuited to False."""
+    eng = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(eng)
+    with Session(eng) as s:
+        s.add(User(id=1, is_low_plays_median=True))
+        s.commit()
+
+        from modules.config import FilterSettings
+        from modules.filter import _flag_users_without_enough_clips
+
+        cfg = FilterSettings(min_eligible_clips_per_user=5)
+        _flag_users_without_enough_clips(s, cfg)
+
+        u = s.get(User, 1)
+        # User has zero surviving clips, so MUST be flagged True regardless
+        # of is_low_plays_median.
+        assert u.is_not_enough_clips is True
+
+
+def test_preprocess_runs_not_enough_clips_after_robust_stats():
+    """After the percentile + robust stats stages flag clips as low outliers,
+    _flag_users_without_enough_clips must run a second time so that users
+    whose clip count drops below the threshold are correctly flagged."""
+    eng = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(eng)
+    with Session(eng) as s:
+        s.add(User(id=1))
+        # Create 10 clips with moderate plays (passes basic-policy filtering)
+        # but most will be flagged as creator_low_outlier in robust stats stage
+        # when the user has 1 high outlier clip mixed with many low ones.
+        s.add(
+            Clip(
+                id=1,
+                user_id=1,
+                video_duration=10.0,
+                taken_at=1700000000,
+                play_count=100_000,  # high outlier
+                video_url="https://x/high",
+                like_count=10,
+            )
+        )
+        for i in range(2, 11):
+            s.add(
+                Clip(
+                    id=i,
+                    user_id=1,
+                    video_duration=10.0,
+                    taken_at=1700000000,
+                    play_count=1000,  # moderate: passes first-pass filtering
+                    video_url=f"https://x/{i}",
+                    like_count=10,
+                )
+            )
+        s.commit()
+
+    from modules.config import FilterSettings
+    from modules.filter import preprocess_new_data
+
+    cfg = FilterSettings(
+        min_eligible_clips_per_user=8,
+        creator_min_median_views=500,  # do not low-median-disqualify
+        creator_low_z_threshold=0.5,  # flag moderate plays as outliers relative to the high one
+    )
+    preprocess_new_data(cfg, engine=eng)
+
+    with Session(eng) as s:
+        u = s.get(User, 1)
+        clips = s.query(Clip).filter(Clip.user_id == 1).all()
+        # Count how many clips have no exclusion flags set
+        surviving = [c for c in clips if not any([
+            c.is_garbage, c.is_too_short, c.is_too_long, c.is_too_old,
+            c.is_low_percentile, c.is_high_percentile, c.is_creator_low_outlier
+        ])]
+        # After the robust stats stage, the moderate-play clips may be flagged
+        # as low outliers, reducing the surviving count and triggering the
+        # second is_not_enough_clips recomputation.
+        # This test verifies the second pass was executed by checking that
+        # is_not_enough_clips reflects the final clip count, not the initial.
+        assert u.is_not_enough_clips == (len(surviving) < cfg.min_eligible_clips_per_user)
