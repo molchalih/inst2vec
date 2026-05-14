@@ -81,3 +81,97 @@ def test_filter_settings_load():
     )
     assert cfg.min_play_count == 1000
     assert cfg.selected_clips_per_user == 10
+
+
+from modules.filter import (
+    _is_garbage,
+    _is_low_play_count,
+    _is_too_short,
+    _is_too_long,
+    _is_too_old,
+)
+
+def _make_clip(**kwargs):
+    """Build a minimal Clip-like object via SimpleNamespace."""
+    from types import SimpleNamespace
+    defaults = dict(
+        video_duration=10.0,
+        taken_at=1700000000,
+        play_count=5000,
+        download_url="http://example.com/v.mp4",
+        like_count=100,
+    )
+    defaults.update(kwargs)
+    return SimpleNamespace(**defaults)
+
+def test_is_garbage_missing_video_duration():
+    c = _make_clip(video_duration=None)
+    assert _is_garbage(c) is True
+
+def test_is_garbage_zero_video_duration():
+    c = _make_clip(video_duration=0.0)
+    assert _is_garbage(c) is True
+
+def test_is_garbage_missing_taken_at():
+    c = _make_clip(taken_at=None)
+    assert _is_garbage(c) is True
+
+def test_is_garbage_zero_taken_at():
+    c = _make_clip(taken_at=0)
+    assert _is_garbage(c) is True
+
+def test_is_garbage_missing_play_count():
+    c = _make_clip(play_count=None)
+    assert _is_garbage(c) is True
+
+def test_is_garbage_zero_play_count():
+    c = _make_clip(play_count=0)
+    assert _is_garbage(c) is True
+
+def test_is_garbage_missing_download_url():
+    c = _make_clip(download_url=None)
+    assert _is_garbage(c) is True
+
+def test_is_garbage_empty_download_url():
+    c = _make_clip(download_url="")
+    assert _is_garbage(c) is True
+
+def test_is_garbage_missing_like_count():
+    c = _make_clip(like_count=None)
+    assert _is_garbage(c) is True
+
+def test_is_garbage_valid_clip():
+    c = _make_clip()
+    assert _is_garbage(c) is False
+
+def test_is_low_play_count_below():
+    c = _make_clip(play_count=999)
+    assert _is_low_play_count(c, min_play_count=1000) is True
+
+def test_is_low_play_count_at():
+    c = _make_clip(play_count=1000)
+    assert _is_low_play_count(c, min_play_count=1000) is False
+
+def test_is_too_short_below():
+    c = _make_clip(video_duration=2.9)
+    assert _is_too_short(c, min_video_duration=3) is True
+
+def test_is_too_short_at():
+    c = _make_clip(video_duration=3.0)
+    assert _is_too_short(c, min_video_duration=3) is False
+
+def test_is_too_long_above():
+    c = _make_clip(video_duration=80.1)
+    assert _is_too_long(c, max_video_duration=80) is True
+
+def test_is_too_long_at():
+    c = _make_clip(video_duration=80.0)
+    assert _is_too_long(c, max_video_duration=80) is False
+
+def test_is_too_old_below():
+    c = _make_clip(taken_at=1640995199)
+    assert _is_too_old(c, min_taken_at=1640995200) is True
+
+def test_is_too_old_at():
+    c = _make_clip(taken_at=1640995200)
+    assert _is_too_old(c, min_taken_at=1640995200) is False
