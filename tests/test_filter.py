@@ -175,3 +175,31 @@ def test_is_too_old_below():
 def test_is_too_old_at():
     c = _make_clip(taken_at=1640995200)
     assert _is_too_old(c, min_taken_at=1640995200) is False
+
+
+def _make_db():
+    from modules.database import Base
+    eng = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(eng)
+    return eng
+
+
+def test_flag_garbage_clips_sets_is_garbage():
+    from modules.filter import _flag_garbage_clips
+    from modules.database import Clip, User
+    eng = _make_db()
+    with Session(eng) as s:
+        s.add(User(id=1))
+        # garbage: missing play_count
+        s.add(Clip(id=1, user_id=1, video_duration=10.0, taken_at=1700000000,
+                   play_count=None, video_url="http://x.com/v.mp4", like_count=5))
+        # valid clip
+        s.add(Clip(id=2, user_id=1, video_duration=10.0, taken_at=1700000000,
+                   play_count=5000, video_url="http://x.com/v.mp4", like_count=5))
+        s.commit()
+        _flag_garbage_clips(s)
+        s.commit()
+        c1 = s.get(Clip, 1)
+        c2 = s.get(Clip, 2)
+        assert c1.is_garbage is True
+        assert c2.is_garbage is False

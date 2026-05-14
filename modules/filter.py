@@ -1,6 +1,12 @@
 from __future__ import annotations
 
+import statistics
 from typing import Any
+
+from sqlalchemy.orm import Session
+
+from modules.config import FilterSettings
+from modules.database import Clip, User
 
 
 def _is_garbage(clip: Any) -> bool:
@@ -10,7 +16,7 @@ def _is_garbage(clip: Any) -> bool:
         return True
     if not clip.play_count or clip.play_count <= 0:
         return True
-    if not clip.download_url or not str(clip.download_url).strip():
+    if not clip.video_url or not str(clip.video_url).strip():
         return True
     return clip.like_count is None
 
@@ -29,3 +35,9 @@ def _is_too_long(clip: Any, *, max_video_duration: float) -> bool:
 
 def _is_too_old(clip: Any, *, min_taken_at: int) -> bool:
     return (clip.taken_at or 0) < min_taken_at
+
+
+def _flag_garbage_clips(session: Session) -> None:
+    clips = session.query(Clip).all()
+    for clip in clips:
+        clip.is_garbage = _is_garbage(clip)
