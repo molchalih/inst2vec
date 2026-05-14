@@ -41,3 +41,12 @@ def _flag_garbage_clips(session: Session) -> None:
     clips = session.query(Clip).all()
     for clip in clips:
         clip.is_garbage = _is_garbage(clip)
+
+
+def _flag_basic_policy_clips(session: Session, cfg: FilterSettings) -> None:
+    clips = session.query(Clip).all()
+    for clip in clips:
+        clip.is_low_play_count = _is_low_play_count(clip, min_play_count=cfg.min_play_count)
+        clip.is_too_short = _is_too_short(clip, min_video_duration=cfg.min_video_duration)
+        clip.is_too_long = _is_too_long(clip, max_video_duration=cfg.max_video_duration)
+        clip.is_too_old = _is_too_old(clip, min_taken_at=cfg.min_taken_at)

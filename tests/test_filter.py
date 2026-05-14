@@ -203,3 +203,45 @@ def test_flag_garbage_clips_sets_is_garbage():
         c2 = s.get(Clip, 2)
         assert c1.is_garbage is True
         assert c2.is_garbage is False
+
+
+def test_flag_basic_policy_clips():
+    from modules.config import FilterSettings
+    from modules.filter import _flag_basic_policy_clips
+    from modules.database import Clip, User
+    eng = _make_db()
+    cfg = FilterSettings(
+        min_play_count=1000,
+        min_video_duration=3,
+        max_video_duration=80,
+        min_taken_at=1640995200,
+    )
+    with Session(eng) as s:
+        s.add(User(id=1))
+        # low play count
+        s.add(Clip(id=1, user_id=1, video_duration=10.0, taken_at=1700000000,
+                   play_count=500, video_url="http://x.com/v.mp4", like_count=5))
+        # too short
+        s.add(Clip(id=2, user_id=1, video_duration=1.0, taken_at=1700000000,
+                   play_count=5000, video_url="http://x.com/v.mp4", like_count=5))
+        # too long
+        s.add(Clip(id=3, user_id=1, video_duration=90.0, taken_at=1700000000,
+                   play_count=5000, video_url="http://x.com/v.mp4", like_count=5))
+        # too old
+        s.add(Clip(id=4, user_id=1, video_duration=10.0, taken_at=1000000000,
+                   play_count=5000, video_url="http://x.com/v.mp4", like_count=5))
+        # valid
+        s.add(Clip(id=5, user_id=1, video_duration=10.0, taken_at=1700000000,
+                   play_count=5000, video_url="http://x.com/v.mp4", like_count=5))
+        s.commit()
+        _flag_basic_policy_clips(s, cfg)
+        s.commit()
+        clips = {c.id: c for c in s.query(Clip).all()}
+        assert clips[1].is_low_play_count is True
+        assert clips[2].is_too_short is True
+        assert clips[3].is_too_long is True
+        assert clips[4].is_too_old is True
+        assert clips[5].is_low_play_count is False
+        assert clips[5].is_too_short is False
+        assert clips[5].is_too_long is False
+        assert clips[5].is_too_old is False
