@@ -849,10 +849,10 @@ def _seed_eligible_clips(s, user_id: int, play_counts: list, id_offset: int = 0)
         )
 
 
-def test_select_clips_for_embedding_basic():
+def test_select_clips_basic():
     from modules.config import FilterSettings
     from modules.database import Clip, User
-    from modules.filter import select_clips_for_embedding
+    from modules.filter import select_clips
 
     eng = _make_db()
     cfg = FilterSettings(
@@ -864,7 +864,7 @@ def test_select_clips_for_embedding_basic():
         s.add(User(id=1, is_low_plays_median=False, is_not_enough_clips=False))
         _seed_eligible_clips(s, user_id=1, play_counts=[100 * i for i in range(1, 11)])
         s.commit()
-        select_clips_for_embedding(s, cfg)
+        select_clips(s, cfg)
         s.commit()
         selected = [c for c in s.query(Clip).all() if c.is_selected]
         assert len(selected) == 2
@@ -872,10 +872,10 @@ def test_select_clips_for_embedding_basic():
         assert u.is_selected is True
 
 
-def test_select_clips_for_embedding_stable_across_new_users():
+def test_select_clips_stable_across_new_users():
     from modules.config import FilterSettings
     from modules.database import Clip, User
-    from modules.filter import select_clips_for_embedding
+    from modules.filter import select_clips
 
     eng = _make_db()
     cfg = FilterSettings(
@@ -887,7 +887,7 @@ def test_select_clips_for_embedding_stable_across_new_users():
         s.add(User(id=1, is_low_plays_median=False, is_not_enough_clips=False))
         _seed_eligible_clips(s, user_id=1, play_counts=[1000, 2000, 3000, 4000, 5000])
         s.commit()
-        select_clips_for_embedding(s, cfg)
+        select_clips(s, cfg)
         s.commit()
         selected_run1 = {c.id for c in s.query(Clip).all() if c.is_selected}
 
@@ -898,7 +898,7 @@ def test_select_clips_for_embedding_stable_across_new_users():
         _seed_eligible_clips(s, user_id=1, play_counts=[1000, 2000, 3000, 4000, 5000])
         _seed_eligible_clips(s, user_id=2, play_counts=[500, 600, 700], id_offset=100)
         s.commit()
-        select_clips_for_embedding(s, cfg)
+        select_clips(s, cfg)
         s.commit()
         selected_run2 = {
             c.id for c in s.query(Clip).filter(Clip.user_id == 1).all() if c.is_selected
@@ -910,7 +910,7 @@ def test_select_clips_for_embedding_stable_across_new_users():
 def test_select_clips_user_with_no_eligible_clips_not_selected():
     from modules.config import FilterSettings
     from modules.database import Clip, User
-    from modules.filter import select_clips_for_embedding
+    from modules.filter import select_clips
 
     eng = _make_db()
     cfg = FilterSettings(
@@ -934,7 +934,7 @@ def test_select_clips_user_with_no_eligible_clips_not_selected():
             )
         )
         s.commit()
-        select_clips_for_embedding(s, cfg)
+        select_clips(s, cfg)
         s.commit()
         u = s.get(User, 1)
         assert u.is_selected is False

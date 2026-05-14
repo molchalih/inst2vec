@@ -180,7 +180,7 @@ def _derive_eligibility(session: Session) -> None:
         )
 
 
-def select_clips_for_embedding(session: Session, cfg: FilterSettings) -> None:
+def select_clips(session: Session, cfg: FilterSettings) -> None:
     for clip in session.query(Clip).all():
         clip.is_selected = False
     for user in session.query(User).all():
@@ -244,6 +244,6 @@ def preprocess_new_data(
         _compute_creator_robust_stats(session, cfg)
         _flag_users_without_enough_clips(session, cfg)
         _derive_eligibility(session)
-        select_clips_for_embedding(session, cfg)
+        select_clips(session, cfg)
 
         session.commit()
