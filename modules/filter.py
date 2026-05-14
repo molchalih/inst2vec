@@ -106,16 +106,16 @@ def _flag_users_without_enough_clips(session: Session, cfg: FilterSettings) -> N
 
 
 def _flag_global_percentile_clips(session: Session, cfg: FilterSettings) -> None:
+    for clip in session.query(Clip).all():
+        clip.is_low_percentile = False
+        clip.is_high_percentile = False
+
     surviving = [
         clip
         for user in session.query(User).all()
         if not _has_user_exclusion(user)
         for clip in _surviving_clips(user)
     ]
-
-    for clip in session.query(Clip).all():
-        clip.is_low_percentile = False
-        clip.is_high_percentile = False
 
     if not surviving:
         return
@@ -136,6 +136,13 @@ def _median_absolute_deviation(values: list[float]) -> float:
 
 def _compute_creator_robust_stats(session: Session, cfg: FilterSettings) -> None:
     for user in session.query(User).all():
+        user.log_plays_median = None
+        user.log_plays_mad = None
+        for clip in user.clips:
+            clip.log_plays = None
+            clip.creator_relative_robust_z = None
+            clip.is_creator_low_outlier = False
+
         if _has_user_exclusion(user):
             continue
         surviving = _surviving_clips(user)
@@ -149,13 +156,7 @@ def _compute_creator_robust_stats(session: Session, cfg: FilterSettings) -> None
         user.log_plays_median = creator_median
         user.log_plays_mad = mad
 
-        surviving_ids = {c.id for c in surviving}
-        for clip in user.clips:
-            if clip.id not in surviving_ids:
-                clip.log_plays = None
-                clip.creator_relative_robust_z = None
-                clip.is_creator_low_outlier = False
-                continue
+        for clip in surviving:
             lp = math.log1p(clip.play_count)
             clip.log_plays = lp
             if mad > 0:
