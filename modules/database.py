@@ -49,8 +49,6 @@ class User(Base):
     is_low_plays_median: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     is_not_enough_clips: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     is_selected: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
-    log_plays_median: Mapped[float | None] = mapped_column(Float, nullable=True)
-    log_plays_mad: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     clips: Mapped[list["Clip"]] = relationship("Clip", back_populates="user")  # type: ignore[assignment]
     embeddings: Mapped[list["UserEmbedding"]] = relationship(  # type: ignore[assignment]
@@ -58,6 +56,38 @@ class User(Base):
     )
     clusters: Mapped[list["UserCluster"]] = relationship(  # type: ignore[assignment]
         "UserCluster", back_populates="user"
+    )
+
+
+class UserStats(Base):
+    __tablename__ = "user_stats"
+
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id"), primary_key=True
+    )
+    n_clips: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    median_plays: Mapped[float | None] = mapped_column(Float, nullable=True)
+    mean_plays: Mapped[float | None] = mapped_column(Float, nullable=True)
+    max_plays: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    min_plays: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    mean_log_plays: Mapped[float | None] = mapped_column(Float, nullable=True)
+    median_log_plays: Mapped[float | None] = mapped_column(Float, nullable=True)
+    log_plays_std: Mapped[float | None] = mapped_column(Float, nullable=True)
+    log_plays_mad: Mapped[float | None] = mapped_column(Float, nullable=True)
+    top_to_median_plays_ratio: Mapped[float | None] = mapped_column(
+        Float, nullable=True
+    )
+    share_of_plays_from_top_clip: Mapped[float | None] = mapped_column(
+        Float, nullable=True
+    )
+    median_video_duration: Mapped[float | None] = mapped_column(Float, nullable=True)
+    mean_video_duration: Mapped[float | None] = mapped_column(Float, nullable=True)
+    oldest_clip_taken_at: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    newest_clip_taken_at: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    clip_time_span_days: Mapped[float | None] = mapped_column(Float, nullable=True)
+    approx_clips_per_week: Mapped[float | None] = mapped_column(Float, nullable=True)
+    computed_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
 
@@ -105,6 +135,7 @@ class Clip(Base):
     creator_relative_robust_z: Mapped[float | None] = mapped_column(
         Float, nullable=True
     )
+    is_preprocessed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     is_eligible: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     is_selected: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 

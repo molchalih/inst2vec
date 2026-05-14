@@ -12,7 +12,7 @@ from modules.embeddings import (
     embed_user_clips,
     embed_video_clips,
 )
-from modules.filter import preprocess_new_data
+from modules.filter import process_dataset
 from modules.music import classify_music, extract_music_features
 from modules.parse import fetch_profiles
 from modules.speech import classify_speech, clean_speech, translate_speech
@@ -47,7 +47,7 @@ def run_pipeline() -> None:
     2. PREPROCESSING: runs the full filter pipeline before heavy operations.
     """
     phase("Preprocessing")
-    preprocess_new_data(settings.filter)
+    process_dataset(settings.filter)
 
     """
     3. DOWNLOADING: downloads profile pics, videos and thumbnails of the filtered profiles.
