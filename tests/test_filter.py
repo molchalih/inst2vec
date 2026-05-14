@@ -15,7 +15,6 @@ def test_clip_has_filter_columns():
     clip_cols = {c.key for c in Clip.__table__.columns}
     for col in [
         "is_garbage",
-        "is_low_play_count",
         "is_too_short",
         "is_too_long",
         "is_too_old",
@@ -28,6 +27,11 @@ def test_clip_has_filter_columns():
         "is_selected",
     ]:
         assert col in clip_cols, f"Clip missing column: {col}"
+
+
+def test_clip_no_low_play_count_column():
+    clip_cols = {c.key for c in Clip.__table__.columns}
+    assert "is_low_play_count" not in clip_cols
 
 
 def test_user_has_filter_columns():
@@ -74,7 +78,6 @@ def test_filter_settings_load():
     from modules.config import FilterSettings
 
     cfg = FilterSettings(
-        min_play_count=1000,
         min_video_duration=3,
         max_video_duration=80,
         min_taken_at=1640995200,
@@ -87,7 +90,6 @@ def test_filter_settings_load():
         selected_clips_per_user=10,
         selection_random_seed=42,
     )
-    assert cfg.min_play_count == 1000
     assert cfg.selected_clips_per_user == 10
 
 

@@ -95,7 +95,6 @@ class Clip(Base):
         Integer, nullable=False, server_default=text("0")
     )
     is_garbage: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
-    is_low_play_count: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     is_too_short: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     is_too_long: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     is_too_old: Mapped[bool | None] = mapped_column(Boolean, nullable=True)

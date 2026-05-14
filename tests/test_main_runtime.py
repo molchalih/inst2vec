@@ -21,7 +21,6 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
         parse=SimpleNamespace(fetch_retry_delays_sec=[0, 30, 60, 90]),
         download=SimpleNamespace(max_attempts=3, retry_delay=2),
         filter=SimpleNamespace(
-            min_play_count=1000,
             min_video_duration=3,
             max_video_duration=80,
             min_taken_at=1640995200,

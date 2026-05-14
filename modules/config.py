@@ -33,7 +33,6 @@ class DownloadSettings(BaseModel):
 
 
 class FilterSettings(BaseModel):
-    min_play_count: int = 1000
     min_video_duration: int = 3
     max_video_duration: int = 80
     min_taken_at: int = 1640995200
