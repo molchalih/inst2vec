@@ -367,3 +367,76 @@ def test_flag_global_percentile_clips():
         assert len(high_clips) >= 1
         for c in clips.values():
             assert not (c.is_low_percentile and c.is_high_percentile)
+
+
+def test_compute_creator_robust_stats():
+    from modules.config import FilterSettings
+    from modules.filter import _compute_creator_robust_stats
+    from modules.database import Clip, User
+    eng = _make_db()
+    cfg = FilterSettings(creator_low_z_threshold=-3.5)
+    with Session(eng) as s:
+        s.add(User(id=1, is_low_plays_median=False, is_not_enough_clips=False))
+        plays = [1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000]
+        for i, p in enumerate(plays, start=1):
+            s.add(Clip(id=i, user_id=1,
+                       play_count=p, video_duration=10.0, taken_at=1700000000,
+                       video_url="http://x.com/v.mp4", like_count=5,
+                       is_garbage=False, is_low_play_count=False,
+                       is_too_short=False, is_too_long=False, is_too_old=False,
+                       is_low_percentile=False))
+        s.commit()
+        _compute_creator_robust_stats(s, cfg)
+        s.commit()
+        u = s.get(User, 1)
+        assert u.log_plays_median is not None
+        assert u.log_plays_mad is not None
+        clips = s.query(Clip).filter(Clip.user_id == 1).all()
+        for c in clips:
+            assert c.log_plays is not None
+            assert c.creator_relative_robust_z is not None
+            assert c.is_creator_low_outlier is not None
+
+def test_compute_creator_robust_stats_mad_zero_no_crash():
+    from modules.config import FilterSettings
+    from modules.filter import _compute_creator_robust_stats
+    from modules.database import Clip, User
+    eng = _make_db()
+    cfg = FilterSettings(creator_low_z_threshold=-3.5)
+    with Session(eng) as s:
+        s.add(User(id=1, is_low_plays_median=False, is_not_enough_clips=False))
+        for i in range(1, 6):
+            s.add(Clip(id=i, user_id=1,
+                       play_count=5000, video_duration=10.0, taken_at=1700000000,
+                       video_url="http://x.com/v.mp4", like_count=5,
+                       is_garbage=False, is_low_play_count=False,
+                       is_too_short=False, is_too_long=False, is_too_old=False,
+                       is_low_percentile=False))
+        s.commit()
+        _compute_creator_robust_stats(s, cfg)
+        s.commit()
+        clips = s.query(Clip).filter(Clip.user_id == 1).all()
+        for c in clips:
+            assert c.is_creator_low_outlier is False
+
+def test_compute_creator_robust_stats_outlier_flagged():
+    from modules.config import FilterSettings
+    from modules.filter import _compute_creator_robust_stats
+    from modules.database import Clip, User
+    eng = _make_db()
+    cfg = FilterSettings(creator_low_z_threshold=-1.0)
+    with Session(eng) as s:
+        s.add(User(id=1, is_low_plays_median=False, is_not_enough_clips=False))
+        plays = [10, 100, 1000, 10000, 100000]
+        for i, p in enumerate(plays, start=1):
+            s.add(Clip(id=i, user_id=1,
+                       play_count=p, video_duration=10.0, taken_at=1700000000,
+                       video_url="http://x.com/v.mp4", like_count=5,
+                       is_garbage=False, is_low_play_count=False,
+                       is_too_short=False, is_too_long=False, is_too_old=False,
+                       is_low_percentile=False))
+        s.commit()
+        _compute_creator_robust_stats(s, cfg)
+        s.commit()
+        c_low = s.get(Clip, 1)
+        assert c_low.is_creator_low_outlier is True

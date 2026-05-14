@@ -125,3 +125,52 @@ def _flag_global_percentile_clips(session: Session, cfg: FilterSettings) -> None
             continue
         c.is_low_percentile = c.play_count < low_boundary
         c.is_high_percentile = c.play_count > high_boundary
+
+
+def _median_absolute_deviation(values: list[float]) -> float:
+    med = statistics.median(values)
+    return statistics.median([abs(v - med) for v in values])
+
+
+def _compute_creator_robust_stats(session: Session, cfg: FilterSettings) -> None:
+    users = session.query(User).all()
+    for user in users:
+        if user.is_low_plays_median or user.is_not_enough_clips:
+            continue
+        surviving = [
+            c for c in user.clips
+            if not c.is_garbage
+            and not c.is_low_play_count
+            and not c.is_too_short
+            and not c.is_too_long
+            and not c.is_too_old
+            and not c.is_low_percentile
+            and c.play_count is not None
+        ]
+        if not surviving:
+            continue
+
+        log_plays_vals = [math.log1p(c.play_count) for c in surviving]
+        creator_median = statistics.median(log_plays_vals)
+        mad = _median_absolute_deviation(log_plays_vals)
+
+        user.log_plays_median = creator_median
+        user.log_plays_mad = mad
+
+        surviving_ids = {c.id for c in surviving}
+        for c in user.clips:
+            if c.id not in surviving_ids:
+                # Non-surviving clips get default values
+                c.log_plays = None
+                c.creator_relative_robust_z = None
+                c.is_creator_low_outlier = False
+            else:
+                lp = math.log1p(c.play_count)
+                c.log_plays = lp
+                if mad > 0:
+                    c.creator_relative_robust_z = 0.6745 * (lp - creator_median) / mad
+                else:
+                    c.creator_relative_robust_z = 0.0
+                c.is_creator_low_outlier = (
+                    c.creator_relative_robust_z < cfg.creator_low_z_threshold
+                )
