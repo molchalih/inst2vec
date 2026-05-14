@@ -198,6 +198,122 @@ def test_is_too_old_at():
     assert _is_too_old(c, min_taken_at=1640995200) is False
 
 
+def test_clip_exclusion_flags_tuple_contents():
+    from modules.filter import CLIP_EXCLUSION_FLAGS
+
+    assert CLIP_EXCLUSION_FLAGS == (
+        "is_garbage",
+        "is_too_short",
+        "is_too_long",
+        "is_too_old",
+        "is_low_percentile",
+        "is_high_percentile",
+        "is_creator_low_outlier",
+    )
+
+
+def test_user_exclusion_flags_tuple_contents():
+    from modules.filter import USER_EXCLUSION_FLAGS
+
+    assert USER_EXCLUSION_FLAGS == (
+        "is_low_plays_median",
+        "is_not_enough_clips",
+    )
+
+
+def test_has_clip_exclusion_only_true_counts():
+    from types import SimpleNamespace
+
+    from modules.filter import _has_clip_exclusion
+
+    none_clip = SimpleNamespace(
+        is_garbage=None,
+        is_too_short=None,
+        is_too_long=None,
+        is_too_old=None,
+        is_low_percentile=None,
+        is_high_percentile=None,
+        is_creator_low_outlier=None,
+    )
+    assert _has_clip_exclusion(none_clip) is False
+
+    false_clip = SimpleNamespace(
+        is_garbage=False,
+        is_too_short=False,
+        is_too_long=False,
+        is_too_old=False,
+        is_low_percentile=False,
+        is_high_percentile=False,
+        is_creator_low_outlier=False,
+    )
+    assert _has_clip_exclusion(false_clip) is False
+
+    one_true = SimpleNamespace(
+        is_garbage=False,
+        is_too_short=True,
+        is_too_long=False,
+        is_too_old=False,
+        is_low_percentile=None,
+        is_high_percentile=None,
+        is_creator_low_outlier=None,
+    )
+    assert _has_clip_exclusion(one_true) is True
+
+
+def test_has_user_exclusion_only_true_counts():
+    from types import SimpleNamespace
+
+    from modules.filter import _has_user_exclusion
+
+    none_user = SimpleNamespace(is_low_plays_median=None, is_not_enough_clips=None)
+    assert _has_user_exclusion(none_user) is False
+
+    false_user = SimpleNamespace(is_low_plays_median=False, is_not_enough_clips=False)
+    assert _has_user_exclusion(false_user) is False
+
+    one_true = SimpleNamespace(is_low_plays_median=True, is_not_enough_clips=None)
+    assert _has_user_exclusion(one_true) is True
+
+
+def test_count_surviving_clips_ignores_none_and_false():
+    from types import SimpleNamespace
+
+    from modules.filter import _count_surviving_clips
+
+    user = SimpleNamespace(
+        clips=[
+            SimpleNamespace(
+                is_garbage=False,
+                is_too_short=False,
+                is_too_long=False,
+                is_too_old=False,
+                is_low_percentile=None,
+                is_high_percentile=None,
+                is_creator_low_outlier=None,
+            ),
+            SimpleNamespace(
+                is_garbage=False,
+                is_too_short=True,
+                is_too_long=False,
+                is_too_old=False,
+                is_low_percentile=None,
+                is_high_percentile=None,
+                is_creator_low_outlier=None,
+            ),
+            SimpleNamespace(
+                is_garbage=None,
+                is_too_short=None,
+                is_too_long=None,
+                is_too_old=None,
+                is_low_percentile=None,
+                is_high_percentile=None,
+                is_creator_low_outlier=None,
+            ),
+        ]
+    )
+    assert _count_surviving_clips(user) == 2
+
+
 def _make_db():
     from modules.database import Base
 

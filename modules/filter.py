@@ -11,6 +11,37 @@ from sqlalchemy.orm import Session
 from modules.config import FilterSettings
 from modules.database import Clip, User
 
+CLIP_EXCLUSION_FLAGS: tuple[str, ...] = (
+    "is_garbage",
+    "is_too_short",
+    "is_too_long",
+    "is_too_old",
+    "is_low_percentile",
+    "is_high_percentile",
+    "is_creator_low_outlier",
+)
+
+USER_EXCLUSION_FLAGS: tuple[str, ...] = (
+    "is_low_plays_median",
+    "is_not_enough_clips",
+)
+
+
+def _has_clip_exclusion(clip: Any) -> bool:
+    return any(getattr(clip, flag, None) is True for flag in CLIP_EXCLUSION_FLAGS)
+
+
+def _has_user_exclusion(user: Any) -> bool:
+    return any(getattr(user, flag, None) is True for flag in USER_EXCLUSION_FLAGS)
+
+
+def _surviving_clips(user: Any) -> list:
+    return [clip for clip in user.clips if not _has_clip_exclusion(clip)]
+
+
+def _count_surviving_clips(user: Any) -> int:
+    return sum(1 for _ in _surviving_clips(user))
+
 
 def _is_garbage(clip: Any) -> bool:
     if not clip.video_duration or clip.video_duration <= 0:
