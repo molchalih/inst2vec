@@ -61,3 +61,23 @@ def test_user_filter_columns_default_null():
         assert user.is_selected is None
         assert user.log_plays_median is None
         assert user.log_plays_mad is None
+
+
+def test_filter_settings_load():
+    from modules.config import FilterSettings
+    cfg = FilterSettings(
+        min_play_count=1000,
+        min_video_duration=3,
+        max_video_duration=80,
+        min_taken_at=1640995200,
+        creator_min_median_views=10000,
+        min_eligible_clips_per_user=10,
+        global_low_percentile=5,
+        global_high_percentile=99,
+        creator_low_z_threshold=-3.5,
+        selection_pool_percent=0.20,
+        selected_clips_per_user=10,
+        selection_random_seed=42,
+    )
+    assert cfg.min_play_count == 1000
+    assert cfg.selected_clips_per_user == 10

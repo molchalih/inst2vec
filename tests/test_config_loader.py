@@ -27,14 +27,19 @@ fetch_retry_delays_sec = [0, 30, 60, 90]
 max_attempts = 3
 retry_delay = 2
 
-[finalize]
-target_clips_per_user = 4
-require_min_text_clips = false
-pass_a_recompute_from_scratch = true
-global_min_plays = 0
-global_min_plays_percentile = 5.0
-creator_robust_z_threshold = -2.5
-creator_min_clips = 4
+[filter]
+min_play_count = 1000
+min_video_duration = 3
+max_video_duration = 80
+min_taken_at = 1640995200
+creator_min_median_views = 10000
+min_eligible_clips_per_user = 10
+global_low_percentile = 5
+global_high_percentile = 99
+creator_low_z_threshold = -3.5
+selection_pool_percent = 0.20
+selected_clips_per_user = 10
+selection_random_seed = 42
 
 [music]
 audio_fingerprint_confidence = 0.8
@@ -131,7 +136,7 @@ def test_settings_sections_present(tmp_path):
         "paths",
         "parse",
         "download",
-        "finalize",
+        "filter",
         "music",
         "speech",
         "captions",
@@ -148,7 +153,7 @@ def test_settings_values_correct(tmp_path):
     assert settings.pipeline.batch_size == 9999
     assert settings.pipeline.max_clips == 5
     assert settings.music.commit_every == 50
-    assert settings.finalize.creator_robust_z_threshold == -2.5
+    assert settings.filter.creator_low_z_threshold == -3.5
     assert settings.parse.fetch_retry_delays_sec == [0, 30, 60, 90]
     assert settings.embeddings.exclude_disqualified_users is True
 
