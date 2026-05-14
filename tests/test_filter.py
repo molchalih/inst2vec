@@ -309,3 +309,35 @@ def test_flag_low_median_creators_excludes_garbage():
         u1 = s.get(User, 1)
         # median of [500, 600] = 550 < 10000 → low
         assert u1.is_low_plays_median is True
+
+
+def test_flag_users_without_enough_clips():
+    from modules.config import FilterSettings
+    from modules.filter import _flag_users_without_enough_clips
+    from modules.database import Clip, User
+    eng = _make_db()
+    cfg = FilterSettings(min_eligible_clips_per_user=3)
+    with Session(eng) as s:
+        s.add(User(id=1, is_low_plays_median=False))
+        s.add(User(id=2, is_low_plays_median=False))
+        # user 1 gets 2 surviving clips (below threshold of 3)
+        for i in range(1, 3):
+            s.add(Clip(id=i, user_id=1,
+                       video_duration=10.0, taken_at=1700000000,
+                       play_count=5000, video_url="http://x.com/v.mp4", like_count=5,
+                       is_garbage=False, is_low_play_count=False,
+                       is_too_short=False, is_too_long=False, is_too_old=False))
+        # user 2 gets 5 surviving clips (above threshold)
+        for i in range(10, 15):
+            s.add(Clip(id=i, user_id=2,
+                       video_duration=10.0, taken_at=1700000000,
+                       play_count=5000, video_url="http://x.com/v.mp4", like_count=5,
+                       is_garbage=False, is_low_play_count=False,
+                       is_too_short=False, is_too_long=False, is_too_old=False))
+        s.commit()
+        _flag_users_without_enough_clips(s, cfg)
+        s.commit()
+        u1 = s.get(User, 1)
+        u2 = s.get(User, 2)
+        assert u1.is_not_enough_clips is True
+        assert u2.is_not_enough_clips is False

@@ -70,3 +70,21 @@ def _flag_low_median_creators(session: Session, cfg: FilterSettings) -> None:
             continue
         median_plays = statistics.median(surviving_plays)
         user.is_low_plays_median = median_plays < cfg.creator_min_median_views
+
+
+def _flag_users_without_enough_clips(session: Session, cfg: FilterSettings) -> None:
+    users = session.query(User).all()
+    for user in users:
+        if user.is_low_plays_median:
+            user.is_not_enough_clips = False
+            continue
+        count = sum(
+            1
+            for c in user.clips
+            if not c.is_garbage
+            and not c.is_low_play_count
+            and not c.is_too_short
+            and not c.is_too_long
+            and not c.is_too_old
+        )
+        user.is_not_enough_clips = count < cfg.min_eligible_clips_per_user
