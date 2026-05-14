@@ -46,6 +46,11 @@ class User(Base):
         Integer, nullable=False, server_default=text("0")
     )
     parse_status: Mapped[str | None] = mapped_column(String, nullable=True)
+    is_low_plays_median: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    is_not_enough_clips: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    is_selected: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    log_plays_median: Mapped[float | None] = mapped_column(Float, nullable=True)
+    log_plays_mad: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     clips: Mapped[list["Clip"]] = relationship("Clip", back_populates="user")  # type: ignore[assignment]
     embeddings: Mapped[list["UserEmbedding"]] = relationship(  # type: ignore[assignment]
@@ -89,6 +94,18 @@ class Clip(Base):
     eligibility: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default=text("0")
     )
+    is_garbage: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    is_low_play_count: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    is_too_short: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    is_too_long: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    is_too_old: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    is_low_percentile: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    is_high_percentile: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    is_creator_low_outlier: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    log_plays: Mapped[float | None] = mapped_column(Float, nullable=True)
+    creator_relative_robust_z: Mapped[float | None] = mapped_column(Float, nullable=True)
+    is_eligible: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    is_selected: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 
     user: Mapped["User"] = relationship("User", back_populates="clips")  # type: ignore[assignment]
     music: Mapped[Optional["Music"]] = relationship("Music", back_populates="clips")  # type: ignore[assignment]
