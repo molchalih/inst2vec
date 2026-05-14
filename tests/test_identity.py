@@ -224,7 +224,7 @@ def test_download_uses_entity_id_and_fetches_pic_url_from_identity_db(
         s.commit()
 
     with Session(main_eng) as s:
-        s.add(User(id=1, user_disqualified=0))
+        s.add(User(id=1, eligibility=1))
         s.commit()
 
     monkeypatch.setattr("modules.download.get_session", lambda: Session(main_eng))

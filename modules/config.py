@@ -32,14 +32,18 @@ class DownloadSettings(BaseModel):
     retry_delay: int
 
 
-class FinalizeSettings(BaseModel):
-    target_clips_per_user: int
-    require_min_text_clips: bool
-    pass_a_recompute_from_scratch: bool
-    global_min_plays: int
-    global_min_plays_percentile: float
-    creator_robust_z_threshold: float
-    creator_min_clips: int
+class FilterSettings(BaseModel):
+    min_video_duration: int = 3
+    max_video_duration: int = 80
+    min_taken_at: int = 1640995200
+    creator_min_median_views: int = 10000
+    min_eligible_clips_per_user: int = 10
+    global_low_percentile: float = 5
+    global_high_percentile: float = 99
+    creator_low_z_threshold: float = -3.5
+    selection_pool_percent: float = 0.20
+    selected_clips_per_user: int = 10
+    selection_random_seed: int = 42
 
 
 class MusicSettings(BaseModel):
@@ -117,7 +121,7 @@ class Settings(BaseModel):
     paths: PathsSettings
     parse: ParseSettings
     download: DownloadSettings
-    finalize: FinalizeSettings
+    filter: FilterSettings
     music: MusicSettings
     speech: SpeechSettings
     captions: CaptionsSettings
@@ -148,7 +152,7 @@ def load_runtime_config() -> tuple[Settings, Secrets]:
         paths=PathsSettings(**raw["paths"]),
         parse=ParseSettings(**raw["parse"]),
         download=DownloadSettings(**raw["download"]),
-        finalize=FinalizeSettings(**raw["finalize"]),
+        filter=FilterSettings(**raw.get("filter", {})),
         music=MusicSettings(**raw["music"]),
         speech=SpeechSettings(**raw["speech"]),
         captions=CaptionsSettings(**raw["captions"]),

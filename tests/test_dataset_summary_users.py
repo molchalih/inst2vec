@@ -8,6 +8,10 @@ from sqlalchemy.orm import Session
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from modules.database import Base, Clip, User
+from modules.eligibility import Eligibility, eligibility_db
+
+_ELIGIBLE = eligibility_db(Eligibility.ELIGIBLE)
+_DISQUALIFIED = eligibility_db(Eligibility.DISQUALIFIED)
 
 
 def _make_engine():
@@ -22,10 +26,10 @@ def _add_clip(
     user_id: int,
     id: int,
     play_count: int | None,
-    disqualified: bool | None,
+    eligibility: int,
 ):
     session.add(
-        Clip(user_id=user_id, id=id, play_count=play_count, disqualified=disqualified)
+        Clip(user_id=user_id, id=id, play_count=play_count, eligibility=eligibility)
     )
 
 
@@ -37,32 +41,32 @@ def test_users_summary_to_markdown_renders_curated_metrics():
                 User(
                     id=1,
                     following_count=100,
-                    user_disqualified=False,
+                    eligibility=_ELIGIBLE,
                 ),
                 User(
                     id=2,
                     following_count=500,
-                    user_disqualified=True,
+                    eligibility=_DISQUALIFIED,
                 ),
                 User(
                     id=3,
                     following_count=50,
-                    user_disqualified=False,
+                    eligibility=_ELIGIBLE,
                 ),
                 User(
                     id=4,
                     following_count=200,
-                    user_disqualified=False,
+                    eligibility=_ELIGIBLE,
                 ),
             ]
         )
-        _add_clip(s, user_id=1, id=100, play_count=10, disqualified=False)
-        _add_clip(s, user_id=1, id=101, play_count=20, disqualified=False)
-        _add_clip(s, user_id=1, id=102, play_count=None, disqualified=False)
-        _add_clip(s, user_id=2, id=200, play_count=40, disqualified=False)
-        _add_clip(s, user_id=3, id=300, play_count=None, disqualified=True)
-        _add_clip(s, user_id=4, id=400, play_count=30, disqualified=False)
-        _add_clip(s, user_id=3, id=401, play_count=21, disqualified=False)
+        _add_clip(s, user_id=1, id=100, play_count=10, eligibility=_ELIGIBLE)
+        _add_clip(s, user_id=1, id=101, play_count=20, eligibility=_ELIGIBLE)
+        _add_clip(s, user_id=1, id=102, play_count=None, eligibility=_ELIGIBLE)
+        _add_clip(s, user_id=2, id=200, play_count=40, eligibility=_ELIGIBLE)
+        _add_clip(s, user_id=3, id=300, play_count=None, eligibility=_DISQUALIFIED)
+        _add_clip(s, user_id=4, id=400, play_count=30, eligibility=_ELIGIBLE)
+        _add_clip(s, user_id=3, id=401, play_count=21, eligibility=_ELIGIBLE)
         s.commit()
 
     from generators.dataset_summary_users import users_summary_to_markdown
@@ -87,23 +91,23 @@ def test_users_summary_to_markdown_scopes_users_to_kept_rows():
                 User(
                     id=1,
                     following_count=100,
-                    user_disqualified=False,
+                    eligibility=_ELIGIBLE,
                 ),
                 User(
                     id=2,
                     following_count=500,
-                    user_disqualified=True,
+                    eligibility=_DISQUALIFIED,
                 ),
                 User(
                     id=3,
                     following_count=50,
-                    user_disqualified=False,
+                    eligibility=_ELIGIBLE,
                 ),
             ]
         )
-        _add_clip(s, user_id=1, id=100, play_count=200, disqualified=False)
-        _add_clip(s, user_id=1, id=101, play_count=100, disqualified=True)
-        _add_clip(s, user_id=3, id=300, play_count=50, disqualified=False)
+        _add_clip(s, user_id=1, id=100, play_count=200, eligibility=_ELIGIBLE)
+        _add_clip(s, user_id=1, id=101, play_count=100, eligibility=_DISQUALIFIED)
+        _add_clip(s, user_id=3, id=300, play_count=50, eligibility=_ELIGIBLE)
         s.commit()
 
     from generators.dataset_summary_users import users_summary_to_markdown
@@ -121,7 +125,7 @@ def test_users_summary_to_markdown_scopes_users_to_kept_rows():
 def test_users_summary_to_markdown_uses_dash_for_missing_numeric_values():
     eng = _make_engine()
     with Session(eng) as s:
-        s.add(User(id=1, user_disqualified=False))
+        s.add(User(id=1, eligibility=_ELIGIBLE))
         s.commit()
 
     from generators.dataset_summary_users import users_summary_to_markdown
@@ -138,7 +142,7 @@ def test_users_summary_to_markdown_uses_dash_for_missing_numeric_values():
 def test_render_users_summary_returns_markdown_object():
     eng = _make_engine()
     with Session(eng) as s:
-        s.add(User(id=1, user_disqualified=False))
+        s.add(User(id=1, eligibility=_ELIGIBLE))
         s.commit()
 
     from docs.quarto_helpers import render_users_summary
@@ -160,12 +164,12 @@ def test_users_summary_legacy_db_without_parse_status_column():
                 CREATE TABLE users (
                     id INTEGER PRIMARY KEY,
                     following_count INTEGER,
-                    user_disqualified INTEGER
+                    eligibility INTEGER NOT NULL DEFAULT 0
                 )
                 """
             )
         )
-        conn.execute(text("INSERT INTO users (id, user_disqualified) VALUES (1, 0)"))
+        conn.execute(text("INSERT INTO users (id, eligibility) VALUES (1, 1)"))
 
     from generators.dataset_summary_users import users_summary_to_markdown
 
@@ -190,7 +194,7 @@ def test_users_summary_legacy_db_without_play_count_columns():
                 CREATE TABLE users (
                     id INTEGER PRIMARY KEY,
                     following_count INTEGER,
-                    user_disqualified INTEGER
+                    eligibility INTEGER NOT NULL DEFAULT 0
                 )
                 """
             )
@@ -198,7 +202,7 @@ def test_users_summary_legacy_db_without_play_count_columns():
         conn.execute(
             text("CREATE TABLE clips (id BIGINT PRIMARY KEY, user_id BIGINT NOT NULL)")
         )
-        conn.execute(text("INSERT INTO users (id, user_disqualified) VALUES (1, 0)"))
+        conn.execute(text("INSERT INTO users (id, eligibility) VALUES (1, 1)"))
         conn.execute(text("INSERT INTO clips (id, user_id) VALUES (1, 1)"))
 
     from generators.dataset_summary_users import users_summary_to_markdown

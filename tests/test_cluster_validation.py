@@ -80,7 +80,7 @@ def test_filter_passes_run_within_bounds():
         _phase_filter(s, "video", _make_settings())
         result = s.get(ClusterRun, row_id)
         assert result is not None
-        assert result.disqualified == False
+        assert result.eligibility == 1
 
 
 def test_filter_disqualifies_high_noise():
@@ -97,7 +97,7 @@ def test_filter_disqualifies_high_noise():
         _phase_filter(s, "video", _make_settings())
         result = s.get(ClusterRun, row_id)
         assert result is not None
-        assert result.disqualified == True
+        assert result.eligibility == 2
 
 
 def test_filter_disqualifies_too_few_clusters():
@@ -114,7 +114,7 @@ def test_filter_disqualifies_too_few_clusters():
         _phase_filter(s, "video", _make_settings())
         result = s.get(ClusterRun, row_id)
         assert result is not None
-        assert result.disqualified == True
+        assert result.eligibility == 2
 
 
 def test_filter_disqualifies_too_many_clusters():
@@ -131,7 +131,7 @@ def test_filter_disqualifies_too_many_clusters():
         _phase_filter(s, "video", _make_settings())
         result = s.get(ClusterRun, row_id)
         assert result is not None
-        assert result.disqualified == True
+        assert result.eligibility == 2
 
 
 def test_filter_ignores_stale_rows():
@@ -140,7 +140,7 @@ def test_filter_ignores_stale_rows():
     with Session(eng) as s:
         row = _insert_run(s, noise_ratio=0.1, n_clusters=5)
         row.in_current_grid = False
-        row.disqualified = True
+        row.eligibility = 2
         s.commit()
         row_id = row.id
 
@@ -150,7 +150,7 @@ def test_filter_ignores_stale_rows():
         _phase_filter(s, "video", _make_settings())
         result = s.get(ClusterRun, row_id)
         assert result is not None
-        assert result.disqualified == True
+        assert result.eligibility == 2
 
 
 # --- Phase 2: score ---
@@ -177,7 +177,7 @@ def test_phase_score_populates_dbcv_and_silhouette(monkeypatch):
             s,
             noise_ratio=0.0,
             n_clusters=2,
-            disqualified=False,
+            eligibility=1,
             umap_n_components=5,
             hdbscan_min_cluster_size=10,
         )
@@ -214,7 +214,7 @@ def test_phase_score_skips_already_scored_rows(monkeypatch):
             s,
             noise_ratio=0.0,
             n_clusters=2,
-            disqualified=False,
+            eligibility=1,
             umap_n_components=5,
             hdbscan_min_cluster_size=10,
         )
@@ -349,7 +349,7 @@ def test_phase_plateau_uses_dbcv_of_neighbors():
     with Session(eng) as s:
         r1 = _insert_run(
             s,
-            disqualified=False,
+            eligibility=1,
             noise_ratio=0.1,
             n_clusters=5,
             umap_n_components=10,
@@ -359,7 +359,7 @@ def test_phase_plateau_uses_dbcv_of_neighbors():
         r1.dbcv = 0.8
         r2 = _insert_run(
             s,
-            disqualified=False,
+            eligibility=1,
             noise_ratio=0.1,
             n_clusters=5,
             umap_n_components=15,
@@ -388,7 +388,7 @@ def test_phase_plateau_covers_all_scored_rows():
         for i, nc in enumerate([10, 15, 20]):
             r = _insert_run(
                 s,
-                disqualified=False,
+                eligibility=1,
                 noise_ratio=0.1,
                 n_clusters=5,
                 umap_n_components=nc,
@@ -416,7 +416,7 @@ def test_phase_plateau_no_neighbors_falls_back_to_own_dbcv():
     with Session(eng) as s:
         r = _insert_run(
             s,
-            disqualified=False,
+            eligibility=1,
             noise_ratio=0.1,
             n_clusters=5,
             umap_n_components=10,
@@ -442,7 +442,7 @@ def test_phase_plateau_skips_already_set():
     with Session(eng) as s:
         row = _insert_run(
             s,
-            disqualified=False,
+            eligibility=1,
             noise_ratio=0.1,
             n_clusters=5,
             umap_n_components=10,
@@ -472,7 +472,7 @@ def test_select_best_picks_highest_dbcv():
     with Session(eng) as s:
         r1 = _insert_run(
             s,
-            disqualified=False,
+            eligibility=1,
             noise_ratio=0.1,
             n_clusters=5,
             umap_n_components=10,
@@ -483,7 +483,7 @@ def test_select_best_picks_highest_dbcv():
         r1.param_plateau_score = 0.88  # drop=0.02, within threshold
         r2 = _insert_run(
             s,
-            disqualified=False,
+            eligibility=1,
             noise_ratio=0.1,
             n_clusters=5,
             umap_n_components=15,
@@ -510,7 +510,7 @@ def test_select_best_rejects_sharp_peak_by_plateau_filter():
         # r1 has higher DBCV but is a sharp peak
         r1 = _insert_run(
             s,
-            disqualified=False,
+            eligibility=1,
             noise_ratio=0.1,
             n_clusters=5,
             umap_n_components=10,
@@ -522,7 +522,7 @@ def test_select_best_rejects_sharp_peak_by_plateau_filter():
         # r2 has lower DBCV but is on a stable plateau
         r2 = _insert_run(
             s,
-            disqualified=False,
+            eligibility=1,
             noise_ratio=0.1,
             n_clusters=5,
             umap_n_components=15,
@@ -548,7 +548,7 @@ def test_select_best_falls_back_when_all_rejected():
     with Session(eng) as s:
         r1 = _insert_run(
             s,
-            disqualified=False,
+            eligibility=1,
             noise_ratio=0.1,
             n_clusters=5,
             umap_n_components=10,
@@ -559,7 +559,7 @@ def test_select_best_falls_back_when_all_rejected():
         r1.param_plateau_score = 0.1  # sharp peak — would be rejected
         r2 = _insert_run(
             s,
-            disqualified=False,
+            eligibility=1,
             noise_ratio=0.1,
             n_clusters=5,
             umap_n_components=15,
@@ -582,7 +582,7 @@ def test_select_best_falls_back_when_all_rejected():
 def test_select_best_returns_none_when_no_eligible_runs():
     eng = _make_engine()
     with Session(eng) as s:
-        row = _insert_run(s, disqualified=False, noise_ratio=0.1, n_clusters=5)
+        row = _insert_run(s, eligibility=1, noise_ratio=0.1, n_clusters=5)
         row.in_current_grid = True
         # no dbcv set → not eligible
         s.commit()
@@ -593,12 +593,12 @@ def test_select_best_returns_none_when_no_eligible_runs():
         assert _select_best(s, "video", _make_settings()) is None
 
 
-def test_select_best_ignores_disqualified():
+def test_select_best_ignores_disqualified_eligibility():
     eng = _make_engine()
     with Session(eng) as s:
         row = _insert_run(
             s,
-            disqualified=True,
+            eligibility=2,
             noise_ratio=0.1,
             n_clusters=5,
             umap_n_components=10,
@@ -621,7 +621,7 @@ def test_select_best_ignores_cluster_override_env(monkeypatch):
     with Session(eng) as s:
         r1 = _insert_run(
             s,
-            disqualified=False,
+            eligibility=1,
             noise_ratio=0.1,
             n_clusters=5,
             umap_n_components=10,
@@ -632,7 +632,7 @@ def test_select_best_ignores_cluster_override_env(monkeypatch):
         r1.param_plateau_score = 0.88
         r2 = _insert_run(
             s,
-            disqualified=False,
+            eligibility=1,
             noise_ratio=0.1,
             n_clusters=5,
             umap_n_components=15,
@@ -659,7 +659,7 @@ def test_select_best_delegates_to_shared_selector(monkeypatch):
     with Session(eng) as s:
         row = _insert_run(
             s,
-            disqualified=False,
+            eligibility=1,
             noise_ratio=0.1,
             n_clusters=5,
             umap_n_components=10,
@@ -964,7 +964,7 @@ def test_phase_score_uses_thread_pool_when_workers_gt_one(monkeypatch):
 
     with Session(eng) as s:
         for nc in (15, 16):
-            row = _insert_run(s, umap_n_components=nc, disqualified=False)
+            row = _insert_run(s, umap_n_components=nc, eligibility=1)
             row.in_current_grid = True
             row.dbcv = None
             s.commit()

@@ -5,7 +5,10 @@ import httpx
 
 from modules.console import log, progress
 from modules.database import Download, User, get_session
+from modules.eligibility import Eligibility, eligibility_db, is_eligible
 from modules.identity import get_profile_pic_url
+
+_ELIGIBLE = eligibility_db(Eligibility.ELIGIBLE)
 
 SCOPE = "download"
 
@@ -95,7 +98,7 @@ def download_files(
         session.query(User)
         .filter(
             ~User.id.in_(done_ids),
-            (User.user_disqualified.is_(None)) | (~User.user_disqualified),
+            is_eligible(User.eligibility),
         )
         .limit(batch_size)
         .all()
@@ -119,7 +122,7 @@ def download_files(
                 retry_delay,
             )
             for clip in user.clips[: max_clips or None]:
-                if clip.disqualified:
+                if clip.eligibility != _ELIGIBLE:
                     continue
                 _try_download(
                     session,

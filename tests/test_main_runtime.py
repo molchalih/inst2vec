@@ -20,14 +20,18 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
         ),
         parse=SimpleNamespace(fetch_retry_delays_sec=[0, 30, 60, 90]),
         download=SimpleNamespace(max_attempts=3, retry_delay=2),
-        finalize=SimpleNamespace(
-            target_clips_per_user=4,
-            require_min_text_clips=False,
-            pass_a_recompute_from_scratch=True,
-            global_min_plays=0,
-            global_min_plays_percentile=5.0,
-            creator_robust_z_threshold=-2.5,
-            creator_min_clips=5,
+        filter=SimpleNamespace(
+            min_video_duration=3,
+            max_video_duration=80,
+            min_taken_at=1640995200,
+            creator_min_median_views=10000,
+            min_eligible_clips_per_user=10,
+            global_low_percentile=5,
+            global_high_percentile=99,
+            creator_low_z_threshold=-3.5,
+            selection_pool_percent=0.20,
+            selected_clips_per_user=10,
+            selection_random_seed=42,
         ),
         music=SimpleNamespace(
             audio_fingerprint_confidence=0.8,
@@ -100,11 +104,6 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
         lambda **kwargs: calls.append("import:csv"),
     )
     monkeypatch.setattr(main, "fetch_profiles", lambda **kwargs: calls.append("parse"))
-    monkeypatch.setattr(
-        main,
-        "finalize_user_dataset",
-        lambda pass_name, **kwargs: calls.append(f"finalize:{pass_name}"),
-    )
     monkeypatch.setattr(
         main, "download_files", lambda **kwargs: calls.append("download")
     )

@@ -12,6 +12,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     create_engine,
+    text,
 )
 from sqlalchemy.engine import Engine as _Engine
 from sqlalchemy.orm import (
@@ -41,8 +42,15 @@ class User(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     following_count: Mapped[int | None] = mapped_column(Integer)
     follower_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    user_disqualified: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    eligibility: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
     parse_status: Mapped[str | None] = mapped_column(String, nullable=True)
+    is_low_plays_median: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    is_not_enough_clips: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    is_selected: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    log_plays_median: Mapped[float | None] = mapped_column(Float, nullable=True)
+    log_plays_mad: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     clips: Mapped[list["Clip"]] = relationship("Clip", back_populates="user")  # type: ignore[assignment]
     embeddings: Mapped[list["UserEmbedding"]] = relationship(  # type: ignore[assignment]
@@ -83,7 +91,22 @@ class Clip(Base):
     speech_compression_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
     has_speech: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     speech_translation: Mapped[str | None] = mapped_column(Text)
-    disqualified: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    eligibility: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    is_garbage: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    is_too_short: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    is_too_long: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    is_too_old: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    is_low_percentile: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    is_high_percentile: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    is_creator_low_outlier: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    log_plays: Mapped[float | None] = mapped_column(Float, nullable=True)
+    creator_relative_robust_z: Mapped[float | None] = mapped_column(
+        Float, nullable=True
+    )
+    is_eligible: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    is_selected: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 
     user: Mapped["User"] = relationship("User", back_populates="clips")  # type: ignore[assignment]
     music: Mapped[Optional["Music"]] = relationship("Music", back_populates="clips")  # type: ignore[assignment]
@@ -258,7 +281,9 @@ class ClusterRun(Base):
     min_size: Mapped[int] = mapped_column(Integer, nullable=False)
     median_size: Mapped[int] = mapped_column(Integer, nullable=False)
     max_size: Mapped[int] = mapped_column(Integer, nullable=False)
-    disqualified: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    eligibility: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
     dbcv: Mapped[float | None] = mapped_column(Float, nullable=True)
     silhouette: Mapped[float | None] = mapped_column(Float, nullable=True)
     param_plateau_score: Mapped[float | None] = mapped_column(Float, nullable=True)

@@ -23,7 +23,7 @@ def _run_row(
     n_clusters: int,
     noise_ratio: float,
     param_plateau_score: float | None = None,
-    disqualified: int | None = 0,
+    eligibility: int = 1,
     in_current_grid: int | None = 1,
 ) -> ClusterRun:
     return ClusterRun(
@@ -45,7 +45,7 @@ def _run_row(
         min_size=1,
         median_size=2,
         max_size=5,
-        disqualified=disqualified,
+        eligibility=eligibility,
         dbcv=dbcv,
         silhouette=silhouette,
         param_plateau_score=param_plateau_score,
@@ -110,7 +110,7 @@ def test_list_eligible_best_rows_filters_like_validation():
                 n_clusters=5,
                 noise_ratio=0.1,
                 param_plateau_score=0.85,
-                disqualified=1,
+                eligibility=2,
             )
         )
         s.add(
@@ -169,7 +169,7 @@ def test_summarize_case_rows_counts_and_means():
             silhouette=-0.5,
             n_clusters=2,
             noise_ratio=0.1,
-            disqualified=0,
+            eligibility=1,
             in_current_grid=1,
         ),
         _run_row(
@@ -178,7 +178,7 @@ def test_summarize_case_rows_counts_and_means():
             silhouette=0.0,
             n_clusters=4,
             noise_ratio=0.0,
-            disqualified=1,
+            eligibility=2,
             in_current_grid=1,
         ),
         _run_row(
@@ -187,7 +187,7 @@ def test_summarize_case_rows_counts_and_means():
             silhouette=0.0,
             n_clusters=2,
             noise_ratio=0.2,
-            disqualified=0,
+            eligibility=1,
             in_current_grid=0,
         ),
     ]

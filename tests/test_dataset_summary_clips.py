@@ -21,8 +21,8 @@ def test_clips_summary_to_markdown_renders_curated_metrics():
     with Session(eng) as s:
         s.add_all(
             [
-                User(id=1, parse_status="success", user_disqualified=0),
-                User(id=2, parse_status="success", user_disqualified=1),
+                User(id=1, parse_status="success", eligibility=1),
+                User(id=2, parse_status="success", eligibility=2),
                 Clip(
                     id=11,
                     user_id=1,
@@ -39,7 +39,7 @@ def test_clips_summary_to_markdown_renders_curated_metrics():
                     speech_language="en",
                     speech_translation="hello",
                     has_speech=1,
-                    disqualified=0,
+                    eligibility=1,
                 ),
                 Clip(
                     id=12,
@@ -50,7 +50,7 @@ def test_clips_summary_to_markdown_renders_curated_metrics():
                     play_count=200,
                     has_music=0,
                     has_speech=0,
-                    disqualified=0,
+                    eligibility=1,
                 ),
                 Clip(
                     id=13,
@@ -68,7 +68,7 @@ def test_clips_summary_to_markdown_renders_curated_metrics():
                     has_speech=1,
                     has_music=1,
                     music_id=8,
-                    disqualified=1,
+                    eligibility=2,
                 ),
             ]
         )
@@ -103,8 +103,8 @@ def test_clips_summary_to_markdown_renders_curated_metrics():
 def test_clips_summary_to_markdown_uses_dash_for_missing_numeric_values():
     eng = _make_engine()
     with Session(eng) as s:
-        s.add(User(id=1, parse_status="success", user_disqualified=0))
-        s.add(Clip(id=11, user_id=1, disqualified=0))
+        s.add(User(id=1, parse_status="success", eligibility=1))
+        s.add(Clip(id=11, user_id=1, eligibility=1))
         s.commit()
 
     from generators.dataset_summary_clips import clips_summary_to_markdown
@@ -117,8 +117,8 @@ def test_clips_summary_to_markdown_uses_dash_for_missing_numeric_values():
 def test_render_clips_summary_returns_markdown_object():
     eng = _make_engine()
     with Session(eng) as s:
-        s.add(User(id=1, parse_status="success", user_disqualified=0))
-        s.add(Clip(id=11, user_id=1, disqualified=0))
+        s.add(User(id=1, parse_status="success", eligibility=1))
+        s.add(Clip(id=11, user_id=1, eligibility=1))
         s.commit()
 
     from docs.quarto_helpers import render_clips_summary

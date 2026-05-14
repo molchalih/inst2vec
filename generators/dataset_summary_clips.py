@@ -8,6 +8,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from modules.database import Clip
+from modules.eligibility import is_eligible
 
 __all__ = ("clips_summary_to_markdown",)
 
@@ -28,7 +29,7 @@ TABLE_ROWS: tuple[tuple[str, str], ...] = (
 )
 
 
-KEPT_CLIP_FILTER = ~Clip.disqualified
+KEPT_CLIP_FILTER = is_eligible(Clip.eligibility)
 
 
 def _count(session: Session, *criteria) -> int:
