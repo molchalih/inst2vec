@@ -340,3 +340,30 @@ def test_flag_users_without_enough_clips():
         u2 = s.get(User, 2)
         assert u1.is_not_enough_clips is True
         assert u2.is_not_enough_clips is False
+
+
+def test_flag_global_percentile_clips():
+    from modules.config import FilterSettings
+    from modules.filter import _flag_global_percentile_clips
+    from modules.database import Clip, User
+    eng = _make_db()
+    cfg = FilterSettings(global_low_percentile=20, global_high_percentile=80)
+    with Session(eng) as s:
+        s.add(User(id=1, is_low_plays_median=False, is_not_enough_clips=False))
+        play_counts = [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]
+        for i, plays in enumerate(play_counts, start=1):
+            s.add(Clip(id=i, user_id=1,
+                       play_count=plays, video_duration=10.0, taken_at=1700000000,
+                       video_url="http://x.com/v.mp4", like_count=5,
+                       is_garbage=False, is_low_play_count=False,
+                       is_too_short=False, is_too_long=False, is_too_old=False))
+        s.commit()
+        _flag_global_percentile_clips(s, cfg)
+        s.commit()
+        clips = {c.id: c for c in s.query(Clip).all()}
+        low_clips = [c for c in clips.values() if c.is_low_percentile]
+        high_clips = [c for c in clips.values() if c.is_high_percentile]
+        assert len(low_clips) >= 1
+        assert len(high_clips) >= 1
+        for c in clips.values():
+            assert not (c.is_low_percentile and c.is_high_percentile)

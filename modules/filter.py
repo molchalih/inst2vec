@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import math
 import statistics
 from typing import Any
 
+import numpy as np
 from sqlalchemy.orm import Session
 
 from modules.config import FilterSettings
@@ -88,3 +90,38 @@ def _flag_users_without_enough_clips(session: Session, cfg: FilterSettings) -> N
             and not c.is_too_old
         )
         user.is_not_enough_clips = count < cfg.min_eligible_clips_per_user
+
+
+def _surviving_clips_for_percentile(session: Session) -> list:
+    return [
+        c
+        for u in session.query(User).all()
+        if not u.is_low_plays_median and not u.is_not_enough_clips
+        for c in u.clips
+        if not c.is_garbage
+        and not c.is_low_play_count
+        and not c.is_too_short
+        and not c.is_too_long
+        and not c.is_too_old
+        and c.play_count is not None
+    ]
+
+
+def _flag_global_percentile_clips(session: Session, cfg: FilterSettings) -> None:
+    surviving = _surviving_clips_for_percentile(session)
+    if not surviving:
+        return
+    plays = np.array([c.play_count for c in surviving], dtype=float)
+    low_boundary = float(np.percentile(plays, cfg.global_low_percentile))
+    high_boundary = float(np.percentile(plays, cfg.global_high_percentile))
+
+    for c in session.query(Clip).all():
+        c.is_low_percentile = False
+        c.is_high_percentile = False
+
+    surviving_ids = {c.id for c in surviving}
+    for c in session.query(Clip).all():
+        if c.id not in surviving_ids:
+            continue
+        c.is_low_percentile = c.play_count < low_boundary
+        c.is_high_percentile = c.play_count > high_boundary
