@@ -2,7 +2,6 @@ import subprocess
 from collections import defaultdict
 
 import numpy as np
-from sqlalchemy import or_
 
 from modules.console import log, progress
 from modules.database import (
@@ -15,6 +14,7 @@ from modules.database import (
     get_engine,
     get_session,
 )
+from modules.eligibility import is_eligible
 from modules.external.qwen3_vl_embedding import Qwen3VLEmbedder
 
 _KEY_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
@@ -109,12 +109,10 @@ def _aggregate_user_embeddings(rows: list[tuple[bytes, int]]) -> dict[int, bytes
 
 
 def _eligible_clips(session, exclude_disqualified_users: bool):
-    clips_q = session.query(Clip).filter(
-        or_(Clip.disqualified.is_(None), ~Clip.disqualified)
-    )
+    clips_q = session.query(Clip).filter(is_eligible(Clip.eligibility))
     if exclude_disqualified_users:
         clips_q = clips_q.join(User, Clip.user_id == User.id).filter(
-            or_(User.user_disqualified.is_(None), ~User.user_disqualified),
+            is_eligible(User.eligibility),
         )
     return clips_q.all()
 

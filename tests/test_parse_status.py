@@ -12,6 +12,7 @@ from modules.database import (
     Clip,
     User,
 )
+from modules.eligibility import Eligibility, eligibility_db
 from modules.identity import IdentityBase, UserIdentity
 
 # fetch_profiles tests updated in Task 5 (parse.py now reads username from identity DB)
@@ -30,7 +31,7 @@ def test_finalize_unresolved_for_non_success_parse_status(monkeypatch):
                     id=3000 + i,
                     user_id=3,
                     play_count=100000,
-                    disqualified=0,
+                    eligibility=eligibility_db(Eligibility.ELIGIBLE),
                 )
             )
         s.commit()
@@ -53,13 +54,16 @@ def test_finalize_unresolved_for_non_success_parse_status(monkeypatch):
     with Session(eng) as s:
         u1 = s.get(User, 1)
         assert u1 is not None
-        assert u1.user_disqualified is None
+        assert u1.eligibility == eligibility_db(Eligibility.PENDING)
         u2 = s.get(User, 2)
         assert u2 is not None
-        assert u2.user_disqualified is None
+        assert u2.eligibility == eligibility_db(Eligibility.PENDING)
         u3 = s.get(User, 3)
         assert u3 is not None
-        assert u3.user_disqualified in (0, 1)
+        assert u3.eligibility in {
+            eligibility_db(Eligibility.ELIGIBLE),
+            eligibility_db(Eligibility.DISQUALIFIED),
+        }
 
 
 # ── Task 5: fetch_profiles tests ──────────────────────────────────────────

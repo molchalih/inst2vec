@@ -8,8 +8,13 @@ from sqlalchemy import func
 
 from modules.console import log
 from modules.database import Clip, User, get_session
+from modules.eligibility import Eligibility, eligibility_db, is_eligible
 
 SCOPE = "finalize_dataset"
+
+_PENDING = eligibility_db(Eligibility.PENDING)
+_ELIGIBLE = eligibility_db(Eligibility.ELIGIBLE)
+_DISQUALIFIED = eligibility_db(Eligibility.DISQUALIFIED)
 
 
 def _count_for_user_clip_set(clip_ids: list[int], allowed: set[int]) -> int:
@@ -67,7 +72,7 @@ def _creator_relative_low_outliers(
             c
             for c in user.clips
             if c.play_count is not None
-            and (not only_active_clips or not c.disqualified)
+            and (not only_active_clips or c.eligibility != _DISQUALIFIED)
         ]
         if len(clips) < creator_min_clips:
             continue
@@ -97,7 +102,7 @@ def finalize_user_dataset(
     creator_robust_z_threshold: float,
     creator_min_clips: int,
 ) -> None:
-    """Mark users/clips as disqualified(1) or eligible(0) with staged policy."""
+    """Mark users/clips as ELIGIBLE or DISQUALIFIED with staged policy."""
     pass_name = (pass_name or "A").upper()
     if pass_name not in {"A", "B"}:
         raise ValueError("pass_name must be 'A' or 'B'")
@@ -129,8 +134,8 @@ def finalize_user_dataset(
     parsed_users: list[User] = []
     for user in users:
         if user.parse_status != "success":
-            # keep unresolved users neutral so debug BATCH_SIZE runs don't poison eligibility
-            user.user_disqualified = None
+            # keep unresolved users PENDING so debug BATCH_SIZE runs don't poison eligibility
+            user.eligibility = _PENDING
             unresolved_users += 1
             continue
         parsed_users.append(user)
@@ -143,11 +148,11 @@ def finalize_user_dataset(
     if is_pass_a:
         for user in parsed_users:
             if len(user.clips) < target_clips_per_user:
-                user.user_disqualified = True
+                user.eligibility = _DISQUALIFIED
                 disq_count += 1
                 reason_counts["clip_count"] += 1
                 for clip in user.clips:
-                    clip.disqualified = True
+                    clip.eligibility = _DISQUALIFIED
                     clip_disq += 1
                     clip_reason_counts["user_disqualified"] += 1
                     pre_gated_clip_ids.add(clip.id)
@@ -166,7 +171,10 @@ def finalize_user_dataset(
             for clip in user.clips
             if (
                 clip.play_count is not None
-                and (pass_a_recompute_from_scratch or not clip.disqualified)
+                and (
+                    pass_a_recompute_from_scratch
+                    or clip.eligibility != _DISQUALIFIED
+                )
             )
         ]
         percentile_floor = _quantile_int(all_play_counts, global_min_plays_percentile)
@@ -185,7 +193,7 @@ def finalize_user_dataset(
             for clip in user.clips:
                 already_disq = (
                     not pass_a_recompute_from_scratch
-                ) and clip.disqualified
+                ) and clip.eligibility == _DISQUALIFIED
                 is_global_low = bool(
                     global_floor > 0
                     and clip.play_count is not None
@@ -197,8 +205,12 @@ def finalize_user_dataset(
                 if not stat_disq:
                     active_clip_ids.append(clip.id)
         else:
-            active_clip_ids = [clip.id for clip in user.clips if not clip.disqualified]
-            stat_disq_by_clip = {clip.id: clip.disqualified for clip in user.clips}
+            active_clip_ids = [
+                clip.id for clip in user.clips if clip.eligibility == _ELIGIBLE
+            ]
+            stat_disq_by_clip = {
+                clip.id: clip.eligibility == _DISQUALIFIED for clip in user.clips
+            }
 
         total_clips = len(active_clip_ids)
         text_count = _count_for_user_clip_set(active_clip_ids, text_ok_ids)
@@ -206,7 +218,7 @@ def finalize_user_dataset(
         bad_clip_count = total_clips < target_clips_per_user
         bad_text_count = use_text_gate and text_count < target_clips_per_user
         disqualified = bad_clip_count or bad_text_count
-        user.user_disqualified = disqualified
+        user.eligibility = _DISQUALIFIED if disqualified else _ELIGIBLE
 
         if disqualified:
             disq_count += 1
@@ -220,7 +232,7 @@ def finalize_user_dataset(
             should_disqualify_clip = disqualified or stat_disq_by_clip.get(
                 clip.id, False
             )
-            clip.disqualified = should_disqualify_clip
+            clip.eligibility = _DISQUALIFIED if should_disqualify_clip else _ELIGIBLE
 
             if should_disqualify_clip:
                 # Only count this clip if it wasn't already counted in pre-gate
@@ -246,7 +258,9 @@ def finalize_user_dataset(
     total_users = len(users)
     kept = total_users - disq_count
     eligible_clips = (
-        session.query(func.count(Clip.id)).filter(~Clip.disqualified).scalar()
+        session.query(func.count(Clip.id))
+        .filter(is_eligible(Clip.eligibility))
+        .scalar()
     )
     session.close()
 

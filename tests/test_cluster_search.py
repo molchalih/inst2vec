@@ -57,7 +57,7 @@ def test_cluster_run_columns():
         "median_size",
         "max_size",
         "created_at",
-        "disqualified",
+        "eligibility",
         "dbcv",
         "silhouette",
         "param_plateau_score",
@@ -265,7 +265,7 @@ def test_run_cluster_search_invalidates_rows_when_no_embeddings_for_case(
             median_size=2,
             max_size=5,
             in_current_grid=1,
-            disqualified=0,
+            eligibility=1,
             dataset_hash="old",
         )
         s.add(row)
@@ -291,7 +291,7 @@ def test_run_cluster_search_invalidates_rows_when_no_embeddings_for_case(
         video_row = s.get(ClusterRun, video_row_id)
         assert video_row is not None
         assert video_row.in_current_grid == 0
-        assert video_row.disqualified == 1
+        assert video_row.eligibility == 2
 
 
 def test_run_cluster_search_idempotent(mem_engine, monkeypatch):

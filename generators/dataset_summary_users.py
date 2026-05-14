@@ -8,6 +8,7 @@ from sqlalchemy import func, inspect
 from sqlalchemy.orm import Session
 
 from modules.database import Clip, User
+from modules.eligibility import is_eligible
 
 
 def _table_exists(bind, table_name: str) -> bool:
@@ -55,7 +56,7 @@ def _fmt_distribution(values: list[float]) -> tuple[str, str, str]:
 
 def _kept_play_count_distribution(session: Session) -> list[float]:
     if not _table_exists(session.get_bind(), "clips") or not _table_has_columns(
-        session.get_bind(), "clips", "play_count", "disqualified"
+        session.get_bind(), "clips", "play_count", "eligibility"
     ):
         return []
 
@@ -63,8 +64,8 @@ def _kept_play_count_distribution(session: Session) -> list[float]:
         session.query(Clip.user_id, func.avg(Clip.play_count).label("avg_play_count"))
         .join(User, Clip.user_id == User.id)
         .filter(
-            ~User.user_disqualified,
-            ~Clip.disqualified,
+            is_eligible(User.eligibility),
+            is_eligible(Clip.eligibility),
             Clip.play_count.is_not(None),
         )
         .group_by(Clip.user_id)
@@ -79,8 +80,8 @@ def _kept_play_count_distribution(session: Session) -> list[float]:
 
 def _summary_cells(session: Session) -> dict[str, str]:
     total_users = _count(session)
-    kept_users = _count(session, ~User.user_disqualified)
-    kept_user_filters = (~User.user_disqualified,)
+    kept_users = _count(session, is_eligible(User.eligibility))
+    kept_user_filters = (is_eligible(User.eligibility),)
 
     following_counts = [
         int(value)

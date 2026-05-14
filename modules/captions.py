@@ -5,10 +5,11 @@ from __future__ import annotations
 import re
 
 from lingua import LanguageDetectorBuilder
-from sqlalchemy import func, or_
+from sqlalchemy import func
 
 from modules.console import log, progress
 from modules.database import Clip, get_session
+from modules.eligibility import is_eligible
 from modules.external.gemma_translate import GemmaTranslator
 
 SCOPE_DETECT = "detect_caption_language"
@@ -28,7 +29,7 @@ def clean_captions(commit_every: int) -> None:
     clips = (
         session.query(Clip)
         .filter(
-            or_(Clip.disqualified.is_(None), ~Clip.disqualified),
+            is_eligible(Clip.eligibility),
             Clip.caption_text.is_not(None),
             Clip.caption_text != "",
             (Clip.caption_text.contains("@")) | (Clip.caption_text.contains("\n")),
@@ -60,7 +61,7 @@ def detect_caption_language() -> None:
     clips = (
         session.query(Clip)
         .filter(
-            or_(Clip.disqualified.is_(None), ~Clip.disqualified),
+            is_eligible(Clip.eligibility),
             Clip.caption_text.is_not(None),
             Clip.caption_text != "",
             (Clip.caption_language.is_(None)) | (Clip.caption_language == ""),
@@ -113,7 +114,7 @@ def translate_captions(
     clips = (
         session.query(Clip)
         .filter(
-            or_(Clip.disqualified.is_(None), ~Clip.disqualified),
+            is_eligible(Clip.eligibility),
             Clip.caption_text.is_not(None),
             Clip.caption_text != "",
             Clip.caption_language.is_not(None),

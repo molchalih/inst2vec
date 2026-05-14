@@ -23,6 +23,7 @@ from modules.clustering import (
 )
 from modules.console import log, progress
 from modules.database import ClusterRun, get_session
+from modules.eligibility import Eligibility, eligibility_db, is_eligible
 
 _PARAM_COLS = [
     "umap_n_components",
@@ -152,7 +153,11 @@ def _phase_filter(session: Session, case: str, settings) -> None:
                     row.noise_ratio <= max_noise
                     and min_clusters <= row.n_clusters <= max_clusters
                 )
-                row.disqualified = not passes
+                row.eligibility = (
+                    eligibility_db(Eligibility.ELIGIBLE)
+                    if passes
+                    else eligibility_db(Eligibility.DISQUALIFIED)
+                )
                 n_pass += int(passes)
                 advance(1)
     session.commit()
@@ -169,7 +174,7 @@ def _phase_score(
         session.query(ClusterRun)
         .filter(
             ClusterRun.embedding_case == case,
-            ~ClusterRun.disqualified,
+            is_eligible(ClusterRun.eligibility),
             ClusterRun.dbcv.is_(None),
         )
         .all()
@@ -191,14 +196,14 @@ def _phase_score(
                     f"score skip id={row_id} — ValueError",
                     level="warn",
                 )
-                row.disqualified = True
+                row.eligibility = eligibility_db(Eligibility.DISQUALIFIED)
             elif outcome == "dbcv_fail":
                 log(
                     f"validate:{case}",
                     f"dbcv failed id={row_id} — disqualifying",
                     level="err",
                 )
-                row.disqualified = True
+                row.eligibility = eligibility_db(Eligibility.DISQUALIFIED)
             else:
                 dbcv, sil = outcome
                 row.dbcv = dbcv
@@ -219,14 +224,14 @@ def _phase_score(
                         f"score skip id={row.id} — ValueError",
                         level="warn",
                     )
-                    row.disqualified = True
+                    row.eligibility = eligibility_db(Eligibility.DISQUALIFIED)
                 elif outcome == "dbcv_fail":
                     log(
                         f"validate:{case}",
                         f"dbcv failed id={row.id} — disqualifying",
                         level="err",
                     )
-                    row.disqualified = True
+                    row.eligibility = eligibility_db(Eligibility.DISQUALIFIED)
                 else:
                     dbcv, sil = outcome
                     row.dbcv = dbcv
@@ -317,7 +322,7 @@ def _phase_plateau(session: Session, case: str, settings) -> None:
         .filter(
             ClusterRun.embedding_case == case,
             ClusterRun.in_current_grid,
-            ~ClusterRun.disqualified,
+            is_eligible(ClusterRun.eligibility),
             ClusterRun.dbcv.isnot(None),
         )
         .all()

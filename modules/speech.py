@@ -13,6 +13,7 @@ from sqlalchemy import func, or_
 
 from modules.console import log, progress
 from modules.database import Clip, get_session
+from modules.eligibility import is_eligible
 from modules.external.gemma_translate import GemmaTranslator
 
 # Two complementary hallucination gates (both configurable via parameters):
@@ -83,7 +84,7 @@ def clean_speech() -> None:
     clips = (
         session.query(Clip)
         .filter(
-            or_(Clip.disqualified.is_(None), ~Clip.disqualified),
+            is_eligible(Clip.eligibility),
             Clip.has_speech,
             Clip.speech_translation.is_not(None),
             or_(*filter_conditions),
@@ -126,7 +127,7 @@ def classify_speech(
         session.query(Clip)
         .filter(
             Clip.has_speech.is_(None),
-            or_(Clip.disqualified.is_(None), ~Clip.disqualified),
+            is_eligible(Clip.eligibility),
         )
         .order_by(Clip.id.desc())
         .all()
@@ -207,7 +208,7 @@ def translate_speech(
     clips = (
         session.query(Clip)
         .filter(
-            or_(Clip.disqualified.is_(None), ~Clip.disqualified),
+            is_eligible(Clip.eligibility),
             Clip.speech_transcription.is_not(None),
             Clip.speech_transcription != "",
             Clip.speech_language.is_not(None),

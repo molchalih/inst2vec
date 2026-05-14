@@ -25,8 +25,8 @@ def _seed_clusters(eng):
     with Session(eng) as s:
         s.add_all(
             [
-                User(id=1, parse_status="success", user_disqualified=False),
-                User(id=2, parse_status="success", user_disqualified=False),
+                User(id=1, parse_status="success", eligibility=1),
+                User(id=2, parse_status="success", eligibility=1),
                 UserCluster(
                     user_id=1,
                     embedding_case="audio",

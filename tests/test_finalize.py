@@ -7,6 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from modules.database import Base, Clip, User
+from modules.eligibility import Eligibility, eligibility_db
 
 
 def _make_engine():
@@ -61,8 +62,8 @@ def test_pass_a_pre_gates_users_with_too_few_raw_clips(monkeypatch):
         u2 = s.get(User, 2)
         assert u1 is not None
         assert u2 is not None
-        assert u1.user_disqualified == True  # pre-gated
-        assert u2.user_disqualified == False  # survived
+        assert u1.eligibility == eligibility_db(Eligibility.DISQUALIFIED)
+        assert u2.eligibility == eligibility_db(Eligibility.ELIGIBLE)
 
 
 def test_pass_a_pre_gated_users_excluded_from_percentile_floor(monkeypatch):
@@ -100,9 +101,10 @@ def test_pass_a_pre_gated_users_excluded_from_percentile_floor(monkeypatch):
         assert u1 is not None
         assert u2 is not None
         # User1 must be pre-gated (disqualified immediately, not due to stats)
-        assert u1.user_disqualified == True
+        assert u1.eligibility == eligibility_db(Eligibility.DISQUALIFIED)
         # User2 survives with all clips intact because floor is computed only from user2
-        surviving_clips = [c for c in u2.clips if c.disqualified == False]
+        eligible_code = eligibility_db(Eligibility.ELIGIBLE)
+        surviving_clips = [c for c in u2.clips if c.eligibility == eligible_code]
         assert (
             len(surviving_clips) == 5
         )  # all 5 clips survive (dead user excluded from floor)
@@ -134,7 +136,8 @@ def test_pass_a_re_gates_after_stat_disq(monkeypatch):
     with Session(eng) as s:
         u = s.get(User, 1)
         assert u is not None
-        assert u.user_disqualified == True  # re-gated: only 1 clip survives stat disq
+        # re-gated: only 1 clip survives stat disq
+        assert u.eligibility == eligibility_db(Eligibility.DISQUALIFIED)
 
 
 def test_pass_b_does_not_pre_gate(monkeypatch):
@@ -142,9 +145,11 @@ def test_pass_b_does_not_pre_gate(monkeypatch):
     eng = _make_engine()
     with Session(eng) as s:
         # User with only 1 clip — would be pre-gated in Pass A, but not in Pass B
-        u = _make_user(s, id=1, clips_play_counts=[100000])
-        # Pre-set clip as eligible (disqualified=0) so Pass B considers it
-        s.query(Clip).filter(Clip.user_id == 1).update({"disqualified": False})
+        _make_user(s, id=1, clips_play_counts=[100000])
+        # Pre-set clip as eligible so Pass B considers it
+        s.query(Clip).filter(Clip.user_id == 1).update(
+            {"eligibility": eligibility_db(Eligibility.ELIGIBLE)}
+        )
         s.commit()
 
     monkeypatch.setattr("modules.finalize.get_session", lambda: Session(eng))
@@ -167,7 +172,7 @@ def test_pass_b_does_not_pre_gate(monkeypatch):
         assert u is not None
         # Pass B does not pre-gate; user gets disqualified only by clip-count re-gate
         # (which is the same behavior as before — 1 clip < 4)
-        assert u.user_disqualified == True  # disqualified by clip count in Pass B loop
+        assert u.eligibility == eligibility_db(Eligibility.DISQUALIFIED)
 
 
 def test_finalize_user_dataset_accepts_params():

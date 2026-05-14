@@ -25,7 +25,7 @@ def _run_row(
     silhouette: float,
     n_clusters: int,
     noise_ratio: float,
-    disqualified: int = 0,
+    eligibility: int = 1,
     in_current_grid: int = 1,
 ) -> ClusterRun:
     return ClusterRun(
@@ -47,7 +47,7 @@ def _run_row(
         min_size=1,
         median_size=2,
         max_size=5,
-        disqualified=disqualified,
+        eligibility=eligibility,
         dbcv=dbcv,
         silhouette=silhouette,
         param_plateau_score=param_plateau_score,

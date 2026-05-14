@@ -14,6 +14,7 @@ from modules.clustering import (
 )
 from modules.console import log, progress
 from modules.database import Base, ClusterRun, get_engine, get_session
+from modules.eligibility import Eligibility, eligibility_db
 
 _PARAM_KEYS = (
     "umap_n_components",
@@ -102,7 +103,7 @@ def _load_grid(settings) -> list[dict]:
 def run_cluster_search(settings, clustering_grid_workers: int = 1) -> None:
     """Run grid search over all hyperparameter combos from settings; save metrics to ClusterRun.
 
-    At the start of each run: marks existing rows as in_current_grid=False/disqualified=True
+    At the start of each run: marks existing rows as in_current_grid=False/DISQUALIFIED
     if they belong to a combo not in the current grid, or were computed on a different
     dataset (hash mismatch). New rows get in_current_grid=True and dataset_hash.
 
@@ -137,7 +138,7 @@ def run_cluster_search(settings, clustering_grid_workers: int = 1) -> None:
                     .all()
                 ):
                     row.in_current_grid = False
-                    row.disqualified = True
+                    row.eligibility = eligibility_db(Eligibility.DISQUALIFIED)
                 session.commit()
             finally:
                 session.close()
@@ -162,7 +163,7 @@ def run_cluster_search(settings, clustering_grid_workers: int = 1) -> None:
                     row.in_current_grid = True
                 else:
                     row.in_current_grid = False
-                    row.disqualified = True
+                    row.eligibility = eligibility_db(Eligibility.DISQUALIFIED)
             session.commit()
         finally:
             session.close()
@@ -252,7 +253,7 @@ def run_cluster_search(settings, clustering_grid_workers: int = 1) -> None:
                         stale_row.max_size = max(sizes) if sizes else 0
                         stale_row.in_current_grid = True
                         stale_row.dataset_hash = _dataset_hash
-                        stale_row.disqualified = None
+                        stale_row.eligibility = eligibility_db(Eligibility.PENDING)
                         stale_row.dbcv = None
                         stale_row.silhouette = None
                         stale_row.param_plateau_score = None
