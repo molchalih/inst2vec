@@ -2,6 +2,13 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from modules.database import Base, Clip, User
+from modules.filter import (
+    _is_garbage,
+    _is_low_play_count,
+    _is_too_long,
+    _is_too_old,
+    _is_too_short,
+)
 
 
 def test_clip_has_filter_columns():
@@ -83,14 +90,6 @@ def test_filter_settings_load():
     assert cfg.selected_clips_per_user == 10
 
 
-from modules.filter import (
-    _is_garbage,
-    _is_low_play_count,
-    _is_too_short,
-    _is_too_long,
-    _is_too_old,
-)
-
 def _make_clip(**kwargs):
     """Build a minimal Clip-like object via SimpleNamespace."""
     from types import SimpleNamespace
@@ -98,7 +97,7 @@ def _make_clip(**kwargs):
         video_duration=10.0,
         taken_at=1700000000,
         play_count=5000,
-        download_url="http://example.com/v.mp4",
+        video_url="http://example.com/v.mp4",
         like_count=100,
     )
     defaults.update(kwargs)
@@ -129,11 +128,11 @@ def test_is_garbage_zero_play_count():
     assert _is_garbage(c) is True
 
 def test_is_garbage_missing_download_url():
-    c = _make_clip(download_url=None)
+    c = _make_clip(video_url=None)
     assert _is_garbage(c) is True
 
 def test_is_garbage_empty_download_url():
-    c = _make_clip(download_url="")
+    c = _make_clip(video_url="")
     assert _is_garbage(c) is True
 
 def test_is_garbage_missing_like_count():
@@ -185,8 +184,8 @@ def _make_db():
 
 
 def test_flag_garbage_clips_sets_is_garbage():
-    from modules.filter import _flag_garbage_clips
     from modules.database import Clip, User
+    from modules.filter import _flag_garbage_clips
     eng = _make_db()
     with Session(eng) as s:
         s.add(User(id=1))
@@ -207,8 +206,8 @@ def test_flag_garbage_clips_sets_is_garbage():
 
 def test_flag_basic_policy_clips():
     from modules.config import FilterSettings
-    from modules.filter import _flag_basic_policy_clips
     from modules.database import Clip, User
+    from modules.filter import _flag_basic_policy_clips
     eng = _make_db()
     cfg = FilterSettings(
         min_play_count=1000,
@@ -249,8 +248,8 @@ def test_flag_basic_policy_clips():
 
 def test_flag_low_median_creators():
     from modules.config import FilterSettings
-    from modules.filter import _flag_low_median_creators
     from modules.database import Clip, User
+    from modules.filter import _flag_low_median_creators
     eng = _make_db()
     cfg = FilterSettings(creator_min_median_views=10000)
     with Session(eng) as s:
@@ -281,8 +280,8 @@ def test_flag_low_median_creators():
 
 def test_flag_low_median_creators_excludes_garbage():
     from modules.config import FilterSettings
-    from modules.filter import _flag_low_median_creators
     from modules.database import Clip, User
+    from modules.filter import _flag_low_median_creators
     eng = _make_db()
     cfg = FilterSettings(creator_min_median_views=10000)
     with Session(eng) as s:
@@ -313,8 +312,8 @@ def test_flag_low_median_creators_excludes_garbage():
 
 def test_flag_users_without_enough_clips():
     from modules.config import FilterSettings
-    from modules.filter import _flag_users_without_enough_clips
     from modules.database import Clip, User
+    from modules.filter import _flag_users_without_enough_clips
     eng = _make_db()
     cfg = FilterSettings(min_eligible_clips_per_user=3)
     with Session(eng) as s:
