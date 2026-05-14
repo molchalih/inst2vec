@@ -80,7 +80,11 @@ def _std_ddof1(vals: list[float]) -> float:
 
 
 def summarize_case_rows(rows: list[ClusterRun]) -> dict[str, str]:
-    filtered_rows = [r for r in rows if r.eligibility == eligibility_db(Eligibility.ELIGIBLE) and r.in_current_grid]
+    filtered_rows = [
+        r
+        for r in rows
+        if r.eligibility == eligibility_db(Eligibility.ELIGIBLE) and r.in_current_grid
+    ]
     dbcv_vals = [
         float(r.dbcv)
         for r in rows

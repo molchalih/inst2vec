@@ -13,7 +13,6 @@ from modules.database import (
     Clip,
     User,
 )
-from modules.eligibility import Eligibility, eligibility_db
 from modules.identity import IdentityBase, UserIdentity
 
 # fetch_profiles tests updated in Task 5 (parse.py now reads username from identity DB)

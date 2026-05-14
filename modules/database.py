@@ -103,7 +103,9 @@ class Clip(Base):
     is_high_percentile: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     is_creator_low_outlier: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     log_plays: Mapped[float | None] = mapped_column(Float, nullable=True)
-    creator_relative_robust_z: Mapped[float | None] = mapped_column(Float, nullable=True)
+    creator_relative_robust_z: Mapped[float | None] = mapped_column(
+        Float, nullable=True
+    )
     is_eligible: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     is_selected: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 

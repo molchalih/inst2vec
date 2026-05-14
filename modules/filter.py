@@ -49,8 +49,12 @@ def _flag_garbage_clips(session: Session) -> None:
 def _flag_basic_policy_clips(session: Session, cfg: FilterSettings) -> None:
     clips = session.query(Clip).all()
     for clip in clips:
-        clip.is_low_play_count = _is_low_play_count(clip, min_play_count=cfg.min_play_count)
-        clip.is_too_short = _is_too_short(clip, min_video_duration=cfg.min_video_duration)
+        clip.is_low_play_count = _is_low_play_count(
+            clip, min_play_count=cfg.min_play_count
+        )
+        clip.is_too_short = _is_too_short(
+            clip, min_video_duration=cfg.min_video_duration
+        )
         clip.is_too_long = _is_too_long(clip, max_video_duration=cfg.max_video_duration)
         clip.is_too_old = _is_too_old(clip, min_taken_at=cfg.min_taken_at)
 
@@ -139,7 +143,8 @@ def _compute_creator_robust_stats(session: Session, cfg: FilterSettings) -> None
         if user.is_low_plays_median or user.is_not_enough_clips:
             continue
         surviving = [
-            c for c in user.clips
+            c
+            for c in user.clips
             if not c.is_garbage
             and not c.is_low_play_count
             and not c.is_too_short
@@ -184,17 +189,19 @@ def _derive_eligibility(session: Session) -> None:
         if user is None:
             clip.is_eligible = False
             continue
-        clip.is_eligible = not any([
-            clip.is_garbage,
-            clip.is_low_play_count,
-            clip.is_too_old,
-            clip.is_too_long,
-            clip.is_too_short,
-            clip.is_low_percentile,
-            clip.is_creator_low_outlier,
-            user.is_low_plays_median,
-            user.is_not_enough_clips,
-        ])
+        clip.is_eligible = not any(
+            [
+                clip.is_garbage,
+                clip.is_low_play_count,
+                clip.is_too_old,
+                clip.is_too_long,
+                clip.is_too_short,
+                clip.is_low_percentile,
+                clip.is_creator_low_outlier,
+                user.is_low_plays_median,
+                user.is_not_enough_clips,
+            ]
+        )
 
 
 def select_clips_for_embedding(session: Session, cfg: FilterSettings) -> None:
@@ -231,6 +238,7 @@ def preprocess_new_data(
     engine=None,
 ) -> None:
     from modules.database import get_engine
+
     eng = engine or get_engine()
     with Session(eng) as session:
         for clip in session.query(Clip).all():

@@ -80,7 +80,9 @@ def _sqlite_rebuild(
         else:
             col_type = col["type"] or "TEXT"
             null_part = "NOT NULL" if col["notnull"] else ""
-            dflt = f"DEFAULT {col['dflt_value']}" if col["dflt_value"] is not None else ""
+            dflt = (
+                f"DEFAULT {col['dflt_value']}" if col["dflt_value"] is not None else ""
+            )
             pk_part = "PRIMARY KEY" if col["pk"] else ""
             parts = [name, col_type, pk_part, null_part, dflt]
             col_ddl_parts.append(" ".join(p for p in parts if p))
@@ -126,14 +128,18 @@ def _migrate_sqlite(conn) -> None:
 def _migrate_postgres(conn) -> None:
     print("PostgreSQL detected — altering columns in place...")
     for table, old_name, new_name in TARGETS:
-        conn.execute(text(f"ALTER TABLE {table} RENAME COLUMN {old_name} TO {new_name}"))
+        conn.execute(
+            text(f"ALTER TABLE {table} RENAME COLUMN {old_name} TO {new_name}")
+        )
         conn.execute(
             text(
                 f"ALTER TABLE {table} ALTER COLUMN {new_name} "
                 f"TYPE INTEGER USING {_remap_sql(new_name)}"
             )
         )
-        conn.execute(text(f"UPDATE {table} SET {new_name} = 0 WHERE {new_name} IS NULL"))
+        conn.execute(
+            text(f"UPDATE {table} SET {new_name} = 0 WHERE {new_name} IS NULL")
+        )
         conn.execute(text(f"ALTER TABLE {table} ALTER COLUMN {new_name} SET DEFAULT 0"))
         conn.execute(text(f"ALTER TABLE {table} ALTER COLUMN {new_name} SET NOT NULL"))
         print(f"  OK: {table}.{old_name} → {table}.{new_name}")
