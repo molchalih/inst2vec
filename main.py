@@ -12,7 +12,6 @@ from modules.embeddings import (
     embed_user_clips,
     embed_video_clips,
 )
-from modules.finalize import finalize_user_dataset
 from modules.music import classify_music, extract_music_features
 from modules.parse import fetch_profiles
 from modules.speech import classify_speech, clean_speech, translate_speech
@@ -44,19 +43,10 @@ def run_pipeline() -> None:
     )
 
     """
-    2. FILTERING: preprocessing the dataset to flag low quality profiles and their clips based on provided policy.
+    2. PREPROCESSING: preprocessing the dataset.
     """
-    phase("Dataset Filtering — Pass A")
-    finalize_user_dataset(
-        "A",
-        target_clips_per_user=settings.finalize.target_clips_per_user,
-        require_min_text_clips=settings.finalize.require_min_text_clips,
-        pass_a_recompute_from_scratch=settings.finalize.pass_a_recompute_from_scratch,
-        global_min_plays=settings.finalize.global_min_plays,
-        global_min_plays_percentile=settings.finalize.global_min_plays_percentile,
-        creator_robust_z_threshold=settings.finalize.creator_robust_z_threshold,
-        creator_min_clips=settings.finalize.creator_min_clips,
-    )
+    phase("Preprocessing")
+    # preprocess_dataset()
 
     """
     3. DOWNLOADING: downloads profile pics, videos and thumbnails of the filtered profiles.
@@ -139,21 +129,6 @@ def run_pipeline() -> None:
         translate_target_lang=settings.captions.translate_target_lang,
         translation_max_chars=settings.captions.translation_max_chars,
         translate_max_new_tokens=settings.captions.translate_max_new_tokens,
-    )
-
-    """
-    7. FILTERING: postprocessing of the dataset after features extraction.
-    """
-    phase("Dataset Filtering — Pass B")
-    finalize_user_dataset(
-        "B",
-        target_clips_per_user=settings.finalize.target_clips_per_user,
-        require_min_text_clips=settings.finalize.require_min_text_clips,
-        pass_a_recompute_from_scratch=settings.finalize.pass_a_recompute_from_scratch,
-        global_min_plays=settings.finalize.global_min_plays,
-        global_min_plays_percentile=settings.finalize.global_min_plays_percentile,
-        creator_robust_z_threshold=settings.finalize.creator_robust_z_threshold,
-        creator_min_clips=settings.finalize.creator_min_clips,
     )
 
     """
