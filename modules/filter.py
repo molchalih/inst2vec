@@ -174,3 +174,23 @@ def _compute_creator_robust_stats(session: Session, cfg: FilterSettings) -> None
                 c.is_creator_low_outlier = (
                     c.creator_relative_robust_z < cfg.creator_low_z_threshold
                 )
+
+
+def _derive_eligibility(session: Session) -> None:
+    user_map = {u.id: u for u in session.query(User).all()}
+    for clip in session.query(Clip).all():
+        user = user_map.get(clip.user_id)
+        if user is None:
+            clip.is_eligible = False
+            continue
+        clip.is_eligible = not any([
+            clip.is_garbage,
+            clip.is_low_play_count,
+            clip.is_too_old,
+            clip.is_too_long,
+            clip.is_too_short,
+            clip.is_low_percentile,
+            clip.is_creator_low_outlier,
+            user.is_low_plays_median,
+            user.is_not_enough_clips,
+        ])

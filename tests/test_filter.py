@@ -440,3 +440,53 @@ def test_compute_creator_robust_stats_outlier_flagged():
         s.commit()
         c_low = s.get(Clip, 1)
         assert c_low.is_creator_low_outlier is True
+
+
+def test_derive_eligibility_sets_all_clips():
+    from modules.filter import _derive_eligibility
+    from modules.database import Clip, User
+    eng = _make_db()
+    with Session(eng) as s:
+        s.add(User(id=1, is_low_plays_median=False, is_not_enough_clips=False))
+        # eligible clip
+        s.add(Clip(id=1, user_id=1,
+                   is_garbage=False, is_low_play_count=False, is_too_old=False,
+                   is_too_long=False, is_too_short=False, is_low_percentile=False,
+                   is_creator_low_outlier=False))
+        # disqualified: is_garbage
+        s.add(Clip(id=2, user_id=1,
+                   is_garbage=True, is_low_play_count=False, is_too_old=False,
+                   is_too_long=False, is_too_short=False, is_low_percentile=False,
+                   is_creator_low_outlier=False))
+        # disqualified: creator is_low_plays_median
+        s.add(User(id=2, is_low_plays_median=True, is_not_enough_clips=False))
+        s.add(Clip(id=3, user_id=2,
+                   is_garbage=False, is_low_play_count=False, is_too_old=False,
+                   is_too_long=False, is_too_short=False, is_low_percentile=False,
+                   is_creator_low_outlier=False))
+        s.commit()
+        _derive_eligibility(s)
+        s.commit()
+        c1 = s.get(Clip, 1)
+        c2 = s.get(Clip, 2)
+        c3 = s.get(Clip, 3)
+        assert c1.is_eligible is True
+        assert c2.is_eligible is False
+        assert c3.is_eligible is False
+
+def test_derive_eligibility_no_nulls_after_run():
+    from modules.filter import _derive_eligibility
+    from modules.database import Clip, User
+    eng = _make_db()
+    with Session(eng) as s:
+        s.add(User(id=1, is_low_plays_median=False, is_not_enough_clips=False))
+        s.add(Clip(id=1, user_id=1,
+                   is_garbage=False, is_low_play_count=False, is_too_old=False,
+                   is_too_long=False, is_too_short=False, is_low_percentile=False,
+                   is_creator_low_outlier=False))
+        s.commit()
+        _derive_eligibility(s)
+        s.commit()
+        clips = s.query(Clip).all()
+        for c in clips:
+            assert c.is_eligible is not None
