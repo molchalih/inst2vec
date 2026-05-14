@@ -50,3 +50,23 @@ def _flag_basic_policy_clips(session: Session, cfg: FilterSettings) -> None:
         clip.is_too_short = _is_too_short(clip, min_video_duration=cfg.min_video_duration)
         clip.is_too_long = _is_too_long(clip, max_video_duration=cfg.max_video_duration)
         clip.is_too_old = _is_too_old(clip, min_taken_at=cfg.min_taken_at)
+
+
+def _flag_low_median_creators(session: Session, cfg: FilterSettings) -> None:
+    users = session.query(User).all()
+    for user in users:
+        surviving_plays = [
+            c.play_count
+            for c in user.clips
+            if not c.is_garbage
+            and not c.is_low_play_count
+            and not c.is_too_short
+            and not c.is_too_long
+            and not c.is_too_old
+            and c.play_count is not None
+        ]
+        if not surviving_plays:
+            user.is_low_plays_median = True
+            continue
+        median_plays = statistics.median(surviving_plays)
+        user.is_low_plays_median = median_plays < cfg.creator_min_median_views

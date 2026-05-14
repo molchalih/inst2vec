@@ -245,3 +245,67 @@ def test_flag_basic_policy_clips():
         assert clips[5].is_too_short is False
         assert clips[5].is_too_long is False
         assert clips[5].is_too_old is False
+
+
+def test_flag_low_median_creators():
+    from modules.config import FilterSettings
+    from modules.filter import _flag_low_median_creators
+    from modules.database import Clip, User
+    eng = _make_db()
+    cfg = FilterSettings(creator_min_median_views=10000)
+    with Session(eng) as s:
+        s.add(User(id=1))
+        s.add(User(id=2))
+        # user 1: median plays = 2000 → low
+        for i, plays in enumerate([1000, 2000, 3000], start=1):
+            s.add(Clip(id=i, user_id=1,
+                       video_duration=10.0, taken_at=1700000000,
+                       play_count=plays, video_url="http://x.com/v.mp4", like_count=5,
+                       is_garbage=False, is_low_play_count=False,
+                       is_too_short=False, is_too_long=False, is_too_old=False))
+        # user 2: median plays = 50000 → fine
+        for i, plays in enumerate([40000, 50000, 60000], start=10):
+            s.add(Clip(id=i, user_id=2,
+                       video_duration=10.0, taken_at=1700000000,
+                       play_count=plays, video_url="http://x.com/v.mp4", like_count=5,
+                       is_garbage=False, is_low_play_count=False,
+                       is_too_short=False, is_too_long=False, is_too_old=False))
+        s.commit()
+        _flag_low_median_creators(s, cfg)
+        s.commit()
+        u1 = s.get(User, 1)
+        u2 = s.get(User, 2)
+        assert u1.is_low_plays_median is True
+        assert u2.is_low_plays_median is False
+
+
+def test_flag_low_median_creators_excludes_garbage():
+    from modules.config import FilterSettings
+    from modules.filter import _flag_low_median_creators
+    from modules.database import Clip, User
+    eng = _make_db()
+    cfg = FilterSettings(creator_min_median_views=10000)
+    with Session(eng) as s:
+        s.add(User(id=1))
+        # high-play clips that are garbage — should be excluded from median calc
+        for i, plays in enumerate([100000, 200000], start=1):
+            s.add(Clip(id=i, user_id=1,
+                       video_duration=10.0, taken_at=1700000000,
+                       play_count=plays, video_url="http://x.com/v.mp4", like_count=5,
+                       is_garbage=True,
+                       is_low_play_count=False, is_too_short=False,
+                       is_too_long=False, is_too_old=False))
+        # low-play non-garbage clips
+        for i, plays in enumerate([500, 600], start=10):
+            s.add(Clip(id=i, user_id=1,
+                       video_duration=10.0, taken_at=1700000000,
+                       play_count=plays, video_url="http://x.com/v.mp4", like_count=5,
+                       is_garbage=False,
+                       is_low_play_count=False, is_too_short=False,
+                       is_too_long=False, is_too_old=False))
+        s.commit()
+        _flag_low_median_creators(s, cfg)
+        s.commit()
+        u1 = s.get(User, 1)
+        # median of [500, 600] = 550 < 10000 → low
+        assert u1.is_low_plays_median is True
