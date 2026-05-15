@@ -10,11 +10,10 @@ from __future__ import annotations
 from lingua import LanguageDetectorBuilder
 from sqlalchemy import func
 
+from modules.captions.clean import clean_captions
 from modules.captions.state import (
-    SCOPE_CLEAN,
     SCOPE_DETECT,
     SCOPE_TRANSLATE,
-    clean_caption_text,
 )
 from modules.console import log, progress
 from modules.database import Clip, clip_used_in_analysis, get_session
@@ -25,38 +24,6 @@ __all__ = [
     "detect_caption_language",
     "translate_captions",
 ]
-
-
-def clean_captions(commit_every: int) -> None:
-    """LEGACY: in-place clean of caption_text. Replaced in Task 5."""
-    session = get_session()
-    clips = (
-        session.query(Clip)
-        .filter(
-            *clip_used_in_analysis(),
-            Clip.caption_text.is_not(None),
-            Clip.caption_text != "",
-            (Clip.caption_text.contains("@")) | (Clip.caption_text.contains("\n")),
-        )
-        .order_by(Clip.id)
-        .all()
-    )
-    if not clips:
-        session.close()
-        return
-
-    cleaned = 0
-    for i, clip in enumerate(clips, 1):
-        result = clean_caption_text(clip.caption_text)
-        if result != clip.caption_text:
-            clip.caption_text = result
-            cleaned += 1
-        if i % commit_every == 0:
-            session.commit()
-
-    session.commit()
-    session.close()
-    log(SCOPE_CLEAN, f"done — {cleaned}/{len(clips)} captions updated")
 
 
 def detect_caption_language() -> None:
