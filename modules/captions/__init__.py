@@ -1,29 +1,34 @@
-"""Caption language detection and translation pipeline."""
+"""Captions pipeline: clean → detect language → translate.
+
+This __init__ temporarily inlines the legacy implementations from the old
+flat modules/captions.py so call sites stay green. Each function is replaced
+by a dedicated submodule import in the following tasks.
+"""
 
 from __future__ import annotations
-
-import re
 
 from lingua import LanguageDetectorBuilder
 from sqlalchemy import func
 
+from modules.captions.state import (
+    SCOPE_CLEAN,
+    SCOPE_DETECT,
+    SCOPE_TRANSLATE,
+    clean_caption_text,
+)
 from modules.console import log, progress
 from modules.database import Clip, clip_used_in_analysis, get_session
 from modules.external.gemma_translate import GemmaTranslator
 
-SCOPE_DETECT = "detect_caption_language"
-SCOPE_TRANSLATE = "translate_captions"
-SCOPE_CLEAN = "clean_captions"
-
-_MENTION_RE = re.compile(r"@[\w.]+")
-
-
-def _clean(text: str) -> str:
-    return " ".join(_MENTION_RE.sub("", text).split())
+__all__ = [
+    "clean_captions",
+    "detect_caption_language",
+    "translate_captions",
+]
 
 
 def clean_captions(commit_every: int) -> None:
-    """Strip @mentions and collapse whitespace/newlines in caption_text."""
+    """LEGACY: in-place clean of caption_text. Replaced in Task 5."""
     session = get_session()
     clips = (
         session.query(Clip)
@@ -42,7 +47,7 @@ def clean_captions(commit_every: int) -> None:
 
     cleaned = 0
     for i, clip in enumerate(clips, 1):
-        result = _clean(clip.caption_text)
+        result = clean_caption_text(clip.caption_text)
         if result != clip.caption_text:
             clip.caption_text = result
             cleaned += 1
@@ -55,7 +60,7 @@ def clean_captions(commit_every: int) -> None:
 
 
 def detect_caption_language() -> None:
-    """Detect caption language with Lingua and write Clip.caption_language."""
+    """LEGACY: detect language on caption_text. Replaced in Task 6."""
     session = get_session()
     clips = (
         session.query(Clip)
@@ -108,7 +113,7 @@ def translate_captions(
     translation_max_chars: int,
     translate_max_new_tokens: int,
 ) -> None:
-    """Translate non-English captions with missing translation using TranslateGemma."""
+    """LEGACY: translate non-English captions. Replaced in Task 7."""
     session = get_session()
     clips = (
         session.query(Clip)
