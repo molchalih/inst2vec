@@ -342,3 +342,32 @@ def clip_used_in_analysis():
         Clip.is_selected.is_(True),
         Clip.is_downloaded.is_(True),
     )
+
+
+def clip_needs_speech_detection():
+    """Clips eligible for Whisper transcription: selected, downloaded, unresolved."""
+    return (
+        *clip_used_in_analysis(),
+        Clip.is_speech_detected.is_(None),
+    )
+
+
+def clip_has_detected_speech():
+    """Clips that Whisper marked as containing meaningful speech."""
+    return (
+        *clip_used_in_analysis(),
+        Clip.is_speech_detected.is_(True),
+    )
+
+
+def clip_needs_speech_translation():
+    """Clips with detected non-English speech that still lack a translation."""
+    return (
+        *clip_has_detected_speech(),
+        Clip.speech_transcription.is_not(None),
+        Clip.speech_transcription != "",
+        Clip.speech_language.is_not(None),
+        Clip.speech_language != "",
+        func.lower(Clip.speech_language).notlike("en%"),
+        (Clip.speech_translation.is_(None)) | (Clip.speech_translation == ""),
+    )
