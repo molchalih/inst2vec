@@ -57,7 +57,10 @@ def section_health(session):
     n_music_features = (
         session.query(func.count(Clip.id))
         .join(Music, Clip.music_id == Music.id)
-        .filter(Music.has_features == "yes")
+        .filter(
+            (Music.is_audio_features_extracted.is_(True))
+            | (Music.has_features == "yes")
+        )
         .scalar()
     )
     print(
@@ -239,7 +242,10 @@ def section_music(session):
             Music.acousticness,
         )
         .join(Clip, Clip.music_id == Music.id)
-        .filter(Music.has_features == "yes")
+        .filter(
+            (Music.is_audio_features_extracted.is_(True))
+            | (Music.has_features == "yes")
+        )
         .all()
     )
     feature_names = ["tempo", "valence", "danceability", "energy", "acousticness"]
