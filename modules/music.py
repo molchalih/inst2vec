@@ -7,8 +7,10 @@ extract_music_features() Spotify → ReccoBeats IDs → audio features (upload f
 from __future__ import annotations
 
 import json
+import random
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 import httpx
@@ -16,7 +18,7 @@ from acrcloud.recognizer import ACRCloudRecognizer
 
 from modules.console import log, progress
 from modules.database import Clip, Music, clip_used_in_analysis, get_session
-from modules.services import ReccoBeatsClient, SpotifyClient
+from modules.services import ReccoBeatsClient, SpotifyClient, TransientError
 
 FEATURE_FIELDS = [
     "acousticness",
@@ -42,25 +44,57 @@ SCOPE_FEATURES = "extract_features"
 
 
 def _fingerprint(
-    acr: ACRCloudRecognizer, path: str, min_confidence: float
+    acr: ACRCloudRecognizer,
+    path: str,
+    min_confidence: float,
+    max_attempts: int = 2,
+    retry_delay: float = 1.0,
+    retry_jitter: float = 1.5,
 ) -> tuple[str, str, float] | None:
-    try:
-        data = json.loads(acr.recognize_by_file(path, 0) or "")
-    except Exception:
+    """Try ACR fingerprinting up to max_attempts on transient failures.
+
+    Returns (artist, track, score) on match, None on clean no-match.
+    Raises modules.services.TransientError after exhausted retries.
+    """
+    last_exc: Exception | None = None
+    for attempt in range(max_attempts):
+        try:
+            raw = acr.recognize_by_file(path, 0) or ""
+            data = json.loads(raw)
+        except Exception as exc:
+            last_exc = exc
+            if attempt < max_attempts - 1:
+                time.sleep(retry_delay + random.uniform(0, retry_jitter))
+            continue
+
+        status_code = data.get("status", {}).get("code")
+        if status_code == 0:
+            music = data.get("metadata", {}).get("music", [])
+            if not music:
+                return None  # clean no-match
+            best = music[0]
+            score = best.get("score", 0) / 100.0
+            if score < min_confidence:
+                return None
+            artists = best.get("artists", [])
+            artist = (artists[0].get("name") or "").strip() if artists else ""
+            track = (best.get("title") or "").strip()
+            return (artist, track, score) if (artist or track) else None
+
+        # Non-zero ACR status codes:
+        #   1001: no result (clean no-match, terminal)
+        #   3xxx: HTTP/network error per ACR docs (transient)
+        #   anything else: treat as permanent (corrupt signature, etc.)
+        if status_code == 1001:
+            return None
+        if isinstance(status_code, int) and 3000 <= status_code < 4000:
+            last_exc = RuntimeError(f"acr status {status_code}")
+            if attempt < max_attempts - 1:
+                time.sleep(retry_delay + random.uniform(0, retry_jitter))
+            continue
         return None
-    if data.get("status", {}).get("code") != 0:
-        return None
-    music = data.get("metadata", {}).get("music", [])
-    if not music:
-        return None
-    best = music[0]
-    score = best.get("score", 0) / 100.0
-    if score < min_confidence:
-        return None
-    artists = best.get("artists", [])
-    artist = (artists[0].get("name") or "").strip() if artists else ""
-    track = (best.get("title") or "").strip()
-    return (artist, track, score) if (artist or track) else None
+
+    raise TransientError(f"acr exhausted: {last_exc!r}")
 
 
 def _get_or_create_music(session, artist: str, track: str) -> Music:
@@ -190,7 +224,15 @@ def classify_music(
 
             clip.music_id = None
             clip.music_confidence = None
-            result = _fingerprint(acr, str(path), min_confidence)
+            try:
+                result = _fingerprint(acr, str(path), min_confidence)
+            except TransientError:
+                clip.is_music_recognized = False
+                no_match += 1
+                advance(detail=f"{clip.id}: ACR transient (terminal-marked)")
+                if i % commit_every == 0:
+                    session.commit()
+                continue
             if result:
                 artist, track, confidence = result
                 music = _get_or_create_music(session, artist, track)
