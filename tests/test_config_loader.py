@@ -52,6 +52,11 @@ manual_features_max_seconds = 20
 manual_features_sample_rate = 44100
 manual_features_max_mb = 5.0
 manual_features_mp3_bitrate = "128k"
+api_max_attempts = 3
+api_retry_delay = 1.0
+api_retry_jitter = 1.5
+acr_max_attempts = 2
+ffmpeg_timeout_seconds = 60
 
 [speech]
 whisper_model = "large-v3-turbo"
