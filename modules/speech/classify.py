@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import os
+from pathlib import Path
 
 import whisper
 from sqlalchemy import or_
@@ -22,18 +22,22 @@ from modules.speech.state import (
     has_meaningful_speech_text,
     is_repeated_output,
 )
+from modules.speech.vad import VadConfig, prepare_for_whisper
 
 
 def _transcribe(model, path: str) -> tuple[str, str, float, float, float]:
     """Return (text, language, speech_confidence, avg_logprob, compression_ratio).
 
-    Whisper is called with ``condition_on_previous_text=False`` and ``beam_size=1``
-    to suppress two common hallucination patterns: long-context drift and
-    beam-search loop collapse.
-
-    All float metrics are 0.0 when Whisper produces no segments.
+    Whisper is called with ``condition_on_previous_text=False``, ``beam_size=1``
+    and ``temperature=0`` to suppress long-context drift, beam-search loop
+    collapse, and sampling-induced hallucinations.
     """
-    result = model.transcribe(path, condition_on_previous_text=False, beam_size=1)
+    result = model.transcribe(
+        path,
+        condition_on_previous_text=False,
+        beam_size=1,
+        temperature=0,
+    )
     text = (result.get("text") or "").strip()
     language = result.get("language") or ""
     segs = result.get("segments") or []
@@ -51,20 +55,23 @@ def _transcribe(model, path: str) -> tuple[str, str, float, float, float]:
 
 def classify_speech(
     video_dir: str,
+    speech_audio_dir: str,
     whisper_model: str,
     commit_every: int,
     logprob_threshold: float,
     compression_threshold: float,
     min_meaningful_chars: int,
+    vad_config: VadConfig,
 ) -> None:
-    """Transcribe all unresolved clips with Whisper.
+    """Transcribe all unresolved clips with Whisper, gated by Silero VAD.
 
-    Decision matrix per clip:
-        meaningful AND clean   → is_speech_detected = True
-        meaningful BUT dirty   → is_speech_detected = False
-        not meaningful         → is_speech_detected = False
-        missing file           → leave NULL (retryable)
-        Whisper exception      → leave NULL (retryable)
+    Per-clip flow:
+        VAD enabled, no speech → is_speech_detected = False (Whisper skipped)
+        VAD enabled, speech    → transcribe speech-only WAV
+        VAD disabled           → transcribe the raw video as before
+        Hallucinated/empty     → is_speech_detected = False
+        Missing file           → leave NULL (retryable)
+        VAD/Whisper exception  → leave NULL (retryable)
     """
     session = get_session()
     clips = (
@@ -77,24 +84,45 @@ def classify_speech(
         session.close()
         return
 
+    speech_out = Path(speech_audio_dir)
+    speech_out.mkdir(parents=True, exist_ok=True)
+
     log(SCOPE_CLASSIFY, f"{len(clips)} clips to transcribe")
     model: whisper.Whisper | None = None
-    detected = no_speech = missing = errored = 0
+    detected = no_speech_vad = no_speech = missing = errored = 0
 
     with progress(len(clips), "Transcribing") as advance:
         for i, clip in enumerate(clips, 1):
-            path = f"{video_dir}/{clip.id}.mp4"
-            if not os.path.exists(path):
+            video_path = Path(video_dir) / f"{clip.id}.mp4"
+            if not video_path.exists():
                 missing += 1
                 advance()
                 continue
 
+            try:
+                vad = prepare_for_whisper(video_path, speech_out, vad_config)
+            except Exception:
+                errored += 1
+                advance(detail=f"{clip.id}: VAD error (left unresolved)")
+                continue
+
+            if not vad.is_speech_detected:
+                clip.is_speech_detected = False
+                no_speech_vad += 1
+                advance(detail=f"{clip.id}: VAD silent")
+                if i % commit_every == 0:
+                    session.commit()
+                continue
+
+            assert (
+                vad.speech_audio_path is not None
+            )  # guaranteed by VadResult invariant
             if model is None:
                 log(SCOPE_CLASSIFY, f"loading {whisper_model}…")
                 model = whisper.load_model(whisper_model)
             try:
                 text, language, conf, avg_logprob, compression_ratio = _transcribe(
-                    model, path
+                    model, str(vad.speech_audio_path)
                 )
             except Exception:
                 errored += 1
@@ -132,11 +160,15 @@ def classify_speech(
 
     session.commit()
     session.close()
-    parts = [f"{detected} with speech", f"{no_speech} silent"]
+    parts = [
+        f"{detected} with speech",
+        f"{no_speech_vad} silent (VAD)",
+        f"{no_speech} silent (Whisper)",
+    ]
     if missing:
         parts.append(f"{missing} skipped (video not downloaded yet)")
     if errored:
-        parts.append(f"{errored} skipped (transcription error)")
+        parts.append(f"{errored} skipped (VAD/transcription error)")
     log(SCOPE_CLASSIFY, f"done — {', '.join(parts)}", level="ok")
 
 

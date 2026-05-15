@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from modules.database import Base, Clip, User
 from modules.speech.classify import classify_speech, clean_speech
+from modules.speech.vad import VadConfig, VadResult
 
 
 @pytest.fixture
@@ -33,6 +34,17 @@ def db_session(monkeypatch, tmp_path):
     monkeypatch.setattr("modules.speech.classify.get_session", lambda: s)
     yield s, tmp_path
     s.close()
+
+
+@pytest.fixture(autouse=True)
+def _vad_passthrough(monkeypatch):
+    """Default: VAD returns is_speech_detected=True with the original path so
+    pre-VAD tests still exercise the Whisper branch unchanged."""
+
+    def fake(media_path, _out_dir, _config):
+        return VadResult(is_speech_detected=True, speech_audio_path=media_path)
+
+    monkeypatch.setattr("modules.speech.classify.prepare_for_whisper", fake)
 
 
 def _kwargs(video_dir: Path):
@@ -66,7 +78,11 @@ def test_classify_meaningful_text_sets_is_speech_detected_true(db_session, monke
             ],
         },
     )
-    classify_speech(**_kwargs(tmp_path))
+    classify_speech(
+        speech_audio_dir=str(tmp_path / "audio"),
+        vad_config=VadConfig(enabled=False),
+        **_kwargs(tmp_path),
+    )
     clip = s.query(Clip).filter_by(id=10).one()
     assert clip.is_speech_detected is True
     assert clip.speech_transcription == "hello there friend"
@@ -85,7 +101,11 @@ def test_classify_low_logprob_sets_false(db_session, monkeypatch):
             ],
         },
     )
-    classify_speech(**_kwargs(tmp_path))
+    classify_speech(
+        speech_audio_dir=str(tmp_path / "audio"),
+        vad_config=VadConfig(enabled=False),
+        **_kwargs(tmp_path),
+    )
     clip = s.query(Clip).filter_by(id=10).one()
     assert clip.is_speech_detected is False
 
@@ -102,7 +122,11 @@ def test_classify_high_compression_sets_false(db_session, monkeypatch):
             ],
         },
     )
-    classify_speech(**_kwargs(tmp_path))
+    classify_speech(
+        speech_audio_dir=str(tmp_path / "audio"),
+        vad_config=VadConfig(enabled=False),
+        **_kwargs(tmp_path),
+    )
     clip = s.query(Clip).filter_by(id=10).one()
     assert clip.is_speech_detected is False
 
@@ -119,7 +143,11 @@ def test_classify_repeated_token_loop_sets_false(db_session, monkeypatch):
             ],
         },
     )
-    classify_speech(**_kwargs(tmp_path))
+    classify_speech(
+        speech_audio_dir=str(tmp_path / "audio"),
+        vad_config=VadConfig(enabled=False),
+        **_kwargs(tmp_path),
+    )
     clip = s.query(Clip).filter_by(id=10).one()
     assert clip.is_speech_detected is False
 
@@ -136,7 +164,11 @@ def test_classify_hallucination_marker_in_text_sets_false(db_session, monkeypatc
             ],
         },
     )
-    classify_speech(**_kwargs(tmp_path))
+    classify_speech(
+        speech_audio_dir=str(tmp_path / "audio"),
+        vad_config=VadConfig(enabled=False),
+        **_kwargs(tmp_path),
+    )
     clip = s.query(Clip).filter_by(id=10).one()
     assert clip.is_speech_detected is False
 
@@ -146,7 +178,11 @@ def test_classify_missing_file_leaves_null(db_session, monkeypatch):
     (tmp_path / "10.mp4").unlink()
     fake = _stub_whisper(monkeypatch, {"text": "x", "language": "en", "segments": []})
 
-    classify_speech(**_kwargs(tmp_path))
+    classify_speech(
+        speech_audio_dir=str(tmp_path / "audio"),
+        vad_config=VadConfig(enabled=False),
+        **_kwargs(tmp_path),
+    )
 
     clip = s.query(Clip).filter_by(id=10).one()
     assert clip.is_speech_detected is None
@@ -161,7 +197,11 @@ def test_classify_whisper_exception_leaves_null(db_session, monkeypatch):
     fake_whisper = SimpleNamespace(load_model=lambda _: fake_model, Whisper=object)
     monkeypatch.setattr("modules.speech.classify.whisper", fake_whisper)
 
-    classify_speech(**_kwargs(tmp_path))
+    classify_speech(
+        speech_audio_dir=str(tmp_path / "audio"),
+        vad_config=VadConfig(enabled=False),
+        **_kwargs(tmp_path),
+    )
 
     clip = s.query(Clip).filter_by(id=10).one()
     assert clip.is_speech_detected is None
@@ -179,12 +219,16 @@ def test_classify_skips_already_resolved_clips(db_session, monkeypatch):
         SimpleNamespace(load_model=lambda _: fake_model, Whisper=object),
     )
 
-    classify_speech(**_kwargs(tmp_path))
+    classify_speech(
+        speech_audio_dir=str(tmp_path / "audio"),
+        vad_config=VadConfig(enabled=False),
+        **_kwargs(tmp_path),
+    )
     # No exception means no clip was queried for transcription.
 
 
 def test_classify_passes_hallucination_control_kwargs(db_session, monkeypatch):
-    """Whisper must be called with condition_on_previous_text=False, beam_size=1."""
+    """Whisper must be called with condition_on_previous_text=False, beam_size=1, temperature=0."""
     _, tmp_path = db_session
     fake_model = MagicMock()
     fake_model.transcribe.return_value = {
@@ -199,12 +243,17 @@ def test_classify_passes_hallucination_control_kwargs(db_session, monkeypatch):
         SimpleNamespace(load_model=lambda _: fake_model, Whisper=object),
     )
 
-    classify_speech(**_kwargs(tmp_path))
+    classify_speech(
+        speech_audio_dir=str(tmp_path / "audio"),
+        vad_config=VadConfig(enabled=False),
+        **_kwargs(tmp_path),
+    )
 
     fake_model.transcribe.assert_called_once()
     kwargs = fake_model.transcribe.call_args.kwargs
     assert kwargs["condition_on_previous_text"] is False
     assert kwargs["beam_size"] == 1
+    assert kwargs["temperature"] == 0
 
 
 def test_clean_speech_resets_marker_translations(db_session):
@@ -218,3 +267,90 @@ def test_clean_speech_resets_marker_translations(db_session):
 
     clip = s.query(Clip).filter_by(id=10).one()
     assert clip.is_speech_detected is False
+
+
+def _vad_disabled():
+    return VadConfig(enabled=False)
+
+
+def _vad_enabled():
+    return VadConfig(
+        enabled=True,
+        sampling_rate=16000,
+        threshold=0.5,
+        min_speech_ms=250,
+        min_silence_ms=100,
+        speech_pad_ms=150,
+        min_total_speech_s=0.5,
+    )
+
+
+def _stub_vad(monkeypatch, result):
+    calls = []
+
+    def fake(media_path, out_dir, config):
+        calls.append((media_path, out_dir, config))
+        return result
+
+    monkeypatch.setattr("modules.speech.classify.prepare_for_whisper", fake)
+    return calls
+
+
+def test_vad_no_speech_skips_whisper_and_sets_false(db_session, monkeypatch):
+    s, tmp_path = db_session
+    _stub_vad(
+        monkeypatch,
+        VadResult(is_speech_detected=False, speech_audio_path=None),
+    )
+    fake_whisper = SimpleNamespace(
+        load_model=MagicMock(side_effect=AssertionError("Whisper must not load")),
+        Whisper=object,
+    )
+    monkeypatch.setattr("modules.speech.classify.whisper", fake_whisper)
+
+    classify_speech(
+        speech_audio_dir=str(tmp_path / "audio"),
+        vad_config=_vad_enabled(),
+        **_kwargs(tmp_path),
+    )
+
+    clip = s.query(Clip).filter_by(id=10).one()
+    assert clip.is_speech_detected is False
+    assert clip.speech_transcription is None
+
+
+def test_vad_speech_path_is_passed_to_whisper(db_session, monkeypatch):
+    s, tmp_path = db_session
+    audio_dir = tmp_path / "audio"
+    audio_dir.mkdir()
+    speech_wav = audio_dir / "10.wav"
+    speech_wav.write_bytes(b"speech-only")
+    _stub_vad(
+        monkeypatch,
+        VadResult(
+            is_speech_detected=True,
+            speech_audio_path=speech_wav,
+            total_speech_seconds=1.2,
+        ),
+    )
+    model = _stub_whisper(
+        monkeypatch,
+        {
+            "text": "hello there friend",
+            "language": "en",
+            "segments": [
+                {"no_speech_prob": 0.1, "avg_logprob": -0.3, "compression_ratio": 1.5}
+            ],
+        },
+    )
+
+    classify_speech(
+        speech_audio_dir=str(audio_dir),
+        vad_config=_vad_enabled(),
+        **_kwargs(tmp_path),
+    )
+
+    model.transcribe.assert_called_once()
+    assert model.transcribe.call_args.args[0] == str(speech_wav)
+    clip = s.query(Clip).filter_by(id=10).one()
+    assert clip.is_speech_detected is True
