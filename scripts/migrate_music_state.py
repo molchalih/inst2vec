@@ -27,14 +27,45 @@ def migrate_database(database_url_or_engine: str | Engine) -> None:
     else:
         engine = create_engine(database_url_or_engine)
 
-    with engine.begin() as conn:
-        dialect = engine.dialect.name
-        if dialect == "sqlite":
-            _sqlite_migrate(conn)
-        elif dialect == "postgresql":
+    dialect = engine.dialect.name
+    if dialect == "sqlite":
+        _run_sqlite_migration(engine)
+    elif dialect == "postgresql":
+        with engine.begin() as conn:
             _postgres_migrate(conn)
-        else:
-            raise RuntimeError(f"Unsupported dialect: {dialect}")
+    else:
+        raise RuntimeError(f"Unsupported dialect: {dialect}")
+
+
+def _run_sqlite_migration(engine: Engine) -> None:
+    # SQLite silently ignores ``PRAGMA foreign_keys`` inside a transaction, and
+    # FK enforcement is a per-connection setting. We therefore acquire a single
+    # Connection, flip the PRAGMAs via the raw DBAPI cursor (which bypasses
+    # SQLAlchemy's autobegin so the connection is still transaction-free), then
+    # run the migration body transactionally on that same connection. FK
+    # enforcement is restored afterwards.
+    with engine.connect() as conn:
+        dbapi_conn = conn.connection.dbapi_connection
+        cur = dbapi_conn.cursor()
+        try:
+            cur.execute("PRAGMA foreign_keys = OFF")
+            cur.execute("PRAGMA legacy_alter_table = ON")
+        finally:
+            cur.close()
+
+        try:
+            with conn.begin():
+                _sqlite_migrate(conn)
+        finally:
+            cur = dbapi_conn.cursor()
+            try:
+                cur.execute("PRAGMA legacy_alter_table = OFF")
+                cur.execute("PRAGMA foreign_keys = ON")
+                violations = list(cur.execute("PRAGMA foreign_key_check"))
+            finally:
+                cur.close()
+        if violations:
+            raise RuntimeError(f"FK integrity violated after migration: {violations}")
 
 
 def _sqlite_migrate(conn) -> None:
@@ -86,10 +117,11 @@ def _sqlite_migrate(conn) -> None:
 
 def _drop_has_features_sqlite(conn) -> None:
     """SQLite < 3.35 needs a table rebuild to drop a column. We rebuild
-    even on 3.35+ to keep behavior uniform across SQLite versions in CI."""
-    conn.execute(text("PRAGMA foreign_keys = OFF"))
-    conn.execute(text("PRAGMA legacy_alter_table = ON"))
+    even on 3.35+ to keep behavior uniform across SQLite versions in CI.
 
+    Assumes the caller already toggled ``PRAGMA foreign_keys = OFF`` and
+    ``PRAGMA legacy_alter_table = ON`` outside any active transaction
+    (SQLite ignores those PRAGMAs inside one)."""
     fk_rows = conn.execute(text("PRAGMA foreign_key_list(music)")).fetchall()
     fk_by_id: dict[int, list[tuple[int, str, str, str]]] = {}
     for row in fk_rows:
@@ -137,13 +169,6 @@ def _drop_has_features_sqlite(conn) -> None:
         )
     )
     conn.execute(text("DROP TABLE music_old"))
-
-    conn.execute(text("PRAGMA legacy_alter_table = OFF"))
-    conn.execute(text("PRAGMA foreign_keys = ON"))
-
-    violations = conn.execute(text("PRAGMA foreign_key_check")).fetchall()
-    if violations:
-        raise RuntimeError(f"FK integrity violated after migration: {violations}")
 
 
 def _postgres_migrate(conn) -> None:

@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import httpx
+from sqlalchemy import func
 
 from modules.config import MusicSettings, PathsSettings
 from modules.console import log, progress
@@ -183,7 +184,7 @@ def _enrich_upload_fallback(
     music: MusicSettings,
 ) -> None:
     rows = (
-        session.query(Music, Clip.id.label("clip_id"))
+        session.query(Music, func.min(Clip.id).label("clip_id"))
         .join(Clip, Clip.music_id == Music.id)
         .filter(
             *clip_used_in_analysis(),

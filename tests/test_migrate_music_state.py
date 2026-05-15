@@ -1,6 +1,6 @@
 """Tests for scripts/migrate_music_state.py"""
 
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import create_engine, event, inspect, text
 
 from scripts.migrate_music_state import migrate_database
 
@@ -175,5 +175,43 @@ def test_migrate_preserves_clip_music_fk():
         fks = conn.execute(text("PRAGMA foreign_key_list(clips)")).fetchall()
         targets = sorted((row[2], row[3], row[4]) for row in fks)
         assert ("music", "music_id", "id") in targets
+        violations = conn.execute(text("PRAGMA foreign_key_check")).fetchall()
+        assert violations == []
+
+
+def test_migrate_works_with_fk_enforcement_enabled():
+    """Regression: SQLite ignores ``PRAGMA foreign_keys`` inside a transaction.
+    With FK enforcement on at connect-time, the table rebuild must still
+    succeed — i.e. the migration must toggle FK=OFF on an AUTOCOMMIT
+    connection, not inside a transaction."""
+    eng = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+
+    @event.listens_for(eng, "connect")
+    def _enable_fks(dbapi_conn, _):
+        cur = dbapi_conn.cursor()
+        cur.execute("PRAGMA foreign_keys = ON")
+        cur.close()
+
+    with eng.begin() as conn:
+        conn.execute(text(_LEGACY_MUSIC_DDL))
+        conn.execute(text(_LEGACY_CLIPS_DDL))
+        conn.execute(
+            text(
+                "INSERT INTO music (id, artist, track, has_features) "
+                "VALUES (5, 'a', 't', 'yes')"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO clips (id, user_id, music_id, has_music) "
+                "VALUES (10, 1, 5, 1)"
+            )
+        )
+
+    migrate_database(eng)
+
+    with eng.connect() as conn:
+        mid = conn.execute(text("SELECT music_id FROM clips WHERE id=10")).scalar()
+        assert mid == 5
         violations = conn.execute(text("PRAGMA foreign_key_check")).fetchall()
         assert violations == []
