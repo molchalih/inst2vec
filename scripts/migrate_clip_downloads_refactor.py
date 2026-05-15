@@ -78,7 +78,7 @@ def _sqlite_migrate(conn) -> None:
         # Capture FK constraints BEFORE renaming, since PRAGMA FK list uses current table names
         fk_rows = conn.execute(text("PRAGMA foreign_key_list(clips)")).fetchall()
         # fk_rows: (id, seq, table, from, to, on_update, on_delete, match)
-        fk_by_id: dict[int, list[str]] = {}
+        fk_by_id: dict[int, list[tuple[int, str, str, str]]] = {}
         for row in fk_rows:
             fk_id, seq, fk_table, fk_from, fk_to = (
                 row[0],
