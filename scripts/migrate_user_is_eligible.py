@@ -44,6 +44,11 @@ def _sqlite_migrate(conn) -> None:
         print("  SKIP: users.is_eligible already exists")
         return
 
+    # legacy_alter_table = ON prevents SQLite (≥ 3.26) from rewriting child-table
+    # FK references from `users` to `users_old` during the RENAME. Without this,
+    # DROP TABLE users_old leaves clips.user_id (and other child FKs) dangling.
+    conn.execute(text("PRAGMA legacy_alter_table = ON"))
+
     conn.execute(text("ALTER TABLE users RENAME TO users_old"))
 
     pragma = conn.execute(text("PRAGMA table_info(users_old)")).fetchall()
@@ -79,6 +84,13 @@ def _sqlite_migrate(conn) -> None:
         )
     )
     conn.execute(text("DROP TABLE users_old"))
+
+    conn.execute(text("PRAGMA legacy_alter_table = OFF"))
+
+    violations = conn.execute(text("PRAGMA foreign_key_check")).fetchall()
+    if violations:
+        raise RuntimeError(f"FK integrity violated after migration: {violations}")
+
     print("  OK: users.eligibility → users.is_eligible (0→NULL, 1→True, 2→False)")
 
 
