@@ -184,3 +184,45 @@ def test_migrate_preserves_child_table_fk_integrity():
             text("SELECT clip_id FROM clip_embeddings ORDER BY clip_id")
         ).fetchall()
         assert rows == [(10,)]
+
+
+def test_migrate_preserves_clips_outbound_fks():
+    """clips.user_id and clips.music_id FK constraints must survive rebuild."""
+    eng = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    with eng.begin() as conn:
+        conn.execute(text("CREATE TABLE users (id INTEGER PRIMARY KEY)"))
+        conn.execute(text("CREATE TABLE music (id INTEGER PRIMARY KEY)"))
+        conn.execute(
+            text("""
+                CREATE TABLE clips (
+                    id INTEGER PRIMARY KEY,
+                    user_id INTEGER NOT NULL REFERENCES users(id),
+                    music_id INTEGER REFERENCES music(id),
+                    is_selected BOOLEAN,
+                    eligibility INTEGER NOT NULL DEFAULT 0
+                )
+            """)
+        )
+        conn.execute(text(_LEGACY_DOWNLOADS_DDL))
+        conn.execute(text("INSERT INTO users (id) VALUES (1)"))
+        conn.execute(text("INSERT INTO music (id) VALUES (5)"))
+        conn.execute(
+            text(
+                "INSERT INTO clips (id, user_id, music_id, is_selected, eligibility) "
+                "VALUES (10, 1, 5, 1, 1)"
+            )
+        )
+
+    migrate_database(eng)
+
+    with eng.connect() as conn:
+        fks = conn.execute(text("PRAGMA foreign_key_list(clips)")).fetchall()
+        fk_targets = sorted(
+            (row[2], row[3], row[4]) for row in fks
+        )  # (table, from, to)
+        assert ("users", "user_id", "id") in fk_targets
+        assert ("music", "music_id", "id") in fk_targets
+
+        # And data is preserved
+        rows = conn.execute(text("SELECT id, user_id, music_id FROM clips")).fetchall()
+        assert rows == [(10, 1, 5)]

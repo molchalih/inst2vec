@@ -75,6 +75,22 @@ def _sqlite_migrate(conn) -> None:
         conn.execute(text("PRAGMA foreign_keys = OFF"))
         conn.execute(text("PRAGMA legacy_alter_table = ON"))
 
+        # Capture FK constraints BEFORE renaming, since PRAGMA FK list uses current table names
+        fk_rows = conn.execute(text("PRAGMA foreign_key_list(clips)")).fetchall()
+        # fk_rows: (id, seq, table, from, to, on_update, on_delete, match)
+        fk_by_id: dict[int, list[str]] = {}
+        for row in fk_rows:
+            fk_id, seq, fk_table, fk_from, fk_to = (
+                row[0],
+                row[1],
+                row[2],
+                row[3],
+                row[4],
+            )
+            if fk_id not in fk_by_id:
+                fk_by_id[fk_id] = []
+            fk_by_id[fk_id].append((seq, fk_from, fk_table, fk_to))
+
         conn.execute(text("ALTER TABLE clips RENAME TO clips_old"))
 
         pragma = conn.execute(text("PRAGMA table_info(clips_old)")).fetchall()
@@ -90,7 +106,19 @@ def _sqlite_migrate(conn) -> None:
             df_str = f" DEFAULT {dflt}" if dflt is not None else ""
             col_defs.append(f"{name} {typ}{pk_str}{nn_str}{df_str}")
 
-        conn.execute(text(f"CREATE TABLE clips ({', '.join(col_defs)})"))
+        # Add FK constraints
+        fk_defs: list[str] = []
+        for fk_id in sorted(fk_by_id.keys()):
+            cols_in_fk = sorted(fk_by_id[fk_id], key=lambda x: x[0])
+            from_cols = [col[1] for col in cols_in_fk]
+            # All columns in a composite FK should reference the same table
+            fk_table = cols_in_fk[0][2]
+            to_cols = [col[3] for col in cols_in_fk]
+            fk_def = f"FOREIGN KEY ({', '.join(from_cols)}) REFERENCES {fk_table}({', '.join(to_cols)})"
+            fk_defs.append(fk_def)
+
+        all_defs = col_defs + fk_defs
+        conn.execute(text(f"CREATE TABLE clips ({', '.join(all_defs)})"))
         conn.execute(
             text(
                 f"INSERT INTO clips ({', '.join(kept_cols)}) "
