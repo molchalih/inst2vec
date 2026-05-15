@@ -42,6 +42,9 @@ class _StubHttp:
     def get(self, *args, **kwargs):
         return self._next("GET")
 
+    def request(self, method, *args, **kwargs):
+        return self._next(method)
+
     def _next(self, method):
         self.calls += 1
         if not self._responses:
@@ -119,3 +122,92 @@ def test_spotify_search_returns_none_on_4xx_non_429():
         ]
     )
     assert _spotify(http).search_id("a", "t") is None
+
+
+def _rb(http, max_attempts=3, batch=2):
+    return ReccoBeatsClient(
+        http,
+        batch=batch,
+        delay_min=0.0,
+        delay_max=0.0,
+        timeout=1.0,
+        max_attempts=max_attempts,
+        retry_delay=0.0,
+        retry_jitter=0.0,
+    )
+
+
+def test_rb_get_ids_returns_matched_dict():
+    http = _StubHttp(
+        [
+            (
+                200,
+                {
+                    "content": [
+                        {"href": "/track/aaa", "id": "rb-aaa"},
+                        {"href": "/track/bbb", "id": "rb-bbb"},
+                    ]
+                },
+            ),
+        ]
+    )
+    out = _rb(http, batch=10).get_ids(["aaa", "bbb"])
+    assert out == {"aaa": "rb-aaa", "bbb": "rb-bbb"}
+
+
+def test_rb_get_ids_omits_missing_ids():
+    http = _StubHttp(
+        [
+            (200, {"content": [{"href": "/track/aaa", "id": "rb-aaa"}]}),
+        ]
+    )
+    out = _rb(http, batch=10).get_ids(["aaa", "bbb"])
+    assert out == {"aaa": "rb-aaa"}
+
+
+def test_rb_get_ids_retries_batch_on_5xx():
+    http = _StubHttp(
+        [
+            (503, {}),
+            (200, {"content": [{"href": "/track/aaa", "id": "rb-aaa"}]}),
+        ]
+    )
+    out = _rb(http, batch=10).get_ids(["aaa"])
+    assert out == {"aaa": "rb-aaa"}
+
+
+def test_rb_get_ids_drops_batch_after_exhausted_retries():
+    http = _StubHttp(
+        [
+            (503, {}),
+            (503, {}),
+            (503, {}),
+            (200, {"content": [{"href": "/track/bbb", "id": "rb-bbb"}]}),
+        ]
+    )
+    out = _rb(http, max_attempts=3, batch=1).get_ids(["aaa", "bbb"])
+    assert out == {"bbb": "rb-bbb"}  # first batch exhausted, second succeeded
+
+
+def test_rb_upload_features_returns_dict_on_success(tmp_path):
+    audio = tmp_path / "x.wav"
+    audio.write_bytes(b"RIFF")
+    http = _StubHttp([(200, {"tempo": 120.0, "energy": 0.5})])
+    out = _rb(http).upload_features(audio)
+    assert out == {"tempo": 120.0, "energy": 0.5}
+
+
+def test_rb_upload_features_raises_transient_after_exhaustion(tmp_path):
+    audio = tmp_path / "x.wav"
+    audio.write_bytes(b"RIFF")
+    http = _StubHttp([(503, {}), (503, {}), (503, {})])
+    with pytest.raises(TransientError):
+        _rb(http, max_attempts=3).upload_features(audio)
+
+
+def test_rb_upload_features_returns_none_on_4xx_non_429(tmp_path):
+    audio = tmp_path / "x.wav"
+    audio.write_bytes(b"RIFF")
+    http = _StubHttp([(400, {})])
+    out = _rb(http).upload_features(audio)
+    assert out is None

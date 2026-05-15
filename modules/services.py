@@ -5,7 +5,6 @@ from __future__ import annotations
 import random
 import time
 from collections.abc import Callable
-from pathlib import Path
 from urllib.parse import urlparse
 
 import httpx
@@ -164,83 +163,135 @@ class ReccoBeatsClient:
         delay_min: float = 2.0,
         delay_max: float = 3.0,
         timeout: float = 20.0,
+        max_attempts: int = 3,
+        retry_delay: float = 1.0,
+        retry_jitter: float = 1.5,
     ):
         self._http = http
         self._batch = batch
         self._delay_min = delay_min
         self._delay_max = delay_max
         self._timeout = timeout
+        self._max_attempts = max_attempts
+        self._retry_delay = retry_delay
+        self._retry_jitter = retry_jitter
 
-    def _sleep(self) -> None:
+    def _sleep_pacing(self) -> None:
         time.sleep(random.uniform(self._delay_min, self._delay_max))
+
+    def _sleep_retry(self) -> None:
+        time.sleep(self._retry_delay + random.uniform(0, self._retry_jitter))
+
+    def _try_request(self, method: str, url: str, **kwargs):
+        """Issue a single HTTP request, raise httpx errors directly."""
+        return self._http.request(method, url, timeout=self._timeout, **kwargs)
+
+    def _retry_batch(self, fetch):
+        """Call fetch() up to max_attempts times. Return its result or None on exhaustion.
+
+        fetch must return the parsed JSON dict on success or raise httpx errors.
+        4xx (non-429) returns None immediately (clean no-match for the batch).
+        """
+        for attempt in range(self._max_attempts):
+            try:
+                return fetch()
+            except httpx.HTTPStatusError as exc:
+                if _is_transient_http(exc):
+                    if attempt < self._max_attempts - 1:
+                        self._sleep_retry()
+                    continue
+                return None  # 4xx non-429 → clean batch no-match
+            except Exception as exc:
+                if _is_transient_http(exc):
+                    if attempt < self._max_attempts - 1:
+                        self._sleep_retry()
+                    continue
+                return None
+        return None  # exhausted
 
     def get_ids(
         self, spotify_ids: list[str], on_batch: OnBatch | None = None
     ) -> dict[str, str]:
-        """Return {spotify_id: reccobeats_id} for all matched tracks."""
         out: dict[str, str] = {}
         batches = list(chunked(spotify_ids, self._batch))
         for i, batch in enumerate(batches, 1):
-            matched = 0
-            try:
-                r = self._http.get(
-                    _RB_TRACK_URL,
-                    params={"ids": ",".join(batch)},
-                    timeout=self._timeout,
+
+            def fetch(batch=batch):
+                r = self._try_request(
+                    "GET", _RB_TRACK_URL, params={"ids": ",".join(batch)}
                 )
                 r.raise_for_status()
-                for item in r.json().get("content", []):
+                return r.json()
+
+            payload = self._retry_batch(fetch)
+            matched = 0
+            if payload is not None:
+                for item in payload.get("content", []):
                     sid = _spotify_id_from_href(item.get("href"))
                     rid = item.get("id")
                     if sid and rid:
                         out[sid] = rid
                         matched += 1
-            except Exception:
-                pass
             if on_batch:
                 on_batch(i, len(batches), matched)
-            self._sleep()
+            self._sleep_pacing()
         return out
 
     def get_features(
         self, rb_ids: list[str], on_batch: OnBatch | None = None
     ) -> dict[str, dict]:
-        """Return {reccobeats_id: feature_payload} for matched tracks."""
         out: dict[str, dict] = {}
         batches = list(chunked(rb_ids, self._batch))
         for i, batch in enumerate(batches, 1):
-            matched = 0
-            try:
-                r = self._http.get(
-                    _RB_FEATURES_URL,
-                    params={"ids": ",".join(batch)},
-                    timeout=self._timeout,
+
+            def fetch(batch=batch):
+                r = self._try_request(
+                    "GET", _RB_FEATURES_URL, params={"ids": ",".join(batch)}
                 )
                 r.raise_for_status()
-                for item in r.json().get("content", []):
+                return r.json()
+
+            payload = self._retry_batch(fetch)
+            matched = 0
+            if payload is not None:
+                for item in payload.get("content", []):
                     rid = item.get("id")
                     if rid:
                         out[rid] = item
                         matched += 1
-            except Exception:
-                pass
             if on_batch:
                 on_batch(i, len(batches), matched)
-            self._sleep()
+            self._sleep_pacing()
         return out
 
-    def upload_features(self, audio: Path) -> dict | None:
-        """POST a short audio file to the analysis endpoint; return feature payload or None."""
+    def upload_features(self, audio) -> dict | None:
+        """POST audio file; return feature dict, None on clean no-match, or raise TransientError."""
         mime = "audio/wav" if audio.suffix.lower() == ".wav" else "audio/mpeg"
-        try:
-            with audio.open("rb") as fh:
-                r = self._http.post(
-                    _RB_ANALYSIS_URL,
-                    files={"audioFile": (audio.name, fh, mime)},
-                    timeout=self._timeout,
-                )
-                r.raise_for_status()
-                p = r.json()
-        except Exception:
-            return None
-        return p if isinstance(p, dict) else None
+        last_exc: Exception | None = None
+        for attempt in range(self._max_attempts):
+            try:
+                with audio.open("rb") as fh:
+                    r = self._http.post(
+                        _RB_ANALYSIS_URL,
+                        files={"audioFile": (audio.name, fh, mime)},
+                        timeout=self._timeout,
+                    )
+                    r.raise_for_status()
+                    p = r.json()
+            except httpx.HTTPStatusError as exc:
+                if _is_transient_http(exc):
+                    last_exc = exc
+                    if attempt < self._max_attempts - 1:
+                        self._sleep_retry()
+                    continue
+                return None
+            except Exception as exc:
+                if _is_transient_http(exc):
+                    last_exc = exc
+                    if attempt < self._max_attempts - 1:
+                        self._sleep_retry()
+                    continue
+                return None
+            return p if isinstance(p, dict) else None
+
+        raise TransientError(f"reccobeats upload exhausted: {last_exc!r}")
