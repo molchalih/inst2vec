@@ -37,6 +37,8 @@ def run_pipeline() -> None:
 
     """
     1. PARSING: fetches profiles and corresponding clips metadata via hiker api, populates the database.
+    a) fetch_profiles: fetches profiles and corresponding clips metadata, populates the database.
+    b) fetch_clips: fetches clips metadata, populates the database.
     """
     phase("Profile Parsing")
     fetch_profiles(
@@ -44,24 +46,19 @@ def run_pipeline() -> None:
     )
 
     """
-    2. PREPROCESSING: runs the full filter pipeline before heavy operations.
+    2. PROCESSING: Filters low quality and unwanted clips, randomly selects appropriate ones. Generates statistics.
+    a) hard: flags low quality clips and those that don't meet the basic policy.
+    b) soft: flags clips that are outliers in the dataset.
+    c) random: randomly selects clips from the remaining pool.
     """
-    phase("Preprocessing")
+    phase("Processing Dataset")
     process_dataset(settings.filter)
 
     """
     3. DOWNLOADING: downloads profile pics, videos and thumbnails of the filtered profiles.
     """
     phase("Download")
-    download_files(
-        max_attempts=settings.download.max_attempts,
-        retry_delay=settings.download.retry_delay,
-        retry_jitter=settings.download.retry_jitter,
-        concurrency=settings.download.concurrency,
-        profile_pic_dir=settings.paths.profile_pic_dir,
-        thumbnail_dir=settings.paths.thumbnail_dir,
-        video_dir=settings.paths.video_dir,
-    )
+    download_files(settings.download, settings.paths)
 
     """
     4.1 MUSIC: fingerprints the music in videos.

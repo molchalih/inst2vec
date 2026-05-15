@@ -12,7 +12,15 @@ import pytest
 
 import modules.database as db_mod
 from modules import download as dl_mod
+from modules.config import DownloadSettings, PathsSettings
 from modules.database import Clip, User, get_session, init_db
+
+
+def _dl(tmp_path, max_attempts=1, retry_delay=0, retry_jitter=0, concurrency=2):
+    return (
+        DownloadSettings(max_attempts=max_attempts, retry_delay=retry_delay, retry_jitter=retry_jitter, concurrency=concurrency),
+        PathsSettings(profile_pic_dir=str(tmp_path / "pics"), thumbnail_dir=str(tmp_path / "thumbs"), video_dir=str(tmp_path / "vids"), plots_dir="", model_path="", data_csv_path=""),
+    )
 
 
 def _make_response(status_code=200, content=b"OK"):
@@ -165,15 +173,7 @@ def test_download_files_happy_path(tmp_path, monkeypatch, isolated_db):
     monkeypatch.setattr(httpx, "get", lambda *a, **kw: _make_response(200, b"data"))
     monkeypatch.setattr(dl_mod.time, "sleep", lambda _: None)
 
-    dl_mod.download_files(
-        max_attempts=3,
-        retry_delay=0,
-        retry_jitter=0,
-        concurrency=2,
-        profile_pic_dir=str(tmp_path / "pics"),
-        thumbnail_dir=str(tmp_path / "thumbs"),
-        video_dir=str(tmp_path / "vids"),
-    )
+    dl_mod.download_files(*_dl(tmp_path, max_attempts=3, concurrency=2))
 
     session = get_session()
     clip = session.get(Clip, 100)
@@ -193,15 +193,7 @@ def test_download_files_failed_video_terminal(tmp_path, monkeypatch, isolated_db
     monkeypatch.setattr(httpx, "get", lambda *a, **kw: _make_response(500))
     monkeypatch.setattr(dl_mod.time, "sleep", lambda _: None)
 
-    dl_mod.download_files(
-        max_attempts=2,
-        retry_delay=0,
-        retry_jitter=0,
-        concurrency=2,
-        profile_pic_dir=str(tmp_path / "pics"),
-        thumbnail_dir=str(tmp_path / "thumbs"),
-        video_dir=str(tmp_path / "vids"),
-    )
+    dl_mod.download_files(*_dl(tmp_path, max_attempts=2))
 
     session = get_session()
     clip = session.get(Clip, 100)
@@ -225,15 +217,7 @@ def test_download_files_rerun_skips_completed(tmp_path, monkeypatch, isolated_db
     monkeypatch.setattr(httpx, "get", counting_get)
     monkeypatch.setattr(dl_mod.time, "sleep", lambda _: None)
 
-    dl_mod.download_files(
-        max_attempts=1,
-        retry_delay=0,
-        retry_jitter=0,
-        concurrency=2,
-        profile_pic_dir=str(tmp_path / "pics"),
-        thumbnail_dir=str(tmp_path / "thumbs"),
-        video_dir=str(tmp_path / "vids"),
-    )
+    dl_mod.download_files(*_dl(tmp_path))
 
     # Only clip 101 should have been fetched (one video call).
     assert calls["n"] == 1
@@ -258,15 +242,7 @@ def test_download_files_rerun_skips_failed(tmp_path, monkeypatch, isolated_db):
     monkeypatch.setattr(httpx, "get", counting_get)
     monkeypatch.setattr(dl_mod.time, "sleep", lambda _: None)
 
-    dl_mod.download_files(
-        max_attempts=1,
-        retry_delay=0,
-        retry_jitter=0,
-        concurrency=2,
-        profile_pic_dir=str(tmp_path / "pics"),
-        thumbnail_dir=str(tmp_path / "thumbs"),
-        video_dir=str(tmp_path / "vids"),
-    )
+    dl_mod.download_files(*_dl(tmp_path))
 
     assert calls["n"] == 0  # False clip is terminal
 
@@ -282,15 +258,7 @@ def test_download_files_missing_video_url_marks_failed(
     monkeypatch.setattr(httpx, "get", lambda *a, **kw: _make_response(200, b"x"))
     monkeypatch.setattr(dl_mod.time, "sleep", lambda _: None)
 
-    dl_mod.download_files(
-        max_attempts=1,
-        retry_delay=0,
-        retry_jitter=0,
-        concurrency=2,
-        profile_pic_dir=str(tmp_path / "pics"),
-        thumbnail_dir=str(tmp_path / "thumbs"),
-        video_dir=str(tmp_path / "vids"),
-    )
+    dl_mod.download_files(*_dl(tmp_path))
 
     session = get_session()
     assert session.get(Clip, 100).is_downloaded is False
@@ -321,14 +289,6 @@ def test_download_files_respects_concurrency(tmp_path, monkeypatch, isolated_db)
     monkeypatch.setattr(httpx, "get", slow_get)
     monkeypatch.setattr(dl_mod.time, "sleep", lambda _: None)
 
-    dl_mod.download_files(
-        max_attempts=1,
-        retry_delay=0,
-        retry_jitter=0,
-        concurrency=3,
-        profile_pic_dir=str(tmp_path / "pics"),
-        thumbnail_dir=str(tmp_path / "thumbs"),
-        video_dir=str(tmp_path / "vids"),
-    )
+    dl_mod.download_files(*_dl(tmp_path, concurrency=3))
 
     assert max_in_flight <= 3

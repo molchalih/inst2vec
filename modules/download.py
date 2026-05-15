@@ -24,6 +24,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import httpx
 
+from modules.config import DownloadSettings, PathsSettings
 from modules.console import log, progress
 from modules.database import Clip, User, get_session
 from modules.identity import get_profile_pic_url
@@ -62,15 +63,15 @@ def fetch_file(
     return False
 
 
-def download_files(
-    max_attempts: int,
-    retry_delay: int,
-    retry_jitter: int,
-    concurrency: int,
-    profile_pic_dir: str,
-    thumbnail_dir: str,
-    video_dir: str,
-) -> None:
+def download_files(download: DownloadSettings, paths: PathsSettings) -> None:
+    max_attempts = download.max_attempts
+    retry_delay = download.retry_delay
+    retry_jitter = download.retry_jitter
+    concurrency = download.concurrency
+    profile_pic_dir = paths.profile_pic_dir
+    thumbnail_dir = paths.thumbnail_dir
+    video_dir = paths.video_dir
+
     for d in (profile_pic_dir, thumbnail_dir, video_dir):
         os.makedirs(d, exist_ok=True)
 
@@ -92,14 +93,18 @@ def download_files(
                     profile_jobs.append((pic_url, pic_path))
 
             for clip in user.clips:
-                if not (clip.is_selected and clip.is_downloaded is None):
+                if not clip.is_selected:
+                    continue
+                # Thumbnails use disk existence as resume signal — check for all selected clips.
+                thumb_path = os.path.join(thumbnail_dir, f"{clip.id}.jpg")
+                if not os.path.exists(thumb_path) and clip.thumbnail_url:
+                    thumbnail_jobs.append((clip.thumbnail_url, thumb_path))
+                # Video gated on is_downloaded=NULL only.
+                if clip.is_downloaded is not None:
                     continue
                 if clip.video_url is None:
                     clips_missing_url.append(clip.id)
                     continue
-                thumb_path = os.path.join(thumbnail_dir, f"{clip.id}.jpg")
-                if not os.path.exists(thumb_path) and clip.thumbnail_url:
-                    thumbnail_jobs.append((clip.thumbnail_url, thumb_path))
                 video_path = os.path.join(video_dir, f"{clip.id}.mp4")
                 if not os.path.exists(video_path):
                     video_jobs.append((clip.id, clip.video_url, video_path))
