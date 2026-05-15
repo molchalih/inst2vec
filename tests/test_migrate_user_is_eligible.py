@@ -76,3 +76,40 @@ def test_migrate_idempotent_when_already_migrated():
     migrate_database(eng)  # second run must not crash
     rows = _read_users(eng)
     assert len(rows) == 1
+
+
+def test_migrate_preserves_child_table_fk_integrity():
+    """After migration, child tables must still reference `users`, not the dropped `users_old`."""
+    eng = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    with eng.begin() as conn:
+        conn.execute(text("""
+            CREATE TABLE users (
+                id INTEGER PRIMARY KEY,
+                eligibility INTEGER NOT NULL DEFAULT 0
+            )
+        """))
+        conn.execute(text("""
+            CREATE TABLE clips (
+                id INTEGER PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id)
+            )
+        """))
+        conn.execute(text("INSERT INTO users (id, eligibility) VALUES (1, 1)"))
+        conn.execute(text("INSERT INTO clips (id, user_id) VALUES (10, 1)"))
+
+    migrate_database(eng)
+
+    with eng.connect() as conn:
+        # PRAGMA foreign_key_check returns rows for each FK violation.
+        violations = conn.execute(text("PRAGMA foreign_key_check")).fetchall()
+        assert violations == [], f"FK violations after migration: {violations}"
+
+        clip_rows = conn.execute(
+            text("SELECT id, user_id FROM clips ORDER BY id")
+        ).fetchall()
+        assert clip_rows == [(10, 1)]
+
+        user_rows = conn.execute(
+            text("SELECT id FROM users ORDER BY id")
+        ).fetchall()
+        assert user_rows == [(1,)]
