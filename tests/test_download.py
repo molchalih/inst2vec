@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import os
+import threading
+import time
 from unittest.mock import MagicMock
 
 import httpx
+import pytest
 
+import modules.database as db_mod
 from modules import download as dl_mod
+from modules.database import Clip, User, get_session, init_db
 
 
 def _make_response(status_code=200, content=b"OK"):
@@ -113,3 +118,217 @@ def test_fetch_file_no_partial_on_write_failure(tmp_path, monkeypatch):
 
     assert ok is False
     assert not target.exists()
+
+
+# ============== Integration Tests (download_files) ==============
+
+
+@pytest.fixture
+def isolated_db(tmp_path):
+    """Point the global engine at a fresh per-test DB, restore after."""
+    original_main = db_mod._engine
+    from modules import identity as id_mod
+
+    original_id = getattr(id_mod, "_engine", None)
+
+    init_db(f"sqlite:///{tmp_path}/main.db", f"sqlite:///{tmp_path}/id.db")
+    yield
+
+    db_mod._engine = original_main
+    id_mod._engine = original_id
+
+
+def _seed(session, user_id, clip_id, is_selected, is_downloaded, video_url, thumb_url):
+    if not session.get(User, user_id):
+        session.add(User(id=user_id, is_selected=True))
+    session.add(
+        Clip(
+            id=clip_id,
+            user_id=user_id,
+            is_selected=is_selected,
+            is_downloaded=is_downloaded,
+            video_url=video_url,
+            thumbnail_url=thumb_url,
+        )
+    )
+    session.commit()
+
+
+def test_download_files_happy_path(tmp_path, monkeypatch, isolated_db):
+    session = get_session()
+    _seed(session, 1, 100, True, None, "https://x/v.mp4", "https://x/t.jpg")
+    session.close()
+
+    monkeypatch.setattr(
+        dl_mod, "get_profile_pic_url", lambda uid: f"https://x/{uid}.jpg"
+    )
+    monkeypatch.setattr(httpx, "get", lambda *a, **kw: _make_response(200, b"data"))
+    monkeypatch.setattr(dl_mod.time, "sleep", lambda _: None)
+
+    dl_mod.download_files(
+        max_attempts=3,
+        retry_delay=0,
+        retry_jitter=0,
+        concurrency=2,
+        profile_pic_dir=str(tmp_path / "pics"),
+        thumbnail_dir=str(tmp_path / "thumbs"),
+        video_dir=str(tmp_path / "vids"),
+    )
+
+    session = get_session()
+    clip = session.get(Clip, 100)
+    assert clip.is_downloaded is True
+    session.close()
+    assert (tmp_path / "vids" / "100.mp4").exists()
+    assert (tmp_path / "thumbs" / "100.jpg").exists()
+    assert (tmp_path / "pics" / "1.jpg").exists()
+
+
+def test_download_files_failed_video_terminal(tmp_path, monkeypatch, isolated_db):
+    session = get_session()
+    _seed(session, 1, 100, True, None, "https://x/v.mp4", None)
+    session.close()
+
+    monkeypatch.setattr(dl_mod, "get_profile_pic_url", lambda uid: None)
+    monkeypatch.setattr(httpx, "get", lambda *a, **kw: _make_response(500))
+    monkeypatch.setattr(dl_mod.time, "sleep", lambda _: None)
+
+    dl_mod.download_files(
+        max_attempts=2,
+        retry_delay=0,
+        retry_jitter=0,
+        concurrency=2,
+        profile_pic_dir=str(tmp_path / "pics"),
+        thumbnail_dir=str(tmp_path / "thumbs"),
+        video_dir=str(tmp_path / "vids"),
+    )
+
+    session = get_session()
+    clip = session.get(Clip, 100)
+    assert clip.is_downloaded is False
+    session.close()
+
+
+def test_download_files_rerun_skips_completed(tmp_path, monkeypatch, isolated_db):
+    session = get_session()
+    _seed(session, 1, 100, True, True, "https://x/v.mp4", None)  # already done
+    _seed(session, 1, 101, True, None, "https://x/v.mp4", None)  # pending
+    session.close()
+
+    calls = {"n": 0}
+
+    def counting_get(*a, **kw):
+        calls["n"] += 1
+        return _make_response(200, b"data")
+
+    monkeypatch.setattr(dl_mod, "get_profile_pic_url", lambda uid: None)
+    monkeypatch.setattr(httpx, "get", counting_get)
+    monkeypatch.setattr(dl_mod.time, "sleep", lambda _: None)
+
+    dl_mod.download_files(
+        max_attempts=1,
+        retry_delay=0,
+        retry_jitter=0,
+        concurrency=2,
+        profile_pic_dir=str(tmp_path / "pics"),
+        thumbnail_dir=str(tmp_path / "thumbs"),
+        video_dir=str(tmp_path / "vids"),
+    )
+
+    # Only clip 101 should have been fetched (one video call).
+    assert calls["n"] == 1
+    session = get_session()
+    assert session.get(Clip, 100).is_downloaded is True
+    assert session.get(Clip, 101).is_downloaded is True
+    session.close()
+
+
+def test_download_files_rerun_skips_failed(tmp_path, monkeypatch, isolated_db):
+    session = get_session()
+    _seed(session, 1, 100, True, False, "https://x/v.mp4", None)  # failed
+    session.close()
+
+    calls = {"n": 0}
+
+    def counting_get(*a, **kw):
+        calls["n"] += 1
+        return _make_response(200, b"data")
+
+    monkeypatch.setattr(dl_mod, "get_profile_pic_url", lambda uid: None)
+    monkeypatch.setattr(httpx, "get", counting_get)
+    monkeypatch.setattr(dl_mod.time, "sleep", lambda _: None)
+
+    dl_mod.download_files(
+        max_attempts=1,
+        retry_delay=0,
+        retry_jitter=0,
+        concurrency=2,
+        profile_pic_dir=str(tmp_path / "pics"),
+        thumbnail_dir=str(tmp_path / "thumbs"),
+        video_dir=str(tmp_path / "vids"),
+    )
+
+    assert calls["n"] == 0  # False clip is terminal
+
+
+def test_download_files_missing_video_url_marks_failed(
+    tmp_path, monkeypatch, isolated_db
+):
+    session = get_session()
+    _seed(session, 1, 100, True, None, None, None)
+    session.close()
+
+    monkeypatch.setattr(dl_mod, "get_profile_pic_url", lambda uid: None)
+    monkeypatch.setattr(httpx, "get", lambda *a, **kw: _make_response(200, b"x"))
+    monkeypatch.setattr(dl_mod.time, "sleep", lambda _: None)
+
+    dl_mod.download_files(
+        max_attempts=1,
+        retry_delay=0,
+        retry_jitter=0,
+        concurrency=2,
+        profile_pic_dir=str(tmp_path / "pics"),
+        thumbnail_dir=str(tmp_path / "thumbs"),
+        video_dir=str(tmp_path / "vids"),
+    )
+
+    session = get_session()
+    assert session.get(Clip, 100).is_downloaded is False
+    session.close()
+
+
+def test_download_files_respects_concurrency(tmp_path, monkeypatch, isolated_db):
+    session = get_session()
+    for cid in range(200, 212):
+        _seed(session, 1, cid, True, None, f"https://x/{cid}.mp4", None)
+    session.close()
+
+    in_flight = 0
+    max_in_flight = 0
+    lock = threading.Lock()
+
+    def slow_get(*a, **kw):
+        nonlocal in_flight, max_in_flight
+        with lock:
+            in_flight += 1
+            max_in_flight = max(max_in_flight, in_flight)
+        time.sleep(0.05)
+        with lock:
+            in_flight -= 1
+        return _make_response(200, b"x")
+
+    monkeypatch.setattr(dl_mod, "get_profile_pic_url", lambda uid: None)
+    monkeypatch.setattr(httpx, "get", slow_get)
+    monkeypatch.setattr(dl_mod.time, "sleep", lambda _: None)
+
+    dl_mod.download_files(
+        max_attempts=1,
+        retry_delay=0,
+        retry_jitter=0,
+        concurrency=3,
+        profile_pic_dir=str(tmp_path / "pics"),
+        thumbnail_dir=str(tmp_path / "thumbs"),
+        video_dir=str(tmp_path / "vids"),
+    )
+
+    assert max_in_flight <= 3
