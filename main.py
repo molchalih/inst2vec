@@ -89,7 +89,9 @@ def run_pipeline() -> None:
     )
 
     """
-    5. SPEECH: transcribes the speech and translates applicable entries if needed.
+    5. SPEECH: transcribes speech with Whisper (writes is_speech_detected),
+       translates detected non-English speech, then post-cleans
+       hallucination-marker translations.
     """
     phase("Speech transcription")
     classify_speech(

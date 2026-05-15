@@ -18,6 +18,7 @@ dependencies = [
     "qwen-vl-utils>=0.0.14",
     "quarto>=0.1.0",
     "rich>=15.0.0",
+    "silero-vad>=5.1",
     "sqlalchemy>=2.0.41",
     "torch>=2.11.0",
     "torchvision>=0.26.0",
