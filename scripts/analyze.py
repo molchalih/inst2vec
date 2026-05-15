@@ -83,19 +83,21 @@ def section_health(session):
 
     # Speech phase
     n_speech_resolved = (
-        session.query(func.count(Clip.id)).filter(Clip.has_speech.is_not(None)).scalar()
+        session.query(func.count(Clip.id))
+        .filter(Clip.is_speech_detected.is_not(None))
+        .scalar()
     )
-    n_has_speech = (
-        session.query(func.count(Clip.id)).filter(Clip.has_speech == 1).scalar()
+    n_speech_detected = (
+        session.query(func.count(Clip.id)).filter(Clip.is_speech_detected == 1).scalar()
     )
     n_no_speech = (
-        session.query(func.count(Clip.id)).filter(Clip.has_speech == 0).scalar()
+        session.query(func.count(Clip.id)).filter(Clip.is_speech_detected == 0).scalar()
     )
     print(
         f"\nSpeech resolved:    {n_speech_resolved:>8,}  ({_pct(n_speech_resolved, n_clips)} of clips)"
     )
     print(
-        f"  with speech:      {n_has_speech:>8,}  ({_pct(n_has_speech, n_speech_resolved)})"
+        f"  with speech:      {n_speech_detected:>8,}  ({_pct(n_speech_detected, n_speech_resolved)})"
     )
     print(
         f"  silent:           {n_no_speech:>8,}  ({_pct(n_no_speech, n_speech_resolved)})"
@@ -273,8 +275,12 @@ def section_music(session):
 
 def section_speech(session):
     _header("SPEECH", "-")
-    n_with = session.query(func.count(Clip.id)).filter(Clip.has_speech == 1).scalar()
-    n_without = session.query(func.count(Clip.id)).filter(Clip.has_speech == 0).scalar()
+    n_with = (
+        session.query(func.count(Clip.id)).filter(Clip.is_speech_detected == 1).scalar()
+    )
+    n_without = (
+        session.query(func.count(Clip.id)).filter(Clip.is_speech_detected == 0).scalar()
+    )
     total_resolved = n_with + n_without
     print(
         f"\nWith speech: {n_with:,} / {total_resolved:,} ({_pct(n_with, total_resolved)})"
@@ -286,7 +292,7 @@ def section_speech(session):
     lang_rows = (
         session.query(Clip.speech_language, func.count(Clip.id))
         .filter(
-            Clip.has_speech == 1,
+            Clip.is_speech_detected == 1,
             Clip.speech_language.is_not(None),
             Clip.speech_language != "",
         )
@@ -302,7 +308,7 @@ def section_speech(session):
 
     quality_rows = (
         session.query(Clip.speech_confidence, Clip.speech_avg_logprob)
-        .filter(Clip.has_speech == 1, Clip.speech_confidence.is_not(None))
+        .filter(Clip.is_speech_detected == 1, Clip.speech_confidence.is_not(None))
         .all()
     )
     if quality_rows:

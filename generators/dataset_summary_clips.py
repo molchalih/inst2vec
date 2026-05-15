@@ -98,7 +98,7 @@ def _summary_cells(session: Session) -> dict[str, str]:
     caption_translation_counts = _count_non_empty(
         session, Clip.caption_translation, *KEPT_CLIP_FILTER
     )
-    speech_counts = _count(session, Clip.has_speech, *KEPT_CLIP_FILTER)
+    speech_counts = _count(session, Clip.is_speech_detected, *KEPT_CLIP_FILTER)
     speech_translation_counts = _count_non_empty(
         session, Clip.speech_translation, *KEPT_CLIP_FILTER
     )

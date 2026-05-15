@@ -1,0 +1,53 @@
+"""Shared state constants and text helpers for the speech package."""
+
+from __future__ import annotations
+
+import re
+
+SCOPE_CLASSIFY: str = "classify_speech"
+SCOPE_TRANSLATE: str = "translate_speech"
+SCOPE_CLEAN: str = "clean_speech"
+
+# Substrings that indicate a hallucination / non-speech transcription.
+# Clips whose translation/transcription contains one are reclassified as no-speech.
+HALLUCINATION_MARKERS: list[str] = [
+    "DimaTorzok",
+]
+
+_NON_LETTER_RE = re.compile(r"[^A-Za-zА-Яа-яÀ-ɏЀ-ӿ]+")
+_REPEAT_MIN_TOKENS = 5  # at least N tokens of the same lowercased word in a row
+
+
+def has_meaningful_speech_text(text: str | None, min_meaningful_chars: int) -> bool:
+    """True iff text contains at least ``min_meaningful_chars`` letters after
+    stripping punctuation, digits and whitespace."""
+    if not text:
+        return False
+    cleaned = _NON_LETTER_RE.sub("", text.strip())
+    return len(cleaned) >= min_meaningful_chars
+
+
+def has_hallucination_marker(text: str | None) -> bool:
+    """True iff text contains any known hallucination marker substring."""
+    if not text:
+        return False
+    return any(marker in text for marker in HALLUCINATION_MARKERS)
+
+
+def is_repeated_output(text: str | None) -> bool:
+    """True iff text consists of ``_REPEAT_MIN_TOKENS`` or more consecutive
+    identical (case-insensitive) tokens — a classic Whisper looping artifact."""
+    if not text:
+        return False
+    tokens = [t for t in re.findall(r"\w+", text.lower()) if t]
+    if len(tokens) < _REPEAT_MIN_TOKENS:
+        return False
+    run = 1
+    for i in range(1, len(tokens)):
+        if tokens[i] == tokens[i - 1]:
+            run += 1
+            if run >= _REPEAT_MIN_TOKENS:
+                return True
+        else:
+            run = 1
+    return False
