@@ -53,12 +53,11 @@ def run_pipeline() -> None:
     3. DOWNLOADING: downloads profile pics, videos and thumbnails of the filtered profiles.
     """
     phase("Download")
-    # TODO Task 13: wire to settings.download.* (batch_size and max_clips deprecated)
     download_files(
-        # batch_size=settings.pipeline.batch_size,
-        # max_clips=settings.pipeline.max_clips,
         max_attempts=settings.download.max_attempts,
         retry_delay=settings.download.retry_delay,
+        retry_jitter=settings.download.retry_jitter,
+        concurrency=settings.download.concurrency,
         profile_pic_dir=settings.paths.profile_pic_dir,
         thumbnail_dir=settings.paths.thumbnail_dir,
         video_dir=settings.paths.video_dir,

@@ -9,7 +9,6 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
     calls: list[str] = []
 
     settings = SimpleNamespace(
-        pipeline=SimpleNamespace(batch_size=5, max_clips=5),
         paths=SimpleNamespace(
             video_dir="data/source/videos",
             plots_dir="data/plots",
@@ -19,7 +18,9 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
             data_csv_path="data/data.csv",
         ),
         parse=SimpleNamespace(fetch_retry_delays_sec=[0, 30, 60, 90]),
-        download=SimpleNamespace(max_attempts=3, retry_delay=2),
+        download=SimpleNamespace(
+            max_attempts=3, retry_delay=2, retry_jitter=5, concurrency=5
+        ),
         filter=SimpleNamespace(
             min_video_duration=3,
             max_video_duration=80,
