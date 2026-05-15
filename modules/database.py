@@ -154,6 +154,7 @@ class Music(Base):
     spotify_id: Mapped[str | None] = mapped_column(String, nullable=True)
     reccobeats_id: Mapped[str | None] = mapped_column(String, nullable=True)
     has_features: Mapped[str | None] = mapped_column(String, nullable=True)
+    is_audio_features_extracted: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     acousticness: Mapped[float | None] = mapped_column(Float, nullable=True)
     danceability: Mapped[float | None] = mapped_column(Float, nullable=True)
     energy: Mapped[float | None] = mapped_column(Float, nullable=True)
