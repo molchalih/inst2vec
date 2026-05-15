@@ -99,6 +99,7 @@ class Clip(Base):
     thumbnail_url: Mapped[str | None] = mapped_column(String)
     video_url: Mapped[str | None] = mapped_column(String)
     caption_text: Mapped[str | None] = mapped_column(Text)
+    caption_clean: Mapped[str | None] = mapped_column(Text, nullable=True)
     caption_language: Mapped[str | None] = mapped_column(Text, nullable=True)
     caption_translation: Mapped[str | None] = mapped_column(Text)
     comment_count: Mapped[int | None] = mapped_column(Integer)
