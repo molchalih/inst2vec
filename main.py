@@ -15,6 +15,7 @@ from modules.embeddings import (
 from modules.filter import process_dataset
 from modules.music import classify_music, extract_music_features
 from modules.music.classify import AcrSecrets
+from modules.music.features import MusicSecrets
 from modules.parse import fetch_profiles
 from modules.speech import classify_speech, clean_speech, translate_speech
 from modules.utils import load_usernames_from_csv
@@ -79,21 +80,12 @@ def run_pipeline() -> None:
     """
     phase("Music feature extraction")
     extract_music_features(
-        video_dir=settings.paths.video_dir,
-        http_timeout=settings.music.http_timeout,
-        commit_every=settings.music.commit_every,
-        spotify_client_id=secrets.spotify_client_id,
-        spotify_client_secret=secrets.spotify_client_secret,
-        spotify_token_skew_seconds=settings.music.spotify_token_skew_seconds,
-        spotify_search_limit=settings.music.spotify_search_limit,
-        spotify_request_timeout=settings.music.spotify_request_timeout,
-        reccobeats_batch_size=settings.music.reccobeats_batch_size,
-        reccobeats_delay_min=settings.music.reccobeats_delay_min,
-        reccobeats_delay_max=settings.music.reccobeats_delay_max,
-        manual_features_max_seconds=settings.music.manual_features_max_seconds,
-        manual_features_sample_rate=settings.music.manual_features_sample_rate,
-        manual_features_max_mb=settings.music.manual_features_max_mb,
-        manual_features_mp3_bitrate=settings.music.manual_features_mp3_bitrate,
+        music=settings.music,
+        paths=settings.paths,
+        secrets=MusicSecrets(
+            spotify_client_id=secrets.spotify_client_id,
+            spotify_client_secret=secrets.spotify_client_secret,
+        ),
     )
 
     """
