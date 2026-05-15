@@ -15,6 +15,7 @@ class PathsSettings(BaseModel):
     model_path: str
     profile_pic_dir: str
     thumbnail_dir: str
+    speech_audio_dir: str
     data_csv_path: str
 
 
@@ -83,6 +84,13 @@ class SpeechSettings(BaseModel):
     logprob_threshold: float
     compression_threshold: float
     min_meaningful_chars: int
+    vad_enabled: bool
+    vad_sampling_rate: int
+    vad_threshold: float
+    vad_min_speech_ms: int
+    vad_min_silence_ms: int
+    vad_speech_pad_ms: int
+    vad_min_total_speech_s: float
 
 
 class CaptionsSettings(BaseModel):
