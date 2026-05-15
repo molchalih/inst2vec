@@ -1,43 +1,179 @@
-"""VAD (voice-activity-detection) helper stub.
+"""Silero-VAD pre-gate for the speech pipeline.
 
-This module is intentionally minimal — its purpose is to fix the public
-API shape so a real VAD backend (e.g. silero-vad, webrtcvad) can be
-dropped in without touching ``classify.py``.
+Pipeline position:
+    Inside ``classify_speech``, before any Whisper invocation.
 
-Behavior today:
-    enabled=False  → returns the input path unchanged
-    enabled=True   → returns None if input is missing, else input path
-                     (no actual trimming happens yet)
+Responsibilities:
+    1. Normalize the input media (video or audio) to mono 16 kHz PCM-WAV via
+       ffmpeg.
+    2. Run Silero VAD on the normalized waveform to detect speech segments.
+    3. If speech survives the duration gate, concatenate the (padded) speech
+       segments and write a speech-only WAV to ``out_dir/<stem>.wav``.
+    4. Return a ``VadResult`` describing the decision.
+
+This module is DB-free and ffmpeg-isolated; callers handle persistence and
+retries. Failure to run ffmpeg raises ``RuntimeError`` so the caller can leave
+the row NULL for retry (mirrors Whisper's exception handling in classify.py).
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import contextlib
+import subprocess
+import wave
+from dataclasses import dataclass, field
 from pathlib import Path
+
+import numpy as np
+
+# Imported via attribute so tests can monkeypatch the module reference.
+import silero_vad as _silero  # type: ignore[import-not-found]
+
+_FFMPEG_TIMEOUT_SECONDS = 60
 
 
 @dataclass(frozen=True)
 class VadConfig:
-    enabled: bool = False
-    min_speech_seconds: float = 0.5
-    aggressiveness: int = 2  # 0..3 — webrtcvad-style scale
+    enabled: bool = True
+    sampling_rate: int = 16000
+    threshold: float = 0.5
+    min_speech_ms: int = 250
+    min_silence_ms: int = 100
+    speech_pad_ms: int = 150
+    min_total_speech_s: float = 0.5
+
+
+@dataclass(frozen=True)
+class VadSegment:
+    start_sample: int
+    end_sample: int
+
+
+@dataclass(frozen=True)
+class VadResult:
+    is_speech_detected: bool
+    speech_audio_path: Path | None
+    segments: list[VadSegment] = field(default_factory=list)
+    total_speech_seconds: float = 0.0
+
+
+_MODEL = None
+
+
+def _get_model():
+    global _MODEL
+    if _MODEL is None:
+        _MODEL = _silero.load_silero_vad()
+    return _MODEL
 
 
 def prepare_for_whisper(
-    video: Path,
-    out_dir: Path,  # reserved for future trimmed-audio output
+    media_path: Path,
+    out_dir: Path,
     config: VadConfig,
-) -> Path | None:
-    """Return a path Whisper should transcribe, or None to skip the clip.
+) -> VadResult:
+    """Run the VAD pre-gate against ``media_path``.
 
-    Returns the input ``video`` unchanged when VAD is disabled. When enabled,
-    today's implementation only filters out missing inputs; a future patch
-    will produce a trimmed audio file inside ``out_dir``.
+    When VAD is disabled, returns a pass-through ``VadResult`` whose
+    ``speech_audio_path`` is the input itself — Whisper sees the original file.
+
+    When enabled:
+        * No speech / total speech below ``min_total_speech_s`` →
+          ``is_speech_detected=False``, no file written.
+        * Speech detected → speech-only WAV written to
+          ``out_dir/<media_stem>.wav``; ``is_speech_detected=True``.
     """
-    if not video.exists():
-        return None
     if not config.enabled:
-        return video
-    # Future: invoke real VAD, write a trimmed audio file to ``out_dir``,
-    # return that path or None if no speech segments survived.
-    return video
+        return VadResult(is_speech_detected=True, speech_audio_path=media_path)
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    samples = _load_mono_16k(media_path, config.sampling_rate)
+
+    timestamps = _silero.get_speech_timestamps(
+        _to_tensor(samples),
+        _get_model(),
+        sampling_rate=config.sampling_rate,
+        threshold=config.threshold,
+        min_speech_duration_ms=config.min_speech_ms,
+        min_silence_duration_ms=config.min_silence_ms,
+        speech_pad_ms=config.speech_pad_ms,
+        return_seconds=False,
+    )
+    segments = [
+        VadSegment(start_sample=int(ts["start"]), end_sample=int(ts["end"]))
+        for ts in timestamps
+    ]
+    total_samples = sum(s.end_sample - s.start_sample for s in segments)
+    total_speech_s = total_samples / float(config.sampling_rate)
+
+    if total_speech_s < config.min_total_speech_s:
+        return VadResult(
+            is_speech_detected=False,
+            speech_audio_path=None,
+            segments=segments,
+            total_speech_seconds=total_speech_s,
+        )
+
+    speech_only = np.concatenate(
+        [samples[s.start_sample : s.end_sample] for s in segments]
+    )
+    out_path = out_dir / f"{media_path.stem}.wav"
+    _write_wav(out_path, speech_only, config.sampling_rate)
+    return VadResult(
+        is_speech_detected=True,
+        speech_audio_path=out_path,
+        segments=segments,
+        total_speech_seconds=total_speech_s,
+    )
+
+
+def _load_mono_16k(media_path: Path, sampling_rate: int) -> np.ndarray:
+    """ffmpeg -> int16 PCM WAV -> float32 numpy array in [-1, 1]."""
+    tmp = media_path.with_suffix(media_path.suffix + ".vad.wav")
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-i",
+        str(media_path),
+        "-vn",
+        "-ac",
+        "1",
+        "-ar",
+        str(sampling_rate),
+        "-c:a",
+        "pcm_s16le",
+        str(tmp),
+    ]
+    if not _run_ffmpeg(cmd, timeout=_FFMPEG_TIMEOUT_SECONDS):
+        raise RuntimeError(f"ffmpeg failed to normalize {media_path}")
+    try:
+        with wave.open(str(tmp), "rb") as wf:
+            frames = wf.readframes(wf.getnframes())
+        return np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
+    finally:
+        with contextlib.suppress(OSError):
+            tmp.unlink()
+
+
+def _to_tensor(samples: np.ndarray):
+    import torch
+
+    return torch.from_numpy(samples).contiguous()
+
+
+def _write_wav(path: Path, samples: np.ndarray, sampling_rate: int) -> None:
+    pcm = np.clip(samples, -1.0, 1.0)
+    pcm = (pcm * 32767).astype(np.int16)
+    with wave.open(str(path), "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(sampling_rate)
+        wf.writeframes(pcm.tobytes())
+
+
+def _run_ffmpeg(cmd: list[str], timeout: int) -> bool:
+    try:
+        result = subprocess.run(cmd, capture_output=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return False
+    return result.returncode == 0
