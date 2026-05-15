@@ -305,7 +305,7 @@ def _reset_dataset_processing_state(session: Session) -> None:
     session.query(UserStats).delete()
 
 
-def hard_preprocess(session: Session, cfg: FilterSettings) -> None:
+def _hard_preprocess(session: Session, cfg: FilterSettings) -> None:
     _flag_garbage_clips(session)
     _flag_basic_policy_clips(session, cfg)
     _derive_preprocessing_status(session)
@@ -313,14 +313,14 @@ def hard_preprocess(session: Session, cfg: FilterSettings) -> None:
     _flag_users_without_enough_clips(session, cfg)
 
 
-def soft_preprocess(session: Session, cfg: FilterSettings) -> None:
+def _soft_preprocess(session: Session, cfg: FilterSettings) -> None:
     _flag_global_percentile_clips(session, cfg)
     _compute_creator_robust_stats(session, cfg)
     _flag_users_without_enough_clips(session, cfg)
     _derive_eligibility(session)
 
 
-def random_sample(session: Session, cfg: FilterSettings) -> None:
+def _random_sample(session: Session, cfg: FilterSettings) -> None:
     select_clips(session, cfg)
 
 
@@ -335,9 +335,9 @@ def process_dataset(
     with Session(eng) as session:
         _reset_dataset_processing_state(session)
 
-        hard_preprocess(session, cfg)
+        _hard_preprocess(session, cfg)
         calculate_user_stats(session)
-        soft_preprocess(session, cfg)
-        random_sample(session, cfg)
+        _soft_preprocess(session, cfg)
+        _random_sample(session, cfg)
 
         session.commit()
