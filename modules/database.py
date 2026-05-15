@@ -371,3 +371,52 @@ def clip_needs_speech_translation():
         func.lower(Clip.speech_language).notlike("en%"),
         (Clip.speech_translation.is_(None)) | (Clip.speech_translation == ""),
     )
+
+
+def has_raw_caption():
+    """Clips that have any non-empty raw scraped caption."""
+    return (
+        Clip.caption_text.is_not(None),
+        func.trim(Clip.caption_text) != "",
+    )
+
+
+def has_clean_caption():
+    """Clips that already have a non-empty normalized caption."""
+    return (
+        Clip.caption_clean.is_not(None),
+        func.trim(Clip.caption_clean) != "",
+    )
+
+
+def needs_caption_cleaning():
+    """Selected, downloaded clips with raw text but no caption_clean yet."""
+    return (
+        *clip_used_in_analysis(),
+        Clip.caption_text.is_not(None),
+        func.trim(Clip.caption_text) != "",
+        Clip.caption_clean.is_(None),
+    )
+
+
+def needs_caption_language_detection():
+    """Selected, downloaded clips with caption_clean and no language tag."""
+    return (
+        *clip_used_in_analysis(),
+        Clip.caption_clean.is_not(None),
+        func.trim(Clip.caption_clean) != "",
+        (Clip.caption_language.is_(None)) | (Clip.caption_language == ""),
+    )
+
+
+def needs_caption_translation():
+    """Selected, downloaded clips with detected non-English clean caption and no translation."""
+    return (
+        *clip_used_in_analysis(),
+        Clip.caption_clean.is_not(None),
+        func.trim(Clip.caption_clean) != "",
+        Clip.caption_language.is_not(None),
+        Clip.caption_language != "",
+        func.lower(Clip.caption_language).notlike("en%"),
+        (Clip.caption_translation.is_(None)) | (Clip.caption_translation == ""),
+    )
