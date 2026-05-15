@@ -29,6 +29,7 @@ def _settings():
         model_path="/tmp",
         profile_pic_dir="/tmp",
         thumbnail_dir="/tmp",
+        speech_audio_dir="/tmp/audio",
         data_csv_path="/tmp/data.csv",
     )
     secrets = MusicSecrets(spotify_client_id="i", spotify_client_secret="s")

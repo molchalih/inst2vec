@@ -7,6 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from modules.database import Base, Clip, User
+from modules.speech.vad import VadConfig
 
 
 def _make_db(tmp_path: Path):
@@ -45,19 +46,23 @@ def test_retry_invokes_classify_speech_with_kwargs(tmp_path, monkeypatch):
 
     retry_failed_speech_detection(
         video_dir=str(tmp_path),
+        speech_audio_dir=str(tmp_path / "audio"),
         whisper_model="tiny",
         commit_every=10,
         logprob_threshold=-0.8,
         compression_threshold=2.4,
         min_meaningful_chars=8,
+        vad_config=VadConfig(enabled=False),
     )
 
     assert captured["video_dir"] == str(tmp_path)
+    assert captured["speech_audio_dir"] == str(tmp_path / "audio")
     assert captured["whisper_model"] == "tiny"
     assert captured["commit_every"] == 10
     assert captured["logprob_threshold"] == -0.8
     assert captured["compression_threshold"] == 2.4
     assert captured["min_meaningful_chars"] == 8
+    assert captured["vad_config"] == VadConfig(enabled=False)
 
 
 def test_retry_short_circuits_when_no_unresolved_clips(tmp_path, monkeypatch):
@@ -73,10 +78,12 @@ def test_retry_short_circuits_when_no_unresolved_clips(tmp_path, monkeypatch):
 
     retry_failed_speech_detection(
         video_dir=str(tmp_path),
+        speech_audio_dir=str(tmp_path / "audio"),
         whisper_model="tiny",
         commit_every=10,
         logprob_threshold=-0.8,
         compression_threshold=2.4,
         min_meaningful_chars=8,
+        vad_config=VadConfig(enabled=False),
     )
     fake.assert_not_called()
