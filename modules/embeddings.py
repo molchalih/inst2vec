@@ -112,7 +112,7 @@ def _eligible_clips(session, exclude_disqualified_users: bool):
     clips_q = session.query(Clip).filter(is_eligible(Clip.eligibility))
     if exclude_disqualified_users:
         clips_q = clips_q.join(User, Clip.user_id == User.id).filter(
-            is_eligible(User.eligibility),
+            User.is_eligible.is_(True),
         )
     return clips_q.all()
 

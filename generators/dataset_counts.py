@@ -16,7 +16,7 @@ def get_users_count(eng) -> dict[str, int]:
         all = int(session.query(func.count(User.id)).scalar() or 0)
         kept = int(
             session.query(func.count(User.id))
-            .filter(is_eligible(User.eligibility))
+            .filter(User.is_eligible.is_(True))
             .scalar()
             or 0
         )

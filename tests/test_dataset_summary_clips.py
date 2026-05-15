@@ -21,8 +21,8 @@ def test_clips_summary_to_markdown_renders_curated_metrics():
     with Session(eng) as s:
         s.add_all(
             [
-                User(id=1, parse_status="success", eligibility=1),
-                User(id=2, parse_status="success", eligibility=2),
+                User(id=1, parse_status="success", is_eligible=True),
+                User(id=2, parse_status="success", is_eligible=False),
                 Clip(
                     id=11,
                     user_id=1,
@@ -103,7 +103,7 @@ def test_clips_summary_to_markdown_renders_curated_metrics():
 def test_clips_summary_to_markdown_uses_dash_for_missing_numeric_values():
     eng = _make_engine()
     with Session(eng) as s:
-        s.add(User(id=1, parse_status="success", eligibility=1))
+        s.add(User(id=1, parse_status="success", is_eligible=True))
         s.add(Clip(id=11, user_id=1, eligibility=1))
         s.commit()
 
@@ -117,7 +117,7 @@ def test_clips_summary_to_markdown_uses_dash_for_missing_numeric_values():
 def test_render_clips_summary_returns_markdown_object():
     eng = _make_engine()
     with Session(eng) as s:
-        s.add(User(id=1, parse_status="success", eligibility=1))
+        s.add(User(id=1, parse_status="success", is_eligible=True))
         s.add(Clip(id=11, user_id=1, eligibility=1))
         s.commit()
 

@@ -64,7 +64,7 @@ def _kept_play_count_distribution(session: Session) -> list[float]:
         session.query(Clip.user_id, func.avg(Clip.play_count).label("avg_play_count"))
         .join(User, Clip.user_id == User.id)
         .filter(
-            is_eligible(User.eligibility),
+            User.is_eligible.is_(True),
             is_eligible(Clip.eligibility),
             Clip.play_count.is_not(None),
         )
@@ -80,8 +80,8 @@ def _kept_play_count_distribution(session: Session) -> list[float]:
 
 def _summary_cells(session: Session) -> dict[str, str]:
     total_users = _count(session)
-    kept_users = _count(session, is_eligible(User.eligibility))
-    kept_user_filters = (is_eligible(User.eligibility),)
+    kept_users = _count(session, User.is_eligible.is_(True))
+    kept_user_filters = (User.is_eligible.is_(True),)
 
     following_counts = [
         int(value)

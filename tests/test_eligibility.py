@@ -52,5 +52,5 @@ def test_user_and_cluster_run_default_to_pending():
 
         loaded = s.get(User, 1)
         assert loaded is not None
-        assert loaded.eligibility == eligibility_db(Eligibility.PENDING)
+        assert loaded.is_eligible is None  # NULL = pending
         assert run.eligibility == eligibility_db(Eligibility.PENDING)

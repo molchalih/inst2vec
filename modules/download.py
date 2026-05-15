@@ -5,7 +5,7 @@ import httpx
 
 from modules.console import log, progress
 from modules.database import Download, User, get_session
-from modules.eligibility import Eligibility, eligibility_db, is_eligible
+from modules.eligibility import Eligibility, eligibility_db
 from modules.identity import get_profile_pic_url
 
 _ELIGIBLE = eligibility_db(Eligibility.ELIGIBLE)
@@ -98,7 +98,7 @@ def download_files(
         session.query(User)
         .filter(
             ~User.id.in_(done_ids),
-            is_eligible(User.eligibility),
+            User.is_eligible.is_(True),
         )
         .limit(batch_size)
         .all()

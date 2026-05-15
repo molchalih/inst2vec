@@ -42,12 +42,10 @@ class User(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     following_count: Mapped[int | None] = mapped_column(Integer)
     follower_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    eligibility: Mapped[int] = mapped_column(
-        Integer, nullable=False, server_default=text("0")
-    )
     parse_status: Mapped[str | None] = mapped_column(String, nullable=True)
     is_low_plays_median: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     is_not_enough_clips: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    is_eligible: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     is_selected: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 
     clips: Mapped[list["Clip"]] = relationship("Clip", back_populates="user")  # type: ignore[assignment]

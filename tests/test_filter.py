@@ -39,6 +39,7 @@ def test_user_has_filter_columns():
     for col in [
         "is_low_plays_median",
         "is_not_enough_clips",
+        "is_eligible",
         "is_selected",
     ]:
         assert col in user_cols, f"User missing column: {col}"
