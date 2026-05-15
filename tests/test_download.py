@@ -18,8 +18,20 @@ from modules.database import Clip, User, get_session, init_db
 
 def _dl(tmp_path, max_attempts=1, retry_delay=0, retry_jitter=0, concurrency=2):
     return (
-        DownloadSettings(max_attempts=max_attempts, retry_delay=retry_delay, retry_jitter=retry_jitter, concurrency=concurrency),
-        PathsSettings(profile_pic_dir=str(tmp_path / "pics"), thumbnail_dir=str(tmp_path / "thumbs"), video_dir=str(tmp_path / "vids"), plots_dir="", model_path="", data_csv_path=""),
+        DownloadSettings(
+            max_attempts=max_attempts,
+            retry_delay=retry_delay,
+            retry_jitter=retry_jitter,
+            concurrency=concurrency,
+        ),
+        PathsSettings(
+            profile_pic_dir=str(tmp_path / "pics"),
+            thumbnail_dir=str(tmp_path / "thumbs"),
+            video_dir=str(tmp_path / "vids"),
+            plots_dir="",
+            model_path="",
+            data_csv_path="",
+        ),
     )
 
 

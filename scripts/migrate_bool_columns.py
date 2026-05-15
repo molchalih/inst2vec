@@ -18,7 +18,7 @@ BOOL_COLUMNS: list[tuple[str, str]] = [
     ("users", "user_disqualified"),
     ("clips", "has_music"),
     ("clips", "is_music_recognized"),
-    ("clips", "has_speech"),
+    ("clips", "is_speech_detected"),
     ("clips", "disqualified"),
     ("cluster_runs", "disqualified"),
     ("cluster_runs", "in_current_grid"),
