@@ -117,6 +117,7 @@ class Clip(Base):
     speech_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     speech_avg_logprob: Mapped[float | None] = mapped_column(Float, nullable=True)
     speech_compression_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
+    is_speech_detected: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     has_speech: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     speech_translation: Mapped[str | None] = mapped_column(Text)
     is_garbage: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
