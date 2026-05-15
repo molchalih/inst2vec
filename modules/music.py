@@ -15,8 +15,7 @@ import httpx
 from acrcloud.recognizer import ACRCloudRecognizer
 
 from modules.console import log, progress
-from modules.database import Clip, Music, get_session
-from modules.eligibility import is_eligible
+from modules.database import Clip, Music, clip_used_in_analysis, get_session
 from modules.services import ReccoBeatsClient, SpotifyClient
 
 FEATURE_FIELDS = [
@@ -80,7 +79,7 @@ def _pick_video(session, music_id: int, video_dir: str) -> Path | None:
         session.query(Clip.id)
         .filter(
             Clip.music_id == music_id,
-            is_eligible(Clip.eligibility),
+            *clip_used_in_analysis(),
         )
         .order_by(Clip.play_count.desc(), Clip.id.desc())
     ):
@@ -161,7 +160,7 @@ def classify_music(
         session.query(Clip)
         .filter(
             Clip.has_music.is_(None),
-            is_eligible(Clip.eligibility),
+            *clip_used_in_analysis(),
         )
         .order_by(Clip.id.desc())
         .all()
@@ -345,7 +344,7 @@ def extract_music_features(
             session.query(Music)
             .join(Clip, Clip.music_id == Music.id)
             .filter(
-                is_eligible(Clip.eligibility),
+                *clip_used_in_analysis(),
                 (Music.reccobeats_id.is_(None)) | (Music.reccobeats_id == _NO_MATCH),
                 (Music.has_features.is_(None)) | (Music.has_features != "yes"),
             )
