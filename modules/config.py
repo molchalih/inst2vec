@@ -9,11 +9,6 @@ from pydantic import BaseModel
 _CONFIG_PATH = Path(__file__).parent.parent / "config.toml"
 
 
-class PipelineSettings(BaseModel):
-    batch_size: int
-    max_clips: int
-
-
 class PathsSettings(BaseModel):
     video_dir: str
     plots_dir: str
@@ -30,6 +25,8 @@ class ParseSettings(BaseModel):
 class DownloadSettings(BaseModel):
     max_attempts: int
     retry_delay: int
+    retry_jitter: int
+    concurrency: int
 
 
 class FilterSettings(BaseModel):
@@ -117,7 +114,6 @@ class OverridesSettings(BaseModel):
 
 
 class Settings(BaseModel):
-    pipeline: PipelineSettings
     paths: PathsSettings
     parse: ParseSettings
     download: DownloadSettings
@@ -148,7 +144,6 @@ def load_runtime_config() -> tuple[Settings, Secrets]:
         raw = tomllib.load(f)
 
     settings = Settings(
-        pipeline=PipelineSettings(**raw["pipeline"]),
         paths=PathsSettings(**raw["paths"]),
         parse=ParseSettings(**raw["parse"]),
         download=DownloadSettings(**raw["download"]),

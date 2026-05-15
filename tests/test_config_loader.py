@@ -8,10 +8,6 @@ import pytest
 from modules.config import Secrets, Settings
 
 MINIMAL_TOML = b"""
-[pipeline]
-batch_size = 9999
-max_clips = 5
-
 [paths]
 video_dir = "data/source/videos"
 plots_dir = "data/plots"
@@ -25,7 +21,9 @@ fetch_retry_delays_sec = [0, 30, 60, 90]
 
 [download]
 max_attempts = 3
-retry_delay = 2
+retry_delay = 15
+retry_jitter = 5
+concurrency = 5
 
 [filter]
 min_video_duration = 3
@@ -131,7 +129,6 @@ def test_returns_two_objects(tmp_path):
 def test_settings_sections_present(tmp_path):
     settings, _ = _load_with_fake_toml(tmp_path)
     for section in (
-        "pipeline",
         "paths",
         "parse",
         "download",
@@ -149,8 +146,10 @@ def test_settings_sections_present(tmp_path):
 
 def test_settings_values_correct(tmp_path):
     settings, _ = _load_with_fake_toml(tmp_path)
-    assert settings.pipeline.batch_size == 9999
-    assert settings.pipeline.max_clips == 5
+    assert settings.download.max_attempts == 3
+    assert settings.download.retry_delay == 15
+    assert settings.download.retry_jitter == 5
+    assert settings.download.concurrency == 5
     assert settings.music.commit_every == 50
     assert settings.filter.creator_low_z_threshold == -3.5
     assert settings.parse.fetch_retry_delays_sec == [0, 30, 60, 90]
@@ -184,3 +183,16 @@ def test_missing_secret_raises(tmp_path):
         pytest.raises(KeyError),
     ):
         config_mod.load_runtime_config()
+
+
+def test_download_settings_has_concurrency_and_jitter(tmp_path):
+    settings, _ = _load_with_fake_toml(tmp_path)
+    assert isinstance(settings.download.concurrency, int)
+    assert isinstance(settings.download.retry_jitter, int)
+    assert settings.download.concurrency >= 1
+
+
+def test_settings_has_no_pipeline_field():
+    from modules.config import Settings
+
+    assert "pipeline" not in Settings.model_fields
