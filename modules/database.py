@@ -111,7 +111,7 @@ class Clip(Base):
         Integer, ForeignKey("music.id"), nullable=True
     )
     music_confidence: Mapped[float | None] = mapped_column(Float)
-    has_music: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    is_music_recognized: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     speech_transcription: Mapped[str | None] = mapped_column(Text)
     speech_language: Mapped[str | None] = mapped_column(String, nullable=True)
     speech_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -153,8 +153,9 @@ class Music(Base):
     track: Mapped[str] = mapped_column(String, nullable=False, default="")
     spotify_id: Mapped[str | None] = mapped_column(String, nullable=True)
     reccobeats_id: Mapped[str | None] = mapped_column(String, nullable=True)
-    has_features: Mapped[str | None] = mapped_column(String, nullable=True)
-    is_audio_features_extracted: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    is_audio_features_extracted: Mapped[bool | None] = mapped_column(
+        Boolean, nullable=True
+    )
     acousticness: Mapped[float | None] = mapped_column(Float, nullable=True)
     danceability: Mapped[float | None] = mapped_column(Float, nullable=True)
     energy: Mapped[float | None] = mapped_column(Float, nullable=True)

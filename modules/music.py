@@ -150,8 +150,8 @@ def classify_music(
 ) -> None:
     """Fingerprint all unresolved clips with ACRCloud and link them to Music rows.
 
-    Sets has_music=True (match found) or has_music=False (no match). Clips with missing
-    video files are skipped and retried on the next run.
+    Sets is_music_recognized=True (match found) or False (no match). Clips with
+    missing video files are skipped and retried on the next run.
     """
     session = get_session()
     video_dir_path = Path(video_dir)
@@ -159,7 +159,7 @@ def classify_music(
     clips = (
         session.query(Clip)
         .filter(
-            Clip.has_music.is_(None),
+            Clip.is_music_recognized.is_(None),
             *clip_used_in_analysis(),
         )
         .order_by(Clip.id.desc())
@@ -196,11 +196,11 @@ def classify_music(
                 music = _get_or_create_music(session, artist, track)
                 clip.music_id = music.id
                 clip.music_confidence = confidence
-                clip.has_music = True
+                clip.is_music_recognized = True
                 matched += 1
                 advance(detail=f"{clip.id}: {artist} – {track} ({confidence:.0%})")
             else:
-                clip.has_music = False
+                clip.is_music_recognized = False
                 no_match += 1
                 advance()
 
@@ -314,7 +314,7 @@ def extract_music_features(
             .filter(
                 Music.reccobeats_id.is_not(None),
                 Music.reccobeats_id != _NO_MATCH,
-                Music.has_features.is_(None),
+                Music.is_audio_features_extracted.is_(None),
             )
             .all()
         )
@@ -334,7 +334,7 @@ def extract_music_features(
                         if f in feats:
                             setattr(row, f, feats[f])
                     if all(getattr(row, f) is not None for f in FEATURE_FIELDS):
-                        row.has_features = "yes"
+                        row.is_audio_features_extracted = True
                         enriched += 1
             session.commit()
             log(SCOPE_FEATURES, f"catalog features: done — {enriched} enriched")
@@ -346,7 +346,8 @@ def extract_music_features(
             .filter(
                 *clip_used_in_analysis(),
                 (Music.reccobeats_id.is_(None)) | (Music.reccobeats_id == _NO_MATCH),
-                (Music.has_features.is_(None)) | (Music.has_features != "yes"),
+                (Music.is_audio_features_extracted.is_(None))
+                | (Music.is_audio_features_extracted.is_(False)),
             )
             .distinct()
             .order_by(Music.id)
@@ -363,7 +364,7 @@ def extract_music_features(
                 for i, row in enumerate(rows, 1):
                     video = _pick_video(session, row.id, video_dir)
                     if not video:
-                        row.has_features = "none"
+                        row.is_audio_features_extracted = False
                         advance(detail=f"{row.artist} – {row.track} (no video)")
                         continue
 
@@ -377,7 +378,7 @@ def extract_music_features(
                             manual_features_mp3_bitrate,
                         )
                         if not audio:
-                            row.has_features = "none"
+                            row.is_audio_features_extracted = False
                             advance(
                                 detail=f"{row.artist} – {row.track} (audio extract failed)"
                             )
@@ -388,11 +389,11 @@ def extract_music_features(
                         for f in UPLOAD_FIELDS:
                             if f in feats:
                                 setattr(row, f, feats[f])
-                        row.has_features = "yes"
+                        row.is_audio_features_extracted = True
                         enriched += 1
                         advance(detail=f"{row.artist} – {row.track} (ok)")
                     else:
-                        row.has_features = "none"
+                        row.is_audio_features_extracted = False
                         advance(detail=f"{row.artist} – {row.track} (no features)")
 
                     if i % commit_every == 0:

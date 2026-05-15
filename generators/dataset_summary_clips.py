@@ -12,13 +12,6 @@ from modules.database import Clip, clip_used_in_analysis
 __all__ = ("clips_summary_to_markdown",)
 
 
-def _music_flag_column():
-    """Return whichever flag column exists in the current Clip model."""
-    if hasattr(Clip, "is_music_recognized"):
-        return Clip.is_music_recognized
-    return Clip.has_music
-
-
 TABLE_ROWS: tuple[tuple[str, str], ...] = (
     (r"$N$", "total_clips"),
     (r"$N_{\mathrm{kept}}$", "kept_clips"),
@@ -109,7 +102,7 @@ def _summary_cells(session: Session) -> dict[str, str]:
     speech_translation_counts = _count_non_empty(
         session, Clip.speech_translation, *KEPT_CLIP_FILTER
     )
-    music_counts = _count(session, _music_flag_column(), *KEPT_CLIP_FILTER)
+    music_counts = _count(session, Clip.is_music_recognized, *KEPT_CLIP_FILTER)
     play_counts = _numeric_values(session, Clip.play_count, *KEPT_CLIP_FILTER)
     return {
         "total_clips": f"{total_clips:,}",

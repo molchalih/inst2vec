@@ -48,19 +48,24 @@ def section_health(session):
 
     # Music phase
     n_music_resolved = (
-        session.query(func.count(Clip.id)).filter(Clip.has_music.is_not(None)).scalar()
+        session.query(func.count(Clip.id))
+        .filter(Clip.is_music_recognized.is_not(None))
+        .scalar()
     )
     n_has_music = (
-        session.query(func.count(Clip.id)).filter(Clip.has_music == 1).scalar()
+        session.query(func.count(Clip.id))
+        .filter(Clip.is_music_recognized.is_(True))
+        .scalar()
     )
-    n_no_music = session.query(func.count(Clip.id)).filter(Clip.has_music == 0).scalar()
+    n_no_music = (
+        session.query(func.count(Clip.id))
+        .filter(Clip.is_music_recognized.is_(False))
+        .scalar()
+    )
     n_music_features = (
         session.query(func.count(Clip.id))
         .join(Music, Clip.music_id == Music.id)
-        .filter(
-            (Music.is_audio_features_extracted.is_(True))
-            | (Music.has_features == "yes")
-        )
+        .filter(Music.is_audio_features_extracted.is_(True))
         .scalar()
     )
     print(
@@ -210,8 +215,16 @@ def section_captions(session):
 
 def section_music(session):
     _header("MUSIC", "-")
-    n_with = session.query(func.count(Clip.id)).filter(Clip.has_music == 1).scalar()
-    n_without = session.query(func.count(Clip.id)).filter(Clip.has_music == 0).scalar()
+    n_with = (
+        session.query(func.count(Clip.id))
+        .filter(Clip.is_music_recognized.is_(True))
+        .scalar()
+    )
+    n_without = (
+        session.query(func.count(Clip.id))
+        .filter(Clip.is_music_recognized.is_(False))
+        .scalar()
+    )
     total_resolved = n_with + n_without
     print(
         f"\nWith music: {n_with:,} / {total_resolved:,} ({_pct(n_with, total_resolved)})"
@@ -242,10 +255,7 @@ def section_music(session):
             Music.acousticness,
         )
         .join(Clip, Clip.music_id == Music.id)
-        .filter(
-            (Music.is_audio_features_extracted.is_(True))
-            | (Music.has_features == "yes")
-        )
+        .filter(Music.is_audio_features_extracted.is_(True))
         .all()
     )
     feature_names = ["tempo", "valence", "danceability", "energy", "acousticness"]
