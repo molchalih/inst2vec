@@ -136,8 +136,12 @@ def section_health(session):
         f"  translated:       {n_translated:>8,}  ({_pct(n_translated, n_non_en)} of non-English)"
     )
 
-    # Downloads (removed — using is_downloaded column in Clip instead)
-    print("\nVideo download failures: tracking via Clip.is_downloaded")
+    n_video_fail = (
+        session.query(func.count(Clip.id))
+        .filter(Clip.is_selected.is_(True), Clip.is_downloaded.is_(False))
+        .scalar()
+    )
+    print(f"\nVideo download failures: {n_video_fail:>5,}")
 
 
 def section_engagement(session):
