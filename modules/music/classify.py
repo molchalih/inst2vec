@@ -5,14 +5,23 @@ from __future__ import annotations
 import json
 import random
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 from acrcloud.recognizer import ACRCloudRecognizer
 
+from modules.config import MusicSettings, PathsSettings
 from modules.console import log, progress
 from modules.database import Clip, Music, clip_used_in_analysis, get_session
 from modules.music.state import SCOPE_CLASSIFY
 from modules.services import TransientError
+
+
+@dataclass(frozen=True)
+class AcrSecrets:
+    host: str
+    access_key: str
+    access_secret: str
 
 
 def _fingerprint(
@@ -80,20 +89,16 @@ def _get_or_create_music(session, artist: str, track: str) -> Music:
 
 
 def classify_music(
-    video_dir: str,
-    min_confidence: float,
-    commit_every: int,
-    arc_host: str,
-    arc_access_key: str,
-    arc_secret_key: str,
+    music: MusicSettings,
+    paths: PathsSettings,
+    secrets: AcrSecrets,
 ) -> None:
-    """Fingerprint all unresolved clips with ACRCloud and link them to Music rows.
+    """Fingerprint unresolved clips with ACR; link them to Music rows.
 
-    Sets is_music_recognized=True (match found) or False (no match). Clips with
-    missing video files are skipped and retried on the next run.
+    Sets is_music_recognized=True (match) or False (clean no-match / terminal-failed).
     """
     session = get_session()
-    video_dir_path = Path(video_dir)
+    video_dir_path = Path(paths.video_dir)
 
     clips = (
         session.query(Clip)
@@ -110,9 +115,9 @@ def classify_music(
 
     acr = ACRCloudRecognizer(
         {
-            "host": arc_host,
-            "access_key": arc_access_key,
-            "access_secret": arc_secret_key,
+            "host": secrets.host,
+            "access_key": secrets.access_key,
+            "access_secret": secrets.access_secret,
             "timeout": 10,
         }
     )
@@ -130,18 +135,26 @@ def classify_music(
             clip.music_id = None
             clip.music_confidence = None
             try:
-                result = _fingerprint(acr, str(path), min_confidence)
+                result = _fingerprint(
+                    acr,
+                    str(path),
+                    music.audio_fingerprint_confidence,
+                    max_attempts=music.acr_max_attempts,
+                    retry_delay=music.api_retry_delay,
+                    retry_jitter=music.api_retry_jitter,
+                )
             except TransientError:
                 clip.is_music_recognized = False
                 no_match += 1
                 advance(detail=f"{clip.id}: ACR transient (terminal-marked)")
-                if i % commit_every == 0:
+                if i % music.commit_every == 0:
                     session.commit()
                 continue
+
             if result:
                 artist, track, confidence = result
-                music = _get_or_create_music(session, artist, track)
-                clip.music_id = music.id
+                music_row = _get_or_create_music(session, artist, track)
+                clip.music_id = music_row.id
                 clip.music_confidence = confidence
                 clip.is_music_recognized = True
                 matched += 1
@@ -151,7 +164,7 @@ def classify_music(
                 no_match += 1
                 advance()
 
-            if i % commit_every == 0:
+            if i % music.commit_every == 0:
                 session.commit()
 
     session.commit()

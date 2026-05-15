@@ -14,6 +14,7 @@ from modules.embeddings import (
 )
 from modules.filter import process_dataset
 from modules.music import classify_music, extract_music_features
+from modules.music.classify import AcrSecrets
 from modules.parse import fetch_profiles
 from modules.speech import classify_speech, clean_speech, translate_speech
 from modules.utils import load_usernames_from_csv
@@ -65,12 +66,13 @@ def run_pipeline() -> None:
     """
     phase("Music fingerprinting")
     classify_music(
-        video_dir=settings.paths.video_dir,
-        min_confidence=settings.music.audio_fingerprint_confidence,
-        commit_every=settings.music.commit_every,
-        arc_host=secrets.arc_host,
-        arc_access_key=secrets.arc_access_key,
-        arc_secret_key=secrets.arc_secret_key,
+        music=settings.music,
+        paths=settings.paths,
+        secrets=AcrSecrets(
+            host=secrets.arc_host,
+            access_key=secrets.arc_access_key,
+            access_secret=secrets.arc_secret_key,
+        ),
     )
     """
     4.2. MUSIC: extracts the music features (its textual representation).

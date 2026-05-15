@@ -5,14 +5,7 @@ from modules import music as music_mod
 
 def test_classify_music_accepts_params():
     sig = inspect.signature(music_mod.classify_music)
-    for name in (
-        "video_dir",
-        "min_confidence",
-        "commit_every",
-        "arc_host",
-        "arc_access_key",
-        "arc_secret_key",
-    ):
+    for name in ("music", "paths", "secrets"):
         assert name in sig.parameters, f"missing: {name}"
 
 
