@@ -7,12 +7,11 @@ by a dedicated submodule import in the following tasks.
 
 from __future__ import annotations
 
-from lingua import LanguageDetectorBuilder
 from sqlalchemy import func
 
 from modules.captions.clean import clean_captions
+from modules.captions.detect import detect_caption_language
 from modules.captions.state import (
-    SCOPE_DETECT,
     SCOPE_TRANSLATE,
 )
 from modules.console import log, progress
@@ -24,53 +23,6 @@ __all__ = [
     "detect_caption_language",
     "translate_captions",
 ]
-
-
-def detect_caption_language() -> None:
-    """LEGACY: detect language on caption_text. Replaced in Task 6."""
-    session = get_session()
-    clips = (
-        session.query(Clip)
-        .filter(
-            *clip_used_in_analysis(),
-            Clip.caption_text.is_not(None),
-            Clip.caption_text != "",
-            (Clip.caption_language.is_(None)) | (Clip.caption_language == ""),
-        )
-        .order_by(Clip.id)
-        .all()
-    )
-    if not clips:
-        session.close()
-        return
-
-    total = len(clips)
-    log(SCOPE_DETECT, f"{total} captions to detect")
-    detector = LanguageDetectorBuilder.from_all_languages().build()
-    detected = 0
-    commit_every = 50
-
-    with progress(total, "Detecting languages") as advance:
-        for i, clip in enumerate(clips, 1):
-            text = (clip.caption_text or "").strip()
-            if not text:
-                advance()
-                continue
-            lang = detector.detect_language_of(text)
-            iso = getattr(lang, "iso_code_639_1", None) if lang else None
-            if iso is None:
-                advance()
-                continue
-            clip.caption_language = iso.name.lower()
-            detected += 1
-            advance(detail=f"{clip.id}: {clip.caption_language}")
-
-            if i % commit_every == 0:
-                session.commit()
-
-    session.commit()
-    session.close()
-    log(SCOPE_DETECT, f"done — {detected}/{total} detected", level="ok")
 
 
 def translate_captions(
