@@ -1,4 +1,4 @@
-from modules.captions import clean_captions, detect_caption_language, translate_captions
+from modules.captions import process_captions
 from modules.cluster_search import run_cluster_search
 from modules.cluster_validation import validate_clustering
 from modules.clustering import cluster_users
@@ -125,15 +125,7 @@ def run_pipeline() -> None:
     6. CAPTIONS: translates applicable captions.
     """
     phase("Captions translation")
-    clean_captions(commit_every=settings.captions.commit_every)
-    detect_caption_language()
-    translate_captions(
-        commit_every=settings.captions.commit_every,
-        translate_model=settings.captions.translate_model,
-        translate_target_lang=settings.captions.translate_target_lang,
-        translation_max_chars=settings.captions.translation_max_chars,
-        translate_max_new_tokens=settings.captions.translate_max_new_tokens,
-    )
+    process_captions(settings.captions)
 
     """
     8. EMBEDDINGS: embeds the features into a vector space (various modalities).

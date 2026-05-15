@@ -130,13 +130,7 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
     )
     monkeypatch.setattr(main, "clean_speech", lambda: calls.append("speech:clean"))
     monkeypatch.setattr(
-        main, "clean_captions", lambda **kwargs: calls.append("captions:clean")
-    )
-    monkeypatch.setattr(
-        main, "detect_caption_language", lambda: calls.append("captions:detect")
-    )
-    monkeypatch.setattr(
-        main, "translate_captions", lambda **kwargs: calls.append("captions:translate")
+        main, "process_captions", lambda *args, **kwargs: calls.append("captions:process")
     )
     monkeypatch.setattr(
         main, "embed_video_clips", lambda **kwargs: calls.append("embed:video")
