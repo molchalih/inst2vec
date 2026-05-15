@@ -119,9 +119,6 @@ class Clip(Base):
     speech_compression_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
     has_speech: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     speech_translation: Mapped[str | None] = mapped_column(Text)
-    eligibility: Mapped[int] = mapped_column(
-        Integer, nullable=False, server_default=text("0")
-    )
     is_garbage: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     is_too_short: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     is_too_long: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
@@ -179,15 +176,6 @@ class Music(Base):
     )
 
     clips: Mapped[list["Clip"]] = relationship("Clip", back_populates="music")  # type: ignore[assignment]
-
-
-class Download(Base):
-    __tablename__ = "downloads"
-
-    entity_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    file_type: Mapped[str] = mapped_column(String, primary_key=True)
-    success: Mapped[bool | None] = mapped_column(Boolean)
-    parse_available: Mapped[bool | None] = mapped_column(Boolean, default=True)
 
 
 class ClipEmbedding(Base):

@@ -80,3 +80,15 @@ def test_clip_used_in_analysis_returns_two_clauses():
     rendered = " | ".join(str(c) for c in clauses)
     assert "is_selected" in rendered
     assert "is_downloaded" in rendered
+
+
+def test_clip_no_longer_has_eligibility_column():
+    from modules.database import Clip
+
+    assert "eligibility" not in Clip.__table__.columns
+
+
+def test_download_model_removed():
+    import modules.database as db
+
+    assert not hasattr(db, "Download")

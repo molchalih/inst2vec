@@ -13,7 +13,7 @@ load_dotenv()
 
 from sqlalchemy import func  # noqa: E402
 
-from modules.database import Clip, Download, Music, User, get_session  # noqa: E402
+from modules.database import Clip, Music, User, get_session  # noqa: E402
 
 
 def _pct(n, total):
@@ -136,13 +136,8 @@ def section_health(session):
         f"  translated:       {n_translated:>8,}  ({_pct(n_translated, n_non_en)} of non-English)"
     )
 
-    # Downloads
-    n_video_fail = (
-        session.query(func.count(Download.entity_id))
-        .filter(Download.file_type == "video", ~Download.success)
-        .scalar()
-    )
-    print(f"\nVideo download failures: {n_video_fail:>5,}")
+    # Downloads (removed — using is_downloaded column in Clip instead)
+    print("\nVideo download failures: tracking via Clip.is_downloaded")
 
 
 def section_engagement(session):
