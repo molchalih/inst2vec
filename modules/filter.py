@@ -193,6 +193,11 @@ def _derive_eligibility(session: Session) -> None:
         )
 
 
+def _derive_user_eligibility(session: Session) -> None:
+    for user in session.query(User).all():
+        user.is_eligible = not _has_any_flag(user, USER_EXCLUSION_FLAGS)
+
+
 def select_clips(session: Session, cfg: FilterSettings) -> None:
     for clip in session.query(Clip).all():
         clip.is_selected = False
@@ -302,6 +307,7 @@ def _reset_dataset_processing_state(session: Session) -> None:
         user.is_low_plays_median = None
         user.is_not_enough_clips = None
         user.is_selected = None
+        user.is_eligible = None
     session.query(UserStats).delete()
 
 
@@ -318,6 +324,7 @@ def _soft_preprocess(session: Session, cfg: FilterSettings) -> None:
     _compute_creator_robust_stats(session, cfg)
     _flag_users_without_enough_clips(session, cfg)
     _derive_eligibility(session)
+    _derive_user_eligibility(session)
 
 
 def _random_sample(session: Session, cfg: FilterSettings) -> None:

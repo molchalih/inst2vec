@@ -1588,3 +1588,55 @@ def test_reset_dataset_processing_state_clears_all_derived_fields():
             assert u.is_not_enough_clips is None
             assert u.is_selected is None
         assert s.query(UserStats).count() == 0
+
+
+def test_derive_user_eligibility_sets_true_when_no_flags():
+    from modules.filter import _derive_user_eligibility
+
+    eng = _make_db()
+    with Session(eng) as s:
+        s.add(User(id=1, is_low_plays_median=False, is_not_enough_clips=False))
+        s.commit()
+        _derive_user_eligibility(s)
+        s.commit()
+        user = s.get(User, 1)
+        assert user.is_eligible is True
+
+
+def test_derive_user_eligibility_sets_false_when_low_median():
+    from modules.filter import _derive_user_eligibility
+
+    eng = _make_db()
+    with Session(eng) as s:
+        s.add(User(id=1, is_low_plays_median=True))
+        s.commit()
+        _derive_user_eligibility(s)
+        s.commit()
+        user = s.get(User, 1)
+        assert user.is_eligible is False
+
+
+def test_derive_user_eligibility_sets_false_when_not_enough_clips():
+    from modules.filter import _derive_user_eligibility
+
+    eng = _make_db()
+    with Session(eng) as s:
+        s.add(User(id=1, is_not_enough_clips=True))
+        s.commit()
+        _derive_user_eligibility(s)
+        s.commit()
+        user = s.get(User, 1)
+        assert user.is_eligible is False
+
+
+def test_reset_clears_user_is_eligible():
+    from modules.filter import _reset_dataset_processing_state
+
+    eng = _make_db()
+    with Session(eng) as s:
+        s.add(User(id=1, is_eligible=True))
+        s.commit()
+        _reset_dataset_processing_state(s)
+        s.commit()
+        user = s.get(User, 1)
+        assert user.is_eligible is None
