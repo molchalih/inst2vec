@@ -2,7 +2,7 @@
 
 Single-pass call to public ``classify_speech``. Identical decision logic to
 the pipeline run, but operator-controlled (no aggressive retry loop, no
-duplicated Whisper logic).
+duplicated Whisper / VAD logic).
 
 Usage:
     uv run python scripts/retry_failed_speech_detection.py
@@ -20,18 +20,20 @@ from modules.database import (
     get_session,
     init_db,
 )
-from modules.speech import classify_speech
+from modules.speech import VadConfig, classify_speech
 
 SCOPE = "retry-speech"
 
 
 def retry_failed_speech_detection(
     video_dir: str,
+    speech_audio_dir: str,
     whisper_model: str,
     commit_every: int,
     logprob_threshold: float,
     compression_threshold: float,
     min_meaningful_chars: int,
+    vad_config: VadConfig,
 ) -> None:
     session = get_session()
     try:
@@ -46,11 +48,13 @@ def retry_failed_speech_detection(
     log(SCOPE, f"retrying {unresolved} unresolved clips")
     classify_speech(
         video_dir=video_dir,
+        speech_audio_dir=speech_audio_dir,
         whisper_model=whisper_model,
         commit_every=commit_every,
         logprob_threshold=logprob_threshold,
         compression_threshold=compression_threshold,
         min_meaningful_chars=min_meaningful_chars,
+        vad_config=vad_config,
     )
 
 
@@ -58,11 +62,22 @@ if __name__ == "__main__":
     settings, secrets = load_runtime_config()
     init_db(secrets.database_url, secrets.identity_db_url)
     os.makedirs(settings.paths.video_dir, exist_ok=True)
+    os.makedirs(settings.paths.speech_audio_dir, exist_ok=True)
     retry_failed_speech_detection(
         video_dir=settings.paths.video_dir,
+        speech_audio_dir=settings.paths.speech_audio_dir,
         whisper_model=settings.speech.whisper_model,
         commit_every=settings.speech.commit_every,
         logprob_threshold=settings.speech.logprob_threshold,
         compression_threshold=settings.speech.compression_threshold,
         min_meaningful_chars=settings.speech.min_meaningful_chars,
+        vad_config=VadConfig(
+            enabled=settings.speech.vad_enabled,
+            sampling_rate=settings.speech.vad_sampling_rate,
+            threshold=settings.speech.vad_threshold,
+            min_speech_ms=settings.speech.vad_min_speech_ms,
+            min_silence_ms=settings.speech.vad_min_silence_ms,
+            speech_pad_ms=settings.speech.vad_speech_pad_ms,
+            min_total_speech_s=settings.speech.vad_min_total_speech_s,
+        ),
     )

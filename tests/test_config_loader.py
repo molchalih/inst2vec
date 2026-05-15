@@ -14,6 +14,7 @@ plots_dir = "data/plots"
 model_path = "./models/Qwen3-VL-Embedding-8B"
 profile_pic_dir = "data/source/profile_pics"
 thumbnail_dir = "data/source/thumbnails"
+speech_audio_dir = "data/source/audio"
 data_csv_path = "data/data.csv"
 
 [parse]
@@ -68,6 +69,13 @@ translate_max_new_tokens = 200
 logprob_threshold = -0.8
 compression_threshold = 2.4
 min_meaningful_chars = 8
+vad_enabled = true
+vad_sampling_rate = 16000
+vad_threshold = 0.5
+vad_min_speech_ms = 250
+vad_min_silence_ms = 100
+vad_speech_pad_ms = 150
+vad_min_total_speech_s = 0.5
 
 [captions]
 commit_every = 50
@@ -201,3 +209,15 @@ def test_settings_has_no_pipeline_field():
     from modules.config import Settings
 
     assert "pipeline" not in Settings.model_fields
+
+
+def test_speech_settings_has_vad_fields(tmp_path):
+    settings, _ = _load_with_fake_toml(tmp_path)
+    assert settings.paths.speech_audio_dir == "data/source/audio"
+    assert settings.speech.vad_enabled is True
+    assert settings.speech.vad_sampling_rate == 16000
+    assert settings.speech.vad_threshold == 0.5
+    assert settings.speech.vad_min_speech_ms == 250
+    assert settings.speech.vad_min_silence_ms == 100
+    assert settings.speech.vad_speech_pad_ms == 150
+    assert settings.speech.vad_min_total_speech_s == 0.5

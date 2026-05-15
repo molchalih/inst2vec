@@ -17,7 +17,7 @@ from modules.music import classify_music, extract_music_features
 from modules.music.classify import AcrSecrets
 from modules.music.features import MusicSecrets
 from modules.parse import fetch_profiles
-from modules.speech import classify_speech, clean_speech, translate_speech
+from modules.speech import VadConfig, classify_speech, clean_speech, translate_speech
 from modules.utils import load_usernames_from_csv
 from modules.visualization import plot_clusters
 
@@ -96,11 +96,21 @@ def run_pipeline() -> None:
     phase("Speech transcription")
     classify_speech(
         video_dir=settings.paths.video_dir,
+        speech_audio_dir=settings.paths.speech_audio_dir,
         whisper_model=settings.speech.whisper_model,
         commit_every=settings.speech.commit_every,
         logprob_threshold=settings.speech.logprob_threshold,
         compression_threshold=settings.speech.compression_threshold,
         min_meaningful_chars=settings.speech.min_meaningful_chars,
+        vad_config=VadConfig(
+            enabled=settings.speech.vad_enabled,
+            sampling_rate=settings.speech.vad_sampling_rate,
+            threshold=settings.speech.vad_threshold,
+            min_speech_ms=settings.speech.vad_min_speech_ms,
+            min_silence_ms=settings.speech.vad_min_silence_ms,
+            speech_pad_ms=settings.speech.vad_speech_pad_ms,
+            min_total_speech_s=settings.speech.vad_min_total_speech_s,
+        ),
     )
     translate_speech(
         commit_every=settings.speech.commit_every,

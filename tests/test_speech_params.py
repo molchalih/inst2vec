@@ -7,11 +7,13 @@ def test_classify_speech_accepts_params():
     sig = inspect.signature(speech_mod.classify_speech)
     for name in (
         "video_dir",
+        "speech_audio_dir",
         "whisper_model",
         "commit_every",
         "logprob_threshold",
         "compression_threshold",
         "min_meaningful_chars",
+        "vad_config",
     ):
         assert name in sig.parameters, f"missing: {name}"
 
