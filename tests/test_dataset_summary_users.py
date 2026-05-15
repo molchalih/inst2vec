@@ -8,10 +8,6 @@ from sqlalchemy.orm import Session
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from modules.database import Base, Clip, User
-from modules.eligibility import Eligibility, eligibility_db
-
-_ELIGIBLE = eligibility_db(Eligibility.ELIGIBLE)
-_DISQUALIFIED = eligibility_db(Eligibility.DISQUALIFIED)
 
 
 def _make_engine():
@@ -26,10 +22,17 @@ def _add_clip(
     user_id: int,
     id: int,
     play_count: int | None,
-    eligibility: int,
+    is_selected: bool,
+    is_downloaded: bool | None = None,
 ):
     session.add(
-        Clip(user_id=user_id, id=id, play_count=play_count, eligibility=eligibility)
+        Clip(
+            user_id=user_id,
+            id=id,
+            play_count=play_count,
+            is_selected=is_selected,
+            is_downloaded=is_downloaded,
+        )
     )
 
 
@@ -60,13 +63,27 @@ def test_users_summary_to_markdown_renders_curated_metrics():
                 ),
             ]
         )
-        _add_clip(s, user_id=1, id=100, play_count=10, eligibility=_ELIGIBLE)
-        _add_clip(s, user_id=1, id=101, play_count=20, eligibility=_ELIGIBLE)
-        _add_clip(s, user_id=1, id=102, play_count=None, eligibility=_ELIGIBLE)
-        _add_clip(s, user_id=2, id=200, play_count=40, eligibility=_ELIGIBLE)
-        _add_clip(s, user_id=3, id=300, play_count=None, eligibility=_DISQUALIFIED)
-        _add_clip(s, user_id=4, id=400, play_count=30, eligibility=_ELIGIBLE)
-        _add_clip(s, user_id=3, id=401, play_count=21, eligibility=_ELIGIBLE)
+        _add_clip(
+            s, user_id=1, id=100, play_count=10, is_selected=True, is_downloaded=True
+        )
+        _add_clip(
+            s, user_id=1, id=101, play_count=20, is_selected=True, is_downloaded=True
+        )
+        _add_clip(
+            s, user_id=1, id=102, play_count=None, is_selected=True, is_downloaded=True
+        )
+        _add_clip(
+            s, user_id=2, id=200, play_count=40, is_selected=True, is_downloaded=True
+        )
+        _add_clip(
+            s, user_id=3, id=300, play_count=None, is_selected=False, is_downloaded=None
+        )
+        _add_clip(
+            s, user_id=4, id=400, play_count=30, is_selected=True, is_downloaded=True
+        )
+        _add_clip(
+            s, user_id=3, id=401, play_count=21, is_selected=True, is_downloaded=True
+        )
         s.commit()
 
     from generators.dataset_summary_users import users_summary_to_markdown
@@ -105,9 +122,15 @@ def test_users_summary_to_markdown_scopes_users_to_kept_rows():
                 ),
             ]
         )
-        _add_clip(s, user_id=1, id=100, play_count=200, eligibility=_ELIGIBLE)
-        _add_clip(s, user_id=1, id=101, play_count=100, eligibility=_DISQUALIFIED)
-        _add_clip(s, user_id=3, id=300, play_count=50, eligibility=_ELIGIBLE)
+        _add_clip(
+            s, user_id=1, id=100, play_count=200, is_selected=True, is_downloaded=True
+        )
+        _add_clip(
+            s, user_id=1, id=101, play_count=100, is_selected=False, is_downloaded=None
+        )
+        _add_clip(
+            s, user_id=3, id=300, play_count=50, is_selected=True, is_downloaded=True
+        )
         s.commit()
 
     from generators.dataset_summary_users import users_summary_to_markdown

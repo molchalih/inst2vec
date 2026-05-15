@@ -7,8 +7,7 @@ from statistics import mean, median
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from modules.database import Clip
-from modules.eligibility import is_eligible
+from modules.database import Clip, clip_used_in_analysis
 
 __all__ = ("clips_summary_to_markdown",)
 
@@ -29,7 +28,7 @@ TABLE_ROWS: tuple[tuple[str, str], ...] = (
 )
 
 
-KEPT_CLIP_FILTER = is_eligible(Clip.eligibility)
+KEPT_CLIP_FILTER = clip_used_in_analysis()
 
 
 def _count(session: Session, *criteria) -> int:
@@ -90,18 +89,20 @@ def _fmt_min_max(values: list[int]) -> str:
 
 def _summary_cells(session: Session) -> dict[str, str]:
     total_clips = _count(session)
-    kept_clips = _count(session, KEPT_CLIP_FILTER)
+    kept_clips = _count(session, *KEPT_CLIP_FILTER)
 
-    caption_text_counts = _count_non_empty(session, Clip.caption_text, KEPT_CLIP_FILTER)
+    caption_text_counts = _count_non_empty(
+        session, Clip.caption_text, *KEPT_CLIP_FILTER
+    )
     caption_translation_counts = _count_non_empty(
-        session, Clip.caption_translation, KEPT_CLIP_FILTER
+        session, Clip.caption_translation, *KEPT_CLIP_FILTER
     )
-    speech_counts = _count(session, Clip.has_speech, KEPT_CLIP_FILTER)
+    speech_counts = _count(session, Clip.has_speech, *KEPT_CLIP_FILTER)
     speech_translation_counts = _count_non_empty(
-        session, Clip.speech_translation, KEPT_CLIP_FILTER
+        session, Clip.speech_translation, *KEPT_CLIP_FILTER
     )
-    music_counts = _count(session, Clip.has_music, KEPT_CLIP_FILTER)
-    play_counts = _numeric_values(session, Clip.play_count, KEPT_CLIP_FILTER)
+    music_counts = _count(session, Clip.has_music, *KEPT_CLIP_FILTER)
+    play_counts = _numeric_values(session, Clip.play_count, *KEPT_CLIP_FILTER)
     return {
         "total_clips": f"{total_clips:,}",
         "kept_clips": _fmt_count_share(kept_clips, total_clips),
