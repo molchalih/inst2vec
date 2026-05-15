@@ -11,10 +11,10 @@ from modules.database import (
     Music,
     User,
     UserEmbedding,
+    clip_used_in_analysis,
     get_engine,
     get_session,
 )
-from modules.eligibility import is_eligible
 from modules.external.qwen3_vl_embedding import Qwen3VLEmbedder
 
 _KEY_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
@@ -109,10 +109,10 @@ def _aggregate_user_embeddings(rows: list[tuple[bytes, int]]) -> dict[int, bytes
 
 
 def _eligible_clips(session, exclude_disqualified_users: bool):
-    clips_q = session.query(Clip).filter(is_eligible(Clip.eligibility))
+    clips_q = session.query(Clip).filter(*clip_used_in_analysis())
     if exclude_disqualified_users:
         clips_q = clips_q.join(User, Clip.user_id == User.id).filter(
-            is_eligible(User.eligibility),
+            User.is_eligible.is_(True),
         )
     return clips_q.all()
 

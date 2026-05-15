@@ -42,15 +42,11 @@ class User(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     following_count: Mapped[int | None] = mapped_column(Integer)
     follower_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    eligibility: Mapped[int] = mapped_column(
-        Integer, nullable=False, server_default=text("0")
-    )
     parse_status: Mapped[str | None] = mapped_column(String, nullable=True)
     is_low_plays_median: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     is_not_enough_clips: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    is_eligible: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     is_selected: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
-    log_plays_median: Mapped[float | None] = mapped_column(Float, nullable=True)
-    log_plays_mad: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     clips: Mapped[list["Clip"]] = relationship("Clip", back_populates="user")  # type: ignore[assignment]
     embeddings: Mapped[list["UserEmbedding"]] = relationship(  # type: ignore[assignment]
@@ -58,6 +54,38 @@ class User(Base):
     )
     clusters: Mapped[list["UserCluster"]] = relationship(  # type: ignore[assignment]
         "UserCluster", back_populates="user"
+    )
+
+
+class UserStats(Base):
+    __tablename__ = "user_stats"
+
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id"), primary_key=True
+    )
+    n_clips: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    median_plays: Mapped[float | None] = mapped_column(Float, nullable=True)
+    mean_plays: Mapped[float | None] = mapped_column(Float, nullable=True)
+    max_plays: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    min_plays: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    mean_log_plays: Mapped[float | None] = mapped_column(Float, nullable=True)
+    median_log_plays: Mapped[float | None] = mapped_column(Float, nullable=True)
+    log_plays_std: Mapped[float | None] = mapped_column(Float, nullable=True)
+    log_plays_mad: Mapped[float | None] = mapped_column(Float, nullable=True)
+    top_to_median_plays_ratio: Mapped[float | None] = mapped_column(
+        Float, nullable=True
+    )
+    share_of_plays_from_top_clip: Mapped[float | None] = mapped_column(
+        Float, nullable=True
+    )
+    median_video_duration: Mapped[float | None] = mapped_column(Float, nullable=True)
+    mean_video_duration: Mapped[float | None] = mapped_column(Float, nullable=True)
+    oldest_clip_taken_at: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    newest_clip_taken_at: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    clip_time_span_days: Mapped[float | None] = mapped_column(Float, nullable=True)
+    approx_clips_per_week: Mapped[float | None] = mapped_column(Float, nullable=True)
+    computed_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
 
@@ -83,7 +111,7 @@ class Clip(Base):
         Integer, ForeignKey("music.id"), nullable=True
     )
     music_confidence: Mapped[float | None] = mapped_column(Float)
-    has_music: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    is_music_recognized: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     speech_transcription: Mapped[str | None] = mapped_column(Text)
     speech_language: Mapped[str | None] = mapped_column(String, nullable=True)
     speech_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -91,9 +119,6 @@ class Clip(Base):
     speech_compression_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
     has_speech: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     speech_translation: Mapped[str | None] = mapped_column(Text)
-    eligibility: Mapped[int] = mapped_column(
-        Integer, nullable=False, server_default=text("0")
-    )
     is_garbage: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     is_too_short: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     is_too_long: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
@@ -105,8 +130,10 @@ class Clip(Base):
     creator_relative_robust_z: Mapped[float | None] = mapped_column(
         Float, nullable=True
     )
+    is_preprocessed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     is_eligible: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     is_selected: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    is_downloaded: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 
     user: Mapped["User"] = relationship("User", back_populates="clips")  # type: ignore[assignment]
     music: Mapped[Optional["Music"]] = relationship("Music", back_populates="clips")  # type: ignore[assignment]
@@ -126,7 +153,9 @@ class Music(Base):
     track: Mapped[str] = mapped_column(String, nullable=False, default="")
     spotify_id: Mapped[str | None] = mapped_column(String, nullable=True)
     reccobeats_id: Mapped[str | None] = mapped_column(String, nullable=True)
-    has_features: Mapped[str | None] = mapped_column(String, nullable=True)
+    is_audio_features_extracted: Mapped[bool | None] = mapped_column(
+        Boolean, nullable=True
+    )
     acousticness: Mapped[float | None] = mapped_column(Float, nullable=True)
     danceability: Mapped[float | None] = mapped_column(Float, nullable=True)
     energy: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -149,15 +178,6 @@ class Music(Base):
     )
 
     clips: Mapped[list["Clip"]] = relationship("Clip", back_populates="music")  # type: ignore[assignment]
-
-
-class Download(Base):
-    __tablename__ = "downloads"
-
-    entity_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    file_type: Mapped[str] = mapped_column(String, primary_key=True)
-    success: Mapped[bool | None] = mapped_column(Boolean)
-    parse_available: Mapped[bool | None] = mapped_column(Boolean, default=True)
 
 
 class ClipEmbedding(Base):
@@ -310,3 +330,14 @@ def init_db(database_url: str, identity_db_url: str) -> None:
 
 def get_session() -> Session:
     return Session(get_engine())
+
+
+def clip_used_in_analysis():
+    """Canonical filter: clips that should drive downstream computation.
+
+    Returns a tuple of clauses for `query.filter(*clip_used_in_analysis())`.
+    """
+    return (
+        Clip.is_selected.is_(True),
+        Clip.is_downloaded.is_(True),
+    )

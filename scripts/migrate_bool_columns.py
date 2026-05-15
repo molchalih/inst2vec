@@ -17,6 +17,7 @@ from sqlalchemy import create_engine, text
 BOOL_COLUMNS: list[tuple[str, str]] = [
     ("users", "user_disqualified"),
     ("clips", "has_music"),
+    ("clips", "is_music_recognized"),
     ("clips", "has_speech"),
     ("clips", "disqualified"),
     ("cluster_runs", "disqualified"),
@@ -27,6 +28,13 @@ BOOL_COLUMNS: list[tuple[str, str]] = [
 def _validate_sqlite(conn) -> None:
     print("SQLite detected — validating data integrity...")
     for table, col in BOOL_COLUMNS:
+        exists = conn.execute(
+            text("SELECT COUNT(*) FROM pragma_table_info(:tbl) WHERE name=:col"),
+            {"tbl": table, "col": col},
+        ).scalar()
+        if not exists:
+            print(f"  SKIP: {table}.{col} (column not present)")
+            continue
         bad = conn.execute(
             text(
                 f"SELECT COUNT(*) FROM {table} "
@@ -47,6 +55,16 @@ def _validate_sqlite(conn) -> None:
 def _migrate_postgres(conn) -> None:
     print("PostgreSQL detected — altering column types...")
     for table, col in BOOL_COLUMNS:
+        exists = conn.execute(
+            text(
+                "SELECT COUNT(*) FROM information_schema.columns "
+                "WHERE table_name=:tbl AND column_name=:col"
+            ),
+            {"tbl": table, "col": col},
+        ).scalar()
+        if not exists:
+            print(f"  SKIP: {table}.{col} (column not present)")
+            continue
         sql = (
             f"ALTER TABLE {table} ALTER COLUMN {col} "
             f"TYPE BOOLEAN USING ({col}::boolean)"

@@ -12,8 +12,10 @@ from modules.embeddings import (
     embed_user_clips,
     embed_video_clips,
 )
-from modules.filter import preprocess_new_data
+from modules.filter import process_dataset
 from modules.music import classify_music, extract_music_features
+from modules.music.classify import AcrSecrets
+from modules.music.features import MusicSecrets
 from modules.parse import fetch_profiles
 from modules.speech import classify_speech, clean_speech, translate_speech
 from modules.utils import load_usernames_from_csv
@@ -37,6 +39,8 @@ def run_pipeline() -> None:
 
     """
     1. PARSING: fetches profiles and corresponding clips metadata via hiker api, populates the database.
+    a) fetch_profiles: fetches profiles and corresponding clips metadata, populates the database.
+    b) fetch_clips: fetches clips metadata, populates the database.
     """
     phase("Profile Parsing")
     fetch_profiles(
@@ -44,57 +48,44 @@ def run_pipeline() -> None:
     )
 
     """
-    2. PREPROCESSING: runs the full filter pipeline before heavy operations.
+    2. PROCESSING: Filters low quality and unwanted clips, randomly selects appropriate ones. Generates statistics.
+    a) hard: flags low quality clips and those that don't meet the basic policy.
+    b) soft: flags clips that are outliers in the dataset.
+    c) random: randomly selects clips from the remaining pool.
     """
-    phase("Preprocessing")
-    preprocess_new_data(settings.filter)
+    phase("Processing Dataset")
+    process_dataset(settings.filter)
 
     """
     3. DOWNLOADING: downloads profile pics, videos and thumbnails of the filtered profiles.
     """
     phase("Download")
-    download_files(
-        batch_size=settings.pipeline.batch_size,
-        max_clips=settings.pipeline.max_clips,
-        max_attempts=settings.download.max_attempts,
-        retry_delay=settings.download.retry_delay,
-        profile_pic_dir=settings.paths.profile_pic_dir,
-        thumbnail_dir=settings.paths.thumbnail_dir,
-        video_dir=settings.paths.video_dir,
-    )
+    download_files(settings.download, settings.paths)
 
     """
     4.1 MUSIC: fingerprints the music in videos.
     """
     phase("Music fingerprinting")
     classify_music(
-        video_dir=settings.paths.video_dir,
-        min_confidence=settings.music.audio_fingerprint_confidence,
-        commit_every=settings.music.commit_every,
-        arc_host=secrets.arc_host,
-        arc_access_key=secrets.arc_access_key,
-        arc_secret_key=secrets.arc_secret_key,
+        music=settings.music,
+        paths=settings.paths,
+        secrets=AcrSecrets(
+            host=secrets.arc_host,
+            access_key=secrets.arc_access_key,
+            access_secret=secrets.arc_secret_key,
+        ),
     )
     """
     4.2. MUSIC: extracts the music features (its textual representation).
     """
     phase("Music feature extraction")
     extract_music_features(
-        video_dir=settings.paths.video_dir,
-        http_timeout=settings.music.http_timeout,
-        commit_every=settings.music.commit_every,
-        spotify_client_id=secrets.spotify_client_id,
-        spotify_client_secret=secrets.spotify_client_secret,
-        spotify_token_skew_seconds=settings.music.spotify_token_skew_seconds,
-        spotify_search_limit=settings.music.spotify_search_limit,
-        spotify_request_timeout=settings.music.spotify_request_timeout,
-        reccobeats_batch_size=settings.music.reccobeats_batch_size,
-        reccobeats_delay_min=settings.music.reccobeats_delay_min,
-        reccobeats_delay_max=settings.music.reccobeats_delay_max,
-        manual_features_max_seconds=settings.music.manual_features_max_seconds,
-        manual_features_sample_rate=settings.music.manual_features_sample_rate,
-        manual_features_max_mb=settings.music.manual_features_max_mb,
-        manual_features_mp3_bitrate=settings.music.manual_features_mp3_bitrate,
+        music=settings.music,
+        paths=settings.paths,
+        secrets=MusicSecrets(
+            spotify_client_id=secrets.spotify_client_id,
+            spotify_client_secret=secrets.spotify_client_secret,
+        ),
     )
 
     """

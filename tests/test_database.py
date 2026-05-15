@@ -64,3 +64,31 @@ def test_clip_has_taken_at_column():
     from modules.database import Clip
 
     assert hasattr(Clip, "taken_at")
+
+
+def test_clip_has_is_downloaded_column():
+    from modules.database import Clip
+
+    assert "is_downloaded" in Clip.__table__.columns
+
+
+def test_clip_used_in_analysis_returns_two_clauses():
+    from modules.database import clip_used_in_analysis
+
+    clauses = clip_used_in_analysis()
+    assert len(clauses) == 2
+    rendered = " | ".join(str(c) for c in clauses)
+    assert "is_selected" in rendered
+    assert "is_downloaded" in rendered
+
+
+def test_clip_no_longer_has_eligibility_column():
+    from modules.database import Clip
+
+    assert "eligibility" not in Clip.__table__.columns
+
+
+def test_download_model_removed():
+    import modules.database as db
+
+    assert not hasattr(db, "Download")

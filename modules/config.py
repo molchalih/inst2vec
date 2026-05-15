@@ -4,14 +4,9 @@ import os
 import tomllib
 from pathlib import Path
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 _CONFIG_PATH = Path(__file__).parent.parent / "config.toml"
-
-
-class PipelineSettings(BaseModel):
-    batch_size: int
-    max_clips: int
 
 
 class PathsSettings(BaseModel):
@@ -30,6 +25,8 @@ class ParseSettings(BaseModel):
 class DownloadSettings(BaseModel):
     max_attempts: int
     retry_delay: int
+    retry_jitter: int
+    concurrency: int
 
 
 class FilterSettings(BaseModel):
@@ -60,6 +57,20 @@ class MusicSettings(BaseModel):
     manual_features_sample_rate: int
     manual_features_max_mb: float
     manual_features_mp3_bitrate: str
+    api_max_attempts: int
+    api_retry_delay: float
+    api_retry_jitter: float
+    acr_max_attempts: int
+    ffmpeg_timeout_seconds: int
+
+    @field_validator(
+        "commit_every", "api_max_attempts", "acr_max_attempts", "ffmpeg_timeout_seconds"
+    )
+    @classmethod
+    def _positive(cls, v: int) -> int:
+        if v <= 0:
+            raise ValueError("must be > 0")
+        return v
 
 
 class SpeechSettings(BaseModel):
@@ -117,7 +128,6 @@ class OverridesSettings(BaseModel):
 
 
 class Settings(BaseModel):
-    pipeline: PipelineSettings
     paths: PathsSettings
     parse: ParseSettings
     download: DownloadSettings
@@ -148,7 +158,6 @@ def load_runtime_config() -> tuple[Settings, Secrets]:
         raw = tomllib.load(f)
 
     settings = Settings(
-        pipeline=PipelineSettings(**raw["pipeline"]),
         paths=PathsSettings(**raw["paths"]),
         parse=ParseSettings(**raw["parse"]),
         download=DownloadSettings(**raw["download"]),

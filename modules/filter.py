@@ -9,16 +9,24 @@ import numpy as np
 from sqlalchemy.orm import Session
 
 from modules.config import FilterSettings
-from modules.database import Clip, User
+from modules.database import Clip, User, UserStats
 
-CLIP_EXCLUSION_FLAGS: tuple[str, ...] = (
+HARD_CLIP_EXCLUSION_FLAGS: tuple[str, ...] = (
     "is_garbage",
     "is_too_short",
     "is_too_long",
     "is_too_old",
+)
+
+SOFT_CLIP_EXCLUSION_FLAGS: tuple[str, ...] = (
     "is_low_percentile",
     "is_high_percentile",
     "is_creator_low_outlier",
+)
+
+CLIP_EXCLUSION_FLAGS: tuple[str, ...] = (
+    *HARD_CLIP_EXCLUSION_FLAGS,
+    *SOFT_CLIP_EXCLUSION_FLAGS,
 )
 
 USER_EXCLUSION_FLAGS: tuple[str, ...] = (
@@ -27,20 +35,20 @@ USER_EXCLUSION_FLAGS: tuple[str, ...] = (
 )
 
 
-def _has_clip_exclusion(clip: Any) -> bool:
-    return any(getattr(clip, flag, None) is True for flag in CLIP_EXCLUSION_FLAGS)
+def _has_any_flag(obj: Any, flags: tuple[str, ...]) -> bool:
+    return any(getattr(obj, flag, None) is True for flag in flags)
 
 
-def _has_user_exclusion(user: Any) -> bool:
-    return any(getattr(user, flag, None) is True for flag in USER_EXCLUSION_FLAGS)
+def _preprocessed_clips(user: Any) -> list:
+    return [clip for clip in user.clips if clip.is_preprocessed is True]
 
 
-def _surviving_clips(user: Any) -> list:
-    return [clip for clip in user.clips if not _has_clip_exclusion(clip)]
+def _eligible_clips(user: Any) -> list:
+    return [clip for clip in user.clips if clip.is_eligible is True]
 
 
-def _count_surviving_clips(user: Any) -> int:
-    return len(_surviving_clips(user))
+def _selected_clips(user: Any) -> list:
+    return [clip for clip in user.clips if clip.is_selected is True]
 
 
 def _is_garbage(clip: Any) -> bool:
@@ -78,31 +86,38 @@ def _flag_basic_policy_clips(session: Session, cfg: FilterSettings) -> None:
         clip.is_too_short = _is_too_short(
             clip, min_video_duration=cfg.min_video_duration
         )
-        clip.is_too_long = _is_too_long(
-            clip, max_video_duration=cfg.max_video_duration
-        )
+        clip.is_too_long = _is_too_long(clip, max_video_duration=cfg.max_video_duration)
         clip.is_too_old = _is_too_old(clip, min_taken_at=cfg.min_taken_at)
+
+
+def _derive_preprocessing_status(session: Session) -> None:
+    for clip in session.query(Clip).all():
+        clip.is_preprocessed = not _has_any_flag(clip, HARD_CLIP_EXCLUSION_FLAGS)
 
 
 def _flag_low_median_creators(session: Session, cfg: FilterSettings) -> None:
     for user in session.query(User).all():
-        surviving_plays = [
+        plays = [
             clip.play_count
-            for clip in _surviving_clips(user)
+            for clip in _preprocessed_clips(user)
             if clip.play_count is not None
         ]
-        if not surviving_plays:
+        if not plays:
             user.is_low_plays_median = True
             continue
-        median_plays = statistics.median(surviving_plays)
-        user.is_low_plays_median = median_plays < cfg.creator_min_median_views
+        user.is_low_plays_median = (
+            statistics.median(plays) < cfg.creator_min_median_views
+        )
 
 
 def _flag_users_without_enough_clips(session: Session, cfg: FilterSettings) -> None:
     for user in session.query(User).all():
-        user.is_not_enough_clips = (
-            _count_surviving_clips(user) < cfg.min_eligible_clips_per_user
+        count = sum(
+            1
+            for clip in _preprocessed_clips(user)
+            if not _has_any_flag(clip, SOFT_CLIP_EXCLUSION_FLAGS)
         )
+        user.is_not_enough_clips = count < cfg.min_eligible_clips_per_user
 
 
 def _flag_global_percentile_clips(session: Session, cfg: FilterSettings) -> None:
@@ -110,21 +125,20 @@ def _flag_global_percentile_clips(session: Session, cfg: FilterSettings) -> None
         clip.is_low_percentile = False
         clip.is_high_percentile = False
 
-    surviving = [
+    population = [
         clip
         for user in session.query(User).all()
-        if not _has_user_exclusion(user)
-        for clip in _surviving_clips(user)
+        if not _has_any_flag(user, USER_EXCLUSION_FLAGS)
+        for clip in _preprocessed_clips(user)
     ]
-
-    if not surviving:
+    if not population:
         return
 
-    plays = np.array([c.play_count for c in surviving], dtype=float)
+    plays = np.array([c.play_count for c in population], dtype=float)
     low_boundary = float(np.percentile(plays, cfg.global_low_percentile))
     high_boundary = float(np.percentile(plays, cfg.global_high_percentile))
 
-    for clip in surviving:
+    for clip in population:
         clip.is_low_percentile = clip.play_count < low_boundary
         clip.is_high_percentile = clip.play_count > high_boundary
 
@@ -135,37 +149,34 @@ def _median_absolute_deviation(values: list[float]) -> float:
 
 
 def _compute_creator_robust_stats(session: Session, cfg: FilterSettings) -> None:
+    # Reset state-dependent clip fields before recomputing so the result is
+    # determined only by the current (preprocessed, soft-flag) state.
+    for clip in session.query(Clip).all():
+        clip.log_plays = None
+        clip.creator_relative_robust_z = None
+        clip.is_creator_low_outlier = False
+
     for user in session.query(User).all():
-        user.log_plays_median = None
-        user.log_plays_mad = None
-        for clip in user.clips:
-            clip.log_plays = None
-            clip.creator_relative_robust_z = None
-            clip.is_creator_low_outlier = False
-
-        if _has_user_exclusion(user):
+        if _has_any_flag(user, USER_EXCLUSION_FLAGS):
             continue
-        surviving = _surviving_clips(user)
-        if not surviving:
+        candidates = [
+            clip
+            for clip in _preprocessed_clips(user)
+            if not _has_any_flag(clip, SOFT_CLIP_EXCLUSION_FLAGS)
+        ]
+        if not candidates:
             continue
 
-        log_plays_vals = [math.log1p(c.play_count) for c in surviving]
+        log_plays_vals = [math.log1p(c.play_count) for c in candidates]
         creator_median = statistics.median(log_plays_vals)
         mad = _median_absolute_deviation(log_plays_vals)
 
-        user.log_plays_median = creator_median
-        user.log_plays_mad = mad
-
-        for clip in surviving:
+        for clip in candidates:
             lp = math.log1p(clip.play_count)
             clip.log_plays = lp
-            if mad > 0:
-                clip.creator_relative_robust_z = 0.6745 * (lp - creator_median) / mad
-            else:
-                clip.creator_relative_robust_z = 0.0
-            clip.is_creator_low_outlier = (
-                clip.creator_relative_robust_z < cfg.creator_low_z_threshold
-            )
+            z = 0.6745 * (lp - creator_median) / mad if mad > 0 else 0.0
+            clip.creator_relative_robust_z = z
+            clip.is_creator_low_outlier = z < cfg.creator_low_z_threshold
 
 
 def _derive_eligibility(session: Session) -> None:
@@ -175,9 +186,16 @@ def _derive_eligibility(session: Session) -> None:
         if user is None:
             clip.is_eligible = False
             continue
-        clip.is_eligible = not (
-            _has_clip_exclusion(clip) or _has_user_exclusion(user)
+        clip.is_eligible = (
+            clip.is_preprocessed is True
+            and not _has_any_flag(clip, SOFT_CLIP_EXCLUSION_FLAGS)
+            and not _has_any_flag(user, USER_EXCLUSION_FLAGS)
         )
+
+
+def _derive_user_eligibility(session: Session) -> None:
+    for user in session.query(User).all():
+        user.is_eligible = not _has_any_flag(user, USER_EXCLUSION_FLAGS)
 
 
 def select_clips(session: Session, cfg: FilterSettings) -> None:
@@ -186,10 +204,9 @@ def select_clips(session: Session, cfg: FilterSettings) -> None:
     for user in session.query(User).all():
         user.is_selected = False
 
-    users = session.query(User).all()
-    for user in users:
+    for user in session.query(User).all():
         eligible = sorted(
-            [c for c in user.clips if c.is_eligible],
+            _eligible_clips(user),
             key=lambda c: c.play_count or 0,
             reverse=True,
         )
@@ -208,7 +225,113 @@ def select_clips(session: Session, cfg: FilterSettings) -> None:
         user.is_selected = True
 
 
-def preprocess_new_data(
+def calculate_user_stats(session: Session) -> None:
+    session.query(UserStats).delete()
+    session.flush()
+
+    for user in session.query(User).all():
+        clips = _preprocessed_clips(user)
+        if not clips:
+            continue
+
+        plays = [c.play_count for c in clips]
+        log_plays_vals = [math.log1p(p) for p in plays]
+        durations = [c.video_duration for c in clips if c.video_duration is not None]
+        taken_ats = [c.taken_at for c in clips if c.taken_at is not None]
+
+        n = len(clips)
+        max_plays = max(plays)
+        median_plays = statistics.median(plays)
+        total_plays = sum(plays)
+        ratio = max_plays / median_plays if median_plays > 0 else None
+        share_top = max_plays / total_plays if total_plays > 0 else None
+
+        oldest = min(taken_ats) if taken_ats else None
+        newest = max(taken_ats) if taken_ats else None
+        span_days = (
+            (newest - oldest) / 86400.0
+            if oldest is not None and newest is not None
+            else None
+        )
+        per_week = (
+            n / (span_days / 7.0) if span_days is not None and span_days > 0 else None
+        )
+
+        session.add(
+            UserStats(
+                user_id=user.id,
+                n_clips=n,
+                median_plays=float(median_plays),
+                mean_plays=float(statistics.mean(plays)),
+                max_plays=max_plays,
+                min_plays=min(plays),
+                mean_log_plays=float(statistics.mean(log_plays_vals)),
+                median_log_plays=float(statistics.median(log_plays_vals)),
+                log_plays_std=(
+                    float(statistics.pstdev(log_plays_vals))
+                    if len(log_plays_vals) > 1
+                    else 0.0
+                ),
+                log_plays_mad=float(_median_absolute_deviation(log_plays_vals)),
+                top_to_median_plays_ratio=ratio,
+                share_of_plays_from_top_clip=share_top,
+                median_video_duration=(
+                    float(statistics.median(durations)) if durations else None
+                ),
+                mean_video_duration=(
+                    float(statistics.mean(durations)) if durations else None
+                ),
+                oldest_clip_taken_at=oldest,
+                newest_clip_taken_at=newest,
+                clip_time_span_days=span_days,
+                approx_clips_per_week=per_week,
+            )
+        )
+
+
+def _reset_dataset_processing_state(session: Session) -> None:
+    for clip in session.query(Clip).all():
+        clip.is_garbage = None
+        clip.is_too_short = None
+        clip.is_too_long = None
+        clip.is_too_old = None
+        clip.is_low_percentile = None
+        clip.is_high_percentile = None
+        clip.is_creator_low_outlier = None
+        clip.log_plays = None
+        clip.creator_relative_robust_z = None
+        clip.is_preprocessed = None
+        clip.is_eligible = None
+        clip.is_selected = None
+    for user in session.query(User).all():
+        user.is_low_plays_median = None
+        user.is_not_enough_clips = None
+        user.is_selected = None
+        user.is_eligible = None
+    session.query(UserStats).delete()
+
+
+def _hard_preprocess(session: Session, cfg: FilterSettings) -> None:
+    _flag_garbage_clips(session)
+    _flag_basic_policy_clips(session, cfg)
+    _derive_preprocessing_status(session)
+    _flag_low_median_creators(session, cfg)
+    _flag_users_without_enough_clips(session, cfg)
+
+
+def _soft_preprocess(session: Session, cfg: FilterSettings) -> None:
+    _flag_global_percentile_clips(session, cfg)
+    _compute_creator_robust_stats(session, cfg)
+    _flag_users_without_enough_clips(session, cfg)
+    _derive_eligibility(session)
+    _derive_user_eligibility(session)
+
+
+def _random_sample(session: Session, cfg: FilterSettings) -> None:
+    select_clips(session, cfg)
+
+
+def process_dataset(
     cfg: FilterSettings,
     *,
     engine=None,
@@ -217,33 +340,11 @@ def preprocess_new_data(
 
     eng = engine or get_engine()
     with Session(eng) as session:
-        for clip in session.query(Clip).all():
-            clip.is_garbage = None
-            clip.is_too_short = None
-            clip.is_too_long = None
-            clip.is_too_old = None
-            clip.is_low_percentile = None
-            clip.is_high_percentile = None
-            clip.is_creator_low_outlier = None
-            clip.log_plays = None
-            clip.creator_relative_robust_z = None
-            clip.is_eligible = None
-            clip.is_selected = None
-        for user in session.query(User).all():
-            user.is_low_plays_median = None
-            user.is_not_enough_clips = None
-            user.is_selected = None
-            user.log_plays_median = None
-            user.log_plays_mad = None
+        _reset_dataset_processing_state(session)
 
-        _flag_garbage_clips(session)
-        _flag_basic_policy_clips(session, cfg)
-        _flag_low_median_creators(session, cfg)
-        _flag_users_without_enough_clips(session, cfg)
-        _flag_global_percentile_clips(session, cfg)
-        _compute_creator_robust_stats(session, cfg)
-        _flag_users_without_enough_clips(session, cfg)
-        _derive_eligibility(session)
-        select_clips(session, cfg)
+        _hard_preprocess(session, cfg)
+        calculate_user_stats(session)
+        _soft_preprocess(session, cfg)
+        _random_sample(session, cfg)
 
         session.commit()
