@@ -136,6 +136,7 @@ class Clip(Base):
     is_preprocessed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     is_eligible: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     is_selected: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    is_downloaded: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 
     user: Mapped["User"] = relationship("User", back_populates="clips")  # type: ignore[assignment]
     music: Mapped[Optional["Music"]] = relationship("Music", back_populates="clips")  # type: ignore[assignment]
@@ -339,3 +340,14 @@ def init_db(database_url: str, identity_db_url: str) -> None:
 
 def get_session() -> Session:
     return Session(get_engine())
+
+
+def clip_used_in_analysis():
+    """Canonical filter: clips that should drive downstream computation.
+
+    Returns a tuple of clauses for `query.filter(*clip_used_in_analysis())`.
+    """
+    return (
+        Clip.is_selected.is_(True),
+        Clip.is_downloaded.is_(True),
+    )
