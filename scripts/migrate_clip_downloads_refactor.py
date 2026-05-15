@@ -48,6 +48,7 @@ def _sqlite_migrate(conn) -> None:
 
     has_eligibility = "eligibility" in clip_cols
     has_is_downloaded = "is_downloaded" in clip_cols
+    has_is_selected = "is_selected" in clip_cols
     has_downloads_table = "downloads" in table_names
 
     if not has_eligibility and has_is_downloaded and not has_downloads_table:
@@ -58,7 +59,7 @@ def _sqlite_migrate(conn) -> None:
         conn.execute(text("ALTER TABLE clips ADD COLUMN is_downloaded BOOLEAN"))
         print("  OK: added clips.is_downloaded")
 
-    if has_downloads_table:
+    if has_downloads_table and has_is_selected:
         conn.execute(
             text(
                 "UPDATE clips SET is_downloaded = 1 "
@@ -70,6 +71,11 @@ def _sqlite_migrate(conn) -> None:
             )
         )
         print("  OK: backfilled is_downloaded from legacy downloads table")
+    elif has_downloads_table:
+        print(
+            "  SKIP backfill: clips.is_selected absent "
+            "(pre-filter-refactor schema); leaving is_downloaded NULL"
+        )
 
     if has_eligibility:
         conn.execute(text("PRAGMA foreign_keys = OFF"))

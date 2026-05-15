@@ -133,6 +133,41 @@ def test_migrate_only_backfills_selected_clips():
     assert rows[1]["is_downloaded"] is None
 
 
+def test_migrate_skips_backfill_when_is_selected_column_absent():
+    """Pre-filter-refactor schemas lack is_selected; backfill must be skipped, not crash."""
+    eng = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    with eng.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE TABLE clips ("
+                "id INTEGER PRIMARY KEY, "
+                "user_id INTEGER NOT NULL, "
+                "eligibility INTEGER NOT NULL DEFAULT 0"
+                ")"
+            )
+        )
+        conn.execute(text(_LEGACY_DOWNLOADS_DDL))
+        conn.execute(
+            text("INSERT INTO clips (id, user_id, eligibility) VALUES (1, 1, 1)")
+        )
+        conn.execute(
+            text(
+                "INSERT INTO downloads (entity_id, file_type, success, parse_available) "
+                "VALUES (1, 'video', 1, 1)"
+            )
+        )
+
+    migrate_database(eng)
+
+    with eng.connect() as conn:
+        col_names = {c["name"] for c in inspect(eng).get_columns("clips")}
+        assert "is_downloaded" in col_names
+        assert "eligibility" not in col_names
+        assert "downloads" not in set(inspect(eng).get_table_names())
+        row = conn.execute(text("SELECT is_downloaded FROM clips")).fetchone()
+        assert row[0] is None
+
+
 def test_migrate_is_idempotent():
     eng = _make_legacy_engine(
         [{"id": 1, "uid": 1, "sel": True, "el": 1}],
