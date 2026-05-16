@@ -5,10 +5,19 @@ from typing import cast
 
 import hdbscan
 import numpy as np
+from sqlalchemy import select
 from umap import UMAP
 
 from modules.console import log, progress
-from modules.database import Base, UserCluster, UserEmbedding, get_engine, get_session
+from modules.database import (
+    Base,
+    Clip,
+    UserCluster,
+    UserEmbedding,
+    clip_used_in_analysis,
+    get_engine,
+    get_session,
+)
 
 DEFAULT_HDBSCAN_METRIC = "euclidean"
 
@@ -135,10 +144,6 @@ def load_user_matrix(embedding_case: str) -> tuple[np.ndarray, list[int]]:
     subquery on UserEmbedding.user_id; no clip-level WHERE clause is
     duplicated here.
     """
-    from sqlalchemy import select
-
-    from modules.database import Clip, clip_used_in_analysis
-
     session = get_session()
     try:
         analysis_users = select(Clip.user_id).distinct().where(*clip_used_in_analysis())
