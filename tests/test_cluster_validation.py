@@ -680,6 +680,20 @@ def test_validate_clustering_phase_order(monkeypatch):
     - filter logic (passes_validation) runs before score logic (dbcv set)
       by inspecting what _compute_updates returns
     """
+    # Seed one ClusterRun row so _compute_updates is guaranteed to be invoked
+    # (fingerprint is stale on a fresh DB, and the matrix is non-empty).
+    from modules.database import Base, ClusterRun, get_engine, get_session
+
+    Base.metadata.create_all(get_engine())
+    seed_session = get_session()
+    try:
+        seed_session.query(ClusterRun).delete()
+        seed_session.commit()
+        seed_session.add(ClusterRun(**_base_run_kwargs(embedding_case="video")))
+        seed_session.commit()
+    finally:
+        seed_session.close()
+
     sequence = []
 
     def fake_load_matrix(case):
@@ -713,11 +727,10 @@ def test_validate_clustering_phase_order(monkeypatch):
     assert "bootstrap" not in ops, "bootstrap must not be called"
     assert "composite" not in ops, "composite must not be called"
 
-    # _compute_updates encapsulates filter→score→plateau for non-empty cases.
-    # It may or may not be called depending on fingerprint state; if the DB
-    # has no ClusterRun rows it returns {} (no-op), which is correct.
-    assert ("compute_updates", "video") in video_seq or video_seq == [], (
-        f"unexpected sequence for video: {video_seq}"
+    # _compute_updates must be called for the video case since the matrix is
+    # non-empty and fingerprint is stale (fresh DB with one seeded ClusterRun).
+    assert ("compute_updates", "video") in video_seq, (
+        f"_compute_updates was not called for video; sequence={video_seq}"
     )
 
 

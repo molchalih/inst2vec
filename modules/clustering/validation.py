@@ -2,6 +2,7 @@
 
 import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from types import SimpleNamespace
 from typing import cast
 
 import hdbscan.validity
@@ -338,7 +339,7 @@ def _select_best(session: Session, case: str, settings) -> ClusterRun | None:
 # ── fingerprint helpers ───────────────────────────────────────────────────────
 
 
-def _validation_fingerprint(session, case: str, settings) -> fp.Fingerprint:
+def _fingerprint(session, case: str, settings) -> fp.Fingerprint:
     rows = (
         session.query(
             ClusterRun.id,
@@ -496,8 +497,6 @@ def _compute_updates(
     # --- phase plateau --------------------------------------------------------
     # Build lightweight proxy objects for _find_param_neighbors (it reads
     # ORM attribute names via getattr).  We use a SimpleNamespace per snapshot.
-    from types import SimpleNamespace
-
     scored_proxies = []
     for snap in snapshots:
         u = updates[snap["id"]]
@@ -543,7 +542,7 @@ def validate_clustering(
         # 1. fingerprint check
         session = get_session()
         try:
-            current = _validation_fingerprint(session, case, settings)
+            current = _fingerprint(session, case, settings)
             stale = fp.is_stale(session, STAGE, case, current)
             diff = fp.describe_diff(session, STAGE, case, current) if stale else ""
         finally:
@@ -553,7 +552,7 @@ def validate_clustering(
             log(f"validate:{case}", "fingerprint match — skipping")
             session = get_session()
             try:
-                best = select_best_cluster_run(session, case)
+                best = select_best_cluster_run(session, case, settings=settings)
                 result[case] = _row_to_params(best) if best is not None else None
             finally:
                 session.close()
@@ -604,7 +603,7 @@ def validate_clustering(
         # 5. select best for return
         session = get_session()
         try:
-            best = select_best_cluster_run(session, case)
+            best = select_best_cluster_run(session, case, settings=settings)
             result[case] = _row_to_params(best) if best is not None else None
         finally:
             session.close()
