@@ -6,12 +6,7 @@ from modules.config import load_runtime_config
 from modules.console import log, phase, startup
 from modules.database import init_db
 from modules.download import download_files
-from modules._embeddings_legacy import (
-    embed_audio_clips,
-    embed_sandwich_clips,
-    embed_user_clips,
-    embed_video_clips,
-)
+from modules.embeddings import embed_clip_embeddings, embed_user_embeddings
 from modules.filter import process_dataset
 from modules.music import classify_music, extract_music_features
 from modules.music.classify import AcrSecrets
@@ -133,37 +128,14 @@ def run_pipeline() -> None:
     - sandwich: video + music features
     - audio: only audio
     """
-    phase("Video Embeddings")
-    embed_video_clips(
-        model_path=settings.paths.model_path,
-        video_dir=settings.paths.video_dir,
-        embed_max_length=settings.embeddings.embed_max_length,
-        adaptive_max_frames=settings.embeddings.adaptive_max_frames,
-        adaptive_default_fps=settings.embeddings.adaptive_default_fps,
-        exclude_disqualified_users=settings.embeddings.exclude_disqualified_users,
-    )
-    embed_sandwich_clips(
-        model_path=settings.paths.model_path,
-        video_dir=settings.paths.video_dir,
-        embed_max_length=settings.embeddings.embed_max_length,
-        adaptive_max_frames=settings.embeddings.adaptive_max_frames,
-        adaptive_default_fps=settings.embeddings.adaptive_default_fps,
-        exclude_disqualified_users=settings.embeddings.exclude_disqualified_users,
-    )
-    embed_audio_clips(
-        model_path=settings.paths.model_path,
-        video_dir=settings.paths.video_dir,
-        embed_max_length=settings.embeddings.embed_max_length,
-        adaptive_max_frames=settings.embeddings.adaptive_max_frames,
-        adaptive_default_fps=settings.embeddings.adaptive_default_fps,
-        exclude_disqualified_users=settings.embeddings.exclude_disqualified_users,
-    )
+    phase("Clip Embeddings")
+    embed_clip_embeddings(settings)
 
     """
     9. USER EMBEDDINGS: calculates the average embedding of the clips belonging to a user, generating a user-level representation.
     """
     phase("User Embeddings")
-    embed_user_clips()
+    embed_user_embeddings(settings)
 
     """
     10. CLUSTER SEARCH: ...
