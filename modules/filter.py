@@ -4,6 +4,7 @@ import json
 import math
 import random
 import statistics
+from itertools import chain
 from typing import Any
 
 import numpy as np
@@ -352,8 +353,12 @@ def _fingerprint(session: Session, cfg: FilterSettings) -> fp.Fingerprint:
         .order_by(Clip.id)
         .all()
     )
-    rows = [("u", *r) for r in user_rows] + [("c", *r) for r in clip_rows]
-    data = fp.hash_rows(rows)
+    data = fp.hash_rows(
+        chain(
+            (("u", *r) for r in user_rows),
+            (("c", *r) for r in clip_rows),
+        )
+    )
     config = fp.hash_text(json.dumps(cfg.model_dump(), sort_keys=True, default=str))
     dependency = fp.hash_text("")
     return fp.Fingerprint(data=data, config=config, dependency=dependency)

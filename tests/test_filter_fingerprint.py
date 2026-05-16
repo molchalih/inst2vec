@@ -1,10 +1,4 @@
-"""Fingerprint-gated idempotence for modules/filter.py::process_dataset.
-
-Uses the conftest in-memory DB (NOT a fresh create_engine) so that
-StageState rows land in the same engine as Clip/User/UserStats rows.
-Each test wipes the relevant tables before seeding to provide isolation,
-and again on teardown so we don't leak rows into later test modules.
-"""
+"""Fingerprint-gated idempotence for modules/filter.py::process_dataset."""
 
 import pytest
 
@@ -132,9 +126,8 @@ def test_reruns_on_config_change():
         )
     finally:
         session.close()
-    assert before_too_short == 0  # 15.0s clips are not too short under default cfg
+    assert before_too_short == 0
 
-    # Raise min_video_duration above every clip's duration.
     stricter = _default_cfg().model_copy(update={"min_video_duration": 999})
     process_dataset(stricter)
 
