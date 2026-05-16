@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
+from modules import fingerprint as fp
 from modules.database import (
     Clip,
     ClipEmbedding,
@@ -26,6 +27,22 @@ def get_embedded_clip_ids(session: Session, case: str) -> set[int]:
         .all()
     )
     return {r.clip_id for r in rows}
+
+
+def get_embedded_source_hashes(session: Session, case: str) -> dict[int, str | None]:
+    """Map clip_id → stored source_hash for every ClipEmbedding row of ``case``.
+
+    Used by the incremental runner to decide which clips need re-embedding.
+    A row that exists with source_hash=None is treated as stale: a previous
+    pre-incremental run wrote it without the hash, and we cannot prove it
+    still matches current upstream.
+    """
+    rows = (
+        session.query(ClipEmbedding.clip_id, ClipEmbedding.source_hash)
+        .filter(ClipEmbedding.embedding_case == case)
+        .all()
+    )
+    return {r.clip_id: r.source_hash for r in rows}
 
 
 def get_embedded_user_ids(session: Session, case: str) -> set[int]:
@@ -53,11 +70,18 @@ def get_clip_embedding_candidates(
 def get_clip_embedding_rows_for_user_aggregation(
     session: Session, case: str
 ) -> list[tuple[bytes, int]]:
-    """Return (embedding_blob, user_id) rows for the given case."""
+    """Return (embedding_blob, user_id) rows for the given case.
+
+    Filters out clips that are no longer in the candidate set so orphan
+    rows (e.g. clips later deselected) do not contaminate user means.
+    """
     return (
         session.query(ClipEmbedding.embedding, Clip.user_id)
         .join(Clip, ClipEmbedding.clip_id == Clip.id)
-        .filter(ClipEmbedding.embedding_case == case)
+        .filter(
+            ClipEmbedding.embedding_case == case,
+            *clip_used_in_analysis(),
+        )
         .all()
     )
 
@@ -150,3 +174,17 @@ def dependency_rows_for_case(
         return [tuple(r) for r in rows]
 
     raise ValueError(f"Unknown embedding case: {case!r}")
+
+
+def per_clip_source_hashes_and_aggregate(
+    session: Session, case: str, candidate_ids: list[int]
+) -> tuple[dict[int, str], str]:
+    """Return ({clip_id: per_clip_hash}, aggregate_hash) for ``case``.
+
+    Both values are derived from the same call to ``dependency_rows_for_case``
+    so the per-clip hashes and the stage-level aggregate stay byte-identical.
+    """
+    rows = dependency_rows_for_case(session, case, candidate_ids)
+    per_clip = {r[0]: fp.hash_rows([r]) for r in rows}
+    aggregate = fp.hash_rows(rows)
+    return per_clip, aggregate
