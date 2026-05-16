@@ -87,7 +87,7 @@ def test_pick_best_cluster_run_rejects_sharp_peak(monkeypatch):
     assert best.dbcv == 0.82
 
 
-def test_list_best_candidate_rows_filters_by_passes_validation():
+def test_list_best_candidate_rows_excludes_failed_and_pending():
     eng = _make_engine()
     with Session(eng) as s:
         s.add(
