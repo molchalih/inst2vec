@@ -28,9 +28,10 @@ from modules.embeddings.sampling import (
     is_token_mismatch_error,
 )
 from modules.embeddings.state import (
-    dependency_rows_for_case,
     get_clip_embedding_candidates,
+    get_embedded_source_hashes,  # noqa: F401 — used by Task 7
     get_music_map,
+    per_clip_source_hashes_and_aggregate,
 )
 from modules.embeddings.vectors import to_bytes
 
@@ -49,16 +50,24 @@ def _video_path(clip_id: int, video_dir: str) -> str:
     return os.path.abspath(os.path.join(video_dir, f"{clip_id}.mp4"))
 
 
-def _compute_fingerprint(
+def _compute_fingerprint_and_per_clip(
     session, spec: EmbeddingCaseSpec, settings, candidates: list[Clip]
-) -> fp.Fingerprint:
+) -> tuple[fp.Fingerprint, dict[int, str]]:
+    """Return (Fingerprint, {clip_id: per_clip_source_hash}) for ``case``.
+
+    Both share the same ``dependency_rows_for_case`` source of truth so the
+    aggregate ``Fingerprint.dependency`` and the per-row hashes never drift.
+    """
     candidate_ids = sorted(c.id for c in candidates)
-    data = fp.hash_rows((cid,) for cid in candidate_ids)
-    config = fp.hash_text(case_config_identity(spec, settings))
-    dependency = fp.hash_rows(
-        dependency_rows_for_case(session, spec.name, candidate_ids)
+    per_clip, dep_agg = per_clip_source_hashes_and_aggregate(
+        session, spec.name, candidate_ids
     )
-    return fp.Fingerprint(data=data, config=config, dependency=dependency)
+    current = fp.Fingerprint(
+        data=fp.hash_rows((cid,) for cid in candidate_ids),
+        config=fp.hash_text(case_config_identity(spec, settings)),
+        dependency=dep_agg,
+    )
+    return current, per_clip
 
 
 def _wipe_case(session, case: str) -> None:
@@ -82,7 +91,9 @@ def _run_case(settings, spec: EmbeddingCaseSpec) -> None:
             session, settings.embeddings.exclude_disqualified_users
         )
 
-        current = _compute_fingerprint(session, spec, settings, candidates)
+        current, _per_clip = _compute_fingerprint_and_per_clip(
+            session, spec, settings, candidates
+        )
         if not fp.is_stale(session, STAGE, spec.name, current):
             log(log_tag, "fingerprint match — skipping")
             return
