@@ -95,3 +95,17 @@ def describe_diff(
     if row.dependency_hash != current.dependency:
         parts.append("dependency")
     return "+".join(parts)
+
+
+def stage_dependency_hash(session: Session, stage: str, scope: str) -> str:
+    """Stable digest of an upstream stage's StageState row.
+
+    Returns ``hash_text("")`` when no row exists, otherwise a SHA-256 of
+    the row's three hash fields concatenated. Stages use this for their
+    own ``Fingerprint.dependency`` field so dependency-hashing stays
+    consistent across stages and never drifts via local string concat.
+    """
+    row = session.get(StageState, (stage, scope))
+    if row is None:
+        return hash_text("")
+    return hash_text(row.data_hash + row.config_hash + row.dependency_hash)

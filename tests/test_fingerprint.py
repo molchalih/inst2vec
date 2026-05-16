@@ -126,3 +126,36 @@ def test_describe_diff_lists_changed_fields(fresh_state):
     fresh_state.commit()
     diff = describe_diff(fresh_state, "stg", "scp", Fingerprint("d2", "c1", "x2"))
     assert diff == "data+dependency"
+
+
+# ── stage_dependency_hash ────────────────────────────────────────────────────
+
+
+def test_stage_dependency_hash_returns_empty_text_hash_when_absent(fresh_state):
+    from modules.fingerprint import hash_text, stage_dependency_hash
+
+    assert stage_dependency_hash(fresh_state, "missing_stage", "scp") == hash_text("")
+
+
+def test_stage_dependency_hash_combines_three_fields(fresh_state):
+    from modules.fingerprint import hash_text, stage_dependency_hash
+
+    mark_complete(fresh_state, "upstream", "case-a", _fp("d1", "c1", "x1"))
+    fresh_state.commit()
+
+    expected = hash_text("d1" + "c1" + "x1")
+    assert stage_dependency_hash(fresh_state, "upstream", "case-a") == expected
+
+
+def test_stage_dependency_hash_changes_when_any_field_changes(fresh_state):
+    from modules.fingerprint import stage_dependency_hash
+
+    mark_complete(fresh_state, "upstream", "case-a", _fp("d1", "c1", "x1"))
+    fresh_state.commit()
+    first = stage_dependency_hash(fresh_state, "upstream", "case-a")
+
+    mark_complete(fresh_state, "upstream", "case-a", _fp("d1", "c1", "x2"))
+    fresh_state.commit()
+    second = stage_dependency_hash(fresh_state, "upstream", "case-a")
+
+    assert first != second
