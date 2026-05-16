@@ -51,12 +51,12 @@ def test_clean_captions_writes_caption_clean_without_touching_caption_text(sessi
     assert row.caption_clean == "hello world"
 
 
-def test_clean_captions_leaves_caption_clean_null_for_empty_result(session):
+def test_clean_captions_stores_empty_string_for_mentions_only_result(session):
     eng, s = session
     _add_clip(s, 1, "@a @b @c")
     clean_captions(_cfg(), engine=eng)
     row = s.query(Clip).filter_by(id=1).one()
-    assert row.caption_clean is None
+    assert row.caption_clean == ""
 
 
 def test_clean_captions_idempotent_skips_filled_rows(session):

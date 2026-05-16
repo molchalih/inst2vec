@@ -40,6 +40,7 @@ def _music(**kwargs):
 def _clip(**kwargs):
     defaults = dict(
         caption_text=None,
+        caption_clean=None,
         caption_language=None,
         caption_translation=None,
         speech_transcription=None,

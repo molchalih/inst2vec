@@ -131,7 +131,7 @@ def _build_text(clip, music_map: dict) -> str | None:
         if clip.caption_language not in ("en", None)
         and clip.caption_translation
         and clip.caption_translation.strip()
-        else (clip.caption_text or "")
+        else (clip.caption_clean or clip.caption_text or "")
     )
     if cap.strip():
         parts.append(cap.strip())
