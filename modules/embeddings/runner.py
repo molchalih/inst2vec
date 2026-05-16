@@ -15,7 +15,14 @@ import os
 
 from modules import fingerprint as fp
 from modules.console import log, progress
-from modules.database import Base, Clip, ClipEmbedding, get_engine, get_session
+from modules.database import (
+    Base,
+    Clip,
+    ClipEmbedding,
+    StageState,
+    get_engine,
+    get_session,
+)
 from modules.embeddings.cases import (
     CASE_REGISTRY,
     DEFAULT_CASES,
@@ -29,7 +36,7 @@ from modules.embeddings.sampling import (
 )
 from modules.embeddings.state import (
     get_clip_embedding_candidates,
-    get_embedded_source_hashes,  # noqa: F401 — used by Task 7
+    get_embedded_source_hashes,
     get_music_map,
     per_clip_source_hashes_and_aggregate,
 )
@@ -91,94 +98,117 @@ def _run_case(settings, spec: EmbeddingCaseSpec) -> None:
             session, settings.embeddings.exclude_disqualified_users
         )
 
-        current, _per_clip = _compute_fingerprint_and_per_clip(
+        current, per_clip = _compute_fingerprint_and_per_clip(
             session, spec, settings, candidates
         )
         if not fp.is_stale(session, STAGE, spec.name, current):
             log(log_tag, "fingerprint match — skipping")
             return
 
-        diff = fp.describe_diff(session, STAGE, spec.name, current)
-        log(log_tag, f"stale ({diff}) — recomputing")
-        _wipe_case(session, spec.name)
+        stored = session.get(StageState, (STAGE, spec.name))
+        if stored is not None and stored.config_hash != current.config:
+            diff = fp.describe_diff(session, STAGE, spec.name, current)
+            log(log_tag, f"config drift ({diff}) — wiping case")
+            _wipe_case(session, spec.name)
 
-        # Materialize work list now that the case is cleared.
-        music_map: dict = {}
-        if spec.text_builder is not None:
-            music_map = get_music_map(session)
+        embedded = get_embedded_source_hashes(session, spec.name)
+        target_ids = _diff_targets(per_clip, embedded)
+        log(log_tag, f"{len(target_ids)} clip(s) to (re-)embed")
 
-        video_dir = settings.paths.video_dir
-        jobs: list[tuple[Clip, str | None]] = []
-        for clip in candidates:
-            if spec.requires_video:
-                path = _video_path(clip.id, video_dir)
-                if not os.path.exists(path):
-                    continue
-            text: str | None = None
-            if spec.text_builder is not None:
-                text = spec.text_builder(clip, music_map)
-                if text is None:
-                    continue
-            jobs.append((clip, text))
-
-        if not jobs:
-            log(log_tag, "nothing to embed (empty work set after filtering)")
-            fp.mark_complete(session, STAGE, spec.name, current)
-            session.commit()
-            return
-
-        log(
-            log_tag,
-            f"{len(jobs)} clips to embed",
+        _embed_targets(
+            session, spec, settings, log_tag, candidates, target_ids, per_clip, current
         )
-
-        provider = spec.provider_factory(settings)
-
-        failures = 0
-        with progress(len(jobs), f"Embedding {spec.name}") as advance:
-            for clip, text in jobs:
-                if spec.requires_video:
-                    path = _video_path(clip.id, video_dir)
-                    fps_, max_frames, _ = adaptive_sampling(
-                        path,
-                        settings.embeddings.adaptive_max_frames,
-                        settings.embeddings.adaptive_default_fps,
-                    )
-                else:
-                    path, fps_, max_frames = None, None, None
-
-                blob = _embed_with_token_fallback(
-                    provider, spec, clip, text, path, fps_, max_frames
-                )
-                if blob is None:
-                    failures += 1
-                    advance(detail=f"✗ {clip.id}")
-                    continue
-
-                row = ClipEmbedding(
-                    clip_id=clip.id,
-                    embedding_case=spec.name,
-                    embedding=blob,
-                )
-                session.merge(row)
-                session.commit()
-                advance(detail=f"✓ {clip.id}")
-
-        # Only seal the fingerprint when every intended job produced a row.
-        # Otherwise the same data/config/dependency hashes would mark missing
-        # rows as complete on the next run and they'd never be retried.
-        if failures:
-            log(
-                log_tag,
-                f"{failures}/{len(jobs)} failed — leaving stage stale for retry",
-                level="warn",
-            )
-        else:
-            fp.mark_complete(session, STAGE, spec.name, current)
-            session.commit()
-        log(log_tag, "done", level="ok")
     finally:
         session.close()
+
+
+def _embed_targets(
+    session,
+    spec: EmbeddingCaseSpec,
+    settings,
+    log_tag: str,
+    candidates: list[Clip],
+    target_ids: set[int],
+    per_clip: dict[int, str],
+    current: fp.Fingerprint,
+) -> None:
+    """Embed the subset of ``candidates`` whose ids are in ``target_ids``.
+
+    Writes ``source_hash`` on every merged row so future runs can diff. On
+    full success seals the stage; on any failure leaves stage unsealed so the
+    next run retries only the still-missing/stale clips.
+    """
+    targets = [c for c in candidates if c.id in target_ids]
+
+    # Materialize the work list (skip clips missing video files or text).
+    music_map: dict = {}
+    if spec.text_builder is not None:
+        music_map = get_music_map(session)
+
+    video_dir = settings.paths.video_dir
+    jobs: list[tuple[Clip, str | None]] = []
+    for clip in targets:
+        if spec.requires_video:
+            path = _video_path(clip.id, video_dir)
+            if not os.path.exists(path):
+                continue
+        text: str | None = None
+        if spec.text_builder is not None:
+            text = spec.text_builder(clip, music_map)
+            if text is None:
+                continue
+        jobs.append((clip, text))
+
+    if not jobs:
+        log(log_tag, "nothing to embed (empty work set after filtering)")
+        fp.mark_complete(session, STAGE, spec.name, current)
+        session.commit()
+        return
+
+    log(log_tag, f"{len(jobs)} clips to embed")
+
+    provider = spec.provider_factory(settings)
+    failures = 0
+    with progress(len(jobs), f"Embedding {spec.name}") as advance:
+        for clip, text in jobs:
+            if spec.requires_video:
+                path = _video_path(clip.id, video_dir)
+                fps_, max_frames, _ = adaptive_sampling(
+                    path,
+                    settings.embeddings.adaptive_max_frames,
+                    settings.embeddings.adaptive_default_fps,
+                )
+            else:
+                path, fps_, max_frames = None, None, None
+
+            blob = _embed_with_token_fallback(
+                provider, spec, clip, text, path, fps_, max_frames
+            )
+            if blob is None:
+                failures += 1
+                advance(detail=f"✗ {clip.id}")
+                continue
+
+            row = ClipEmbedding(
+                clip_id=clip.id,
+                embedding_case=spec.name,
+                embedding=blob,
+                source_hash=per_clip[clip.id],
+            )
+            session.merge(row)
+            session.commit()
+            advance(detail=f"✓ {clip.id}")
+
+    if failures:
+        log(
+            log_tag,
+            f"{failures}/{len(jobs)} failed — leaving stage stale for retry",
+            level="warn",
+        )
+    else:
+        fp.mark_complete(session, STAGE, spec.name, current)
+        session.commit()
+    log(log_tag, "done", level="ok")
 
 
 def _embed_with_token_fallback(

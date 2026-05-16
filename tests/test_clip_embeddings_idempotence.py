@@ -376,3 +376,38 @@ def test_diff_targets_treats_none_as_stale():
 
 def test_diff_targets_empty_per_clip_returns_empty():
     assert _diff_targets({}, {10: "h10"}) == set()
+
+
+def test_adding_new_candidate_only_embeds_the_new_one(
+    db_session, stub_providers, monkeypatch
+):
+    """Adding a clip to the candidate set must not re-embed existing clips."""
+    settings = _settings(stub_providers)
+    _seed(db_session, settings, clips=[dict(id=10, user_id=1)])
+    embed_clip_embeddings(settings, cases=["video"])
+
+    from modules.embeddings import runner as runner_mod
+
+    original = runner_mod._embed_with_token_fallback
+    call_log: list[int] = []
+
+    def tracked(provider, spec, clip, *args, **kwargs):
+        call_log.append(clip.id)
+        return original(provider, spec, clip, *args, **kwargs)
+
+    monkeypatch.setattr(runner_mod, "_embed_with_token_fallback", tracked)
+
+    # Add a second clip without touching the first.
+    _seed(db_session, settings, clips=[dict(id=11, user_id=1)])
+    embed_clip_embeddings(settings, cases=["video"])
+    db_session.expire_all()
+
+    assert call_log == [11], "only the new clip should hit the provider"
+    rows = {
+        r.clip_id: r.source_hash
+        for r in db_session.query(ClipEmbedding).filter_by(embedding_case="video")
+    }
+    assert set(rows) == {10, 11}
+    assert all(v is not None for v in rows.values()), (
+        "every freshly written row must carry a source_hash"
+    )
