@@ -4,10 +4,12 @@ from typing import Any
 from hikerapi import Client
 
 from modules.console import log, progress
-from modules.database import Clip, User, get_session
-from modules.identity import (
+from modules.database import (
+    Clip,
+    User,
     get_api_pk,
     get_or_create_clip_identity,
+    get_session,
     get_username,
     update_user_identity,
 )

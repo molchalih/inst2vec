@@ -5,6 +5,17 @@ from modules.database.engine import (  # noqa: F401  -- re-exports for modules.d
     get_session,
     init_db,
 )
+from modules.database.identity import (  # noqa: F401  -- re-exports for modules.database.*
+    ClipIdentity,
+    IdentityBase,
+    UserIdentity,
+    get_api_pk,
+    get_or_create_clip_identity,
+    get_or_create_user_identity,
+    get_profile_pic_url,
+    get_username,
+    update_user_identity,
+)
 from modules.database.models import (  # noqa: F401  -- re-exports for modules.database.*
     Base,
     Clip,
@@ -27,17 +38,4 @@ from modules.database.predicates import (  # noqa: F401  -- re-exports for modul
     needs_caption_cleaning,
     needs_caption_language_detection,
     needs_caption_translation,
-)
-
-# ── Public-API surface re-exports (transitional; collapsed by package refactor) ──
-from modules.identity import (  # noqa: F401  -- re-exports for modules.database.*
-    ClipIdentity,
-    IdentityBase,
-    UserIdentity,
-    get_api_pk,
-    get_or_create_clip_identity,
-    get_or_create_user_identity,
-    get_profile_pic_url,
-    get_username,
-    update_user_identity,
 )

@@ -146,11 +146,9 @@ def test_fetch_file_no_partial_on_write_failure(tmp_path, monkeypatch):
 @pytest.fixture
 def isolated_db(tmp_path):
     """Point the global engine at a fresh per-test DB, restore after."""
-    from modules import identity as id_mod
     from modules.database import engine as engine_mod
 
     original_main = engine_mod._main_engine
-    original_identity_mod = getattr(id_mod, "_engine", None)
     original_identity_eng = engine_mod._identity_engine
 
     init_db(f"sqlite:///{tmp_path}/main.db", f"sqlite:///{tmp_path}/id.db")
@@ -158,7 +156,6 @@ def isolated_db(tmp_path):
 
     engine_mod._main_engine = original_main
     engine_mod._identity_engine = original_identity_eng
-    id_mod._engine = original_identity_mod
 
 
 def _seed(session, user_id, clip_id, is_selected, is_downloaded, video_url, thumb_url):

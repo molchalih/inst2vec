@@ -7,8 +7,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-import modules.identity as identity_mod
-from modules.identity import (
+from modules.database import (
     ClipIdentity,
     IdentityBase,
     UserIdentity,
@@ -19,16 +18,14 @@ from modules.identity import (
     get_username,
     update_user_identity,
 )
+from modules.database import engine as engine_mod
 
 
 @pytest.fixture(autouse=True)
 def isolated_identity_engine(tmp_path, monkeypatch):
-    """Replace the module-level engine with an in-memory one for each test."""
-    from modules.database import engine as engine_mod
-
+    """Replace the module-level identity engine with an in-memory one for each test."""
     eng = create_engine("sqlite:///:memory:")
     IdentityBase.metadata.create_all(eng)
-    monkeypatch.setattr(identity_mod, "_engine", eng)
     monkeypatch.setattr(engine_mod, "_identity_engine", eng)
     yield eng
 
@@ -191,8 +188,7 @@ def test_load_usernames_from_csv_creates_user_with_sequential_id(tmp_path, monke
         assert all(1 <= uid <= 1000 for uid in user_ids)
 
     # Identity DB: usernames stored there (via the monkeypatched _engine)
-    from modules.database import get_identity_session
-    from modules.identity import UserIdentity
+    from modules.database import UserIdentity, get_identity_session
 
     with get_identity_session() as s:
         usernames = {ui.username for ui in s.query(UserIdentity).all()}
@@ -205,8 +201,7 @@ def test_load_usernames_from_csv_missing_file_is_noop(monkeypatch):
 
     load_usernames_from_csv(csv_path="/nonexistent/path/data.csv")
 
-    from modules.database import get_identity_session
-    from modules.identity import UserIdentity
+    from modules.database import UserIdentity, get_identity_session
 
     with get_identity_session() as s:
         assert s.query(UserIdentity).count() == 0

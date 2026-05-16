@@ -27,7 +27,9 @@ def get_session() -> Session:
 
 
 def get_identity_engine() -> Engine:
-    assert _identity_engine is not None, "Call init_db() before using the identity database"
+    assert _identity_engine is not None, (
+        "Call init_db() before using the identity database"
+    )
     return _identity_engine
 
 
@@ -54,12 +56,6 @@ def init_db(database_url: str, identity_db_url: str) -> None:
         wrapped_url = f"sqlite:///{identity_db_url}"
     _identity_engine = create_engine(wrapped_url)
 
-    # Import lazily to avoid a top-level engine→identity→engine cycle once
-    # the package's identity submodule arrives in Task 6. Today this still
-    # resolves to the flat modules.identity module.
-    from modules.identity import IdentityBase
-    IdentityBase.metadata.create_all(_identity_engine)
+    from modules.database.identity import IdentityBase
 
-    # Keep the legacy modules.identity._engine in sync until Task 6 deletes it.
-    import modules.identity as _identity_mod
-    _identity_mod._engine = _identity_engine
+    IdentityBase.metadata.create_all(_identity_engine)
