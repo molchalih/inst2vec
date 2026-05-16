@@ -13,8 +13,8 @@ from acrcloud.recognizer import ACRCloudRecognizer
 from modules.config import MusicSettings, PathsSettings
 from modules.console import log, progress
 from modules.database import Clip, Music, clip_used_in_analysis, get_session
+from modules.music.clients import TransientError
 from modules.music.state import SCOPE_CLASSIFY
-from modules.services import TransientError
 
 
 @dataclass(frozen=True)
@@ -35,7 +35,7 @@ def _fingerprint(
     """Try ACR fingerprinting up to max_attempts on transient failures.
 
     Returns (artist, track, score) on match, None on clean no-match.
-    Raises modules.services.TransientError after exhausted retries.
+    Raises modules.music.clients.TransientError after exhausted retries.
     """
     last_exc: Exception | None = None
     for attempt in range(max_attempts):

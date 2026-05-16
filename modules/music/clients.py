@@ -1,4 +1,4 @@
-"""Shared services: Spotify and ReccoBeats HTTP clients."""
+"""Music-stage HTTP clients: Spotify and ReccoBeats."""
 
 from __future__ import annotations
 
@@ -24,11 +24,6 @@ def _is_transient_http(exc: Exception) -> bool:
     if isinstance(exc, httpx.HTTPStatusError):
         return exc.response.status_code in (429, 500, 502, 503, 504)
     return False
-
-
-def chunked(lst: list, n: int):
-    for i in range(0, len(lst), n):
-        yield lst[i : i + n]
 
 
 def _spotify_id_from_href(href: str | None) -> str | None:
@@ -182,6 +177,11 @@ class ReccoBeatsClient:
     def _sleep_retry(self) -> None:
         time.sleep(self._retry_delay + random.uniform(0, self._retry_jitter))
 
+    @staticmethod
+    def _chunked(lst: list, n: int):
+        for i in range(0, len(lst), n):
+            yield lst[i : i + n]
+
     def _try_request(self, method: str, url: str, **kwargs):
         """Issue a single HTTP request, raise httpx errors directly."""
         return self._http.request(method, url, timeout=self._timeout, **kwargs)
@@ -213,7 +213,7 @@ class ReccoBeatsClient:
         self, spotify_ids: list[str], on_batch: OnBatch | None = None
     ) -> dict[str, str]:
         out: dict[str, str] = {}
-        batches = list(chunked(spotify_ids, self._batch))
+        batches = list(self._chunked(spotify_ids, self._batch))
         for i, batch in enumerate(batches, 1):
 
             def fetch(batch=batch):
@@ -241,7 +241,7 @@ class ReccoBeatsClient:
         self, rb_ids: list[str], on_batch: OnBatch | None = None
     ) -> dict[str, dict]:
         out: dict[str, dict] = {}
-        batches = list(chunked(rb_ids, self._batch))
+        batches = list(self._chunked(rb_ids, self._batch))
         for i, batch in enumerate(batches, 1):
 
             def fetch(batch=batch):

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from modules.config import MusicSettings
 from modules.database import Base, Clip, Music, User
+from modules.music.clients import TransientError
 from modules.music.features import (
     _enrich_catalog_features,
     _enrich_upload_fallback,
@@ -15,7 +16,6 @@ from modules.music.features import (
     _resolve_spotify_ids,
 )
 from modules.music.state import _NO_MATCH, music_has_features
-from modules.services import TransientError
 
 
 def _music_settings(**overrides) -> MusicSettings:

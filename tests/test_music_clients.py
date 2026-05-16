@@ -1,11 +1,11 @@
-"""Tests for services module: SpotifyClient and ReccoBeatsClient constructors."""
+"""Tests for modules.music.clients: SpotifyClient and ReccoBeatsClient."""
 
 import inspect
 
 import httpx
 import pytest
 
-from modules.services import ReccoBeatsClient, SpotifyClient, TransientError
+from modules.music.clients import ReccoBeatsClient, SpotifyClient, TransientError
 
 
 def test_spotify_client_takes_credentials():
