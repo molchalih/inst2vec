@@ -29,33 +29,23 @@ No other files change. `tests/test_main_runtime.py` patches `main.plot_clusters`
 
 ## Pre-flight
 
-Branch `feature/music-clients-relocation` (current) is scoped to unrelated work. This plan assumes a dedicated branch.
+The design spec (`docs/superpowers/specs/2026-05-16-visualization-init-side-effects-design.md`) and this plan both live on `main`. The implementation goes on its own branch.
 
-- [ ] **Step 0a: Confirm clean working tree**
+- [ ] **Step 0a: Confirm clean working tree on `main`**
 
 Run: `git status`
-Expected: only `M modules/clustering/assign.py` (pre-existing unrelated change) and the committed design spec. If other modified files appear, stop and surface them.
+Expected: working tree clean (the spec and plan are already committed). If anything is modified or staged, stop and surface it.
 
 - [ ] **Step 0b: Create the working branch from `main`**
 
 Run:
 ```bash
 git fetch origin
-git checkout -b refactor/visualization-init-side-effects origin/main
+git checkout -b refactor/visualization-init-side-effects main
 ```
-Expected: switched to a new branch tracking `main`.
+Expected: switched to a new branch starting at `main`. Both the design spec and this plan come along automatically.
 
-- [ ] **Step 0c: Cherry-pick the design spec onto the new branch**
-
-The spec was committed on `feature/music-clients-relocation` (commit `3244b54`). Bring it along:
-
-Run:
-```bash
-git cherry-pick 3244b54
-```
-Expected: clean cherry-pick — the spec is the only file in that commit and `main` does not have it.
-
-- [ ] **Step 0d: Baseline tests pass before any code change**
+- [ ] **Step 0c: Baseline tests pass before any code change**
 
 Run: `uv run pytest tests/test_visualization.py tests/test_cluster_case_plots.py tests/test_main_runtime.py -v`
 Expected: all green. If any test fails, stop and surface — this plan assumes a passing baseline.
