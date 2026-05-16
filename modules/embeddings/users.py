@@ -1,11 +1,17 @@
 """User-level embedding aggregation.
 
-The public ``embed_user_embeddings(settings, cases=None)`` entry point is
-added in a later task once state and case-registry submodules exist.
+Stage is wired to the fingerprint layer (modules.fingerprint). For each
+embedding_case the stage:
 
-TODO: when the universal idempotence/hash module lands, guard the
-recompute-and-merge cycle with a recipe-hash check so this stage becomes
-idempotent without touching every clip embedding row.
+  1. computes Fingerprint(data, config, dependency) from the actual
+     ClipEmbedding rows for the case;
+  2. if stale, deletes its UserEmbedding rows for the case, recomputes,
+     and merges StageState; commits once at the end so the seal lands
+     in the same transaction as the rewrite;
+  3. if not stale, logs and skips.
+
+config_hash is currently constant ("agg=mean_pool|v=1"). Bump the
+version tag when the aggregator changes.
 """
 
 from __future__ import annotations
@@ -14,7 +20,23 @@ from collections import defaultdict
 
 import numpy as np
 
+from modules import fingerprint as fp
+from modules.console import log
+from modules.database import (
+    Base,
+    ClipEmbedding,
+    UserEmbedding,
+    get_engine,
+    get_session,
+)
+from modules.embeddings.cases import DEFAULT_CASES
+from modules.embeddings.state import (
+    get_clip_embedding_rows_for_user_aggregation,
+)
 from modules.embeddings.vectors import bytes_to_array
+
+STAGE = "user_embeddings"
+_CONFIG_IDENTITY = "agg=mean_pool|v=1"
 
 
 def aggregate_user_embeddings_from_rows(
@@ -30,49 +52,67 @@ def aggregate_user_embeddings_from_rows(
     }
 
 
-# ── public API ───────────────────────────────────────────────────────────────
+def _compute_fingerprint(session, case: str) -> fp.Fingerprint:
+    dep_rows = (
+        session.query(ClipEmbedding.clip_id, ClipEmbedding.updated_at)
+        .filter(ClipEmbedding.embedding_case == case)
+        .order_by(ClipEmbedding.clip_id)
+        .all()
+    )
+    dep = fp.hash_rows(
+        (r.clip_id, r.updated_at.isoformat() if r.updated_at else "") for r in dep_rows
+    )
+
+    # Participating users derived from the same rows; one source of truth.
+    agg_rows = get_clip_embedding_rows_for_user_aggregation(session, case)
+    user_ids = sorted({user_id for _, user_id in agg_rows})
+    data = fp.hash_rows((uid,) for uid in user_ids)
+
+    return fp.Fingerprint(
+        data=data,
+        config=fp.hash_text(_CONFIG_IDENTITY),
+        dependency=dep,
+    )
+
+
+def _clear_case(session, case: str) -> None:
+    session.query(UserEmbedding).filter_by(embedding_case=case).delete()
+    session.commit()
+
+
+def _recompute_case(session, case: str) -> None:
+    rows = get_clip_embedding_rows_for_user_aggregation(session, case)
+    aggregated = aggregate_user_embeddings_from_rows(rows)
+    log(f"embed:user:{case}", f"{len(aggregated)} users to embed")
+    for user_id, mean_blob in aggregated.items():
+        session.merge(
+            UserEmbedding(user_id=user_id, embedding_case=case, embedding=mean_blob)
+        )
+        session.commit()
 
 
 def embed_user_embeddings(settings, cases: list[str] | None = None) -> None:
-    """Recompute and merge UserEmbedding rows for each case.
+    """Recompute and merge UserEmbedding rows for each case when stale.
 
-    For now this always recomputes from all available ClipEmbedding rows
-    for the case. Eligibility filtering happens upstream at the clip
-    embedding stage.
-
-    TODO: guard with the universal idempotence/hash module once that
-    module exists. ``settings`` is accepted for forward-compatibility
-    even though no field is read today.
+    ``settings`` is accepted for forward-compatibility; no field is read
+    today.
     """
-    from modules.console import log
-    from modules.database import Base, UserEmbedding, get_engine, get_session
-    from modules.embeddings.cases import DEFAULT_CASES
-    from modules.embeddings.state import (
-        get_clip_embedding_rows_for_user_aggregation,
-    )
-
     case_names = list(cases) if cases is not None else list(DEFAULT_CASES)
     Base.metadata.create_all(get_engine())
     session = get_session()
     try:
         for case in case_names:
-            rows = get_clip_embedding_rows_for_user_aggregation(session, case)
-            if not rows:
-                log(f"embed:user:{case}", "nothing to do")
+            current = _compute_fingerprint(session, case)
+            if not fp.is_stale(session, STAGE, case, current):
+                log(f"embed:user:{case}", "fingerprint match — skipping")
                 continue
 
-            aggregated = aggregate_user_embeddings_from_rows(rows)
-            log(f"embed:user:{case}", f"{len(aggregated)} users to embed")
-
-            for user_id, mean_blob in aggregated.items():
-                row = UserEmbedding(
-                    user_id=user_id,
-                    embedding_case=case,
-                    embedding=mean_blob,
-                )
-                session.merge(row)
-                session.commit()
-
+            diff = fp.describe_diff(session, STAGE, case, current)
+            log(f"embed:user:{case}", f"stale ({diff}) — recomputing")
+            _clear_case(session, case)
+            _recompute_case(session, case)
+            fp.mark_complete(session, STAGE, case, current)
+            session.commit()
             log(f"embed:user:{case}", "done", level="ok")
     finally:
         session.close()
