@@ -495,15 +495,32 @@ def test_unchanged_fingerprint_skips_recomputation(monkeypatch):
 
 
 def test_changed_embeddings_wipes_and_recomputes(monkeypatch):
-    """Mutating a UserEmbedding blob invalidates fingerprint and rewrites."""
+    """Mutating a UserEmbedding blob invalidates fingerprint and rewrites.
+
+    Asserts that the ClusterRun row was deleted and reinserted (not just
+    skipped) by making the second compute return a different n_clusters value
+    and checking that the stored row reflects the new value.  If the delete
+    path were broken the old row would remain and n_clusters would not change.
+    """
     from modules.clustering import run_cluster_search
     from modules.database import ClusterRun, StageState, get_session
 
     call_count = [0]
 
     def counting_compute(matrix, **kw):
+        # Return n_clusters=2 on the first call, n_clusters=3 on subsequent calls.
+        n = 2 if call_count[0] == 0 else 3
         call_count[0] += 1
-        return _fake_result()
+        labels = np.array([i % n for i in range(80)])
+        coords = np.zeros((80, 2), dtype=np.float32)
+        sizes = [80 // n] * n
+        return ClusterResult(
+            labels=labels,
+            coords_2d=coords,
+            n_clusters=n,
+            noise_ratio=0.0,
+            cluster_sizes=sizes,
+        )
 
     monkeypatch.setattr("modules.clustering.search.compute_clusters", counting_compute)
 
@@ -515,11 +532,13 @@ def test_changed_embeddings_wipes_and_recomputes(monkeypatch):
     try:
         assert session.query(ClusterRun).count() == 1  # video only
         first_hash = session.get(StageState, ("cluster_search", "video")).data_hash
+        first_n_clusters = session.query(ClusterRun).first().n_clusters
     finally:
         session.close()
 
     calls_after_first = call_count[0]
     assert calls_after_first >= 1
+    assert first_n_clusters == 2
 
     _mutate_one_embedding()
     run_cluster_search(settings)
@@ -528,12 +547,15 @@ def test_changed_embeddings_wipes_and_recomputes(monkeypatch):
     try:
         assert session.query(ClusterRun).count() == 1  # still video only
         second_hash = session.get(StageState, ("cluster_search", "video")).data_hash
+        second_n_clusters = session.query(ClusterRun).first().n_clusters
     finally:
         session.close()
 
     # fingerprint changed → compute ran again → new StageState data_hash
     assert call_count[0] > calls_after_first
     assert first_hash != second_hash  # fingerprint was updated
+    # delete-then-reinsert path stored the new result from the second compute
+    assert second_n_clusters == 3
 
 
 def test_changed_grid_config_wipes_and_recomputes(monkeypatch):

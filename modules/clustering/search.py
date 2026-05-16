@@ -18,7 +18,6 @@ from modules.database import (
     Base,
     Clip,
     ClusterRun,
-    StageState,  # noqa: F401 — imported for type visibility; used via fp.mark_complete
     UserEmbedding,
     clip_used_in_analysis,
     get_engine,
@@ -221,6 +220,8 @@ def run_cluster_search(settings, clustering_grid_workers: int = 1) -> None:
             log(f"cluster_search:{case}", "no analysis embeddings — sealing empty")
 
         # 4. short write section
+        # Open write session only after compute completes — long UMAP/HDBSCAN
+        # work must not run inside an open write transaction.
         session = get_session()
         try:
             session.query(ClusterRun).filter(ClusterRun.embedding_case == case).delete()
