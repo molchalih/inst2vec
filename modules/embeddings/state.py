@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
-from modules import fingerprint as fp
 from modules.database import (
     Clip,
     ClipEmbedding,
@@ -174,17 +173,3 @@ def dependency_rows_for_case(
         return [tuple(r) for r in rows]
 
     raise ValueError(f"Unknown embedding case: {case!r}")
-
-
-def per_clip_source_hashes_and_aggregate(
-    session: Session, case: str, candidate_ids: list[int]
-) -> tuple[dict[int, str], str]:
-    """Return ({clip_id: per_clip_hash}, aggregate_hash) for ``case``.
-
-    Both values are derived from the same call to ``dependency_rows_for_case``
-    so the per-clip hashes and the stage-level aggregate stay byte-identical.
-    """
-    rows = dependency_rows_for_case(session, case, candidate_ids)
-    per_clip = {r[0]: fp.hash_rows([r]) for r in rows}
-    aggregate = fp.hash_rows(rows)
-    return per_clip, aggregate

@@ -61,16 +61,9 @@ def _compute_fingerprint(
     return fp.Fingerprint(data=data, config=config, dependency=dependency)
 
 
-def _wipe_case(session, case: str) -> None:
+def _clear_case(session, case: str) -> None:
     session.query(ClipEmbedding).filter_by(embedding_case=case).delete()
     session.commit()
-
-
-def _diff_targets(
-    per_clip: dict[int, str], embedded: dict[int, str | None]
-) -> set[int]:
-    """Clip ids that need (re-)embedding: missing rows or stored hash != desired."""
-    return {cid for cid, want in per_clip.items() if embedded.get(cid) != want}
 
 
 def _run_case(settings, spec: EmbeddingCaseSpec) -> None:
@@ -89,7 +82,7 @@ def _run_case(settings, spec: EmbeddingCaseSpec) -> None:
 
         diff = fp.describe_diff(session, STAGE, spec.name, current)
         log(log_tag, f"stale ({diff}) — recomputing")
-        _wipe_case(session, spec.name)
+        _clear_case(session, spec.name)
 
         # Materialize work list now that the case is cleared.
         music_map: dict = {}
