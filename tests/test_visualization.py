@@ -12,8 +12,8 @@ from unittest.mock import MagicMock
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 
-from generators.cluster_case_plots import _plot_case
 from modules.visualization import plot_clusters
+from modules.visualization.plots.cluster_case_plots import _plot_case
 
 
 def _rows(xs, ys, labels):

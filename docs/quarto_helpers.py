@@ -50,8 +50,10 @@ def _get_default_engine() -> Engine:
 def render_clustering_summary(*, eng=None) -> Markdown:
     _ensure_project_root_on_path()
 
-    from generators.cluster_results_all import summarize_all_to_markdown
     from modules.clustering import DEFAULT_CASES
+    from modules.visualization.tables.cluster_results_all import (
+        summarize_all_to_markdown,
+    )
 
     if eng is None:
         eng = _get_default_engine()
@@ -67,7 +69,7 @@ def render_clustering_summary(*, eng=None) -> Markdown:
 def render_clustering_summary_by_case(case: str, *, eng=None) -> Markdown:
     _ensure_project_root_on_path()
 
-    from generators.cluster_results_all import summarize_to_markdown
+    from modules.visualization.tables.cluster_results_all import summarize_to_markdown
 
     if eng is None:
         eng = _get_default_engine()
@@ -78,8 +80,10 @@ def render_clustering_summary_by_case(case: str, *, eng=None) -> Markdown:
 def render_best_cluster_run(*, eng=None) -> Markdown:
     _ensure_project_root_on_path()
 
-    from generators.cluster_results_best import best_runs_all_to_markdown
     from modules.clustering import DEFAULT_CASES
+    from modules.visualization.tables.cluster_results_best import (
+        best_runs_all_to_markdown,
+    )
 
     if eng is None:
         eng = _get_default_engine()
@@ -93,7 +97,9 @@ def render_best_cluster_run(*, eng=None) -> Markdown:
 def render_users_summary(*, eng=None) -> Markdown:
     _ensure_project_root_on_path()
 
-    from generators.dataset_summary_users import users_summary_to_markdown
+    from modules.visualization.tables.dataset_summary_users import (
+        users_summary_to_markdown,
+    )
 
     if eng is None:
         eng = _get_default_engine()
@@ -104,7 +110,9 @@ def render_users_summary(*, eng=None) -> Markdown:
 def get_users_summary_cells(*, eng=None) -> dict[str, str]:
     _ensure_project_root_on_path()
 
-    from generators.dataset_summary_users import get_users_summary_cells
+    from modules.visualization.tables.dataset_summary_users import (
+        get_users_summary_cells,
+    )
 
     if eng is None:
         eng = _get_default_engine()
@@ -118,7 +126,9 @@ def get_users_summary_cells(*, eng=None) -> dict[str, str]:
 def render_clips_summary(*, eng=None) -> Markdown:
     _ensure_project_root_on_path()
 
-    from generators.dataset_summary_clips import clips_summary_to_markdown
+    from modules.visualization.tables.dataset_summary_clips import (
+        clips_summary_to_markdown,
+    )
 
     if eng is None:
         eng = _get_default_engine()
@@ -129,7 +139,9 @@ def render_clips_summary(*, eng=None) -> Markdown:
 def get_clips_summary_cells(*, eng=None) -> dict[str, str]:
     _ensure_project_root_on_path()
 
-    from generators.dataset_summary_clips import get_clips_summary_cells
+    from modules.visualization.tables.dataset_summary_clips import (
+        get_clips_summary_cells,
+    )
 
     if eng is None:
         eng = _get_default_engine()
@@ -140,7 +152,9 @@ def get_clips_summary_cells(*, eng=None) -> dict[str, str]:
 def render_spotify_feature_metrics() -> Markdown:
     _ensure_project_root_on_path()
 
-    from generators.spotify_feature_metrics import spotify_feature_metrics_to_markdown
+    from modules.visualization.tables.spotify_feature_metrics import (
+        spotify_feature_metrics_to_markdown,
+    )
 
     return Markdown(spotify_feature_metrics_to_markdown())
 
@@ -153,7 +167,9 @@ def render_cluster_plot_by_case(
 ):
     _ensure_project_root_on_path()
 
-    from generators.cluster_case_plots import cluster_plot_figure_for_case
+    from modules.visualization.plots.cluster_case_plots import (
+        cluster_plot_figure_for_case,
+    )
 
     if eng is None:
         eng = _get_default_engine()

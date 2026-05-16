@@ -89,7 +89,9 @@ def test_summarize_all_to_markdown_unified_table():
         )
         s.commit()
 
-    from generators.cluster_results_all import summarize_all_to_markdown
+    from modules.visualization.tables.cluster_results_all import (
+        summarize_all_to_markdown,
+    )
 
     out = summarize_all_to_markdown(
         eng,
@@ -141,7 +143,9 @@ def test_summarize_all_to_markdown_reports_total_and_filtered_counts():
         )
         s.commit()
 
-    from generators.cluster_results_all import summarize_all_to_markdown
+    from modules.visualization.tables.cluster_results_all import (
+        summarize_all_to_markdown,
+    )
 
     out = summarize_all_to_markdown(eng, cases=("audio",))
 
@@ -193,7 +197,9 @@ def test_render_clustering_summary_returns_markdown_object():
         s.commit()
 
     from docs.quarto_helpers import render_clustering_summary
-    from generators.cluster_results_all import summarize_all_to_markdown
+    from modules.visualization.tables.cluster_results_all import (
+        summarize_all_to_markdown,
+    )
 
     rendered = render_clustering_summary(eng=eng)
 
@@ -207,7 +213,9 @@ def test_render_clustering_summary_returns_markdown_object():
 def test_summarize_all_to_markdown_raises_on_empty_cases():
     eng = _make_engine()
 
-    from generators.cluster_results_all import summarize_all_to_markdown
+    from modules.visualization.tables.cluster_results_all import (
+        summarize_all_to_markdown,
+    )
 
     try:
         summarize_all_to_markdown(eng, cases=())
@@ -230,10 +238,13 @@ def test_summarize_all_to_markdown_delegates_summary(monkeypatch):
         }
 
     monkeypatch.setattr(
-        "generators.cluster_results_all.summarize_case_for_markdown", fake_summary
+        "modules.visualization.tables.cluster_results_all.summarize_case_for_markdown",
+        fake_summary,
     )
 
-    from generators.cluster_results_all import summarize_all_to_markdown
+    from modules.visualization.tables.cluster_results_all import (
+        summarize_all_to_markdown,
+    )
 
     eng = _make_engine()
     out = summarize_all_to_markdown(eng, cases=("audio",))

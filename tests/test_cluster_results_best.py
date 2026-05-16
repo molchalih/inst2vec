@@ -82,7 +82,7 @@ def test_best_run_to_markdown_uses_validation_pick_for_case(monkeypatch):
         )
         s.commit()
 
-    from generators.cluster_results_best import best_run_to_markdown
+    from modules.visualization.tables.cluster_results_best import best_run_to_markdown
 
     out = best_run_to_markdown(eng, "audio")
 
@@ -142,7 +142,9 @@ def test_best_runs_all_to_markdown_unified_table(monkeypatch):
         )
         s.commit()
 
-    from generators.cluster_results_best import best_runs_all_to_markdown
+    from modules.visualization.tables.cluster_results_best import (
+        best_runs_all_to_markdown,
+    )
 
     out = best_runs_all_to_markdown(eng, cases=("audio", "video", "sandwich"))
 
@@ -169,7 +171,9 @@ def test_render_best_cluster_run_returns_markdown_object(monkeypatch):
         s.commit()
 
     from docs.quarto_helpers import render_best_cluster_run
-    from generators.cluster_results_best import best_runs_all_to_markdown
+    from modules.visualization.tables.cluster_results_best import (
+        best_runs_all_to_markdown,
+    )
 
     rendered = render_best_cluster_run(eng=eng)
 
@@ -200,10 +204,11 @@ def test_best_run_to_markdown_delegates_selection(monkeypatch):
         return session.get(ClusterRun, row_id)
 
     monkeypatch.setattr(
-        "generators.cluster_results_best.select_best_cluster_run", fake_select
+        "modules.visualization.tables.cluster_results_best.select_best_cluster_run",
+        fake_select,
     )
 
-    from generators.cluster_results_best import best_run_to_markdown
+    from modules.visualization.tables.cluster_results_best import best_run_to_markdown
 
     out = best_run_to_markdown(eng, "audio")
 

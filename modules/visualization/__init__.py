@@ -7,9 +7,9 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from generators.cluster_case_plots import cluster_plot_figure_for_case
 from modules.console import log
 from modules.database import UserCluster, get_session
+from modules.visualization.plots.cluster_case_plots import cluster_plot_figure_for_case
 
 PLOTS_DIR = "data/plots"
 
