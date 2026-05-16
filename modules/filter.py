@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import math
 import random
 import statistics
@@ -8,8 +9,13 @@ from typing import Any
 import numpy as np
 from sqlalchemy.orm import Session
 
+from modules import fingerprint as fp
 from modules.config import FilterSettings
+from modules.console import log
 from modules.database import Clip, User, UserStats
+
+STAGE = "filter"
+SCOPE = "all"
 
 HARD_CLIP_EXCLUSION_FLAGS: tuple[str, ...] = (
     "is_garbage",
@@ -331,6 +337,28 @@ def _random_sample(session: Session, cfg: FilterSettings) -> None:
     select_clips(session, cfg)
 
 
+def _fingerprint(session: Session, cfg: FilterSettings) -> fp.Fingerprint:
+    user_rows = session.query(User.id).order_by(User.id).all()
+    clip_rows = (
+        session.query(
+            Clip.id,
+            Clip.user_id,
+            Clip.play_count,
+            Clip.video_duration,
+            Clip.taken_at,
+            Clip.video_url,
+            Clip.like_count,
+        )
+        .order_by(Clip.id)
+        .all()
+    )
+    rows = [("u", *r) for r in user_rows] + [("c", *r) for r in clip_rows]
+    data = fp.hash_rows(rows)
+    config = fp.hash_text(json.dumps(cfg.model_dump(), sort_keys=True, default=str))
+    dependency = fp.hash_text("")
+    return fp.Fingerprint(data=data, config=config, dependency=dependency)
+
+
 def process_dataset(
     cfg: FilterSettings,
     *,
@@ -340,11 +368,19 @@ def process_dataset(
 
     eng = engine or get_engine()
     with Session(eng) as session:
-        _reset_dataset_processing_state(session)
+        current = _fingerprint(session, cfg)
+        if not fp.is_stale(session, STAGE, SCOPE, current):
+            log("filter", "fingerprint match — skipping")
+            return
 
+        diff = fp.describe_diff(session, STAGE, SCOPE, current)
+        log("filter", f"stale ({diff}) — recomputing")
+
+        _reset_dataset_processing_state(session)
         _hard_preprocess(session, cfg)
         calculate_user_stats(session)
         _soft_preprocess(session, cfg)
         _random_sample(session, cfg)
 
+        fp.mark_complete(session, STAGE, SCOPE, current)
         session.commit()

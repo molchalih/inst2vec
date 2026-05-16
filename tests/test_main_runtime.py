@@ -114,6 +114,9 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
     )
     monkeypatch.setattr(main, "fetch_profiles", lambda **kwargs: calls.append("parse"))
     monkeypatch.setattr(
+        main, "process_dataset", lambda *args, **kwargs: calls.append("filter")
+    )
+    monkeypatch.setattr(
         main, "download_files", lambda *args, **kwargs: calls.append("download")
     )
     monkeypatch.setattr(
