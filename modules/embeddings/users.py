@@ -16,6 +16,7 @@ version tag when the aggregator changes.
 
 from __future__ import annotations
 
+import hashlib
 from collections import defaultdict
 
 import numpy as np
@@ -53,14 +54,18 @@ def aggregate_user_embeddings_from_rows(
 
 
 def _compute_fingerprint(session, case: str) -> fp.Fingerprint:
+    # Hash the embedding bytes (not updated_at): SQLite CURRENT_TIMESTAMP has
+    # second precision, so a row can be replaced with different bytes inside
+    # the same second and updated_at would not advance — leaving stale
+    # UserEmbedding rows.
     dep_rows = (
-        session.query(ClipEmbedding.clip_id, ClipEmbedding.updated_at)
+        session.query(ClipEmbedding.clip_id, ClipEmbedding.embedding)
         .filter(ClipEmbedding.embedding_case == case)
         .order_by(ClipEmbedding.clip_id)
         .all()
     )
     dep = fp.hash_rows(
-        (r.clip_id, r.updated_at.isoformat() if r.updated_at else "") for r in dep_rows
+        (r.clip_id, hashlib.sha256(r.embedding).hexdigest()) for r in dep_rows
     )
 
     # Participating users derived from the same rows; one source of truth.

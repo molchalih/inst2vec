@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
-
 import numpy as np
 import pytest
 
@@ -106,16 +104,12 @@ def test_clip_embedding_change_triggers_user_recompute(db_session):
     _seed_clip_embeddings(db_session, "video", [(10, [1.0, 0.0])])
     embed_user_embeddings(_settings_stub(), cases=["video"])
 
-    # Bump the ClipEmbedding row so updated_at advances, with a new vector.
     row = (
         db_session.query(ClipEmbedding)
         .filter_by(clip_id=10, embedding_case="video")
         .one()
     )
     row.embedding = _blob([7.0, 0.0])
-    # SQLite does not execute server-side onupdate triggers via the ORM, so
-    # we set updated_at explicitly to ensure the dependency hash changes.
-    row.updated_at = datetime.now(tz=UTC) + timedelta(seconds=1)
     db_session.commit()
 
     embed_user_embeddings(_settings_stub(), cases=["video"])
@@ -127,6 +121,40 @@ def test_clip_embedding_change_triggers_user_recompute(db_session):
     )
     np.testing.assert_array_almost_equal(
         np.frombuffer(ue.embedding, dtype=np.float32), [7.0, 0.0]
+    )
+
+
+def test_clip_embedding_bytes_change_without_updated_at_change(db_session):
+    """Bytes-only change must invalidate the user-stage dependency.
+
+    Simulates the production hazard: when the clip-embeddings stage clears
+    and re-inserts rows inside the same SQLite second, updated_at stays
+    identical (second precision) while the bytes differ. The dependency
+    hash must still flip on the bytes.
+    """
+    _seed_users_and_clips(db_session, [(1, 10)])
+    _seed_clip_embeddings(db_session, "video", [(10, [1.0, 0.0])])
+    embed_user_embeddings(_settings_stub(), cases=["video"])
+
+    row = (
+        db_session.query(ClipEmbedding)
+        .filter_by(clip_id=10, embedding_case="video")
+        .one()
+    )
+    pinned_updated_at = row.updated_at
+    row.embedding = _blob([9.0, 0.0])
+    row.updated_at = pinned_updated_at  # pin to simulate same-second precision
+    db_session.commit()
+
+    embed_user_embeddings(_settings_stub(), cases=["video"])
+    db_session.expire_all()
+    ue = (
+        db_session.query(UserEmbedding)
+        .filter_by(user_id=1, embedding_case="video")
+        .one()
+    )
+    np.testing.assert_array_almost_equal(
+        np.frombuffer(ue.embedding, dtype=np.float32), [9.0, 0.0]
     )
 
 
