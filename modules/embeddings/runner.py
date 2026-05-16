@@ -121,7 +121,15 @@ def _run_case(settings, spec: EmbeddingCaseSpec) -> None:
         log(log_tag, f"{len(target_ids)} clip(s) to (re-)embed")
 
         _embed_targets(
-            session, spec, settings, log_tag, candidates, target_ids, per_clip, current
+            session,
+            spec,
+            settings,
+            log_tag,
+            candidates,
+            target_ids,
+            per_clip,
+            embedded,
+            current,
         )
     finally:
         session.close()
@@ -135,13 +143,25 @@ def _embed_targets(
     candidates: list[Clip],
     target_ids: set[int],
     per_clip: dict[int, str],
+    embedded: dict[int, str | None],
     current: fp.Fingerprint,
 ) -> None:
     """Embed the subset of ``candidates`` whose ids are in ``target_ids``.
 
     Writes ``source_hash`` on every merged row so future runs can diff. On
-    full success seals the stage; on any failure leaves stage unsealed so the
-    next run retries only the still-missing/stale clips.
+    full success seals the stage; on any failure (or on a stale row that
+    can no longer be rebuilt) leaves stage unsealed so the next run
+    retries only the still-missing/stale clips.
+
+    ``embedded`` carries the pre-run ``clip_id → stored source_hash`` map
+    so we can distinguish two skip cases:
+
+    * **Previously embedded but now un-buildable** (video file vanished,
+      text_builder went from text → None): the existing row is stale.
+      Delete it so aggregation can't read it, and refuse to seal.
+    * **Never embedded and currently un-buildable** (e.g. an audio case
+      for a clip that has no speech): nothing stale to remove, the
+      candidate is simply non-embeddable for this case; safe to seal.
     """
     targets = [c for c in candidates if c.id in target_ids]
 
@@ -152,20 +172,57 @@ def _embed_targets(
 
     video_dir = settings.paths.video_dir
     jobs: list[tuple[Clip, str | None]] = []
+    stale_skipped: list[int] = []  # had a row, can't rebuild → block sealing
+    fresh_skipped = 0  # never had a row, can't build → fine to seal
     for clip in targets:
+        had_row = clip.id in embedded
         if spec.requires_video:
             path = _video_path(clip.id, video_dir)
             if not os.path.exists(path):
+                if had_row:
+                    stale_skipped.append(clip.id)
+                else:
+                    fresh_skipped += 1
                 continue
         text: str | None = None
         if spec.text_builder is not None:
             text = spec.text_builder(clip, music_map)
             if text is None:
+                if had_row:
+                    stale_skipped.append(clip.id)
+                else:
+                    fresh_skipped += 1
                 continue
         jobs.append((clip, text))
 
+    # Drop rows whose inputs are no longer reproducible so downstream
+    # aggregation cannot consume stale embeddings. Keep the stage
+    # unsealed for those — the inconsistency stays loud rather than
+    # silently sealed as current.
+    if stale_skipped:
+        session.query(ClipEmbedding).filter(
+            ClipEmbedding.embedding_case == spec.name,
+            ClipEmbedding.clip_id.in_(stale_skipped),
+        ).delete(synchronize_session=False)
+        session.commit()
+        log(
+            log_tag,
+            f"{len(stale_skipped)} previously-embedded target(s) no longer "
+            "buildable — dropped stale row(s), leaving stage stale for retry",
+            level="warn",
+        )
+
     if not jobs:
-        log(log_tag, "nothing to embed (empty work set after filtering)")
+        if stale_skipped:
+            return  # do not seal — un-buildable stale targets remain unresolved
+        if fresh_skipped:
+            log(
+                log_tag,
+                f"{fresh_skipped} candidate(s) non-embeddable for this case "
+                "(no prior row) — sealing",
+            )
+        else:
+            log(log_tag, "nothing to embed (empty work set after filtering)")
         fp.mark_complete(session, STAGE, spec.name, current)
         session.commit()
         return
@@ -204,10 +261,10 @@ def _embed_targets(
             session.commit()
             advance(detail=f"✓ {clip.id}")
 
-    if failures:
+    if failures or stale_skipped:
         log(
             log_tag,
-            f"{failures}/{len(jobs)} failed — leaving stage stale for retry",
+            f"{failures}/{len(jobs)} failed, {len(stale_skipped)} un-buildable stale — leaving stage stale for retry",
             level="warn",
         )
     else:

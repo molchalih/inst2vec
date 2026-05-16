@@ -3,16 +3,23 @@
 The clip-embedding stage is now incremental: it re-embeds only clips whose
 per-row source hash differs from what is stored on the row. After this
 schema change every existing row needs its ``source_hash`` populated from
-current upstream state. Without backfill the stage still works — every
-NULL counts as "stale" and gets re-embedded on first run — but that costs
-hours on large datasets.
+current upstream state — but **only when we can prove the stored
+embedding still matches current upstream**. Without that check the
+backfill would stamp current hashes onto stale embedding rows, and the
+next incremental run's diff would treat those stale embeddings as
+already-current.
 
 This script:
+
   1. Adds the ``source_hash`` column to ``clip_embeddings`` if missing
      (SQLite + PostgreSQL both accept ``ALTER TABLE ADD COLUMN``).
-  2. For each ``embedding_case`` present in the table, computes per-clip
-     dependency hashes via ``per_clip_source_hashes_and_aggregate`` and
-     writes them into rows whose ``source_hash`` is NULL.
+  2. For each ``embedding_case`` present in the table, reconstructs the
+     runner's ``Fingerprint`` against current upstream and compares it
+     to the case's stored ``StageState``. Only when the fingerprints
+     match (i.e. the stage was sealed against today's upstream) does it
+     write the per-clip hash onto NULL rows. Otherwise it leaves them
+     NULL — a NULL counts as "stale" and the next pipeline run will
+     re-embed, which is the safe fallback.
 
 Idempotent: re-running on a fully-backfilled DB is a no-op.
 
@@ -33,13 +40,17 @@ from sqlalchemy.orm import Session
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from modules import fingerprint as fp
 from modules.database import ClipEmbedding
+from modules.embeddings.cases import CASE_REGISTRY, case_config_identity
 from modules.embeddings.state import (
+    get_clip_embedding_candidates,
     per_clip_source_hashes_and_aggregate,
 )
 
 TABLE = "clip_embeddings"
 NEW_COLUMN = "source_hash"
+STAGE = "clip_embeddings"
 
 
 def _ensure_column(engine: Engine) -> None:
@@ -55,7 +66,7 @@ def _ensure_column(engine: Engine) -> None:
     print(f"  OK: added {TABLE}.{NEW_COLUMN}")
 
 
-def _backfill(engine: Engine) -> None:
+def _backfill(engine: Engine, settings) -> None:
     inspector = inspect(engine)
     if TABLE not in inspector.get_table_names():
         return
@@ -78,22 +89,60 @@ def _backfill(engine: Engine) -> None:
                 print(f"  case={case!r}: no NULL rows.")
                 continue
 
-            per_clip, _ = per_clip_source_hashes_and_aggregate(
-                session, case, sorted(null_ids)
+            spec = CASE_REGISTRY.get(case)
+            if spec is None:
+                print(
+                    f"  case={case!r}: unknown case — leaving "
+                    f"{len(null_ids)} row(s) NULL."
+                )
+                continue
+
+            # Reproduce the runner's Fingerprint over current upstream.
+            candidates = get_clip_embedding_candidates(
+                session, settings.embeddings.exclude_disqualified_users
             )
+            candidate_ids = sorted(c.id for c in candidates)
+            per_clip, dep_agg = per_clip_source_hashes_and_aggregate(
+                session, case, candidate_ids
+            )
+            current = fp.Fingerprint(
+                data=fp.hash_rows((cid,) for cid in candidate_ids),
+                config=fp.hash_text(case_config_identity(spec, settings)),
+                dependency=dep_agg,
+            )
+
+            if fp.is_stale(session, STAGE, case, current):
+                print(
+                    f"  case={case!r}: stage fingerprint missing or stale — "
+                    f"leaving {len(null_ids)} row(s) NULL (next pipeline run "
+                    f"will re-embed)."
+                )
+                continue
+
             updated = 0
-            for clip_id, h in per_clip.items():
+            skipped_orphans = 0
+            for clip_id in null_ids:
+                h = per_clip.get(clip_id)
+                if h is None:
+                    # Row exists for a clip no longer in the candidate set
+                    # (deselected, undownloaded, or ineligible user). Leave
+                    # NULL — aggregation already filters these out.
+                    skipped_orphans += 1
+                    continue
                 session.query(ClipEmbedding).filter_by(
                     clip_id=clip_id, embedding_case=case
                 ).update({ClipEmbedding.source_hash: h})
                 updated += 1
             session.commit()
-            print(f"  case={case!r}: backfilled {updated} rows.")
+            msg = f"  case={case!r}: backfilled {updated} row(s)"
+            if skipped_orphans:
+                msg += f" ({skipped_orphans} orphan(s) left NULL)"
+            print(msg + ".")
 
 
-def migrate_database(engine: Engine) -> None:
+def migrate_database(engine: Engine, settings) -> None:
     _ensure_column(engine)
-    _backfill(engine)
+    _backfill(engine, settings)
     print("Migration complete.")
 
 
@@ -102,7 +151,10 @@ def main() -> None:
     if not url:
         print("Set DATABASE_URL environment variable.", file=sys.stderr)
         raise SystemExit(1)
-    migrate_database(create_engine(url))
+    from modules.config import load_runtime_config
+
+    settings, _ = load_runtime_config()
+    migrate_database(create_engine(url), settings)
 
 
 if __name__ == "__main__":

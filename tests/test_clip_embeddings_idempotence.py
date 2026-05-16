@@ -491,7 +491,9 @@ def test_deselecting_a_clip_keeps_its_row_but_drops_it_from_aggregation(
     }
     assert row_ids == {10, 11}, "orphan rows must persist"
 
-    agg = get_clip_embedding_rows_for_user_aggregation(db_session, "video")
+    agg = get_clip_embedding_rows_for_user_aggregation(
+        db_session, "video", exclude_disqualified_users=False
+    )
     # The orphan must not contribute to aggregation. User 1 still has clip 10,
     # so exactly one row comes back.
     assert len(agg) == 1
@@ -532,6 +534,62 @@ def test_config_change_still_wipes(db_session, stub_providers, monkeypatch):
     non_audio_calls = [pair for pair in call_log if pair[0] != "audio"]
     assert audio_calls == [10, 11], "audio: full wipe-and-recompute"
     assert non_audio_calls == [], "video and sandwich: fingerprint match → skip"
+
+
+def test_stale_row_with_missing_video_drops_row_and_leaves_stage_stale(
+    db_session, stub_providers
+):
+    """Per code review: if a previously-embedded clip's video file
+    disappears while the DB still flags it ``is_downloaded=True``, the
+    runner must drop the stale ClipEmbedding row and leave the stage
+    unsealed. Otherwise aggregation would consume stale bytes and the
+    next run would skip retry.
+
+    The sandwich case is used because its dependency includes
+    ``caption_clean``, so we can drift the fingerprint without flipping
+    ``is_downloaded`` (which would knock the clip out of candidates and
+    sidestep the un-buildable path entirely).
+    """
+    import os
+
+    settings = _settings(stub_providers)
+    _seed(
+        db_session,
+        settings,
+        clips=[dict(id=10, user_id=1, caption_clean="alpha")],
+    )
+    embed_clip_embeddings(settings, cases=["sandwich"])
+    db_session.expire_all()
+    assert db_session.get(StageState, ("clip_embeddings", "sandwich")) is not None
+
+    # Drift the dep hash AND remove the video file under the clip's feet.
+    os.remove(os.path.join(settings.paths.video_dir, "10.mp4"))
+    db_session.query(Clip).filter_by(id=10).update({"caption_clean": "ALPHA-EDIT"})
+    db_session.commit()
+
+    embed_clip_embeddings(settings, cases=["sandwich"])
+    db_session.expire_all()
+
+    rows = db_session.query(ClipEmbedding).filter_by(embedding_case="sandwich").all()
+    assert rows == [], "stale row must be dropped when its input vanished"
+
+    # The pre-drift seal row persists in StageState, but its hashes must NOT
+    # match the post-drift fingerprint — otherwise the next run would
+    # skip and the stale-input scenario would silently pass.
+    from modules import fingerprint as fp_mod
+    from modules.embeddings import cases as cases_mod_local
+    from modules.embeddings.state import per_clip_source_hashes_and_aggregate
+
+    spec = cases_mod_local.CASE_REGISTRY["sandwich"]
+    _, dep_agg = per_clip_source_hashes_and_aggregate(db_session, "sandwich", [10])
+    current = fp_mod.Fingerprint(
+        data=fp_mod.hash_rows([(10,)]),
+        config=fp_mod.hash_text(cases_mod_local.case_config_identity(spec, settings)),
+        dependency=dep_agg,
+    )
+    assert fp_mod.is_stale(db_session, "clip_embeddings", "sandwich", current), (
+        "stage must remain stale after dropping an un-buildable row"
+    )
 
 
 def test_reselecting_a_clip_with_unchanged_upstream_skips_reembed(

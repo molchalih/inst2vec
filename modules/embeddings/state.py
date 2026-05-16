@@ -68,22 +68,31 @@ def get_clip_embedding_candidates(
 
 
 def get_clip_embedding_rows_for_user_aggregation(
-    session: Session, case: str
-) -> list[tuple[bytes, int]]:
-    """Return (embedding_blob, user_id) rows for the given case.
+    session: Session, case: str, exclude_disqualified_users: bool
+) -> list[tuple[int, bytes, int]]:
+    """Return (clip_id, embedding_blob, user_id) rows for the given case.
 
     Filters out clips that are no longer in the candidate set so orphan
-    rows (e.g. clips later deselected) do not contaminate user means.
+    rows (clips later deselected, undownloaded, or belonging to users
+    flipped to ``is_eligible=False`` when ``exclude_disqualified_users``
+    is True) do not contaminate user means.
+
+    The candidate filter mirrors ``get_clip_embedding_candidates`` so the
+    user-embedding stage and the clip-embedding stage agree on what
+    counts as eligible. Results are ordered by clip_id so callers can
+    derive a deterministic fingerprint from the same rows.
     """
-    return (
-        session.query(ClipEmbedding.embedding, Clip.user_id)
+    q = (
+        session.query(ClipEmbedding.clip_id, ClipEmbedding.embedding, Clip.user_id)
         .join(Clip, ClipEmbedding.clip_id == Clip.id)
         .filter(
             ClipEmbedding.embedding_case == case,
             *clip_used_in_analysis(),
         )
-        .all()
     )
+    if exclude_disqualified_users:
+        q = q.join(User, Clip.user_id == User.id).filter(User.is_eligible.is_(True))
+    return q.order_by(ClipEmbedding.clip_id).all()
 
 
 def get_music_map(session: Session) -> dict[int, Music]:

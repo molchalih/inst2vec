@@ -25,7 +25,6 @@ from modules import fingerprint as fp
 from modules.console import log
 from modules.database import (
     Base,
-    ClipEmbedding,
     UserEmbedding,
     get_engine,
     get_session,
@@ -41,11 +40,15 @@ _CONFIG_IDENTITY = "agg=mean_pool|v=1"
 
 
 def aggregate_user_embeddings_from_rows(
-    rows: list[tuple[bytes, int]],
+    rows: list[tuple[int, bytes, int]],
 ) -> dict[int, bytes]:
-    """Mean-pool clip embedding blobs by user. Returns {user_id: mean_blob}."""
+    """Mean-pool clip embedding blobs by user. Returns {user_id: mean_blob}.
+
+    Accepts ``(clip_id, blob, user_id)`` triples (clip_id ignored here)
+    so the fingerprint and aggregation share one source of truth.
+    """
     user_arrays: dict[int, list[np.ndarray]] = defaultdict(list)
-    for blob, user_id in rows:
+    for _clip_id, blob, user_id in rows:
         user_arrays[user_id].append(bytes_to_array(blob))
     return {
         user_id: np.stack(arrays).mean(axis=0).astype(np.float32).tobytes()
@@ -53,26 +56,18 @@ def aggregate_user_embeddings_from_rows(
     }
 
 
-def _compute_fingerprint(session, case: str) -> fp.Fingerprint:
-    # Hash the embedding bytes (not updated_at): SQLite CURRENT_TIMESTAMP has
-    # second precision, so a row can be replaced with different bytes inside
-    # the same second and updated_at would not advance — leaving stale
-    # UserEmbedding rows.
-    dep_rows = (
-        session.query(ClipEmbedding.clip_id, ClipEmbedding.embedding)
-        .filter(ClipEmbedding.embedding_case == case)
-        .order_by(ClipEmbedding.clip_id)
-        .all()
-    )
+def _compute_fingerprint(
+    session, case: str, rows: list[tuple[int, bytes, int]]
+) -> fp.Fingerprint:
+    # Hash the same filtered rows ``_recompute_case`` averages so the
+    # fingerprint flips whenever aggregation membership or content does
+    # (e.g. a clip deselected, a user marked ineligible, or — same row,
+    # new bytes within one SQLite second).
     dep = fp.hash_rows(
-        (r.clip_id, hashlib.sha256(r.embedding).hexdigest()) for r in dep_rows
+        (clip_id, hashlib.sha256(blob).hexdigest()) for clip_id, blob, _ in rows
     )
-
-    # Participating users derived from the same rows; one source of truth.
-    agg_rows = get_clip_embedding_rows_for_user_aggregation(session, case)
-    user_ids = sorted({user_id for _, user_id in agg_rows})
+    user_ids = sorted({user_id for _, _, user_id in rows})
     data = fp.hash_rows((uid,) for uid in user_ids)
-
     return fp.Fingerprint(
         data=data,
         config=fp.hash_text(_CONFIG_IDENTITY),
@@ -85,8 +80,7 @@ def _clear_case(session, case: str) -> None:
     session.commit()
 
 
-def _recompute_case(session, case: str) -> None:
-    rows = get_clip_embedding_rows_for_user_aggregation(session, case)
+def _recompute_case(session, case: str, rows: list[tuple[int, bytes, int]]) -> None:
     aggregated = aggregate_user_embeddings_from_rows(rows)
     log(f"embed:user:{case}", f"{len(aggregated)} users to embed")
     for user_id, mean_blob in aggregated.items():
@@ -99,15 +93,21 @@ def _recompute_case(session, case: str) -> None:
 def embed_user_embeddings(settings, cases: list[str] | None = None) -> None:
     """Recompute and merge UserEmbedding rows for each case when stale.
 
-    ``settings`` is accepted for forward-compatibility; no field is read
-    today.
+    Reads ``settings.embeddings.exclude_disqualified_users`` so the
+    aggregation and its fingerprint mirror the clip-embedding stage's
+    candidate filter — preventing ineligible-user clip embeddings from
+    flowing into clustering.
     """
     case_names = list(cases) if cases is not None else list(DEFAULT_CASES)
+    exclude_disqualified = settings.embeddings.exclude_disqualified_users
     Base.metadata.create_all(get_engine())
     session = get_session()
     try:
         for case in case_names:
-            current = _compute_fingerprint(session, case)
+            rows = get_clip_embedding_rows_for_user_aggregation(
+                session, case, exclude_disqualified
+            )
+            current = _compute_fingerprint(session, case, rows)
             if not fp.is_stale(session, STAGE, case, current):
                 log(f"embed:user:{case}", "fingerprint match — skipping")
                 continue
@@ -115,7 +115,7 @@ def embed_user_embeddings(settings, cases: list[str] | None = None) -> None:
             diff = fp.describe_diff(session, STAGE, case, current)
             log(f"embed:user:{case}", f"stale ({diff}) — recomputing")
             _clear_case(session, case)
-            _recompute_case(session, case)
+            _recompute_case(session, case, rows)
             fp.mark_complete(session, STAGE, case, current)
             session.commit()
             log(f"embed:user:{case}", "done", level="ok")

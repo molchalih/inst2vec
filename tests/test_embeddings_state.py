@@ -46,8 +46,10 @@ def test_aggregation_excludes_orphan_rows():
     )
     session.commit()
 
-    rows = get_clip_embedding_rows_for_user_aggregation(session, "video")
-    user_ids_seen = {user_id for _, user_id in rows}
+    rows = get_clip_embedding_rows_for_user_aggregation(
+        session, "video", exclude_disqualified_users=False
+    )
+    user_ids_seen = {user_id for _, _, user_id in rows}
     clip_ids_seen = {
         ce.clip_id
         for ce in session.query(ClipEmbedding).filter_by(embedding_case="video")
@@ -55,6 +57,7 @@ def test_aggregation_excludes_orphan_rows():
     assert user_ids_seen == {1}, "user 1 should contribute"
     assert clip_ids_seen == {10, 11}, "both embedding rows should still exist on disk"
     assert len(rows) == 1, "only clip 10 should be included in aggregation"
+    assert rows[0][0] == 10, "row must carry clip_id for fingerprint use"
     session.close()
 
 
