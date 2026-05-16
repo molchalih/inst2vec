@@ -86,7 +86,9 @@ def test_users_summary_to_markdown_renders_curated_metrics():
         )
         s.commit()
 
-    from generators.dataset_summary_users import users_summary_to_markdown
+    from modules.visualization.tables.dataset_summary_users import (
+        users_summary_to_markdown,
+    )
 
     out = users_summary_to_markdown(eng)
 
@@ -133,7 +135,9 @@ def test_users_summary_to_markdown_scopes_users_to_kept_rows():
         )
         s.commit()
 
-    from generators.dataset_summary_users import users_summary_to_markdown
+    from modules.visualization.tables.dataset_summary_users import (
+        users_summary_to_markdown,
+    )
 
     out = users_summary_to_markdown(eng)
 
@@ -151,7 +155,9 @@ def test_users_summary_to_markdown_uses_dash_for_missing_numeric_values():
         s.add(User(id=1, is_eligible=True))
         s.commit()
 
-    from generators.dataset_summary_users import users_summary_to_markdown
+    from modules.visualization.tables.dataset_summary_users import (
+        users_summary_to_markdown,
+    )
 
     out = users_summary_to_markdown(eng)
 
@@ -169,7 +175,9 @@ def test_render_users_summary_returns_markdown_object():
         s.commit()
 
     from docs.quarto_helpers import render_users_summary
-    from generators.dataset_summary_users import users_summary_to_markdown
+    from modules.visualization.tables.dataset_summary_users import (
+        users_summary_to_markdown,
+    )
 
     rendered = render_users_summary(eng=eng)
 
@@ -194,7 +202,9 @@ def test_users_summary_legacy_db_without_parse_status_column():
         )
         conn.execute(text("INSERT INTO users (id, is_eligible) VALUES (1, 1)"))
 
-    from generators.dataset_summary_users import users_summary_to_markdown
+    from modules.visualization.tables.dataset_summary_users import (
+        users_summary_to_markdown,
+    )
 
     out = users_summary_to_markdown(eng)
 
@@ -228,7 +238,9 @@ def test_users_summary_legacy_db_without_play_count_columns():
         conn.execute(text("INSERT INTO users (id, is_eligible) VALUES (1, 1)"))
         conn.execute(text("INSERT INTO clips (id, user_id) VALUES (1, 1)"))
 
-    from generators.dataset_summary_users import users_summary_to_markdown
+    from modules.visualization.tables.dataset_summary_users import (
+        users_summary_to_markdown,
+    )
 
     out = users_summary_to_markdown(eng)
 

@@ -10,6 +10,11 @@ sys.path.insert(0, __file__[: __file__.rfind("/")] + "/..")
 
 from modules.clustering import ClusterResult
 from modules.database import Base, ClusterRun
+from tests._clustering_helpers import (
+    _make_minimal_search_settings,
+    _mutate_one_embedding,
+    _seed_search_dataset,
+)
 
 
 def _make_search_settings(**overrides):
@@ -57,13 +62,10 @@ def test_cluster_run_columns():
         "median_size",
         "max_size",
         "created_at",
-        "eligibility",
+        "passes_validation",
         "dbcv",
         "silhouette",
         "param_plateau_score",
-        "in_current_grid",
-        "dataset_hash",
-        "validation_config_hash",
     }
 
 
@@ -77,10 +79,15 @@ def test_cluster_run_hdbscan_min_samples_nullable():
     assert col.nullable is True
 
 
+def test_cluster_run_passes_validation_nullable():
+    col = ClusterRun.__table__.c["passes_validation"]
+    assert col.nullable is True
+
+
 def test_load_grid_combo_count():
     from types import SimpleNamespace
 
-    from modules.cluster_search import _load_grid
+    from modules.clustering.search import _load_grid
 
     settings = SimpleNamespace(
         umap_n_components=[10, 15],
@@ -103,7 +110,7 @@ def test_load_grid_combo_count():
 def test_load_grid_ignores_hdbscan_metric_env_dimension():
     from types import SimpleNamespace
 
-    from modules.cluster_search import _load_grid
+    from modules.clustering.search import _load_grid
 
     settings = SimpleNamespace(
         umap_n_components=[10, 15],
@@ -125,7 +132,7 @@ def test_load_grid_ignores_hdbscan_metric_env_dimension():
 def test_load_grid_combo_keys():
     from types import SimpleNamespace
 
-    from modules.cluster_search import _load_grid
+    from modules.clustering.search import _load_grid
 
     settings = SimpleNamespace(
         umap_n_components=[10],
@@ -161,7 +168,7 @@ def test_load_grid_combo_keys():
 def test_load_grid_umap2d_fixed_values():
     from types import SimpleNamespace
 
-    from modules.cluster_search import _load_grid
+    from modules.clustering.search import _load_grid
 
     settings = SimpleNamespace(
         umap_n_components=[10],
@@ -216,21 +223,22 @@ def mem_engine(monkeypatch):
     def _get_session():
         return Session(eng)
 
-    monkeypatch.setattr("modules.database._engine", eng)
-    monkeypatch.setattr("modules.cluster_search.get_session", _get_session)
+    monkeypatch.setattr("modules.database.engine._main_engine", eng)
+    monkeypatch.setattr("modules.clustering.search.get_session", _get_session)
     return eng
 
 
 def test_run_cluster_search_inserts_rows(mem_engine, monkeypatch):
     monkeypatch.setattr(
-        "modules.cluster_search.load_user_matrix",
+        "modules.clustering.search.load_user_matrix",
         lambda case: (_fake_matrix(), list(range(80))),
     )
     monkeypatch.setattr(
-        "modules.cluster_search.compute_clusters", lambda matrix, **kw: _fake_result()
+        "modules.clustering.search.compute_clusters",
+        lambda matrix, **kw: _fake_result(),
     )
 
-    from modules.cluster_search import run_cluster_search
+    from modules.clustering.search import run_cluster_search
 
     settings = _make_search_settings()
     run_cluster_search(settings)
@@ -240,70 +248,67 @@ def test_run_cluster_search_inserts_rows(mem_engine, monkeypatch):
     assert count == 3  # one row per embedding case (video, sandwich, audio)
 
 
-def test_run_cluster_search_invalidates_rows_when_no_embeddings_for_case(
+def test_run_cluster_search_new_rows_have_passes_validation_none(
     mem_engine, monkeypatch
 ):
-    """If a case has zero embeddings, existing ClusterRun rows for that case must not stay current."""
+    """New rows inserted by run_cluster_search have passes_validation=None (pending)."""
+    monkeypatch.setattr(
+        "modules.clustering.search.load_user_matrix",
+        lambda case: (_fake_matrix(), list(range(80))),
+    )
+    monkeypatch.setattr(
+        "modules.clustering.search.compute_clusters",
+        lambda matrix, **kw: _fake_result(),
+    )
+
+    from modules.clustering.search import run_cluster_search
+
+    settings = _make_search_settings()
+    run_cluster_search(settings)
+
     with Session(mem_engine) as s:
-        row = ClusterRun(
-            embedding_case="video",
-            umap_n_components=5,
-            umap_n_neighbors=5,
-            umap_min_dist=0.0,
-            umap_metric="cosine",
-            umap2d_n_neighbors=5,
-            umap2d_min_dist=0.1,
-            umap2d_metric="cosine",
-            hdbscan_min_cluster_size=10,
-            hdbscan_min_samples=None,
-            hdbscan_cluster_selection_method="eom",
-            hdbscan_metric="euclidean",
-            random_state=42,
-            n_clusters=3,
-            noise_ratio=0.1,
-            min_size=1,
-            median_size=2,
-            max_size=5,
-            in_current_grid=1,
-            eligibility=1,
-            dataset_hash="old",
-        )
-        s.add(row)
-        s.commit()
-        video_row_id = row.id
+        rows = s.query(ClusterRun).all()
+        for row in rows:
+            assert row.passes_validation is None
+
+
+def test_run_cluster_search_skips_no_embeddings_case(mem_engine, monkeypatch):
+    """If a case has zero embeddings, search skips it (no rows inserted or mutated)."""
 
     def fake_load(case):
         if case == "video":
             return (np.zeros((0, 30), dtype=np.float32), [])
         return (_fake_matrix(), list(range(80)))
 
-    monkeypatch.setattr("modules.cluster_search.load_user_matrix", fake_load)
+    monkeypatch.setattr("modules.clustering.search.load_user_matrix", fake_load)
     monkeypatch.setattr(
-        "modules.cluster_search.compute_clusters", lambda matrix, **kw: _fake_result()
+        "modules.clustering.search.compute_clusters",
+        lambda matrix, **kw: _fake_result(),
     )
 
-    from modules.cluster_search import run_cluster_search
+    from modules.clustering.search import run_cluster_search
 
     settings = _make_search_settings()
     run_cluster_search(settings)
 
     with Session(mem_engine) as s:
-        video_row = s.get(ClusterRun, video_row_id)
-        assert video_row is not None
-        assert video_row.in_current_grid == 0
-        assert video_row.eligibility == 2
+        video_count = (
+            s.query(ClusterRun).filter(ClusterRun.embedding_case == "video").count()
+        )
+        assert video_count == 0  # nothing inserted for video
 
 
 def test_run_cluster_search_idempotent(mem_engine, monkeypatch):
     monkeypatch.setattr(
-        "modules.cluster_search.load_user_matrix",
+        "modules.clustering.search.load_user_matrix",
         lambda case: (_fake_matrix(), list(range(80))),
     )
     monkeypatch.setattr(
-        "modules.cluster_search.compute_clusters", lambda matrix, **kw: _fake_result()
+        "modules.clustering.search.compute_clusters",
+        lambda matrix, **kw: _fake_result(),
     )
 
-    from modules.cluster_search import run_cluster_search
+    from modules.clustering.search import run_cluster_search
 
     settings = _make_search_settings()
     run_cluster_search(settings)
@@ -312,118 +317,6 @@ def test_run_cluster_search_idempotent(mem_engine, monkeypatch):
     with Session(mem_engine) as s:
         count = s.query(ClusterRun).count()
     assert count == 3  # still 3, not 6
-
-
-def test_compute_dataset_hash_deterministic():
-    from modules.cluster_search import _compute_dataset_hash
-
-    fp1 = _compute_dataset_hash([3, 1, 2])
-    fp2 = _compute_dataset_hash([1, 2, 3])
-    assert fp1 == fp2  # order-independent
-    assert len(fp1) == 64  # SHA-256 hex
-
-
-def test_compute_dataset_hash_differs_on_different_users():
-    from modules.cluster_search import _compute_dataset_hash
-
-    assert _compute_dataset_hash([1, 2]) != _compute_dataset_hash([1, 3])
-
-
-def test_combo_key_excludes_embedding_case():
-    from modules.cluster_search import _combo_key
-
-    combo = dict(
-        embedding_case="video",
-        umap_n_components=15,
-        umap_n_neighbors=15,
-        umap_min_dist=0.0,
-        umap_metric="cosine",
-        umap2d_n_neighbors=15,
-        umap2d_min_dist=0.1,
-        umap2d_metric="cosine",
-        hdbscan_min_cluster_size=15,
-        hdbscan_min_samples=None,
-        hdbscan_cluster_selection_method="eom",
-        hdbscan_metric="euclidean",
-        random_state=42,
-    )
-    key = _combo_key(combo)
-    assert ("embedding_case", "video") not in key
-    assert ("umap_n_components", 15) in key
-
-
-def test_run_cluster_search_marks_stale_rows_when_grid_shrinks(mem_engine, monkeypatch):
-    """A row inserted under old grid becomes in_current_grid=0 when grid changes."""
-    monkeypatch.setattr(
-        "modules.cluster_search.load_user_matrix",
-        lambda case: (_fake_matrix(), list(range(80))),
-    )
-    monkeypatch.setattr(
-        "modules.cluster_search.compute_clusters", lambda matrix, **kw: _fake_result()
-    )
-
-    from modules.cluster_search import run_cluster_search
-
-    # First run with wide grid
-    settings_old = _make_search_settings(umap_n_components=[5, 10])
-    run_cluster_search(settings_old)
-
-    with Session(mem_engine) as s:
-        assert s.query(ClusterRun).count() == 6  # 3 cases × 2 nc combos
-
-    # Second run with narrow grid — nc=10 rows become stale
-    settings_new = _make_search_settings(umap_n_components=[5])
-    run_cluster_search(settings_new)
-
-    with Session(mem_engine) as s:
-        stale = s.query(ClusterRun).filter(ClusterRun.in_current_grid == 0).count()
-        current = s.query(ClusterRun).filter(ClusterRun.in_current_grid == 1).count()
-        assert stale == 3  # nc=10 rows for each of 3 cases
-        assert current == 3  # nc=5 rows for each of 3 cases
-
-
-def test_run_cluster_search_invalidates_rows_on_dataset_change(mem_engine, monkeypatch):
-    """Rows computed on a different dataset fingerprint get in_current_grid=0."""
-    call_count = {"n": 0}
-
-    def fake_matrix(case):
-        call_count["n"] += 1
-        if call_count["n"] <= 3:
-            pks = list(range(80))
-            return (_fake_matrix(), pks)
-        else:
-            rng = np.random.default_rng(1)
-            matrix = np.vstack(
-                [
-                    rng.normal(8.0, 0.2, (50, 30)).astype(np.float32),
-                    rng.normal(-8.0, 0.2, (50, 30)).astype(np.float32),
-                ]
-            )
-            return (matrix, list(range(100)))
-
-    monkeypatch.setattr("modules.cluster_search.load_user_matrix", fake_matrix)
-    monkeypatch.setattr(
-        "modules.cluster_search.compute_clusters", lambda matrix, **kw: _fake_result()
-    )
-
-    from modules.cluster_search import run_cluster_search
-
-    settings = _make_search_settings()
-    run_cluster_search(settings)  # uses pks 0..79
-
-    with Session(mem_engine) as s:
-        result = s.query(ClusterRun).first()
-        assert result is not None
-        fp_before = result.dataset_hash
-        assert fp_before is not None
-
-    run_cluster_search(settings)  # uses pks 0..99 — fingerprint changes
-
-    with Session(mem_engine) as s:
-        stale = s.query(ClusterRun).filter(ClusterRun.in_current_grid == 0).all()
-        assert len(stale) == 3  # old rows invalidated
-        current = s.query(ClusterRun).filter(ClusterRun.in_current_grid == 1).all()
-        assert len(current) == 3  # new rows inserted
 
 
 def test_run_cluster_search_uses_single_thread_umap_per_combo(mem_engine, monkeypatch):
@@ -437,12 +330,12 @@ def test_run_cluster_search_uses_single_thread_umap_per_combo(mem_engine, monkey
     monkeypatch.setenv("CLUSTERING_GRID_WORKERS", "1")
     monkeypatch.setenv("CLUSTERING_JOBS", "99")
     monkeypatch.setattr(
-        "modules.cluster_search.load_user_matrix",
+        "modules.clustering.search.load_user_matrix",
         lambda case: (_fake_matrix(), list(range(80))),
     )
-    monkeypatch.setattr("modules.cluster_search.compute_clusters", capture_compute)
+    monkeypatch.setattr("modules.clustering.search.compute_clusters", capture_compute)
 
-    from modules.cluster_search import run_cluster_search
+    from modules.clustering.search import run_cluster_search
 
     settings = _make_search_settings()
     run_cluster_search(settings)
@@ -465,14 +358,14 @@ def test_run_cluster_search_parallel_workers_uses_thread_pool(mem_engine, monkey
         assert kw.get("umap_n_jobs") in (None, 1)
         return _fake_result()
 
-    monkeypatch.setattr("modules.cluster_search.ThreadPoolExecutor", RecordingPool)
+    monkeypatch.setattr("modules.clustering.search.ThreadPoolExecutor", RecordingPool)
     monkeypatch.setattr(
-        "modules.cluster_search.load_user_matrix",
+        "modules.clustering.search.load_user_matrix",
         lambda case: (_fake_matrix(), list(range(80))),
     )
-    monkeypatch.setattr("modules.cluster_search.compute_clusters", tracking_compute)
+    monkeypatch.setattr("modules.clustering.search.compute_clusters", tracking_compute)
 
-    from modules.cluster_search import run_cluster_search
+    from modules.clustering.search import run_cluster_search
 
     settings = _make_search_settings(umap_n_components=[5, 6])
     run_cluster_search(settings, clustering_grid_workers=3)
@@ -482,25 +375,170 @@ def test_run_cluster_search_parallel_workers_uses_thread_pool(mem_engine, monkey
     assert max_workers_seen == [3, 3, 3]
 
 
-def test_run_cluster_search_new_rows_have_dataset_hash_and_in_current_grid(
-    mem_engine, monkeypatch
-):
+# ── fingerprint integration tests ────────────────────────────────────────────
+# These tests use the conftest-initialised in-memory DB (not mem_engine) so
+# fingerprint StageState rows land in the same engine as ClusterRun rows.
+
+
+def test_unchanged_fingerprint_skips_recomputation(monkeypatch):
+    """Second call to run_cluster_search with unchanged inputs is a no-op."""
+    from modules.clustering import run_cluster_search
+    from modules.database import ClusterRun, get_session
+
     monkeypatch.setattr(
-        "modules.cluster_search.load_user_matrix",
-        lambda case: (_fake_matrix(), list(range(80))),
-    )
-    monkeypatch.setattr(
-        "modules.cluster_search.compute_clusters", lambda matrix, **kw: _fake_result()
+        "modules.clustering.search.compute_clusters",
+        lambda matrix, **kw: _fake_result(),
     )
 
-    from modules.cluster_search import run_cluster_search
+    _seed_search_dataset()
+    settings = _make_minimal_search_settings()
+    run_cluster_search(settings)
+    session = get_session()
+    try:
+        first_ids = {r.id for r in session.query(ClusterRun.id).all()}
+    finally:
+        session.close()
+    assert first_ids  # something was inserted
 
-    settings = _make_search_settings()
+    run_cluster_search(settings)
+    session = get_session()
+    try:
+        second_ids = {r.id for r in session.query(ClusterRun.id).all()}
+    finally:
+        session.close()
+    assert second_ids == first_ids  # no rewrites, same row ids
+
+
+def test_changed_embeddings_wipes_and_recomputes(monkeypatch):
+    """Mutating a UserEmbedding blob invalidates fingerprint and rewrites.
+
+    Asserts that the ClusterRun row was deleted and reinserted (not just
+    skipped) by making the second compute return a different n_clusters value
+    and checking that the stored row reflects the new value.  If the delete
+    path were broken the old row would remain and n_clusters would not change.
+    """
+    from modules.clustering import run_cluster_search
+    from modules.database import ClusterRun, StageState, get_session
+
+    call_count = [0]
+
+    def counting_compute(matrix, **kw):
+        # Return n_clusters=2 on the first call, n_clusters=3 on subsequent calls.
+        n = 2 if call_count[0] == 0 else 3
+        call_count[0] += 1
+        labels = np.array([i % n for i in range(80)])
+        coords = np.zeros((80, 2), dtype=np.float32)
+        sizes = [80 // n] * n
+        return ClusterResult(
+            labels=labels,
+            coords_2d=coords,
+            n_clusters=n,
+            noise_ratio=0.0,
+            cluster_sizes=sizes,
+        )
+
+    monkeypatch.setattr("modules.clustering.search.compute_clusters", counting_compute)
+
+    _seed_search_dataset()
+    settings = _make_minimal_search_settings()
     run_cluster_search(settings)
 
-    with Session(mem_engine) as s:
-        rows = s.query(ClusterRun).all()
-        for row in rows:
-            assert row.in_current_grid == 1
-            assert row.dataset_hash is not None
-            assert len(row.dataset_hash) == 64
+    session = get_session()
+    try:
+        assert session.query(ClusterRun).count() == 1  # video only
+        first_hash = session.get(StageState, ("cluster_search", "video")).data_hash
+        first_n_clusters = session.query(ClusterRun).first().n_clusters
+    finally:
+        session.close()
+
+    calls_after_first = call_count[0]
+    assert calls_after_first >= 1
+    assert first_n_clusters == 2
+
+    _mutate_one_embedding()
+    run_cluster_search(settings)
+
+    session = get_session()
+    try:
+        assert session.query(ClusterRun).count() == 1  # still video only
+        second_hash = session.get(StageState, ("cluster_search", "video")).data_hash
+        second_n_clusters = session.query(ClusterRun).first().n_clusters
+    finally:
+        session.close()
+
+    # fingerprint changed → compute ran again → new StageState data_hash
+    assert call_count[0] > calls_after_first
+    assert first_hash != second_hash  # fingerprint was updated
+    # delete-then-reinsert path stored the new result from the second compute
+    assert second_n_clusters == 3
+
+
+def test_changed_grid_config_wipes_and_recomputes(monkeypatch):
+    """Changing the grid (different umap_n_components) wipes old rows."""
+    from modules.clustering import run_cluster_search
+    from modules.database import ClusterRun, get_session
+
+    monkeypatch.setattr(
+        "modules.clustering.search.compute_clusters",
+        lambda matrix, **kw: _fake_result(),
+    )
+
+    _seed_search_dataset()
+    run_cluster_search(_make_minimal_search_settings(umap_n_components=[3]))
+    session = get_session()
+    try:
+        first_components = {
+            r.umap_n_components
+            for r in session.query(ClusterRun.umap_n_components).all()
+        }
+    finally:
+        session.close()
+    assert first_components == {3}
+
+    run_cluster_search(_make_minimal_search_settings(umap_n_components=[4]))
+    session = get_session()
+    try:
+        second_components = {
+            r.umap_n_components
+            for r in session.query(ClusterRun.umap_n_components).all()
+        }
+    finally:
+        session.close()
+    assert second_components == {4}  # old 3-component rows wiped
+
+
+def test_no_user_embeddings_seals_empty_state():
+    """Empty matrix: no rows inserted but StageState seal exists for the case."""
+    from modules.clustering import run_cluster_search
+    from modules.database import (
+        Base,
+        Clip,
+        ClusterRun,
+        StageState,
+        User,
+        UserEmbedding,
+        get_engine,
+        get_session,
+    )
+
+    Base.metadata.create_all(get_engine())
+    session = get_session()
+    try:
+        for m in (ClusterRun, StageState, UserEmbedding, Clip, User):
+            session.query(m).delete()
+        session.commit()
+    finally:
+        session.close()
+
+    run_cluster_search(_make_minimal_search_settings())
+    session = get_session()
+    try:
+        # No analysis users -> no ClusterRun rows for any case.
+        assert session.query(ClusterRun).count() == 0
+        # The empty-matrix path still seals StageState so a subsequent
+        # run with the same empty inputs short-circuits via fingerprint
+        # match (per spec: "empty matrix seals empty state").
+        for case in ("video", "sandwich", "audio"):
+            assert session.get(StageState, ("cluster_search", case)) is not None
+    finally:
+        session.close()

@@ -114,6 +114,9 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
     )
     monkeypatch.setattr(main, "fetch_profiles", lambda **kwargs: calls.append("parse"))
     monkeypatch.setattr(
+        main, "process_dataset", lambda *args, **kwargs: calls.append("filter")
+    )
+    monkeypatch.setattr(
         main, "download_files", lambda *args, **kwargs: calls.append("download")
     )
     monkeypatch.setattr(
@@ -130,25 +133,19 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
     )
     monkeypatch.setattr(main, "clean_speech", lambda: calls.append("speech:clean"))
     monkeypatch.setattr(
-        main, "clean_captions", lambda **kwargs: calls.append("captions:clean")
+        main,
+        "process_captions",
+        lambda *args, **kwargs: calls.append("captions:process"),
     )
     monkeypatch.setattr(
-        main, "detect_caption_language", lambda: calls.append("captions:detect")
+        main,
+        "embed_clip_embeddings",
+        lambda settings, cases=None: calls.append("embed:clip"),
     )
     monkeypatch.setattr(
-        main, "translate_captions", lambda **kwargs: calls.append("captions:translate")
-    )
-    monkeypatch.setattr(
-        main, "embed_video_clips", lambda **kwargs: calls.append("embed:video")
-    )
-    monkeypatch.setattr(
-        main, "embed_sandwich_clips", lambda **kwargs: calls.append("embed:sandwich")
-    )
-    monkeypatch.setattr(
-        main, "embed_audio_clips", lambda **kwargs: calls.append("embed:audio")
-    )
-    monkeypatch.setattr(
-        main, "embed_user_clips", lambda **kwargs: calls.append("embed:user")
+        main,
+        "embed_user_embeddings",
+        lambda settings, cases=None: calls.append("embed:user"),
     )
     monkeypatch.setattr(
         main, "run_cluster_search", lambda **kwargs: calls.append("cluster:search")

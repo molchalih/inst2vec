@@ -23,8 +23,7 @@ def _run_row(
     n_clusters: int,
     noise_ratio: float,
     param_plateau_score: float | None = None,
-    eligibility: int = 1,
-    in_current_grid: int | None = 1,
+    passes_validation: bool | None = True,
 ) -> ClusterRun:
     return ClusterRun(
         embedding_case=embedding_case,
@@ -45,24 +44,23 @@ def _run_row(
         min_size=1,
         median_size=2,
         max_size=5,
-        eligibility=eligibility,
+        passes_validation=passes_validation,
         dbcv=dbcv,
         silhouette=silhouette,
         param_plateau_score=param_plateau_score,
-        in_current_grid=in_current_grid,
     )
 
 
 def test_get_plateau_drop_threshold_uses_default(monkeypatch):
     monkeypatch.delenv("VALIDATION_PLATEAU_DROP_THRESHOLD", raising=False)
-    from modules.cluster_results import get_plateau_drop_threshold
+    from modules.clustering.results import get_plateau_drop_threshold
 
     assert get_plateau_drop_threshold() == 0.05
 
 
 def test_pick_best_cluster_run_rejects_sharp_peak(monkeypatch):
     monkeypatch.setenv("VALIDATION_PLATEAU_DROP_THRESHOLD", "0.05")
-    from modules.cluster_results import pick_best_cluster_run
+    from modules.clustering.results import pick_best_cluster_run
 
     best = pick_best_cluster_run(
         [
@@ -89,7 +87,7 @@ def test_pick_best_cluster_run_rejects_sharp_peak(monkeypatch):
     assert best.dbcv == 0.82
 
 
-def test_list_eligible_best_rows_filters_like_validation():
+def test_list_best_candidate_rows_excludes_failed_and_pending():
     eng = _make_engine()
     with Session(eng) as s:
         s.add(
@@ -100,6 +98,7 @@ def test_list_eligible_best_rows_filters_like_validation():
                 n_clusters=4,
                 noise_ratio=0.1,
                 param_plateau_score=0.68,
+                passes_validation=True,
             )
         )
         s.add(
@@ -110,7 +109,7 @@ def test_list_eligible_best_rows_filters_like_validation():
                 n_clusters=5,
                 noise_ratio=0.1,
                 param_plateau_score=0.85,
-                eligibility=2,
+                passes_validation=False,
             )
         )
         s.add(
@@ -121,14 +120,14 @@ def test_list_eligible_best_rows_filters_like_validation():
                 n_clusters=3,
                 noise_ratio=0.2,
                 param_plateau_score=0.55,
-                in_current_grid=0,
+                passes_validation=None,
             )
         )
         s.commit()
 
-        from modules.cluster_results import list_eligible_best_rows
+        from modules.clustering.results import list_best_candidate_rows
 
-        rows = list_eligible_best_rows(s, "audio")
+        rows = list_best_candidate_rows(s, "audio")
 
     assert len(rows) == 1
     assert rows[0].dbcv == 0.7
@@ -136,7 +135,7 @@ def test_list_eligible_best_rows_filters_like_validation():
 
 def test_pick_best_falls_back_when_all_sharp_peaks(monkeypatch):
     monkeypatch.setenv("VALIDATION_PLATEAU_DROP_THRESHOLD", "0.05")
-    from modules.cluster_results import pick_best_cluster_run
+    from modules.clustering.results import pick_best_cluster_run
 
     r1 = _run_row(
         embedding_case="video",
@@ -160,7 +159,7 @@ def test_pick_best_falls_back_when_all_sharp_peaks(monkeypatch):
 
 
 def test_summarize_case_rows_counts_and_means():
-    from modules.cluster_results import summarize_case_rows
+    from modules.clustering.results import summarize_case_rows
 
     rows = [
         _run_row(
@@ -169,8 +168,7 @@ def test_summarize_case_rows_counts_and_means():
             silhouette=-0.5,
             n_clusters=2,
             noise_ratio=0.1,
-            eligibility=1,
-            in_current_grid=1,
+            passes_validation=True,
         ),
         _run_row(
             embedding_case="audio",
@@ -178,8 +176,7 @@ def test_summarize_case_rows_counts_and_means():
             silhouette=0.0,
             n_clusters=4,
             noise_ratio=0.0,
-            eligibility=2,
-            in_current_grid=1,
+            passes_validation=False,
         ),
         _run_row(
             embedding_case="audio",
@@ -187,8 +184,7 @@ def test_summarize_case_rows_counts_and_means():
             silhouette=0.0,
             n_clusters=2,
             noise_ratio=0.2,
-            eligibility=1,
-            in_current_grid=0,
+            passes_validation=None,
         ),
     ]
     out = summarize_case_rows(rows)
@@ -213,6 +209,7 @@ def test_select_best_cluster_run_matches_pick_best(monkeypatch):
                 n_clusters=6,
                 noise_ratio=0.20,
                 param_plateau_score=0.80,
+                passes_validation=True,
             )
         )
         s.add(
@@ -223,17 +220,18 @@ def test_select_best_cluster_run_matches_pick_best(monkeypatch):
                 n_clusters=4,
                 noise_ratio=0.10,
                 param_plateau_score=0.79,
+                passes_validation=True,
             )
         )
         s.commit()
 
-        from modules.cluster_results import (
-            list_eligible_best_rows,
+        from modules.clustering.results import (
+            list_best_candidate_rows,
             pick_best_cluster_run,
             select_best_cluster_run,
         )
 
-        by_rows = pick_best_cluster_run(list_eligible_best_rows(s, "video"))
+        by_rows = pick_best_cluster_run(list_best_candidate_rows(s, "video"))
         by_query = select_best_cluster_run(s, "video")
 
     assert by_rows is not None

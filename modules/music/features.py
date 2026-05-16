@@ -21,6 +21,7 @@ from modules.config import MusicSettings, PathsSettings
 from modules.console import log, progress
 from modules.database import Clip, Music, clip_used_in_analysis, get_session
 from modules.music.audio_sample import extract_audio_sample
+from modules.music.clients import ReccoBeatsClient, SpotifyClient, TransientError
 from modules.music.state import (
     _NO_MATCH,
     FEATURE_FIELDS,
@@ -28,7 +29,6 @@ from modules.music.state import (
     UPLOAD_FIELDS,
     music_has_features,
 )
-from modules.services import ReccoBeatsClient, SpotifyClient, TransientError
 
 
 @dataclass(frozen=True)

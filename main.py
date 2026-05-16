@@ -1,17 +1,10 @@
-from modules.captions import clean_captions, detect_caption_language, translate_captions
-from modules.cluster_search import run_cluster_search
-from modules.cluster_validation import validate_clustering
-from modules.clustering import cluster_users
+from modules.captions import process_captions
+from modules.clustering import assign_clusters, run_cluster_search, validate_clustering
 from modules.config import load_runtime_config
-from modules.console import log, phase, startup
+from modules.console import phase, startup
 from modules.database import init_db
 from modules.download import download_files
-from modules.embeddings import (
-    embed_audio_clips,
-    embed_sandwich_clips,
-    embed_user_clips,
-    embed_video_clips,
-)
+from modules.embeddings import embed_clip_embeddings, embed_user_embeddings
 from modules.filter import process_dataset
 from modules.music import classify_music, extract_music_features
 from modules.music.classify import AcrSecrets
@@ -125,15 +118,7 @@ def run_pipeline() -> None:
     6. CAPTIONS: translates applicable captions.
     """
     phase("Captions translation")
-    clean_captions(commit_every=settings.captions.commit_every)
-    detect_caption_language()
-    translate_captions(
-        commit_every=settings.captions.commit_every,
-        translate_model=settings.captions.translate_model,
-        translate_target_lang=settings.captions.translate_target_lang,
-        translation_max_chars=settings.captions.translation_max_chars,
-        translate_max_new_tokens=settings.captions.translate_max_new_tokens,
-    )
+    process_captions(settings.captions)
 
     """
     8. EMBEDDINGS: embeds the features into a vector space (various modalities).
@@ -141,65 +126,34 @@ def run_pipeline() -> None:
     - sandwich: video + music features
     - audio: only audio
     """
-    phase("Video Embeddings")
-    embed_video_clips(
-        model_path=settings.paths.model_path,
-        video_dir=settings.paths.video_dir,
-        embed_max_length=settings.embeddings.embed_max_length,
-        adaptive_max_frames=settings.embeddings.adaptive_max_frames,
-        adaptive_default_fps=settings.embeddings.adaptive_default_fps,
-        exclude_disqualified_users=settings.embeddings.exclude_disqualified_users,
-    )
-    embed_sandwich_clips(
-        model_path=settings.paths.model_path,
-        video_dir=settings.paths.video_dir,
-        embed_max_length=settings.embeddings.embed_max_length,
-        adaptive_max_frames=settings.embeddings.adaptive_max_frames,
-        adaptive_default_fps=settings.embeddings.adaptive_default_fps,
-        exclude_disqualified_users=settings.embeddings.exclude_disqualified_users,
-    )
-    embed_audio_clips(
-        model_path=settings.paths.model_path,
-        video_dir=settings.paths.video_dir,
-        embed_max_length=settings.embeddings.embed_max_length,
-        adaptive_max_frames=settings.embeddings.adaptive_max_frames,
-        adaptive_default_fps=settings.embeddings.adaptive_default_fps,
-        exclude_disqualified_users=settings.embeddings.exclude_disqualified_users,
-    )
+    phase("Clip Embeddings")
+    embed_clip_embeddings(settings)
 
     """
     9. USER EMBEDDINGS: calculates the average embedding of the clips belonging to a user, generating a user-level representation.
     """
     phase("User Embeddings")
-    embed_user_clips()
+    embed_user_embeddings(settings)
+
+    workers = getattr(settings.search, "clustering_grid_workers", 1)
 
     """
     10. CLUSTER SEARCH: ...
     """
     phase("Cluster Search")
-    run_cluster_search(
-        settings=settings.search,
-        clustering_grid_workers=getattr(settings.search, "clustering_grid_workers", 1),
-    )
+    run_cluster_search(settings=settings.search, clustering_grid_workers=workers)
 
     """
     11. CLUSTER VALIDATION: ...
     """
     phase("Cluster Validation")
-    best_params = validate_clustering(
-        settings=settings.validation,
-        clustering_grid_workers=getattr(settings.search, "clustering_grid_workers", 1),
-    )
+    validate_clustering(settings=settings.validation, clustering_grid_workers=workers)
 
     """
-    12. CLUSTERING: ...
+    12. CLUSTERING: assign final cluster labels using the best run per case.
     """
     phase("Clustering")
-    for case, params in best_params.items():
-        if params is None:
-            log("cluster", f"{case}: no valid run — skipping", level="warn")
-            continue
-        cluster_users(case, **params)
+    assign_clusters(settings=settings.validation)
 
     """
     13. VISUALIZATION: ...

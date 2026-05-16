@@ -12,8 +12,11 @@ from __future__ import annotations
 
 import os
 import random
+import sys
 import time
 from pathlib import Path
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from acrcloud.recognizer import ACRCloudRecognizer
 
@@ -21,7 +24,7 @@ from modules.config import load_runtime_config
 from modules.console import log
 from modules.database import Clip, clip_used_in_analysis, get_session, init_db
 from modules.music.classify import _fingerprint, _get_or_create_music
-from modules.services import TransientError
+from modules.music.clients import TransientError
 
 SCOPE = "retry-music"
 _DELAY_MIN = 0.3

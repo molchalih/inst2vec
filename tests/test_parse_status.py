@@ -7,13 +7,14 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-import modules.identity as identity_mod
 from modules.database import (
     Base,
     Clip,
+    IdentityBase,
     User,
+    UserIdentity,
 )
-from modules.identity import IdentityBase, UserIdentity
+from modules.database import engine as engine_mod
 
 # fetch_profiles tests updated in Task 5 (parse.py now reads username from identity DB)
 
@@ -40,7 +41,7 @@ def test_fetch_profiles_reads_username_from_identity_db(monkeypatch):
     main_eng = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(main_eng)
     id_eng = _make_identity_engine()
-    monkeypatch.setattr(identity_mod, "_engine", id_eng)
+    monkeypatch.setattr(engine_mod, "_identity_engine", id_eng)
 
     with Session(id_eng) as s:
         s.add(UserIdentity(id=1, username="fetchme"))
@@ -99,12 +100,12 @@ def test_fetch_profiles_reads_username_from_identity_db(monkeypatch):
 
 def test_fetch_profiles_stores_sequential_clip_ids(monkeypatch):
     """Clip rows must use sequential IDs from identity DB, not Instagram PKs."""
-    from modules.identity import ClipIdentity
+    from modules.database import ClipIdentity
 
     main_eng = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(main_eng)
     id_eng = _make_identity_engine()
-    monkeypatch.setattr(identity_mod, "_engine", id_eng)
+    monkeypatch.setattr(engine_mod, "_identity_engine", id_eng)
 
     with Session(id_eng) as s:
         s.add(UserIdentity(id=1, username="clipper"))
@@ -174,7 +175,7 @@ def test_fetch_profiles_retries_then_succeeds_third(monkeypatch):
     main_eng = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(main_eng)
     id_eng = _make_identity_engine()
-    monkeypatch.setattr(identity_mod, "_engine", id_eng)
+    monkeypatch.setattr(engine_mod, "_identity_engine", id_eng)
 
     with Session(id_eng) as s:
         s.add(UserIdentity(id=100, username="retry_user"))
@@ -227,7 +228,7 @@ def test_fetch_profiles_all_attempts_fail(monkeypatch):
     main_eng = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(main_eng)
     id_eng = _make_identity_engine()
-    monkeypatch.setattr(identity_mod, "_engine", id_eng)
+    monkeypatch.setattr(engine_mod, "_identity_engine", id_eng)
 
     with Session(id_eng) as s:
         s.add(UserIdentity(id=101, username="fail_user"))

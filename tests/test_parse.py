@@ -4,9 +4,11 @@ from unittest.mock import MagicMock
 import pytest
 
 from modules import parse as parse_mod
-from modules.database import Clip, User, get_session
-from modules.identity import (
+from modules.database import (
+    Clip,
+    User,
     get_or_create_user_identity,
+    get_session,
     update_user_identity,
 )
 

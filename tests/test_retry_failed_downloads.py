@@ -4,21 +4,20 @@ from __future__ import annotations
 
 import pytest
 
-import modules.database as db_mod
 from modules.database import Clip, User, get_session, init_db
 from scripts import retry_failed_downloads as rfd
 
 
 @pytest.fixture
 def isolated_db(tmp_path):
-    original_main = db_mod._engine
-    from modules import identity as id_mod
+    from modules.database import engine as engine_mod
 
-    original_id = getattr(id_mod, "_engine", None)
+    original_main = engine_mod._main_engine
+    original_identity_eng = engine_mod._identity_engine
     init_db(f"sqlite:///{tmp_path}/m.db", f"sqlite:///{tmp_path}/id.db")
     yield
-    db_mod._engine = original_main
-    id_mod._engine = original_id
+    engine_mod._main_engine = original_main
+    engine_mod._identity_engine = original_identity_eng
 
 
 def _setup():

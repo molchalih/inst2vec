@@ -15,6 +15,9 @@ from modules.clustering import (
     resolve_hdbscan_metric,
     resolve_umap2d_params,
 )
+from modules.clustering.core import (  # noqa: F401 -- patch targets live here
+    compute_clusters as _compute_clusters_core,
+)
 from modules.database import UserCluster
 
 
@@ -162,8 +165,8 @@ def test_compute_clusters_matrix_nd_returned_when_requested():
     assert result.matrix_nd.shape == (80, 5)  # n_rows × umap_n_components
 
 
-@patch("modules.clustering.hdbscan.HDBSCAN")
-@patch("modules.clustering.UMAP")
+@patch("modules.clustering.core.hdbscan.HDBSCAN")
+@patch("modules.clustering.core.UMAP")
 def test_compute_clusters_passes_umap_n_jobs_to_both_umap_instances(
     mock_umap, mock_hdbscan
 ):

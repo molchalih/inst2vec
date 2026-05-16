@@ -1,20 +1,35 @@
+"""Signature checks for the captions package public API."""
+
 import inspect
 
-from modules import captions as captions_mod
+from modules import captions as captions_pkg
 
 
-def test_clean_captions_accepts_commit_every():
-    sig = inspect.signature(captions_mod.clean_captions)
-    assert "commit_every" in sig.parameters
+def test_clean_captions_accepts_cfg_and_engine():
+    sig = inspect.signature(captions_pkg.clean_captions)
+    params = sig.parameters
+    assert "cfg" in params
+    assert "engine" in params
+    assert params["engine"].default is None
 
 
-def test_translate_captions_accepts_params():
-    sig = inspect.signature(captions_mod.translate_captions)
-    for name in (
-        "commit_every",
-        "translate_model",
-        "translate_target_lang",
-        "translation_max_chars",
-        "translate_max_new_tokens",
-    ):
-        assert name in sig.parameters, f"missing: {name}"
+def test_detect_caption_language_accepts_cfg_and_engine():
+    sig = inspect.signature(captions_pkg.detect_caption_language)
+    params = sig.parameters
+    assert "cfg" in params
+    assert "engine" in params
+
+
+def test_translate_captions_accepts_cfg_and_engine():
+    sig = inspect.signature(captions_pkg.translate_captions)
+    params = sig.parameters
+    assert "cfg" in params
+    assert "engine" in params
+
+
+def test_process_captions_accepts_cfg_and_engine():
+    sig = inspect.signature(captions_pkg.process_captions)
+    params = sig.parameters
+    assert "cfg" in params
+    assert "engine" in params
+    assert params["engine"].default is None

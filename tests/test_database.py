@@ -31,21 +31,21 @@ def test_quarto_default_engine_resolves_relative_sqlite_url(monkeypatch):
 
 
 def test_get_engine_raises_before_init(monkeypatch):
-    import modules.database as db_mod
+    from modules.database import engine as engine_mod
 
-    monkeypatch.setattr(db_mod, "_engine", None)
+    monkeypatch.setattr(engine_mod, "_main_engine", None)
     with pytest.raises((AssertionError, RuntimeError)):
-        db_mod.get_engine()
+        engine_mod.get_engine()
 
 
 def test_init_db_sets_engine(tmp_path, monkeypatch):
-    import modules.database as db_mod
+    from modules.database import engine as engine_mod
 
-    monkeypatch.setattr(db_mod, "_engine", None)
+    monkeypatch.setattr(engine_mod, "_main_engine", None)
     url = f"sqlite:///{tmp_path}/test.db"
     identity_url = "sqlite:///:memory:"
-    db_mod.init_db(url, identity_url)
-    assert db_mod.get_engine() is not None
+    engine_mod.init_db(url, identity_url)
+    assert engine_mod.get_engine() is not None
 
 
 def test_user_has_follower_count_column():
