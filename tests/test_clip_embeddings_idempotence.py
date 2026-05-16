@@ -311,3 +311,52 @@ def test_empty_candidates_writes_stage_state(db_session, stub_providers):
     embed_clip_embeddings(settings, cases=["video"])
     state = db_session.get(StageState, ("clip_embeddings", "video"))
     assert state is not None
+
+
+def test_partial_failure_does_not_seal_stage(db_session, stub_providers, monkeypatch):
+    """A clip that fails to embed must not be sealed as complete.
+
+    Otherwise the fingerprint (data/config/dependency) is identical on rerun,
+    is_stale returns False, and the missing ClipEmbedding row is never retried.
+    """
+    settings = _settings(stub_providers)
+    _seed(
+        db_session,
+        settings,
+        clips=[dict(id=10, user_id=1), dict(id=11, user_id=1)],
+    )
+
+    from modules.embeddings import runner as runner_mod
+
+    original = runner_mod._embed_with_token_fallback
+    call_log: list[int] = []
+
+    def flaky(provider, spec, clip, *args, **kwargs):
+        call_log.append(clip.id)
+        if clip.id == 11 and call_log.count(11) == 1:
+            return None  # transient failure on first attempt for clip 11
+        return original(provider, spec, clip, *args, **kwargs)
+
+    monkeypatch.setattr(runner_mod, "_embed_with_token_fallback", flaky)
+
+    embed_clip_embeddings(settings, cases=["video"])
+    db_session.expire_all()
+
+    rows = {
+        r.clip_id
+        for r in db_session.query(ClipEmbedding).filter_by(embedding_case="video")
+    }
+    assert rows == {10}, "successful clips should persist"
+    assert db_session.get(StageState, ("clip_embeddings", "video")) is None, (
+        "stage must remain stale when any clip failed"
+    )
+
+    # Rerun: same inputs, but no stage_state → recompute → both clips embedded.
+    embed_clip_embeddings(settings, cases=["video"])
+    db_session.expire_all()
+    rows = {
+        r.clip_id
+        for r in db_session.query(ClipEmbedding).filter_by(embedding_case="video")
+    }
+    assert rows == {10, 11}
+    assert db_session.get(StageState, ("clip_embeddings", "video")) is not None

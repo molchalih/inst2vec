@@ -116,6 +116,7 @@ def _run_case(settings, spec: EmbeddingCaseSpec) -> None:
 
         provider = spec.provider_factory(settings)
 
+        failures = 0
         with progress(len(jobs), f"Embedding {spec.name}") as advance:
             for clip, text in jobs:
                 if spec.requires_video:
@@ -132,6 +133,7 @@ def _run_case(settings, spec: EmbeddingCaseSpec) -> None:
                     provider, spec, clip, text, path, fps_, max_frames
                 )
                 if blob is None:
+                    failures += 1
                     advance(detail=f"✗ {clip.id}")
                     continue
 
@@ -144,8 +146,18 @@ def _run_case(settings, spec: EmbeddingCaseSpec) -> None:
                 session.commit()
                 advance(detail=f"✓ {clip.id}")
 
-        fp.mark_complete(session, STAGE, spec.name, current)
-        session.commit()
+        # Only seal the fingerprint when every intended job produced a row.
+        # Otherwise the same data/config/dependency hashes would mark missing
+        # rows as complete on the next run and they'd never be retried.
+        if failures:
+            log(
+                log_tag,
+                f"{failures}/{len(jobs)} failed — leaving stage stale for retry",
+                level="warn",
+            )
+        else:
+            fp.mark_complete(session, STAGE, spec.name, current)
+            session.commit()
         log(log_tag, "done", level="ok")
     finally:
         session.close()
