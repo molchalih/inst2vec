@@ -532,3 +532,56 @@ def test_config_change_still_wipes(db_session, stub_providers, monkeypatch):
     non_audio_calls = [pair for pair in call_log if pair[0] != "audio"]
     assert audio_calls == [10, 11], "audio: full wipe-and-recompute"
     assert non_audio_calls == [], "video and sandwich: fingerprint match → skip"
+
+
+def test_reselecting_a_clip_with_unchanged_upstream_skips_reembed(
+    db_session, stub_providers, monkeypatch
+):
+    settings = _settings(stub_providers)
+    _seed(
+        db_session,
+        settings,
+        clips=[dict(id=10, user_id=1), dict(id=11, user_id=1)],
+    )
+    embed_clip_embeddings(settings, cases=["video"])
+    db_session.expire_all()
+
+    pre_hash = (
+        db_session.query(ClipEmbedding.source_hash)
+        .filter_by(clip_id=11, embedding_case="video")
+        .scalar()
+    )
+    assert pre_hash is not None
+
+    db_session.query(Clip).filter_by(id=11).update({"is_selected": False})
+    db_session.commit()
+    embed_clip_embeddings(settings, cases=["video"])
+    db_session.expire_all()
+
+    from modules.embeddings import runner as runner_mod
+
+    original = runner_mod._embed_with_token_fallback
+    call_log: list[int] = []
+
+    def tracked(provider, spec, clip, *args, **kwargs):
+        call_log.append(clip.id)
+        return original(provider, spec, clip, *args, **kwargs)
+
+    monkeypatch.setattr(runner_mod, "_embed_with_token_fallback", tracked)
+
+    db_session.query(Clip).filter_by(id=11).update({"is_selected": True})
+    db_session.commit()
+    embed_clip_embeddings(settings, cases=["video"])
+    db_session.expire_all()
+
+    assert call_log == [], (
+        "reselecting a clip with unchanged upstream must not re-embed"
+    )
+    post_hash = (
+        db_session.query(ClipEmbedding.source_hash)
+        .filter_by(clip_id=11, embedding_case="video")
+        .scalar()
+    )
+    assert post_hash == pre_hash, (
+        "stored source_hash must be preserved across the cycle"
+    )
