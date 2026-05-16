@@ -11,6 +11,11 @@ Usage:
 
 from __future__ import annotations
 
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+
 from modules.config import MusicSettings, PathsSettings, load_runtime_config
 from modules.console import log
 from modules.database import Music, get_session, init_db

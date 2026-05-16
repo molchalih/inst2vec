@@ -11,7 +11,10 @@ from __future__ import annotations
 
 import os
 import random
+import sys
 import time
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from modules.config import load_runtime_config
 from modules.console import log
