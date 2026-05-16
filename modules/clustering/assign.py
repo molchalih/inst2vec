@@ -19,6 +19,7 @@ from modules.clustering.core import (
     load_user_matrix,
 )
 from modules.clustering.results import DEFAULT_CASES, select_best_cluster_run
+from modules.config import ValidationSettings
 from modules.console import log
 from modules.database import (
     Base,
@@ -40,8 +41,10 @@ def _best_params(best: ClusterRun) -> dict:
     return {col: getattr(best, col) for col in CLUSTER_PARAM_COLS}
 
 
-def _fingerprint(session, case: str) -> fp.Fingerprint:
-    best = select_best_cluster_run(session, case)
+def _fingerprint(session, case: str, settings: ValidationSettings) -> fp.Fingerprint:
+    best = select_best_cluster_run(
+            session, case, threshold=float(settings.plateau_drop_threshold)
+        )
     if best is None:
         data_payload: list[tuple] = []
     else:
@@ -50,14 +53,21 @@ def _fingerprint(session, case: str) -> fp.Fingerprint:
             json.dumps(params, sort_keys=True, default=str).encode()
         ).hexdigest()
         data_payload = [(best.id, params_hash)]
+    config_payload = json.dumps(
+        {
+            "identity": _CONFIG_IDENTITY,
+            "plateau_drop_threshold": float(settings.plateau_drop_threshold),
+        },
+        sort_keys=True,
+    )
     return fp.Fingerprint(
         data=fp.hash_rows(data_payload),
-        config=fp.hash_text(_CONFIG_IDENTITY),
+        config=fp.hash_text(config_payload),
         dependency=fp.stage_dependency_hash(session, "cluster_validation", case),
     )
 
 
-def _assign_case(case: str) -> None:
+def _assign_case(case: str, settings: ValidationSettings) -> None:
     # 1. gate on upstream validation state
     session = get_session()
     try:
@@ -65,10 +75,12 @@ def _assign_case(case: str) -> None:
         if upstream is None:
             log(f"assign:{case}", "no validation state — skipping")
             return
-        current = _fingerprint(session, case)
+        current = _fingerprint(session, case, settings)
         stale = fp.is_stale(session, STAGE, case, current)
         diff = fp.describe_diff(session, STAGE, case, current) if stale else ""
-        best = select_best_cluster_run(session, case)
+        best = select_best_cluster_run(
+            session, case, threshold=float(settings.plateau_drop_threshold)
+        )
     finally:
         session.close()
 
@@ -122,8 +134,12 @@ def _assign_case(case: str) -> None:
     )
 
 
-def assign_clusters() -> None:
-    """Per-case final clustering assignment, fingerprint-gated."""
+def assign_clusters(settings: ValidationSettings) -> None:
+    """Per-case final clustering assignment, fingerprint-gated.
+
+    Takes ValidationSettings so the best-run selection uses the same
+    plateau_drop_threshold the validation stage was configured with.
+    """
     Base.metadata.create_all(get_engine())
     for case in DEFAULT_CASES:
-        _assign_case(case)
+        _assign_case(case, settings)

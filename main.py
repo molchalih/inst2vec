@@ -153,7 +153,7 @@ def run_pipeline() -> None:
     12. CLUSTERING: assign final cluster labels using the best run per case.
     """
     phase("Clustering")
-    assign_clusters()
+    assign_clusters(settings=settings.validation)
 
     """
     13. VISUALIZATION: ...

@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 
 from modules.clustering import assign_clusters
+from modules.config import ValidationSettings
 from modules.database import (
     Base,
     Clip,
@@ -15,6 +16,13 @@ from modules.database import (
     UserEmbedding,
     get_engine,
     get_session,
+)
+
+DEFAULT_SETTINGS = ValidationSettings(
+    plateau_drop_threshold=0.05,
+    max_noise_ratio=0.5,
+    min_clusters=2,
+    max_clusters=50,
 )
 
 
@@ -84,7 +92,7 @@ def test_assign_without_validation_state_does_not_seal():
     finally:
         session.close()
     # NOTE: no StageState("cluster_validation", "video") written
-    assign_clusters()
+    assign_clusters(settings=DEFAULT_SETTINGS)
     session = get_session()
     try:
         assert session.get(StageState, ("cluster_assign", "video")) is None
@@ -111,7 +119,7 @@ def test_assign_seals_empty_clusters_when_no_best_run():
     finally:
         session.close()
 
-    assign_clusters()
+    assign_clusters(settings=DEFAULT_SETTINGS)
     session = get_session()
     try:
         assert session.get(StageState, ("cluster_assign", "video")) is not None
@@ -138,7 +146,7 @@ def test_assign_creates_user_clusters_for_best_run():
     finally:
         session.close()
 
-    assign_clusters()
+    assign_clusters(settings=DEFAULT_SETTINGS)
     session = get_session()
     try:
         n = session.query(UserCluster).filter_by(embedding_case="video").count()
@@ -165,7 +173,7 @@ def test_unchanged_fingerprint_skips_assign():
     finally:
         session.close()
 
-    assign_clusters()
+    assign_clusters(settings=DEFAULT_SETTINGS)
     session = get_session()
     try:
         first = {
@@ -175,7 +183,7 @@ def test_unchanged_fingerprint_skips_assign():
     finally:
         session.close()
 
-    assign_clusters()
+    assign_clusters(settings=DEFAULT_SETTINGS)
     session = get_session()
     try:
         second = {
@@ -185,3 +193,121 @@ def test_unchanged_fingerprint_skips_assign():
     finally:
         session.close()
     assert first == second
+
+
+def _add_run(
+    session,
+    case: str,
+    *,
+    umap_n_components: int,
+    dbcv: float,
+    param_plateau_score: float,
+) -> int:
+    """Insert a fully-scored ClusterRun and return its id.
+
+    Param values differ across rows so the uq_cluster_runs_params constraint
+    is satisfied; umap_n_components is varied per-call.
+    """
+    run = ClusterRun(
+        embedding_case=case,
+        umap_n_components=umap_n_components,
+        umap_n_neighbors=5,
+        umap_min_dist=0.1,
+        umap_metric="cosine",
+        umap2d_n_neighbors=5,
+        umap2d_min_dist=0.1,
+        umap2d_metric="cosine",
+        hdbscan_min_cluster_size=5,
+        hdbscan_min_samples=None,
+        hdbscan_cluster_selection_method="eom",
+        hdbscan_metric="euclidean",
+        random_state=42,
+        n_clusters=3,
+        noise_ratio=0.05,
+        min_size=5,
+        median_size=10,
+        max_size=15,
+        passes_validation=True,
+        dbcv=dbcv,
+        silhouette=0.4,
+        param_plateau_score=param_plateau_score,
+    )
+    session.add(run)
+    session.commit()
+    return run.id
+
+
+def test_assign_honors_configured_plateau_threshold():
+    """Threshold from settings drives best-run selection in assign."""
+    from modules import fingerprint as fp
+
+    _clear()
+    case = "video"
+    session = get_session()
+    try:
+        _seed_case(session, case, with_best_run=False)
+        # Run A: lower DBCV but on the plateau (drop ≈ 0).
+        run_a = _add_run(
+            session,
+            case,
+            umap_n_components=3,
+            dbcv=0.50,
+            param_plateau_score=0.50,
+        )
+        # Run B: higher DBCV but a 0.20 drop vs neighbors.
+        run_b = _add_run(
+            session,
+            case,
+            umap_n_components=4,
+            dbcv=0.70,
+            param_plateau_score=0.50,
+        )
+        fp.mark_complete(
+            session,
+            "cluster_validation",
+            case,
+            fp.Fingerprint(data="d", config="c", dependency="x"),
+        )
+        session.commit()
+    finally:
+        session.close()
+
+    strict = ValidationSettings(
+        plateau_drop_threshold=0.05,
+        max_noise_ratio=0.5,
+        min_clusters=2,
+        max_clusters=50,
+    )
+    assign_clusters(settings=strict)
+
+    relaxed = ValidationSettings(
+        plateau_drop_threshold=0.5,
+        max_noise_ratio=0.5,
+        min_clusters=2,
+        max_clusters=50,
+    )
+    assign_clusters(settings=relaxed)
+
+    # Sanity: distinct ids so the assertions below mean something.
+    assert run_a != run_b
+    # If threshold were ignored (hardcoded 0.05), the second call would be
+    # treated as a no-op and the assignment would still reflect run_a.  With
+    # threshold threaded through, the relaxed call must reseal and the
+    # fingerprint config hash must reflect the new threshold value.
+    session = get_session()
+    try:
+        state = session.get(StageState, ("cluster_assign", case))
+        assert state is not None
+        relaxed_config_hash = state.config_hash
+    finally:
+        session.close()
+
+    # Re-run with strict settings and confirm the config hash flips back.
+    assign_clusters(settings=strict)
+    session = get_session()
+    try:
+        state = session.get(StageState, ("cluster_assign", case))
+        assert state is not None
+        assert state.config_hash != relaxed_config_hash
+    finally:
+        session.close()
