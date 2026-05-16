@@ -1,3 +1,4 @@
+from modules.clustering.assign import assign_clusters  # noqa: F401
 from modules.clustering.core import (  # noqa: F401  -- re-exports
     DEFAULT_HDBSCAN_METRIC,
     ClusterResult,

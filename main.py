@@ -1,7 +1,7 @@
 from modules.captions import process_captions
-from modules.clustering import cluster_users, run_cluster_search, validate_clustering
+from modules.clustering import assign_clusters, run_cluster_search, validate_clustering
 from modules.config import load_runtime_config
-from modules.console import log, phase, startup
+from modules.console import phase, startup
 from modules.database import init_db
 from modules.download import download_files
 from modules.embeddings import embed_clip_embeddings, embed_user_embeddings
@@ -144,24 +144,19 @@ def run_pipeline() -> None:
         clustering_grid_workers=getattr(settings.search, "clustering_grid_workers", 1),
     )
 
+    workers = getattr(settings.search, "clustering_grid_workers", 1)
+
     """
     11. CLUSTER VALIDATION: ...
     """
     phase("Cluster Validation")
-    best_params = validate_clustering(
-        settings=settings.validation,
-        clustering_grid_workers=getattr(settings.search, "clustering_grid_workers", 1),
-    )
+    validate_clustering(settings=settings.validation, clustering_grid_workers=workers)
 
     """
-    12. CLUSTERING: ...
+    12. CLUSTERING: assign final cluster labels using the best run per case.
     """
     phase("Clustering")
-    for case, params in best_params.items():
-        if params is None:
-            log("cluster", f"{case}: no valid run — skipping", level="warn")
-            continue
-        cluster_users(case, **params)
+    assign_clusters()
 
     """
     13. VISUALIZATION: ...

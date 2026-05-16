@@ -20,7 +20,7 @@ from modules.clustering.core import (
 from modules.clustering.results import (
     list_best_candidate_rows,
     pick_best_cluster_run,
-    select_best_cluster_run,
+    select_best_cluster_run,  # noqa: F401 -- used in _select_best (tested directly)
 )
 from modules.console import log, progress
 from modules.database import ClusterRun, get_session
@@ -529,15 +529,8 @@ def _compute_updates(
 # ── orchestration entry point ─────────────────────────────────────────────────
 
 
-def validate_clustering(
-    settings, clustering_grid_workers: int = 1
-) -> dict[str, dict | None]:
-    """Filter -> score -> plateau -> select, fingerprint-gated per case.
-
-    Returns best params per case for backwards compatibility with main.py
-    (removed in the assign-stage task).
-    """
-    result: dict[str, dict | None] = {}
+def validate_clustering(settings, clustering_grid_workers: int = 1) -> None:
+    """Filter -> score -> plateau -> select, fingerprint-gated per case."""
     for case in ["video", "sandwich", "audio"]:
         # 1. fingerprint check
         session = get_session()
@@ -550,12 +543,6 @@ def validate_clustering(
 
         if not stale:
             log(f"validate:{case}", "fingerprint match — skipping")
-            session = get_session()
-            try:
-                best = select_best_cluster_run(session, case, settings=settings)
-                result[case] = _row_to_params(best) if best is not None else None
-            finally:
-                session.close()
             continue
 
         log(f"validate:{case}", f"stale ({diff}) — recomputing")
@@ -582,7 +569,6 @@ def validate_clustering(
                 session.commit()
             finally:
                 session.close()
-            result[case] = None
             continue
 
         # 3. compute in memory (no open write transaction)
@@ -600,13 +586,4 @@ def validate_clustering(
         finally:
             session.close()
 
-        # 5. select best for return
-        session = get_session()
-        try:
-            best = select_best_cluster_run(session, case, settings=settings)
-            result[case] = _row_to_params(best) if best is not None else None
-        finally:
-            session.close()
         log(f"validate:{case}", "done", level="ok")
-
-    return result
