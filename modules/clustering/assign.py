@@ -43,8 +43,8 @@ def _best_params(best: ClusterRun) -> dict:
 
 def _fingerprint(session, case: str, settings: ValidationSettings) -> fp.Fingerprint:
     best = select_best_cluster_run(
-            session, case, threshold=float(settings.plateau_drop_threshold)
-        )
+        session, case, threshold=float(settings.plateau_drop_threshold)
+    )
     if best is None:
         data_payload: list[tuple] = []
     else:
