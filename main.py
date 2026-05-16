@@ -6,7 +6,7 @@ from modules.config import load_runtime_config
 from modules.console import log, phase, startup
 from modules.database import init_db
 from modules.download import download_files
-from modules.embeddings import (
+from modules._embeddings_legacy import (
     embed_audio_clips,
     embed_sandwich_clips,
     embed_user_clips,

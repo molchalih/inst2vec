@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from modules.embeddings import (
+from modules._embeddings_legacy import (
     _aggregate_user_embeddings,
     _build_audio_text,
     _build_text,

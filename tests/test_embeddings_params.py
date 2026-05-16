@@ -1,6 +1,6 @@
 import inspect
 
-from modules import embeddings as emb_mod
+from modules import _embeddings_legacy as emb_mod
 
 
 def test_embed_video_clips_accepts_params():
