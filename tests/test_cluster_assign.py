@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest  # noqa: F401  -- imported for parametrize availability if needed
 
 from modules.clustering import assign_clusters
 from modules.database import (

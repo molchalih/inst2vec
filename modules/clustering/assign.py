@@ -13,7 +13,11 @@ import hashlib
 import json
 
 from modules import fingerprint as fp
-from modules.clustering.core import compute_clusters, load_user_matrix
+from modules.clustering.core import (
+    CLUSTER_PARAM_COLS,
+    compute_clusters,
+    load_user_matrix,
+)
 from modules.clustering.results import DEFAULT_CASES, select_best_cluster_run
 from modules.console import log
 from modules.database import (
@@ -26,25 +30,14 @@ from modules.database import (
 )
 
 STAGE = "cluster_assign"
-_PARAM_COLS = (
-    "umap_n_components",
-    "umap_n_neighbors",
-    "umap_min_dist",
-    "umap_metric",
-    "umap2d_n_neighbors",
-    "umap2d_min_dist",
-    "umap2d_metric",
-    "hdbscan_min_cluster_size",
-    "hdbscan_min_samples",
-    "hdbscan_cluster_selection_method",
-    "hdbscan_metric",
-    "random_state",
-)
+# Bump when assign-stage logic changes in a way the data/dependency
+# fingerprints would not detect (e.g., changing how labels are derived
+# from compute_clusters output).
 _CONFIG_IDENTITY = "assign=v1"
 
 
 def _best_params(best: ClusterRun) -> dict:
-    return {col: getattr(best, col) for col in _PARAM_COLS}
+    return {col: getattr(best, col) for col in CLUSTER_PARAM_COLS}
 
 
 def _fingerprint(session, case: str) -> fp.Fingerprint:
@@ -116,8 +109,8 @@ def _assign_case(case: str) -> None:
     session = get_session()
     try:
         session.query(UserCluster).filter_by(embedding_case=case).delete()
-        for uc in new_user_clusters:
-            session.merge(uc)
+        if new_user_clusters:
+            session.bulk_save_objects(new_user_clusters)
         fp.mark_complete(session, STAGE, case, current)
         session.commit()
     finally:

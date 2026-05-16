@@ -21,6 +21,21 @@ from modules.database import (
 
 DEFAULT_HDBSCAN_METRIC = "euclidean"
 
+CLUSTER_PARAM_COLS = (
+    "umap_n_components",
+    "umap_n_neighbors",
+    "umap_min_dist",
+    "umap_metric",
+    "umap2d_n_neighbors",
+    "umap2d_min_dist",
+    "umap2d_metric",
+    "hdbscan_min_cluster_size",
+    "hdbscan_min_samples",
+    "hdbscan_cluster_selection_method",
+    "hdbscan_metric",
+    "random_state",
+)
+
 
 def resolve_hdbscan_metric(hdbscan_metric: str | None = None) -> str:
     """HDBSCAN runs on pass-1 UMAP coordinates; distance is always Euclidean in that space."""

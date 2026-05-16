@@ -135,16 +135,13 @@ def run_pipeline() -> None:
     phase("User Embeddings")
     embed_user_embeddings(settings)
 
+    workers = getattr(settings.search, "clustering_grid_workers", 1)
+
     """
     10. CLUSTER SEARCH: ...
     """
     phase("Cluster Search")
-    run_cluster_search(
-        settings=settings.search,
-        clustering_grid_workers=getattr(settings.search, "clustering_grid_workers", 1),
-    )
-
-    workers = getattr(settings.search, "clustering_grid_workers", 1)
+    run_cluster_search(settings=settings.search, clustering_grid_workers=workers)
 
     """
     11. CLUSTER VALIDATION: ...

@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from modules import fingerprint as fp
 from modules.clustering.core import (
+    CLUSTER_PARAM_COLS,
     DEFAULT_HDBSCAN_METRIC,
     compute_clusters,
     load_user_matrix,
@@ -27,21 +28,6 @@ from modules.database import ClusterRun, get_session
 
 STAGE = "cluster_validation"
 
-_PARAM_COLS = (
-    "umap_n_components",
-    "umap_n_neighbors",
-    "umap_min_dist",
-    "umap_metric",
-    "umap2d_n_neighbors",
-    "umap2d_min_dist",
-    "umap2d_metric",
-    "hdbscan_min_cluster_size",
-    "hdbscan_min_samples",
-    "hdbscan_cluster_selection_method",
-    "hdbscan_metric",
-    "random_state",
-)
-
 _NUMERIC_PARAM_COLS = [
     "umap_n_components",
     "umap_n_neighbors",
@@ -55,7 +41,7 @@ _NUMERIC_PARAM_COLS = [
 
 
 def _row_to_params(row: ClusterRun) -> dict:
-    return {col: getattr(row, col) for col in _PARAM_COLS}
+    return {col: getattr(row, col) for col in CLUSTER_PARAM_COLS}
 
 
 def _compute_row_scores(matrix: np.ndarray, params: dict) -> tuple[float, float] | str:
@@ -256,7 +242,7 @@ def _find_param_neighbors(
             continue
         n_diffs = 0
         valid = True
-        for col in _PARAM_COLS:
+        for col in CLUSTER_PARAM_COLS:
             tv, cv = getattr(target, col), getattr(cand, col)
             if tv == cv:
                 continue
@@ -345,7 +331,7 @@ def _fingerprint(session, case: str, settings) -> fp.Fingerprint:
             ClusterRun.id,
             ClusterRun.n_clusters,
             ClusterRun.noise_ratio,
-            *[getattr(ClusterRun, col) for col in _PARAM_COLS],
+            *[getattr(ClusterRun, col) for col in CLUSTER_PARAM_COLS],
         )
         .filter(ClusterRun.embedding_case == case)
         .order_by(ClusterRun.id)
@@ -402,7 +388,7 @@ def _compute_updates(
                     "n_clusters": row.n_clusters,
                     "params": _row_to_params(row),
                     # keep param cols on snapshot for neighbor detection
-                    **{col: getattr(row, col) for col in _PARAM_COLS},
+                    **{col: getattr(row, col) for col in CLUSTER_PARAM_COLS},
                 }
             )
     finally:
@@ -502,7 +488,9 @@ def _compute_updates(
         u = updates[snap["id"]]
         if u["passes_validation"] and u["dbcv"] is not None:
             proxy = SimpleNamespace(
-                id=snap["id"], dbcv=u["dbcv"], **{col: snap[col] for col in _PARAM_COLS}
+                id=snap["id"],
+                dbcv=u["dbcv"],
+                **{col: snap[col] for col in CLUSTER_PARAM_COLS},
             )
             scored_proxies.append(proxy)
 

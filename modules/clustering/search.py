@@ -9,6 +9,7 @@ import numpy as np
 
 from modules import fingerprint as fp
 from modules.clustering.core import (
+    CLUSTER_PARAM_COLS,
     DEFAULT_HDBSCAN_METRIC,
     compute_clusters,
     load_user_matrix,
@@ -25,21 +26,6 @@ from modules.database import (
 )
 
 STAGE = "cluster_search"
-
-_PARAM_KEYS = (
-    "umap_n_components",
-    "umap_n_neighbors",
-    "umap_min_dist",
-    "umap_metric",
-    "umap2d_n_neighbors",
-    "umap2d_min_dist",
-    "umap2d_metric",
-    "hdbscan_min_cluster_size",
-    "hdbscan_min_samples",
-    "hdbscan_cluster_selection_method",
-    "hdbscan_metric",
-    "random_state",
-)
 
 
 def _load_grid(settings) -> list[dict]:
@@ -108,8 +94,8 @@ def _fingerprint(session, case: str, case_combos: list[dict]) -> fp.Fingerprint:
     config = fp.hash_text(
         json.dumps(
             sorted(
-                [{k: c[k] for k in _PARAM_KEYS} for c in case_combos],
-                key=lambda d: tuple(str(d[k]) for k in _PARAM_KEYS),
+                [{k: c[k] for k in CLUSTER_PARAM_COLS} for c in case_combos],
+                key=lambda d: tuple(str(d[k]) for k in CLUSTER_PARAM_COLS),
             ),
             sort_keys=True,
             default=str,
