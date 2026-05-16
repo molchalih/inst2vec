@@ -368,3 +368,240 @@ def test_run_cluster_search_parallel_workers_uses_thread_pool(mem_engine, monkey
     with Session(mem_engine) as s:
         assert s.query(ClusterRun).count() == 6
     assert max_workers_seen == [3, 3, 3]
+
+
+# ── fingerprint integration tests ────────────────────────────────────────────
+# These tests use the conftest-initialised in-memory DB (not mem_engine) so
+# fingerprint StageState rows land in the same engine as ClusterRun rows.
+
+
+def _seed_search_dataset(n_users: int = 30, case: str = "video") -> None:
+    """Seed Users + selected/downloaded Clips + UserEmbeddings."""
+    import numpy as np
+
+    from modules.database import (
+        Base,
+        Clip,
+        ClusterRun,
+        StageState,
+        User,
+        UserEmbedding,
+        get_engine,
+        get_session,
+    )
+
+    Base.metadata.create_all(get_engine())
+    session = get_session()
+    try:
+        for m in (ClusterRun, StageState, UserEmbedding, Clip, User):
+            session.query(m).delete()
+        session.commit()
+        for uid in range(n_users):
+            session.merge(User(id=uid))
+            session.merge(
+                Clip(
+                    id=1000 + uid,
+                    user_id=uid,
+                    is_selected=True,
+                    is_downloaded=True,
+                )
+            )
+            session.merge(
+                UserEmbedding(
+                    user_id=uid,
+                    embedding_case=case,
+                    embedding=np.random.default_rng(uid)
+                    .standard_normal(8)
+                    .astype(np.float32)
+                    .tobytes(),
+                )
+            )
+        session.commit()
+    finally:
+        session.close()
+
+
+def _mutate_one_embedding(case: str = "video") -> None:
+    """Replace one UserEmbedding blob with new random bytes."""
+    import numpy as np
+
+    from modules.database import UserEmbedding, get_session
+
+    session = get_session()
+    try:
+        row = (
+            session.query(UserEmbedding)
+            .filter_by(embedding_case=case)
+            .order_by(UserEmbedding.user_id)
+            .first()
+        )
+        row.embedding = (
+            np.random.default_rng(9999).standard_normal(8).astype(np.float32).tobytes()
+        )
+        session.commit()
+    finally:
+        session.close()
+
+
+def _make_minimal_search_settings(
+    *, umap_n_components: list[int] | None = None
+) -> object:
+    """Tiny settings object with the fields _load_grid reads."""
+    from types import SimpleNamespace
+
+    if umap_n_components is None:
+        umap_n_components = [3]
+    return SimpleNamespace(
+        umap_n_components=umap_n_components,
+        umap_n_neighbors=[5],
+        umap_min_dist=[0.1],
+        umap_metrics=["cosine"],
+        umap2d_n_neighbors=5,
+        umap2d_min_dist=0.1,
+        umap2d_metrics=["cosine"],
+        hdbscan_min_cluster_size=[5],
+        hdbscan_selection=["eom"],
+        random_state=42,
+    )
+
+
+def test_unchanged_fingerprint_skips_recomputation(monkeypatch):
+    """Second call to run_cluster_search with unchanged inputs is a no-op."""
+    from modules.clustering import run_cluster_search
+    from modules.database import ClusterRun, get_session
+
+    monkeypatch.setattr(
+        "modules.clustering.search.compute_clusters",
+        lambda matrix, **kw: _fake_result(),
+    )
+
+    _seed_search_dataset()
+    settings = _make_minimal_search_settings()
+    run_cluster_search(settings)
+    session = get_session()
+    try:
+        first_ids = {r.id for r in session.query(ClusterRun.id).all()}
+    finally:
+        session.close()
+    assert first_ids  # something was inserted
+
+    run_cluster_search(settings)
+    session = get_session()
+    try:
+        second_ids = {r.id for r in session.query(ClusterRun.id).all()}
+    finally:
+        session.close()
+    assert second_ids == first_ids  # no rewrites, same row ids
+
+
+def test_changed_embeddings_wipes_and_recomputes(monkeypatch):
+    """Mutating a UserEmbedding blob invalidates fingerprint and rewrites."""
+    from modules.clustering import run_cluster_search
+    from modules.database import ClusterRun, StageState, get_session
+
+    call_count = [0]
+
+    def counting_compute(matrix, **kw):
+        call_count[0] += 1
+        return _fake_result()
+
+    monkeypatch.setattr("modules.clustering.search.compute_clusters", counting_compute)
+
+    _seed_search_dataset()
+    settings = _make_minimal_search_settings()
+    run_cluster_search(settings)
+
+    session = get_session()
+    try:
+        assert session.query(ClusterRun).count() == 1  # video only
+        first_hash = session.get(StageState, ("cluster_search", "video")).data_hash
+    finally:
+        session.close()
+
+    calls_after_first = call_count[0]
+    assert calls_after_first >= 1
+
+    _mutate_one_embedding()
+    run_cluster_search(settings)
+
+    session = get_session()
+    try:
+        assert session.query(ClusterRun).count() == 1  # still video only
+        second_hash = session.get(StageState, ("cluster_search", "video")).data_hash
+    finally:
+        session.close()
+
+    # fingerprint changed → compute ran again → new StageState data_hash
+    assert call_count[0] > calls_after_first
+    assert first_hash != second_hash  # fingerprint was updated
+
+
+def test_changed_grid_config_wipes_and_recomputes(monkeypatch):
+    """Changing the grid (different umap_n_components) wipes old rows."""
+    from modules.clustering import run_cluster_search
+    from modules.database import ClusterRun, get_session
+
+    monkeypatch.setattr(
+        "modules.clustering.search.compute_clusters",
+        lambda matrix, **kw: _fake_result(),
+    )
+
+    _seed_search_dataset()
+    run_cluster_search(_make_minimal_search_settings(umap_n_components=[3]))
+    session = get_session()
+    try:
+        first_components = {
+            r.umap_n_components
+            for r in session.query(ClusterRun.umap_n_components).all()
+        }
+    finally:
+        session.close()
+    assert first_components == {3}
+
+    run_cluster_search(_make_minimal_search_settings(umap_n_components=[4]))
+    session = get_session()
+    try:
+        second_components = {
+            r.umap_n_components
+            for r in session.query(ClusterRun.umap_n_components).all()
+        }
+    finally:
+        session.close()
+    assert second_components == {4}  # old 3-component rows wiped
+
+
+def test_no_user_embeddings_seals_empty_state():
+    """Empty matrix: no rows inserted but StageState seal exists for the case."""
+    from modules.clustering import run_cluster_search
+    from modules.database import (
+        Base,
+        Clip,
+        ClusterRun,
+        StageState,
+        User,
+        UserEmbedding,
+        get_engine,
+        get_session,
+    )
+
+    Base.metadata.create_all(get_engine())
+    session = get_session()
+    try:
+        for m in (ClusterRun, StageState, UserEmbedding, Clip, User):
+            session.query(m).delete()
+        session.commit()
+    finally:
+        session.close()
+
+    run_cluster_search(_make_minimal_search_settings())
+    session = get_session()
+    try:
+        # No analysis users -> no ClusterRun rows for any case.
+        assert session.query(ClusterRun).count() == 0
+        # The empty-matrix path still seals StageState so a subsequent
+        # run with the same empty inputs short-circuits via fingerprint
+        # match (per spec: "empty matrix seals empty state").
+        for case in ("video", "sandwich", "audio"):
+            assert session.get(StageState, ("cluster_search", case)) is not None
+    finally:
+        session.close()
