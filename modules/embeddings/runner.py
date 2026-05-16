@@ -3,10 +3,15 @@
 Per case the stage:
 
   1. Picks candidates (selected + downloaded + optional eligibility).
-  2. Computes Fingerprint(data, config, dependency). Dependency rows are
-     case-specific and mirror what the case's text+payload builders read.
-  3. If stale, deletes ClipEmbedding rows for the case, recomputes,
-     mark_completes, and commits once at the end.
+  2. Computes Fingerprint(data, config, dependency) plus a per-clip
+     source-hash map. Dependency rows are case-specific and mirror what
+     the case's text+payload builders read.
+  3. If the stage fingerprint matches, skips.
+  4. If only config drifted, wipes every ClipEmbedding row for the case.
+  5. Diffs per-clip source hashes against stored rows to pick the (re-)embed set.
+  6. Embeds that subset, committing each row as it succeeds.
+  7. Seals the fingerprint only when zero clips failed; partial failure
+     leaves the stage unsealed so the next run retries only the missing ones.
 """
 
 from __future__ import annotations
