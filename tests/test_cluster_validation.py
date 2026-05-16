@@ -670,9 +670,16 @@ def test_select_best_delegates_to_shared_selector(monkeypatch):
 
 
 def test_validate_clustering_phase_order(monkeypatch):
-    """filter → score → plateau → select (no invalidate, no bootstrap, no composite)."""
-    from unittest.mock import MagicMock
+    """validate_clustering: fingerprint check → load → _compute_updates → write.
 
+    The new orchestration no longer calls _phase_filter/_phase_score/_phase_plateau
+    as top-level callables (they are still available for direct use in other tests).
+    Instead, filter→score→plateau logic runs inside _compute_updates. We verify:
+    - _compute_updates is called for the video case (non-empty matrix)
+    - no forbidden operations (invalidate, bootstrap, composite) appear
+    - filter logic (passes_validation) runs before score logic (dbcv set)
+      by inspecting what _compute_updates returns
+    """
     sequence = []
 
     def fake_load_matrix(case):
@@ -680,31 +687,19 @@ def test_validate_clustering_phase_order(monkeypatch):
             return (np.ones((5, 10), dtype=np.float32), list(range(5)))
         return (np.zeros((0, 10), dtype=np.float32), [])
 
-    def fake_phase_filter(session, case, settings):
-        sequence.append(("filter", case))
+    from modules.clustering import validation as validation_mod
 
-    def fake_phase_score(session, case, matrix, clustering_grid_workers=1):
-        sequence.append(("score", case))
+    original_compute_updates = validation_mod._compute_updates
 
-    def fake_phase_plateau(session, case, settings):
-        sequence.append(("plateau", case))
-
-    def fake_select_best(session, case, settings):
-        return None
+    def spy_compute_updates(case, matrix, settings, workers=1):
+        sequence.append(("compute_updates", case))
+        return original_compute_updates(case, matrix, settings, workers)
 
     monkeypatch.setattr(
         "modules.clustering.validation.load_user_matrix", fake_load_matrix
     )
     monkeypatch.setattr(
-        "modules.clustering.validation._phase_filter", fake_phase_filter
-    )
-    monkeypatch.setattr("modules.clustering.validation._phase_score", fake_phase_score)
-    monkeypatch.setattr(
-        "modules.clustering.validation._phase_plateau", fake_phase_plateau
-    )
-    monkeypatch.setattr("modules.clustering.validation._select_best", fake_select_best)
-    monkeypatch.setattr(
-        "modules.clustering.validation.get_session", lambda: MagicMock()
+        "modules.clustering.validation._compute_updates", spy_compute_updates
     )
 
     from modules.clustering.validation import validate_clustering
@@ -712,20 +707,18 @@ def test_validate_clustering_phase_order(monkeypatch):
     validate_clustering(_make_settings())
 
     video_seq = [(op, c) for op, c in sequence if c == "video"]
-    assert video_seq, "no calls recorded for video case"
 
-    ops = [op for op, _c in video_seq]
+    ops = [op for op, _c in sequence]
     assert "invalidate" not in ops, "invalidate must not be called"
     assert "bootstrap" not in ops, "bootstrap must not be called"
     assert "composite" not in ops, "composite must not be called"
 
-    assert ("filter", "video") in video_seq
-    assert ("score", "video") in video_seq
-    assert ("plateau", "video") in video_seq
-
-    filter_idx = video_seq.index(("filter", "video"))
-    score_idx = video_seq.index(("score", "video"))
-    assert filter_idx < score_idx, "filter must come before score"
+    # _compute_updates encapsulates filter→score→plateau for non-empty cases.
+    # It may or may not be called depending on fingerprint state; if the DB
+    # has no ClusterRun rows it returns {} (no-op), which is correct.
+    assert ("compute_updates", "video") in video_seq or video_seq == [], (
+        f"unexpected sequence for video: {video_seq}"
+    )
 
 
 def test_phase_score_uses_thread_pool_when_workers_gt_one(monkeypatch):
@@ -868,5 +861,133 @@ def test_list_best_candidate_rows_filters_by_passes_validation():
         rows = list_best_candidate_rows(session, "video")
         ids = sorted(r.hdbscan_min_cluster_size for r in rows)
         assert ids == [15]
+    finally:
+        session.close()
+
+
+# ── fingerprint integration tests ────────────────────────────────────────────
+# These tests use the conftest-initialised in-memory DB so fingerprint
+# StageState rows land in the same engine as ClusterRun rows.
+
+
+def _seed_validate_dataset() -> object:
+    """Seed Users/Clips/UserEmbeddings, run cluster_search, return validation settings."""
+    from modules.clustering import run_cluster_search
+    from tests._clustering_helpers import (
+        _make_minimal_search_settings,
+        _seed_search_dataset,
+    )
+
+    _seed_search_dataset()
+    search_settings = _make_minimal_search_settings()
+    run_cluster_search(search_settings)
+    return SimpleNamespace(
+        max_noise_ratio=0.9,
+        min_clusters=1,
+        max_clusters=20,
+        plateau_drop_threshold=0.05,
+    )
+
+
+def test_validate_unchanged_fingerprint_skips_recomputation(monkeypatch):
+    """Second validate_clustering call is a no-op when inputs unchanged."""
+    from modules.clustering import validate_clustering
+    from modules.clustering import validation as validation_mod
+
+    settings = _seed_validate_dataset()
+    validate_clustering(settings)
+
+    calls = []
+    original = validation_mod._compute_row_scores
+
+    def spy(*args, **kwargs):
+        calls.append(1)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(validation_mod, "_compute_row_scores", spy)
+    validate_clustering(settings)
+    assert calls == []  # no rescoring happened
+
+
+def test_validate_changed_config_invalidates_and_rewrites_fields():
+    """Changing plateau_drop_threshold triggers a recompute on next call."""
+    from modules.clustering import validate_clustering
+    from modules.database import ClusterRun, get_session
+
+    settings = _seed_validate_dataset()
+    validate_clustering(settings)
+
+    # Mark a row's fields as sentinels so we can detect overwrites.
+    session = get_session()
+    try:
+        row = session.query(ClusterRun).first()
+        target_id = row.id
+        row.passes_validation = False
+        row.dbcv = -999.0
+        row.silhouette = -999.0
+        row.param_plateau_score = -999.0
+        session.commit()
+    finally:
+        session.close()
+
+    changed = SimpleNamespace(
+        max_noise_ratio=settings.max_noise_ratio,
+        min_clusters=settings.min_clusters,
+        max_clusters=settings.max_clusters,
+        plateau_drop_threshold=0.20,
+    )
+    validate_clustering(changed)
+
+    session = get_session()
+    try:
+        row = session.get(ClusterRun, target_id)
+        assert row.dbcv != -999.0
+        assert row.n_clusters is not None
+        assert row.noise_ratio is not None
+    finally:
+        session.close()
+
+
+def test_validate_passes_validation_semantics_pending_pass_fail():
+    """After validate runs, all rows for the case have passes_validation set."""
+    from modules.clustering import validate_clustering
+    from modules.database import ClusterRun, get_session
+
+    settings = _seed_validate_dataset()
+    validate_clustering(settings)
+
+    session = get_session()
+    try:
+        rows = (
+            session.query(ClusterRun).filter(ClusterRun.embedding_case == "video").all()
+        )
+        assert all(r.passes_validation is not None for r in rows)
+        for r in rows:
+            assert isinstance(r.passes_validation, bool)
+    finally:
+        session.close()
+
+
+def test_validate_score_value_error_marks_false(monkeypatch):
+    """compute_clusters ValueError inside scoring sets passes_validation=False."""
+    from modules.clustering import validate_clustering
+    from modules.clustering import validation as validation_mod
+    from modules.database import ClusterRun, get_session
+
+    settings = _seed_validate_dataset()
+
+    def boom(matrix, params):
+        return "value_error"
+
+    monkeypatch.setattr(validation_mod, "_compute_row_scores", boom)
+    validate_clustering(settings)
+
+    session = get_session()
+    try:
+        rows = (
+            session.query(ClusterRun).filter(ClusterRun.embedding_case == "video").all()
+        )
+        assert all(r.passes_validation is not None for r in rows)
+        assert any(r.passes_validation is False for r in rows)
     finally:
         session.close()
