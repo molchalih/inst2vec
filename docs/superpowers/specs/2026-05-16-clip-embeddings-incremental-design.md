@@ -116,20 +116,19 @@ def _run_case(settings, spec):
             return
 
         stored = session.get(StageState, (STAGE, spec.name))
-        if stored is None or stored.config_hash != current.config:
+        if stored is not None and stored.config_hash != current.config:
             log(
                 f"embed:{spec.name}",
-                f"config drift ({fp.describe_diff(session, STAGE, spec.name, current)}) — full recompute",
+                f"config drift ({fp.describe_diff(session, STAGE, spec.name, current)}) — wiping case",
             )
             _wipe_case(session, spec.name)
-            targets = set(per_clip)
-        else:
-            embedded = get_embedded_source_hashes(session, spec.name)
-            targets = _diff_targets(per_clip, embedded)
-            log(
-                f"embed:{spec.name}",
-                f"data/dependency drift — {len(targets)} clip(s) to (re-)embed",
-            )
+
+        embedded = get_embedded_source_hashes(session, spec.name)
+        targets = _diff_targets(per_clip, embedded)
+        log(
+            f"embed:{spec.name}",
+            f"{len(targets)} clip(s) to (re-)embed",
+        )
 
         _embed_targets(
             session, spec, settings, candidates, targets, per_clip, current
@@ -137,6 +136,14 @@ def _run_case(settings, spec):
     finally:
         session.close()
 ```
+
+Wipe only fires on `config_hash` drift; after the wipe `embedded` is
+empty and the diff naturally targets every current candidate. Without
+a wipe the diff narrows to only missing or hash-mismatched clips. A
+partial failure leaves `stage_state` unsealed but keeps successfully
+embedded rows + their `source_hash`; the next run's diff finds them
+unchanged and retries only the still-missing/stale clips — true even
+on the very first run after a partial failure.
 
 Helpers in the same module:
 
@@ -255,11 +262,12 @@ untouched.
 
 - **Provider raises for clip C during incremental run.** C's row is not
   written; rows written before C are kept (each merge commits). The
-  stage is not sealed because `failures > 0`. Next run: candidate set
-  unchanged → `data` matches → config unchanged → we enter the
-  data/dependency-drift branch (the stage is still stale until sealed,
-  so `is_stale` returns True). The diff sees C missing and re-targets
-  it; everyone else's `source_hash` already matches → skipped.
+  stage is not sealed because `failures > 0`. Next run: stage is stale
+  (no fresh seal) so `is_stale` returns True. No config drift → no
+  wipe. The diff reads back `embedded`: every successfully-embedded
+  clip's stored `source_hash` matches the current per-clip hash → those
+  clips are skipped. C has no row → it is the only target. Holds even
+  when the partial failure was the very first run.
 - **User deletes some `ClipEmbedding` rows manually.** Next run: stage
   fingerprint may match (no upstream change) and `is_stale` returns
   False → no work happens. This already-rare case is unchanged from
