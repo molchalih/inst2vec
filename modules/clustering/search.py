@@ -7,7 +7,7 @@ from itertools import product
 import numpy as np
 from sqlalchemy.exc import IntegrityError
 
-from modules.clustering import (
+from modules.clustering.core import (
     DEFAULT_HDBSCAN_METRIC,
     compute_clusters,
     load_user_matrix,

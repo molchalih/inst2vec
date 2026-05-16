@@ -1,6 +1,6 @@
 import inspect
 
-from modules import cluster_validation as cv_mod
+from modules.clustering import validation as cv_mod
 
 
 def test_validate_clustering_accepts_settings():

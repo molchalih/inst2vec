@@ -1,6 +1,6 @@
 import inspect
 
-from modules import cluster_search as cs_mod
+from modules.clustering import search as cs_mod
 
 
 def test_run_cluster_search_accepts_settings():

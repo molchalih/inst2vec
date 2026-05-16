@@ -11,15 +11,15 @@ from sklearn.metrics import silhouette_score
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from modules.cluster_results import (
-    list_eligible_best_rows,
-    pick_best_cluster_run,
-)
-from modules.clustering import (
+from modules.clustering.core import (
     DEFAULT_HDBSCAN_METRIC,
     compute_clusters,
     load_user_matrix,
     resolve_hdbscan_metric,
+)
+from modules.clustering.results import (
+    list_eligible_best_rows,
+    pick_best_cluster_run,
 )
 from modules.console import log, progress
 from modules.database import ClusterRun, get_session

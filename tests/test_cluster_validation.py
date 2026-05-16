@@ -74,7 +74,7 @@ def test_filter_passes_run_within_bounds():
         s.commit()
         row_id = row.id
 
-    from modules.cluster_validation import _phase_filter
+    from modules.clustering.validation import _phase_filter
 
     with Session(eng) as s:
         _phase_filter(s, "video", _make_settings())
@@ -91,7 +91,7 @@ def test_filter_disqualifies_high_noise():
         s.commit()
         row_id = row.id
 
-    from modules.cluster_validation import _phase_filter
+    from modules.clustering.validation import _phase_filter
 
     with Session(eng) as s:
         _phase_filter(s, "video", _make_settings())
@@ -108,7 +108,7 @@ def test_filter_disqualifies_too_few_clusters():
         s.commit()
         row_id = row.id
 
-    from modules.cluster_validation import _phase_filter
+    from modules.clustering.validation import _phase_filter
 
     with Session(eng) as s:
         _phase_filter(s, "video", _make_settings())
@@ -125,7 +125,7 @@ def test_filter_disqualifies_too_many_clusters():
         s.commit()
         row_id = row.id
 
-    from modules.cluster_validation import _phase_filter
+    from modules.clustering.validation import _phase_filter
 
     with Session(eng) as s:
         _phase_filter(s, "video", _make_settings())
@@ -144,7 +144,7 @@ def test_filter_ignores_stale_rows():
         s.commit()
         row_id = row.id
 
-    from modules.cluster_validation import _phase_filter
+    from modules.clustering.validation import _phase_filter
 
     with Session(eng) as s:
         _phase_filter(s, "video", _make_settings())
@@ -162,7 +162,7 @@ def test_phase_score_populates_dbcv_and_silhouette(monkeypatch):
     def _get_session():
         return Session(eng)
 
-    monkeypatch.setattr("modules.cluster_validation.get_session", _get_session)
+    monkeypatch.setattr("modules.clustering.validation.get_session", _get_session)
 
     rng = np.random.default_rng(0)
     matrix = np.vstack(
@@ -183,7 +183,7 @@ def test_phase_score_populates_dbcv_and_silhouette(monkeypatch):
         )
         row_id = row.id
 
-    from modules.cluster_validation import _phase_score
+    from modules.clustering.validation import _phase_score
 
     with Session(eng) as s:
         _phase_score(s, "video", matrix)
@@ -199,7 +199,7 @@ def test_phase_score_skips_already_scored_rows(monkeypatch):
     def _get_session():
         return Session(eng)
 
-    monkeypatch.setattr("modules.cluster_validation.get_session", _get_session)
+    monkeypatch.setattr("modules.clustering.validation.get_session", _get_session)
 
     rng = np.random.default_rng(0)
     matrix = np.vstack(
@@ -223,7 +223,7 @@ def test_phase_score_skips_already_scored_rows(monkeypatch):
         s.commit()
         row_id = row.id
 
-    from modules.cluster_validation import _phase_score
+    from modules.clustering.validation import _phase_score
 
     with Session(eng) as s:
         _phase_score(s, "video", matrix)
@@ -245,7 +245,7 @@ def test_compute_row_scores_uses_explicit_euclidean_metrics(monkeypatch):
             self.labels = np.array([0, 0, 1, 1], dtype=int)
 
     monkeypatch.setattr(
-        "modules.cluster_validation.compute_clusters",
+        "modules.clustering.validation.compute_clusters",
         lambda matrix, return_nd_matrix, **params: DummyResult(),
     )
 
@@ -258,15 +258,15 @@ def test_compute_row_scores_uses_explicit_euclidean_metrics(monkeypatch):
         return 0.51
 
     monkeypatch.setattr(
-        "modules.cluster_validation.hdbscan.validity.validity_index",
+        "modules.clustering.validation.hdbscan.validity.validity_index",
         fake_validity_index,
     )
     monkeypatch.setattr(
-        "modules.cluster_validation.silhouette_score",
+        "modules.clustering.validation.silhouette_score",
         fake_silhouette_score,
     )
 
-    from modules.cluster_validation import _compute_row_scores
+    from modules.clustering.validation import _compute_row_scores
 
     outcome = _compute_row_scores(
         np.zeros((4, 2), dtype=np.float32),
@@ -297,7 +297,7 @@ def test_compute_row_scores_uses_explicit_euclidean_metrics(monkeypatch):
 
 
 def test_find_param_neighbors_one_step_difference():
-    from modules.cluster_validation import _find_param_neighbors
+    from modules.clustering.validation import _find_param_neighbors
 
     eng = _make_engine()
 
@@ -323,7 +323,7 @@ def test_find_param_neighbors_one_step_difference():
 
 
 def test_find_param_neighbors_categorical_any_other_value():
-    from modules.cluster_validation import _find_param_neighbors
+    from modules.clustering.validation import _find_param_neighbors
 
     eng = _make_engine()
 
@@ -370,7 +370,7 @@ def test_phase_plateau_uses_dbcv_of_neighbors():
         s.commit()
         id1 = r1.id
 
-    from modules.cluster_validation import _phase_plateau
+    from modules.clustering.validation import _phase_plateau
 
     with Session(eng) as s:
         _phase_plateau(s, "video", _make_settings())
@@ -400,7 +400,7 @@ def test_phase_plateau_covers_all_scored_rows():
         s.commit()
         ids = [r.id for r in rows]
 
-    from modules.cluster_validation import _phase_plateau
+    from modules.clustering.validation import _phase_plateau
 
     with Session(eng) as s:
         _phase_plateau(s, "video", _make_settings())
@@ -427,7 +427,7 @@ def test_phase_plateau_no_neighbors_falls_back_to_own_dbcv():
         s.commit()
         rid = r.id
 
-    from modules.cluster_validation import _phase_plateau
+    from modules.clustering.validation import _phase_plateau
 
     with Session(eng) as s:
         _phase_plateau(s, "video", _make_settings())
@@ -454,7 +454,7 @@ def test_phase_plateau_skips_already_set():
         s.commit()
         row_id = row.id
 
-    from modules.cluster_validation import _phase_plateau
+    from modules.clustering.validation import _phase_plateau
 
     with Session(eng) as s:
         _phase_plateau(s, "video", _make_settings())
@@ -495,7 +495,7 @@ def test_select_best_picks_highest_dbcv():
         s.commit()
         id1 = r1.id
 
-    from modules.cluster_validation import _select_best
+    from modules.clustering.validation import _select_best
 
     with Session(eng) as s:
         result = _select_best(s, "video", _make_settings())
@@ -534,7 +534,7 @@ def test_select_best_rejects_sharp_peak_by_plateau_filter():
         s.commit()
         id2 = r2.id
 
-    from modules.cluster_validation import _select_best
+    from modules.clustering.validation import _select_best
 
     with Session(eng) as s:
         result = _select_best(s, "video", _make_settings())
@@ -571,7 +571,7 @@ def test_select_best_falls_back_when_all_rejected():
         s.commit()
         id1 = r1.id
 
-    from modules.cluster_validation import _select_best
+    from modules.clustering.validation import _select_best
 
     with Session(eng) as s:
         result = _select_best(s, "video", _make_settings())
@@ -587,7 +587,7 @@ def test_select_best_returns_none_when_no_eligible_runs():
         # no dbcv set → not eligible
         s.commit()
 
-    from modules.cluster_validation import _select_best
+    from modules.clustering.validation import _select_best
 
     with Session(eng) as s:
         assert _select_best(s, "video", _make_settings()) is None
@@ -609,7 +609,7 @@ def test_select_best_ignores_disqualified_eligibility():
         row.param_plateau_score = 0.88
         s.commit()
 
-    from modules.cluster_validation import _select_best
+    from modules.clustering.validation import _select_best
 
     with Session(eng) as s:
         assert _select_best(s, "video", _make_settings()) is None
@@ -645,7 +645,7 @@ def test_select_best_ignores_cluster_override_env(monkeypatch):
         low_id = r2.id
 
     monkeypatch.setenv("CLUSTER_OVERRIDE_VIDEO", str(low_id))
-    from modules.cluster_validation import _select_best
+    from modules.clustering.validation import _select_best
 
     with Session(eng) as s:
         result = _select_best(s, "video", _make_settings())
@@ -677,9 +677,11 @@ def test_select_best_delegates_to_shared_selector(monkeypatch):
         calls["count"] = len(rows)
         return rows[0]
 
-    monkeypatch.setattr("modules.cluster_validation.pick_best_cluster_run", fake_pick)
+    monkeypatch.setattr(
+        "modules.clustering.validation.pick_best_cluster_run", fake_pick
+    )
 
-    from modules.cluster_validation import _select_best
+    from modules.clustering.validation import _select_best
 
     with Session(eng) as s:
         result = _select_best(s, "video", _make_settings())
@@ -693,7 +695,7 @@ def test_select_best_delegates_to_shared_selector(monkeypatch):
 
 
 def test_compute_validation_config_hash_is_deterministic():
-    from modules.cluster_validation import _compute_validation_config_hash
+    from modules.clustering.validation import _compute_validation_config_hash
 
     settings = _make_settings()
     h1 = _compute_validation_config_hash(settings)
@@ -703,7 +705,7 @@ def test_compute_validation_config_hash_is_deterministic():
 
 
 def test_compute_validation_config_hash_changes_with_settings():
-    from modules.cluster_validation import _compute_validation_config_hash
+    from modules.clustering.validation import _compute_validation_config_hash
 
     base_settings = _make_settings()
     changed_settings = _make_settings(plateau_drop_threshold=0.10)
@@ -713,7 +715,7 @@ def test_compute_validation_config_hash_changes_with_settings():
 
 
 def test_compute_validation_config_hash_with_custom_settings():
-    from modules.cluster_validation import _compute_validation_config_hash
+    from modules.clustering.validation import _compute_validation_config_hash
 
     custom_settings = _make_settings(
         plateau_drop_threshold=0.1,
@@ -752,7 +754,7 @@ def test_invalidate_stale_rows_nulls_plateau_when_hash_differs():
         s.commit()
         row_id = row.id
 
-    from modules.cluster_validation import _invalidate_stale_rows
+    from modules.clustering.validation import _invalidate_stale_rows
 
     with Session(eng) as s:
         _invalidate_stale_rows(s, "video", "newhash00000000")
@@ -774,7 +776,7 @@ def test_invalidate_stale_rows_treats_null_hash_as_stale():
         s.commit()
         row_id = row.id
 
-    from modules.cluster_validation import _invalidate_stale_rows
+    from modules.clustering.validation import _invalidate_stale_rows
 
     with Session(eng) as s:
         _invalidate_stale_rows(s, "video", "currenthash0000")
@@ -794,7 +796,7 @@ def test_invalidate_stale_rows_skips_matching_hash():
         s.commit()
         row_id = row.id
 
-    from modules.cluster_validation import _invalidate_stale_rows
+    from modules.clustering.validation import _invalidate_stale_rows
 
     with Session(eng) as s:
         _invalidate_stale_rows(s, "video", "currenthash0000")
@@ -813,7 +815,7 @@ def test_invalidate_stale_rows_ignores_non_current_grid_rows():
         s.commit()
         row_id = row.id
 
-    from modules.cluster_validation import _invalidate_stale_rows
+    from modules.clustering.validation import _invalidate_stale_rows
 
     with Session(eng) as s:
         _invalidate_stale_rows(s, "video", "newhash00000000")
@@ -852,7 +854,7 @@ def test_invalidate_stale_rows_only_affects_matching_case():
         s.commit()
         vid_id, aud_id = video_row.id, audio_row.id
 
-    from modules.cluster_validation import _invalidate_stale_rows
+    from modules.clustering.validation import _invalidate_stale_rows
 
     with Session(eng) as s:
         _invalidate_stale_rows(s, "video", "newhash00000000")
@@ -894,16 +896,24 @@ def test_validate_clustering_phase_order(monkeypatch):
         return None
 
     monkeypatch.setattr(
-        "modules.cluster_validation._invalidate_stale_rows", fake_invalidate
+        "modules.clustering.validation._invalidate_stale_rows", fake_invalidate
     )
-    monkeypatch.setattr("modules.cluster_validation.load_user_matrix", fake_load_matrix)
-    monkeypatch.setattr("modules.cluster_validation._phase_filter", fake_phase_filter)
-    monkeypatch.setattr("modules.cluster_validation._phase_score", fake_phase_score)
-    monkeypatch.setattr("modules.cluster_validation._phase_plateau", fake_phase_plateau)
-    monkeypatch.setattr("modules.cluster_validation._select_best", fake_select_best)
-    monkeypatch.setattr("modules.cluster_validation.get_session", lambda: MagicMock())
+    monkeypatch.setattr(
+        "modules.clustering.validation.load_user_matrix", fake_load_matrix
+    )
+    monkeypatch.setattr(
+        "modules.clustering.validation._phase_filter", fake_phase_filter
+    )
+    monkeypatch.setattr("modules.clustering.validation._phase_score", fake_phase_score)
+    monkeypatch.setattr(
+        "modules.clustering.validation._phase_plateau", fake_phase_plateau
+    )
+    monkeypatch.setattr("modules.clustering.validation._select_best", fake_select_best)
+    monkeypatch.setattr(
+        "modules.clustering.validation.get_session", lambda: MagicMock()
+    )
 
-    from modules.cluster_validation import validate_clustering
+    from modules.clustering.validation import validate_clustering
 
     validate_clustering(_make_settings())
 
@@ -936,7 +946,7 @@ def test_phase_score_uses_thread_pool_when_workers_gt_one(monkeypatch):
     def _get_session():
         return Session(eng)
 
-    monkeypatch.setattr("modules.cluster_validation.get_session", _get_session)
+    monkeypatch.setattr("modules.clustering.validation.get_session", _get_session)
 
     max_workers_seen: list[int | None] = []
 
@@ -969,10 +979,14 @@ def test_phase_score_uses_thread_pool_when_workers_gt_one(monkeypatch):
             row.dbcv = None
             s.commit()
 
-    monkeypatch.setattr("modules.cluster_validation.ThreadPoolExecutor", RecordingPool)
-    monkeypatch.setattr("modules.cluster_validation.compute_clusters", counting_compute)
+    monkeypatch.setattr(
+        "modules.clustering.validation.ThreadPoolExecutor", RecordingPool
+    )
+    monkeypatch.setattr(
+        "modules.clustering.validation.compute_clusters", counting_compute
+    )
 
-    from modules.cluster_validation import _phase_score
+    from modules.clustering.validation import _phase_score
 
     matrix = np.ones((20, 8), dtype=np.float32)
 

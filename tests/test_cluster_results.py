@@ -55,14 +55,14 @@ def _run_row(
 
 def test_get_plateau_drop_threshold_uses_default(monkeypatch):
     monkeypatch.delenv("VALIDATION_PLATEAU_DROP_THRESHOLD", raising=False)
-    from modules.cluster_results import get_plateau_drop_threshold
+    from modules.clustering.results import get_plateau_drop_threshold
 
     assert get_plateau_drop_threshold() == 0.05
 
 
 def test_pick_best_cluster_run_rejects_sharp_peak(monkeypatch):
     monkeypatch.setenv("VALIDATION_PLATEAU_DROP_THRESHOLD", "0.05")
-    from modules.cluster_results import pick_best_cluster_run
+    from modules.clustering.results import pick_best_cluster_run
 
     best = pick_best_cluster_run(
         [
@@ -126,7 +126,7 @@ def test_list_eligible_best_rows_filters_like_validation():
         )
         s.commit()
 
-        from modules.cluster_results import list_eligible_best_rows
+        from modules.clustering.results import list_eligible_best_rows
 
         rows = list_eligible_best_rows(s, "audio")
 
@@ -136,7 +136,7 @@ def test_list_eligible_best_rows_filters_like_validation():
 
 def test_pick_best_falls_back_when_all_sharp_peaks(monkeypatch):
     monkeypatch.setenv("VALIDATION_PLATEAU_DROP_THRESHOLD", "0.05")
-    from modules.cluster_results import pick_best_cluster_run
+    from modules.clustering.results import pick_best_cluster_run
 
     r1 = _run_row(
         embedding_case="video",
@@ -160,7 +160,7 @@ def test_pick_best_falls_back_when_all_sharp_peaks(monkeypatch):
 
 
 def test_summarize_case_rows_counts_and_means():
-    from modules.cluster_results import summarize_case_rows
+    from modules.clustering.results import summarize_case_rows
 
     rows = [
         _run_row(
@@ -227,7 +227,7 @@ def test_select_best_cluster_run_matches_pick_best(monkeypatch):
         )
         s.commit()
 
-        from modules.cluster_results import (
+        from modules.clustering.results import (
             list_eligible_best_rows,
             pick_best_cluster_run,
             select_best_cluster_run,

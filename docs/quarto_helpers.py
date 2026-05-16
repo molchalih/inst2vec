@@ -51,7 +51,7 @@ def render_clustering_summary(*, eng=None) -> Markdown:
     _ensure_project_root_on_path()
 
     from generators.cluster_results_all import summarize_all_to_markdown
-    from modules.cluster_results import DEFAULT_CASES
+    from modules.clustering import DEFAULT_CASES
 
     if eng is None:
         eng = _get_default_engine()
@@ -79,7 +79,7 @@ def render_best_cluster_run(*, eng=None) -> Markdown:
     _ensure_project_root_on_path()
 
     from generators.cluster_results_best import best_runs_all_to_markdown
-    from modules.cluster_results import DEFAULT_CASES
+    from modules.clustering import DEFAULT_CASES
 
     if eng is None:
         eng = _get_default_engine()

@@ -10,7 +10,7 @@ import numpy as np
 from matplotlib.figure import Figure
 from sqlalchemy.orm import Session
 
-from modules.cluster_results import DEFAULT_CASES
+from modules.clustering import DEFAULT_CASES
 from modules.database import UserCluster
 
 __all__ = ("cluster_plot_figure_for_case",)

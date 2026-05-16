@@ -129,12 +129,26 @@ def compute_clusters(
 
 
 def load_user_matrix(embedding_case: str) -> tuple[np.ndarray, list[int]]:
-    """Load user embeddings from DB. Returns (matrix, user_ids) in matching order."""
+    """Load user embeddings for the analysis dataset. Returns (matrix, user_ids).
+
+    Analysis scope is enforced by reusing ``clip_used_in_analysis()`` via a
+    subquery on UserEmbedding.user_id; no clip-level WHERE clause is
+    duplicated here.
+    """
+    from sqlalchemy import select
+
+    from modules.database import Clip, clip_used_in_analysis
+
     session = get_session()
     try:
+        analysis_users = select(Clip.user_id).distinct().where(*clip_used_in_analysis())
         rows = (
             session.query(UserEmbedding.user_id, UserEmbedding.embedding)
-            .filter(UserEmbedding.embedding_case == embedding_case)
+            .filter(
+                UserEmbedding.embedding_case == embedding_case,
+                UserEmbedding.user_id.in_(analysis_users),
+            )
+            .order_by(UserEmbedding.user_id)
             .all()
         )
         if not rows:

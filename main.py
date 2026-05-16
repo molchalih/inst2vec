@@ -1,7 +1,5 @@
 from modules.captions import process_captions
-from modules.cluster_search import run_cluster_search
-from modules.cluster_validation import validate_clustering
-from modules.clustering import cluster_users
+from modules.clustering import cluster_users, run_cluster_search, validate_clustering
 from modules.config import load_runtime_config
 from modules.console import log, phase, startup
 from modules.database import init_db

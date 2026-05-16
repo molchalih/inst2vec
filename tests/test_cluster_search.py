@@ -80,7 +80,7 @@ def test_cluster_run_hdbscan_min_samples_nullable():
 def test_load_grid_combo_count():
     from types import SimpleNamespace
 
-    from modules.cluster_search import _load_grid
+    from modules.clustering.search import _load_grid
 
     settings = SimpleNamespace(
         umap_n_components=[10, 15],
@@ -103,7 +103,7 @@ def test_load_grid_combo_count():
 def test_load_grid_ignores_hdbscan_metric_env_dimension():
     from types import SimpleNamespace
 
-    from modules.cluster_search import _load_grid
+    from modules.clustering.search import _load_grid
 
     settings = SimpleNamespace(
         umap_n_components=[10, 15],
@@ -125,7 +125,7 @@ def test_load_grid_ignores_hdbscan_metric_env_dimension():
 def test_load_grid_combo_keys():
     from types import SimpleNamespace
 
-    from modules.cluster_search import _load_grid
+    from modules.clustering.search import _load_grid
 
     settings = SimpleNamespace(
         umap_n_components=[10],
@@ -161,7 +161,7 @@ def test_load_grid_combo_keys():
 def test_load_grid_umap2d_fixed_values():
     from types import SimpleNamespace
 
-    from modules.cluster_search import _load_grid
+    from modules.clustering.search import _load_grid
 
     settings = SimpleNamespace(
         umap_n_components=[10],
@@ -217,20 +217,21 @@ def mem_engine(monkeypatch):
         return Session(eng)
 
     monkeypatch.setattr("modules.database.engine._main_engine", eng)
-    monkeypatch.setattr("modules.cluster_search.get_session", _get_session)
+    monkeypatch.setattr("modules.clustering.search.get_session", _get_session)
     return eng
 
 
 def test_run_cluster_search_inserts_rows(mem_engine, monkeypatch):
     monkeypatch.setattr(
-        "modules.cluster_search.load_user_matrix",
+        "modules.clustering.search.load_user_matrix",
         lambda case: (_fake_matrix(), list(range(80))),
     )
     monkeypatch.setattr(
-        "modules.cluster_search.compute_clusters", lambda matrix, **kw: _fake_result()
+        "modules.clustering.search.compute_clusters",
+        lambda matrix, **kw: _fake_result(),
     )
 
-    from modules.cluster_search import run_cluster_search
+    from modules.clustering.search import run_cluster_search
 
     settings = _make_search_settings()
     run_cluster_search(settings)
@@ -277,12 +278,13 @@ def test_run_cluster_search_invalidates_rows_when_no_embeddings_for_case(
             return (np.zeros((0, 30), dtype=np.float32), [])
         return (_fake_matrix(), list(range(80)))
 
-    monkeypatch.setattr("modules.cluster_search.load_user_matrix", fake_load)
+    monkeypatch.setattr("modules.clustering.search.load_user_matrix", fake_load)
     monkeypatch.setattr(
-        "modules.cluster_search.compute_clusters", lambda matrix, **kw: _fake_result()
+        "modules.clustering.search.compute_clusters",
+        lambda matrix, **kw: _fake_result(),
     )
 
-    from modules.cluster_search import run_cluster_search
+    from modules.clustering.search import run_cluster_search
 
     settings = _make_search_settings()
     run_cluster_search(settings)
@@ -296,14 +298,15 @@ def test_run_cluster_search_invalidates_rows_when_no_embeddings_for_case(
 
 def test_run_cluster_search_idempotent(mem_engine, monkeypatch):
     monkeypatch.setattr(
-        "modules.cluster_search.load_user_matrix",
+        "modules.clustering.search.load_user_matrix",
         lambda case: (_fake_matrix(), list(range(80))),
     )
     monkeypatch.setattr(
-        "modules.cluster_search.compute_clusters", lambda matrix, **kw: _fake_result()
+        "modules.clustering.search.compute_clusters",
+        lambda matrix, **kw: _fake_result(),
     )
 
-    from modules.cluster_search import run_cluster_search
+    from modules.clustering.search import run_cluster_search
 
     settings = _make_search_settings()
     run_cluster_search(settings)
@@ -315,7 +318,7 @@ def test_run_cluster_search_idempotent(mem_engine, monkeypatch):
 
 
 def test_compute_dataset_hash_deterministic():
-    from modules.cluster_search import _compute_dataset_hash
+    from modules.clustering.search import _compute_dataset_hash
 
     fp1 = _compute_dataset_hash([3, 1, 2])
     fp2 = _compute_dataset_hash([1, 2, 3])
@@ -324,13 +327,13 @@ def test_compute_dataset_hash_deterministic():
 
 
 def test_compute_dataset_hash_differs_on_different_users():
-    from modules.cluster_search import _compute_dataset_hash
+    from modules.clustering.search import _compute_dataset_hash
 
     assert _compute_dataset_hash([1, 2]) != _compute_dataset_hash([1, 3])
 
 
 def test_combo_key_excludes_embedding_case():
-    from modules.cluster_search import _combo_key
+    from modules.clustering.search import _combo_key
 
     combo = dict(
         embedding_case="video",
@@ -355,14 +358,15 @@ def test_combo_key_excludes_embedding_case():
 def test_run_cluster_search_marks_stale_rows_when_grid_shrinks(mem_engine, monkeypatch):
     """A row inserted under old grid becomes in_current_grid=0 when grid changes."""
     monkeypatch.setattr(
-        "modules.cluster_search.load_user_matrix",
+        "modules.clustering.search.load_user_matrix",
         lambda case: (_fake_matrix(), list(range(80))),
     )
     monkeypatch.setattr(
-        "modules.cluster_search.compute_clusters", lambda matrix, **kw: _fake_result()
+        "modules.clustering.search.compute_clusters",
+        lambda matrix, **kw: _fake_result(),
     )
 
-    from modules.cluster_search import run_cluster_search
+    from modules.clustering.search import run_cluster_search
 
     # First run with wide grid
     settings_old = _make_search_settings(umap_n_components=[5, 10])
@@ -401,12 +405,13 @@ def test_run_cluster_search_invalidates_rows_on_dataset_change(mem_engine, monke
             )
             return (matrix, list(range(100)))
 
-    monkeypatch.setattr("modules.cluster_search.load_user_matrix", fake_matrix)
+    monkeypatch.setattr("modules.clustering.search.load_user_matrix", fake_matrix)
     monkeypatch.setattr(
-        "modules.cluster_search.compute_clusters", lambda matrix, **kw: _fake_result()
+        "modules.clustering.search.compute_clusters",
+        lambda matrix, **kw: _fake_result(),
     )
 
-    from modules.cluster_search import run_cluster_search
+    from modules.clustering.search import run_cluster_search
 
     settings = _make_search_settings()
     run_cluster_search(settings)  # uses pks 0..79
@@ -437,12 +442,12 @@ def test_run_cluster_search_uses_single_thread_umap_per_combo(mem_engine, monkey
     monkeypatch.setenv("CLUSTERING_GRID_WORKERS", "1")
     monkeypatch.setenv("CLUSTERING_JOBS", "99")
     monkeypatch.setattr(
-        "modules.cluster_search.load_user_matrix",
+        "modules.clustering.search.load_user_matrix",
         lambda case: (_fake_matrix(), list(range(80))),
     )
-    monkeypatch.setattr("modules.cluster_search.compute_clusters", capture_compute)
+    monkeypatch.setattr("modules.clustering.search.compute_clusters", capture_compute)
 
-    from modules.cluster_search import run_cluster_search
+    from modules.clustering.search import run_cluster_search
 
     settings = _make_search_settings()
     run_cluster_search(settings)
@@ -465,14 +470,14 @@ def test_run_cluster_search_parallel_workers_uses_thread_pool(mem_engine, monkey
         assert kw.get("umap_n_jobs") in (None, 1)
         return _fake_result()
 
-    monkeypatch.setattr("modules.cluster_search.ThreadPoolExecutor", RecordingPool)
+    monkeypatch.setattr("modules.clustering.search.ThreadPoolExecutor", RecordingPool)
     monkeypatch.setattr(
-        "modules.cluster_search.load_user_matrix",
+        "modules.clustering.search.load_user_matrix",
         lambda case: (_fake_matrix(), list(range(80))),
     )
-    monkeypatch.setattr("modules.cluster_search.compute_clusters", tracking_compute)
+    monkeypatch.setattr("modules.clustering.search.compute_clusters", tracking_compute)
 
-    from modules.cluster_search import run_cluster_search
+    from modules.clustering.search import run_cluster_search
 
     settings = _make_search_settings(umap_n_components=[5, 6])
     run_cluster_search(settings, clustering_grid_workers=3)
@@ -486,14 +491,15 @@ def test_run_cluster_search_new_rows_have_dataset_hash_and_in_current_grid(
     mem_engine, monkeypatch
 ):
     monkeypatch.setattr(
-        "modules.cluster_search.load_user_matrix",
+        "modules.clustering.search.load_user_matrix",
         lambda case: (_fake_matrix(), list(range(80))),
     )
     monkeypatch.setattr(
-        "modules.cluster_search.compute_clusters", lambda matrix, **kw: _fake_result()
+        "modules.clustering.search.compute_clusters",
+        lambda matrix, **kw: _fake_result(),
     )
 
-    from modules.cluster_search import run_cluster_search
+    from modules.clustering.search import run_cluster_search
 
     settings = _make_search_settings()
     run_cluster_search(settings)
