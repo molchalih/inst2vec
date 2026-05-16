@@ -135,16 +135,14 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
         lambda *args, **kwargs: calls.append("captions:process"),
     )
     monkeypatch.setattr(
-        main, "embed_video_clips", lambda **kwargs: calls.append("embed:video")
+        main,
+        "embed_clip_embeddings",
+        lambda settings, cases=None: calls.append("embed:clip"),
     )
     monkeypatch.setattr(
-        main, "embed_sandwich_clips", lambda **kwargs: calls.append("embed:sandwich")
-    )
-    monkeypatch.setattr(
-        main, "embed_audio_clips", lambda **kwargs: calls.append("embed:audio")
-    )
-    monkeypatch.setattr(
-        main, "embed_user_clips", lambda **kwargs: calls.append("embed:user")
+        main,
+        "embed_user_embeddings",
+        lambda settings, cases=None: calls.append("embed:user"),
     )
     monkeypatch.setattr(
         main, "run_cluster_search", lambda **kwargs: calls.append("cluster:search")
