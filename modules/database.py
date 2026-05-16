@@ -436,3 +436,26 @@ def needs_caption_translation():
         func.lower(Clip.caption_language).notlike("en%"),
         (Clip.caption_translation.is_(None)) | (Clip.caption_translation == ""),
     )
+
+
+# ── Public-API surface re-exports (transitional; collapsed by package refactor) ──
+from modules.identity import (  # noqa: E402,F401  -- re-exports for modules.database.*
+    ClipIdentity,
+    IdentityBase,
+    UserIdentity,
+    get_api_pk,
+    get_identity_session,
+    get_or_create_clip_identity,
+    get_or_create_user_identity,
+    get_profile_pic_url,
+    get_username,
+    update_user_identity,
+)
+
+
+def get_identity_engine():
+    """Return the identity DB engine. Transitional shim — replaced by engine.py in Task 5."""
+    from modules import identity as _identity_mod
+
+    assert _identity_mod._engine is not None, "Call init_db() before using the identity DB"
+    return _identity_mod._engine
