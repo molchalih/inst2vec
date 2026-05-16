@@ -260,6 +260,22 @@ class UserCluster(Base):
     user: Mapped["User"] = relationship("User", back_populates="clusters")  # type: ignore[assignment]
 
 
+class StageState(Base):
+    __tablename__ = "stage_state"
+
+    stage_name: Mapped[str] = mapped_column(String, primary_key=True)
+    scope_key: Mapped[str] = mapped_column(String, primary_key=True)
+    data_hash: Mapped[str] = mapped_column(String, nullable=False)
+    config_hash: Mapped[str] = mapped_column(String, nullable=False)
+    dependency_hash: Mapped[str] = mapped_column(String, nullable=False)
+    updated_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
 class ClusterRun(Base):
     __tablename__ = "cluster_runs"
     __table_args__ = (
