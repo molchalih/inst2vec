@@ -43,7 +43,7 @@ def _run_case(settings, spec: EmbeddingCaseSpec) -> None:
         )
 
         music_map: dict = {}
-        if spec.requires_text:
+        if spec.text_builder is not None:
             music_map = get_music_map(session)
 
         video_dir = settings.paths.video_dir
@@ -56,8 +56,7 @@ def _run_case(settings, spec: EmbeddingCaseSpec) -> None:
                 if not os.path.exists(path):
                     continue
             text: str | None = None
-            if spec.requires_text:
-                assert spec.text_builder is not None
+            if spec.text_builder is not None:
                 text = spec.text_builder(clip, music_map)
                 if text is None:
                     continue

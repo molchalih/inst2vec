@@ -30,8 +30,6 @@ class EmbeddingCaseSpec:
     name: str
     text_builder: Callable[[object, dict], str | None] | None
     requires_video: bool
-    requires_text: bool
-    instruction: str | None
     provider_factory: Callable[[object], Provider]
     payload_builder: Callable[
         [object, str | None, str | None, float | None, int | None], dict
@@ -85,8 +83,6 @@ VIDEO_CASE = EmbeddingCaseSpec(
     name="video",
     text_builder=None,
     requires_video=True,
-    requires_text=False,
-    instruction=None,
     provider_factory=_local_qwen_video_factory,
     payload_builder=_video_payload,
     apply_video_token_fallback=True,
@@ -96,8 +92,6 @@ SANDWICH_CASE = EmbeddingCaseSpec(
     name="sandwich",
     text_builder=build_sandwich_text,
     requires_video=True,
-    requires_text=True,
-    instruction=None,
     provider_factory=_local_qwen_video_factory,
     payload_builder=_sandwich_payload,
     apply_video_token_fallback=True,
@@ -107,8 +101,6 @@ AUDIO_CASE = EmbeddingCaseSpec(
     name="audio",
     text_builder=build_audio_text,
     requires_video=False,
-    requires_text=True,
-    instruction=AUDIO_INSTRUCTION,
     provider_factory=_local_qwen_text_factory,
     payload_builder=_audio_payload,
     apply_video_token_fallback=False,
