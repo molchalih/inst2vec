@@ -411,3 +411,116 @@ def test_adding_new_candidate_only_embeds_the_new_one(
     assert all(v is not None for v in rows.values()), (
         "every freshly written row must carry a source_hash"
     )
+
+
+def test_caption_change_reembeds_only_changed_clip_for_sandwich(
+    db_session, stub_providers, monkeypatch
+):
+    settings = _settings(stub_providers)
+    _seed(
+        db_session,
+        settings,
+        clips=[
+            dict(id=10, user_id=1, caption_clean="alpha"),
+            dict(id=11, user_id=1, caption_clean="beta"),
+        ],
+    )
+    embed_clip_embeddings(settings, cases=["sandwich"])
+
+    from modules.embeddings import runner as runner_mod
+
+    original = runner_mod._embed_with_token_fallback
+    call_log: list[int] = []
+
+    def tracked(provider, spec, clip, *args, **kwargs):
+        call_log.append(clip.id)
+        return original(provider, spec, clip, *args, **kwargs)
+
+    monkeypatch.setattr(runner_mod, "_embed_with_token_fallback", tracked)
+
+    # Mutate clip 10's caption_clean only; clip 11's upstream unchanged.
+    db_session.query(Clip).filter_by(id=10).update({"caption_clean": "ALPHA-EDIT"})
+    db_session.commit()
+
+    embed_clip_embeddings(settings, cases=["sandwich"])
+    db_session.expire_all()
+
+    assert call_log == [10], (
+        "only the clip whose upstream changed should be re-embedded"
+    )
+    rows = {
+        r.clip_id: r.source_hash
+        for r in db_session.query(ClipEmbedding).filter_by(embedding_case="sandwich")
+    }
+    assert set(rows) == {10, 11}
+    assert all(v is not None for v in rows.values())
+
+
+def test_deselecting_a_clip_keeps_its_row_but_drops_it_from_aggregation(
+    db_session, stub_providers
+):
+    from modules.embeddings.state import get_clip_embedding_rows_for_user_aggregation
+
+    settings = _settings(stub_providers)
+    _seed(
+        db_session,
+        settings,
+        clips=[dict(id=10, user_id=1), dict(id=11, user_id=1)],
+    )
+    embed_clip_embeddings(settings, cases=["video"])
+    db_session.expire_all()
+
+    # Deselect clip 11.
+    db_session.query(Clip).filter_by(id=11).update({"is_selected": False})
+    db_session.commit()
+
+    embed_clip_embeddings(settings, cases=["video"])
+    db_session.expire_all()
+
+    row_ids = {
+        r.clip_id
+        for r in db_session.query(ClipEmbedding).filter_by(embedding_case="video")
+    }
+    assert row_ids == {10, 11}, "orphan rows must persist"
+
+    agg = get_clip_embedding_rows_for_user_aggregation(db_session, "video")
+    # The orphan must not contribute to aggregation. User 1 still has clip 10,
+    # so exactly one row comes back.
+    assert len(agg) == 1
+
+
+def test_config_change_still_wipes(db_session, stub_providers, monkeypatch):
+    """A config-hash drift (e.g. AUDIO_INSTRUCTION edit) must wipe + recompute."""
+    settings = _settings(stub_providers)
+    _seed(
+        db_session,
+        settings,
+        clips=[
+            dict(id=10, user_id=1, speech_transcription="hello"),
+            dict(id=11, user_id=1, speech_transcription="world"),
+        ],
+    )
+    embed_clip_embeddings(settings)
+    db_session.expire_all()
+
+    from modules.embeddings import runner as runner_mod
+
+    original = runner_mod._embed_with_token_fallback
+    call_log: list[tuple[str, int]] = []
+
+    def tracked(provider, spec, clip, *args, **kwargs):
+        call_log.append((spec.name, clip.id))
+        return original(provider, spec, clip, *args, **kwargs)
+
+    monkeypatch.setattr(runner_mod, "_embed_with_token_fallback", tracked)
+
+    # Mutate AUDIO_INSTRUCTION → only audio's config_hash changes.
+    monkeypatch.setattr(cases_mod, "AUDIO_INSTRUCTION", "NEW INSTRUCTION TEXT")
+
+    embed_clip_embeddings(settings)
+    db_session.expire_all()
+
+    audio_calls = sorted(cid for case, cid in call_log if case == "audio")
+    non_audio_calls = [pair for pair in call_log if pair[0] != "audio"]
+    assert audio_calls == [10, 11], "audio: full wipe-and-recompute"
+    assert non_audio_calls == [], "video and sandwich: fingerprint match → skip"
