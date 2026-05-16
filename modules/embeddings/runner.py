@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 
 from modules.console import log, progress
-from modules.database import Base, ClipEmbedding, get_engine, get_session
+from modules.database import Base, Clip, ClipEmbedding, get_engine, get_session
 from modules.embeddings.cases import CASE_REGISTRY, DEFAULT_CASES, EmbeddingCaseSpec
 from modules.embeddings.sampling import (
     adaptive_sampling,
@@ -47,7 +47,7 @@ def _run_case(settings, spec: EmbeddingCaseSpec) -> None:
             music_map = get_music_map(session)
 
         video_dir = settings.paths.video_dir
-        jobs: list[tuple[object, str | None]] = []
+        jobs: list[tuple[Clip, str | None]] = []
         for clip in candidates:
             if clip.id in embedded:
                 continue
