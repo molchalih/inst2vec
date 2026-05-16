@@ -13,6 +13,7 @@ is kept for thesis/pipeline simplicity.
 
 from __future__ import annotations
 
+import os as _os
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -114,3 +115,34 @@ CASE_REGISTRY: dict[str, EmbeddingCaseSpec] = {
 }
 
 DEFAULT_CASES: tuple[str, ...] = ("video", "sandwich", "audio")
+
+
+# Recipe versions for text builders. Bump the value when the corresponding
+# build_*_text logic changes semantics so existing rows are invalidated.
+TEXT_RECIPE_VERSIONS: dict[str, str] = {
+    "video": "none",
+    "sandwich": "sandwich_v1",
+    "audio": "audio_v1",
+}
+
+
+def case_config_identity(spec: EmbeddingCaseSpec, settings) -> str:
+    """Stable identity string for a case's recipe + relevant settings.
+
+    Fed into ``fingerprint.hash_text`` to produce the case's config_hash.
+    Co-located with the spec definitions so changing a case's identity
+    inputs lives next to the case itself.
+    """
+    parts = [
+        f"case={spec.name}",
+        f"provider={getattr(spec.provider_factory, '__name__', repr(spec.provider_factory))}",
+        f"model={_os.path.basename(settings.paths.model_path)}",
+        f"max_len={settings.embeddings.embed_max_length}",
+        f"max_frames={settings.embeddings.adaptive_max_frames}",
+        f"fps={settings.embeddings.adaptive_default_fps}",
+        f"token_fallback={spec.apply_video_token_fallback}",
+        f"text_recipe={TEXT_RECIPE_VERSIONS.get(spec.name, 'unknown')}",
+    ]
+    if spec.name == "audio":
+        parts.append(f"instruction={AUDIO_INSTRUCTION}")
+    return "|".join(parts)

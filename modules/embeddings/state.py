@@ -65,3 +65,88 @@ def get_clip_embedding_rows_for_user_aggregation(
 def get_music_map(session: Session) -> dict[int, Music]:
     """Return {music_id: Music} for use by text builders that verbalize music."""
     return {m.id: m for m in session.query(Music).all()}
+
+
+def dependency_rows_for_case(
+    session: Session, case: str, candidate_ids: list[int]
+) -> list[tuple]:
+    """Return the per-candidate tuple of upstream output state for ``case``.
+
+    The columns selected mirror what the case's payload_builder and
+    text_builder actually read; the result is sorted by clip_id so the
+    digest produced by ``fingerprint.hash_rows`` is deterministic.
+
+    video    : (id, is_downloaded)
+    sandwich : (id, is_downloaded, music_id, caption_*, speech_*,
+                Music.energy/valence/acousticness/instrumentalness/
+                danceability/speechiness/tempo/mode/key/track/artist)
+    audio    : (id,                music_id, speech_*,
+                Music.energy/...) — captions deliberately excluded
+                (build_audio_text does not read them).
+    """
+    if not candidate_ids:
+        return []
+
+    if case == "video":
+        rows = (
+            session.query(Clip.id, Clip.is_downloaded)
+            .filter(Clip.id.in_(candidate_ids))
+            .order_by(Clip.id)
+            .all()
+        )
+        return [tuple(r) for r in rows]
+
+    music_cols = (
+        Music.energy,
+        Music.valence,
+        Music.acousticness,
+        Music.instrumentalness,
+        Music.danceability,
+        Music.speechiness,
+        Music.tempo,
+        Music.mode,
+        Music.key,
+        Music.track,
+        Music.artist,
+    )
+
+    if case == "sandwich":
+        rows = (
+            session.query(
+                Clip.id,
+                Clip.is_downloaded,
+                Clip.music_id,
+                Clip.caption_text,
+                Clip.caption_clean,
+                Clip.caption_language,
+                Clip.caption_translation,
+                Clip.speech_transcription,
+                Clip.speech_language,
+                Clip.speech_translation,
+                *music_cols,
+            )
+            .outerjoin(Music, Clip.music_id == Music.id)
+            .filter(Clip.id.in_(candidate_ids))
+            .order_by(Clip.id)
+            .all()
+        )
+        return [tuple(r) for r in rows]
+
+    if case == "audio":
+        rows = (
+            session.query(
+                Clip.id,
+                Clip.music_id,
+                Clip.speech_transcription,
+                Clip.speech_language,
+                Clip.speech_translation,
+                *music_cols,
+            )
+            .outerjoin(Music, Clip.music_id == Music.id)
+            .filter(Clip.id.in_(candidate_ids))
+            .order_by(Clip.id)
+            .all()
+        )
+        return [tuple(r) for r in rows]
+
+    raise ValueError(f"Unknown embedding case: {case!r}")
