@@ -17,7 +17,6 @@ from modules.identity import (
     get_or_create_user_identity,
     get_profile_pic_url,
     get_username,
-    init_identity_db,
     update_user_identity,
 )
 
@@ -25,18 +24,32 @@ from modules.identity import (
 @pytest.fixture(autouse=True)
 def isolated_identity_engine(tmp_path, monkeypatch):
     """Replace the module-level engine with an in-memory one for each test."""
+    from modules.database import engine as engine_mod
+
     eng = create_engine("sqlite:///:memory:")
     IdentityBase.metadata.create_all(eng)
     monkeypatch.setattr(identity_mod, "_engine", eng)
+    monkeypatch.setattr(engine_mod, "_identity_engine", eng)
     yield eng
 
 
-def test_init_identity_db_creates_tables(tmp_path):
-    db_path = str(tmp_path / "identity_map.db")
-    engine = init_identity_db(db_path)
+def test_init_db_creates_identity_tables(tmp_path, monkeypatch):
+    """init_db must auto-wrap a bare file path with sqlite:/// and create both identity tables."""
     from sqlalchemy import inspect
 
-    tables = inspect(engine).get_table_names()
+    from modules.database import engine as engine_mod
+    from modules.database import init_db
+
+    # Capture current engines so monkeypatch restores them after the test.
+    monkeypatch.setattr(engine_mod, "_main_engine", engine_mod._main_engine)
+    monkeypatch.setattr(engine_mod, "_identity_engine", engine_mod._identity_engine)
+
+    main_url = f"sqlite:///{tmp_path}/main.db"
+    identity_path = str(tmp_path / "identity_map.db")  # bare path: must be auto-wrapped
+    init_db(main_url, identity_path)
+
+    eng = engine_mod.get_identity_engine()
+    tables = inspect(eng).get_table_names()
     assert "user_identities" in tables
     assert "clip_identities" in tables
 
@@ -70,7 +83,7 @@ def test_update_user_identity_stores_pii():
         profile_pic_url="https://example.com/eve.jpg",
         profile_pic_url_hd="https://example.com/eve-hd.jpg",
     )
-    from modules.identity import get_identity_session
+    from modules.database import get_identity_session
 
     with get_identity_session() as s:
         ui = s.get(UserIdentity, uid)
@@ -132,7 +145,7 @@ def test_get_or_create_clip_identity_is_idempotent():
 
 def test_clip_identity_api_pk_stored():
     cid = get_or_create_clip_identity(api_pk=9004)
-    from modules.identity import get_identity_session
+    from modules.database import get_identity_session
 
     with get_identity_session() as s:
         ci = s.get(ClipIdentity, cid)
@@ -178,7 +191,8 @@ def test_load_usernames_from_csv_creates_user_with_sequential_id(tmp_path, monke
         assert all(1 <= uid <= 1000 for uid in user_ids)
 
     # Identity DB: usernames stored there (via the monkeypatched _engine)
-    from modules.identity import UserIdentity, get_identity_session
+    from modules.database import get_identity_session
+    from modules.identity import UserIdentity
 
     with get_identity_session() as s:
         usernames = {ui.username for ui in s.query(UserIdentity).all()}
@@ -191,7 +205,8 @@ def test_load_usernames_from_csv_missing_file_is_noop(monkeypatch):
 
     load_usernames_from_csv(csv_path="/nonexistent/path/data.csv")
 
-    from modules.identity import UserIdentity, get_identity_session
+    from modules.database import get_identity_session
+    from modules.identity import UserIdentity
 
     with get_identity_session() as s:
         assert s.query(UserIdentity).count() == 0

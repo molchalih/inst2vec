@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
-
-from sqlalchemy import BigInteger, Integer, String, create_engine
+from sqlalchemy import BigInteger, Integer, String
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
 
@@ -31,31 +29,8 @@ class ClipIdentity(IdentityBase):
     api_pk: Mapped[int] = mapped_column(BigInteger, nullable=False, unique=True)
 
 
-def init_identity_db(identity_db_url: str):
-    """Create identity DB tables and set the module-level engine. Returns the engine.
-
-    identity_db_url can be a full SQLAlchemy URL or a file path (auto-wrapped with sqlite:///).
-    """
-    global _engine
-    if identity_db_url.startswith("sqlite://"):
-        url = identity_db_url
-    else:
-        # Treat as file path, wrap with sqlite:///
-        url = f"sqlite:///{identity_db_url}"
-    eng = create_engine(url)
-    IdentityBase.metadata.create_all(eng)
-    _engine = eng
-    return eng
-
-
 # Module-level engine (replaced in tests via monkeypatch on `_engine`)
 _engine = None
-
-
-@contextmanager
-def get_identity_session():
-    with Session(_engine) as s:
-        yield s
 
 
 # ── Public CRUD helpers ────────────────────────────────────────────────────

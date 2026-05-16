@@ -216,7 +216,7 @@ def mem_engine(monkeypatch):
     def _get_session():
         return Session(eng)
 
-    monkeypatch.setattr("modules.database._engine", eng)
+    monkeypatch.setattr("modules.database.engine._main_engine", eng)
     monkeypatch.setattr("modules.cluster_search.get_session", _get_session)
     return eng
 
