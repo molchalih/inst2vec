@@ -28,6 +28,24 @@ def get_embedded_clip_ids(session: Session, case: str) -> set[int]:
     return {r.clip_id for r in rows}
 
 
+def get_embedded_source_hashes(
+    session: Session, case: str
+) -> dict[int, str | None]:
+    """Map clip_id → stored source_hash for every ClipEmbedding row of ``case``.
+
+    Used by the incremental runner to decide which clips need re-embedding.
+    A row that exists with source_hash=None is treated as stale: a previous
+    pre-incremental run wrote it without the hash, and we cannot prove it
+    still matches current upstream.
+    """
+    rows = (
+        session.query(ClipEmbedding.clip_id, ClipEmbedding.source_hash)
+        .filter(ClipEmbedding.embedding_case == case)
+        .all()
+    )
+    return {r.clip_id: r.source_hash for r in rows}
+
+
 def get_embedded_user_ids(session: Session, case: str) -> set[int]:
     """User ids that already have a UserEmbedding row for ``case``."""
     rows = (
