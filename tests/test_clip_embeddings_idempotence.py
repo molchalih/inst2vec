@@ -359,6 +359,14 @@ def test_partial_failure_does_not_seal_stage(db_session, stub_providers, monkeyp
         for r in db_session.query(ClipEmbedding).filter_by(embedding_case="video")
     }
     assert rows == {10, 11}
+    # The retry must touch clip 11 only — clip 10's row + source_hash are
+    # already sealed by the first run's per-row commit.
+    retry_calls = call_log[
+        2:
+    ]  # first two entries are clip 10's success + clip 11's first failure
+    assert retry_calls == [11], (
+        f"expected the retry to call clip 11 only, got {retry_calls!r}"
+    )
     assert db_session.get(StageState, ("clip_embeddings", "video")) is not None
 
 
