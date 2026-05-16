@@ -147,7 +147,35 @@ def test_stage_dependency_hash_combines_three_fields(fresh_state):
     assert stage_dependency_hash(fresh_state, "upstream", "case-a") == expected
 
 
-def test_stage_dependency_hash_changes_when_any_field_changes(fresh_state):
+def test_stage_dependency_hash_changes_when_data_changes(fresh_state):
+    from modules.fingerprint import stage_dependency_hash
+
+    mark_complete(fresh_state, "upstream", "case-a", _fp("d1", "c1", "x1"))
+    fresh_state.commit()
+    first = stage_dependency_hash(fresh_state, "upstream", "case-a")
+
+    mark_complete(fresh_state, "upstream", "case-a", _fp("d2", "c1", "x1"))
+    fresh_state.commit()
+    second = stage_dependency_hash(fresh_state, "upstream", "case-a")
+
+    assert first != second
+
+
+def test_stage_dependency_hash_changes_when_config_changes(fresh_state):
+    from modules.fingerprint import stage_dependency_hash
+
+    mark_complete(fresh_state, "upstream", "case-a", _fp("d1", "c1", "x1"))
+    fresh_state.commit()
+    first = stage_dependency_hash(fresh_state, "upstream", "case-a")
+
+    mark_complete(fresh_state, "upstream", "case-a", _fp("d1", "c2", "x1"))
+    fresh_state.commit()
+    second = stage_dependency_hash(fresh_state, "upstream", "case-a")
+
+    assert first != second
+
+
+def test_stage_dependency_hash_changes_when_dependency_changes(fresh_state):
     from modules.fingerprint import stage_dependency_hash
 
     mark_complete(fresh_state, "upstream", "case-a", _fp("d1", "c1", "x1"))
