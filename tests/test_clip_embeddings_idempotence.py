@@ -42,7 +42,7 @@ from modules.database import (
     get_session,
 )
 from modules.embeddings import cases as cases_mod
-from modules.embeddings.runner import embed_clip_embeddings
+from modules.embeddings.runner import _diff_targets, embed_clip_embeddings
 
 # ── fake provider ────────────────────────────────────────────────────────────
 
@@ -360,3 +360,19 @@ def test_partial_failure_does_not_seal_stage(db_session, stub_providers, monkeyp
     }
     assert rows == {10, 11}
     assert db_session.get(StageState, ("clip_embeddings", "video")) is not None
+
+
+def test_diff_targets_picks_missing_and_changed():
+    per_clip = {10: "h10", 11: "h11", 12: "h12"}
+    embedded = {10: "h10", 11: "old", 13: "h13"}  # 12 missing, 11 stale, 13 orphan
+    assert _diff_targets(per_clip, embedded) == {11, 12}
+
+
+def test_diff_targets_treats_none_as_stale():
+    per_clip = {10: "h10"}
+    embedded = {10: None}
+    assert _diff_targets(per_clip, embedded) == {10}
+
+
+def test_diff_targets_empty_per_clip_returns_empty():
+    assert _diff_targets({}, {10: "h10"}) == set()
