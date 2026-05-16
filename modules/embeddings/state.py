@@ -53,11 +53,18 @@ def get_clip_embedding_candidates(
 def get_clip_embedding_rows_for_user_aggregation(
     session: Session, case: str
 ) -> list[tuple[bytes, int]]:
-    """Return (embedding_blob, user_id) rows for the given case."""
+    """Return (embedding_blob, user_id) rows for the given case.
+
+    Filters out clips that are no longer in the candidate set so orphan
+    rows (e.g. clips later deselected) do not contaminate user means.
+    """
     return (
         session.query(ClipEmbedding.embedding, Clip.user_id)
         .join(Clip, ClipEmbedding.clip_id == Clip.id)
-        .filter(ClipEmbedding.embedding_case == case)
+        .filter(
+            ClipEmbedding.embedding_case == case,
+            *clip_used_in_analysis(),
+        )
         .all()
     )
 
