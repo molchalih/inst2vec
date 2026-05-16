@@ -8,7 +8,10 @@ from modules.database import (
     get_engine,
     get_session,
 )
-from modules.embeddings.state import get_clip_embedding_rows_for_user_aggregation, get_embedded_source_hashes
+from modules.embeddings.state import (
+    get_clip_embedding_rows_for_user_aggregation,
+    get_embedded_source_hashes,
+)
 
 
 def _make_blob(values: list[float]) -> bytes:
@@ -63,17 +66,26 @@ def test_get_embedded_source_hashes_returns_clip_id_to_hash_map():
     session.merge(Clip(id=11, user_id=1, is_selected=True, is_downloaded=True))
     session.merge(
         ClipEmbedding(
-            clip_id=10, embedding_case="video", embedding=b"\x00" * 4, source_hash="abc",
+            clip_id=10,
+            embedding_case="video",
+            embedding=b"\x00" * 4,
+            source_hash="abc",
         )
     )
     session.merge(
         ClipEmbedding(
-            clip_id=11, embedding_case="video", embedding=b"\x00" * 4, source_hash=None,
+            clip_id=11,
+            embedding_case="video",
+            embedding=b"\x00" * 4,
+            source_hash=None,
         )
     )
     session.merge(
         ClipEmbedding(
-            clip_id=10, embedding_case="audio", embedding=b"\x00" * 4, source_hash="zzz",
+            clip_id=10,
+            embedding_case="audio",
+            embedding=b"\x00" * 4,
+            source_hash="zzz",
         )
     )
     session.commit()

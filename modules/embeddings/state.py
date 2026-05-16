@@ -28,9 +28,7 @@ def get_embedded_clip_ids(session: Session, case: str) -> set[int]:
     return {r.clip_id for r in rows}
 
 
-def get_embedded_source_hashes(
-    session: Session, case: str
-) -> dict[int, str | None]:
+def get_embedded_source_hashes(session: Session, case: str) -> dict[int, str | None]:
     """Map clip_id → stored source_hash for every ClipEmbedding row of ``case``.
 
     Used by the incremental runner to decide which clips need re-embedding.
