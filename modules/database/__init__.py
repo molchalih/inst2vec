@@ -3,33 +3,17 @@ from sqlalchemy.engine import Engine as _Engine
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import func
 
-from modules.database.models import (
+from modules.database.models import (  # noqa: F401  -- re-exports for modules.database.*
     Base,
     Clip,
-)
-from modules.database.models import (
-    ClipEmbedding as ClipEmbedding,
-)
-from modules.database.models import (
-    ClusterRun as ClusterRun,
-)
-from modules.database.models import (
-    Music as Music,
-)
-from modules.database.models import (
-    StageState as StageState,
-)
-from modules.database.models import (
-    User as User,
-)
-from modules.database.models import (
-    UserCluster as UserCluster,
-)
-from modules.database.models import (
-    UserEmbedding as UserEmbedding,
-)
-from modules.database.models import (
-    UserStats as UserStats,
+    ClipEmbedding,
+    ClusterRun,
+    Music,
+    StageState,
+    User,
+    UserCluster,
+    UserEmbedding,
+    UserStats,
 )
 
 _engine: _Engine | None = None
