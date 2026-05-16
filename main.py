@@ -12,7 +12,7 @@ from modules.music.features import MusicSecrets
 from modules.parse import fetch_profiles
 from modules.speech import VadConfig, classify_speech, clean_speech, translate_speech
 from modules.utils import load_usernames_from_csv
-from modules.visualization import plot_clusters
+from modules.visualization.plots import plot_clusters
 
 
 def run_pipeline() -> None:
