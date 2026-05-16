@@ -13,7 +13,6 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
-    text,
 )
 from sqlalchemy.orm import (
     DeclarativeBase,
@@ -310,19 +309,10 @@ class ClusterRun(Base):
     min_size: Mapped[int] = mapped_column(Integer, nullable=False)
     median_size: Mapped[int] = mapped_column(Integer, nullable=False)
     max_size: Mapped[int] = mapped_column(Integer, nullable=False)
-    eligibility: Mapped[int] = mapped_column(
-        Integer, nullable=False, server_default=text("0")
-    )
+    passes_validation: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     dbcv: Mapped[float | None] = mapped_column(Float, nullable=True)
     silhouette: Mapped[float | None] = mapped_column(Float, nullable=True)
     param_plateau_score: Mapped[float | None] = mapped_column(Float, nullable=True)
-    in_current_grid: Mapped[bool | None] = mapped_column(
-        Boolean, nullable=True
-    )  # True=current, False=stale
-    dataset_hash: Mapped[str | None] = mapped_column(
-        String, nullable=True
-    )  # SHA-256 of sorted user PKs
-    validation_config_hash: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[DateTime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

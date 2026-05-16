@@ -9,18 +9,12 @@ from types import SimpleNamespace
 from sqlalchemy.orm import Session
 
 from modules.database import ClusterRun
-from modules.eligibility import Eligibility, eligibility_db, is_eligible
 
 DEFAULT_CASES: tuple[str, ...] = ("audio", "video", "sandwich")
 
 
 def get_plateau_drop_threshold(settings: SimpleNamespace | None = None) -> float:
-    """Get plateau drop threshold from settings, or use hardcoded default.
-
-    Args:
-        settings: SimpleNamespace with a 'plateau_drop_threshold' attribute.
-                 If None, uses hardcoded default of 0.05.
-    """
+    """Get plateau drop threshold from settings, or use hardcoded default."""
     if settings is None or not hasattr(settings, "plateau_drop_threshold"):
         return 0.05
     return float(settings.plateau_drop_threshold)
@@ -30,13 +24,12 @@ def list_case_rows(session: Session, case: str) -> list[ClusterRun]:
     return session.query(ClusterRun).filter(ClusterRun.embedding_case == case).all()
 
 
-def list_eligible_best_rows(session: Session, case: str) -> list[ClusterRun]:
+def list_best_candidate_rows(session: Session, case: str) -> list[ClusterRun]:
     return (
         session.query(ClusterRun)
         .filter(
             ClusterRun.embedding_case == case,
-            ClusterRun.in_current_grid,
-            is_eligible(ClusterRun.eligibility),
+            ClusterRun.passes_validation.is_(True),
             ClusterRun.dbcv.isnot(None),
             ClusterRun.param_plateau_score.isnot(None),
         )
@@ -63,7 +56,7 @@ def select_best_cluster_run(
     threshold: float | None = None,
     settings: SimpleNamespace | None = None,
 ) -> ClusterRun | None:
-    rows = list_eligible_best_rows(session, case)
+    rows = list_best_candidate_rows(session, case)
     return pick_best_cluster_run(rows, threshold=threshold, settings=settings)
 
 
@@ -80,11 +73,7 @@ def _std_ddof1(vals: list[float]) -> float:
 
 
 def summarize_case_rows(rows: list[ClusterRun]) -> dict[str, str]:
-    filtered_rows = [
-        r
-        for r in rows
-        if r.eligibility == eligibility_db(Eligibility.ELIGIBLE) and r.in_current_grid
-    ]
+    filtered_rows = [r for r in rows if r.passes_validation is True]
     dbcv_vals = [
         float(r.dbcv)
         for r in rows

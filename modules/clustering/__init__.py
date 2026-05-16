@@ -7,13 +7,11 @@ from modules.clustering.core import (  # noqa: F401  -- re-exports
     resolve_hdbscan_metric,
     resolve_umap2d_params,
 )
-
-# NOTE: list_eligible_best_rows is renamed to list_best_candidate_rows in Task 3.
 from modules.clustering.results import (  # noqa: F401  -- re-exports
     DEFAULT_CASES,
     get_plateau_drop_threshold,
+    list_best_candidate_rows,
     list_case_rows,
-    list_eligible_best_rows,
     pick_best_cluster_run,
     select_best_cluster_run,
     summarize_case_rows,

@@ -70,8 +70,6 @@ def test_filter_passes_run_within_bounds():
     eng = _make_engine()
     with Session(eng) as s:
         row = _insert_run(s, noise_ratio=0.1, n_clusters=5)
-        row.in_current_grid = True
-        s.commit()
         row_id = row.id
 
     from modules.clustering.validation import _phase_filter
@@ -80,15 +78,13 @@ def test_filter_passes_run_within_bounds():
         _phase_filter(s, "video", _make_settings())
         result = s.get(ClusterRun, row_id)
         assert result is not None
-        assert result.eligibility == 1
+        assert result.passes_validation is True
 
 
 def test_filter_disqualifies_high_noise():
     eng = _make_engine()
     with Session(eng) as s:
         row = _insert_run(s, noise_ratio=0.5, n_clusters=5)
-        row.in_current_grid = True
-        s.commit()
         row_id = row.id
 
     from modules.clustering.validation import _phase_filter
@@ -97,15 +93,13 @@ def test_filter_disqualifies_high_noise():
         _phase_filter(s, "video", _make_settings())
         result = s.get(ClusterRun, row_id)
         assert result is not None
-        assert result.eligibility == 2
+        assert result.passes_validation is False
 
 
 def test_filter_disqualifies_too_few_clusters():
     eng = _make_engine()
     with Session(eng) as s:
         row = _insert_run(s, noise_ratio=0.1, n_clusters=1)
-        row.in_current_grid = True
-        s.commit()
         row_id = row.id
 
     from modules.clustering.validation import _phase_filter
@@ -114,15 +108,13 @@ def test_filter_disqualifies_too_few_clusters():
         _phase_filter(s, "video", _make_settings())
         result = s.get(ClusterRun, row_id)
         assert result is not None
-        assert result.eligibility == 2
+        assert result.passes_validation is False
 
 
 def test_filter_disqualifies_too_many_clusters():
     eng = _make_engine()
     with Session(eng) as s:
         row = _insert_run(s, noise_ratio=0.1, n_clusters=25)
-        row.in_current_grid = True
-        s.commit()
         row_id = row.id
 
     from modules.clustering.validation import _phase_filter
@@ -131,17 +123,16 @@ def test_filter_disqualifies_too_many_clusters():
         _phase_filter(s, "video", _make_settings())
         result = s.get(ClusterRun, row_id)
         assert result is not None
-        assert result.eligibility == 2
+        assert result.passes_validation is False
 
 
-def test_filter_ignores_stale_rows():
-    """_phase_filter must not touch rows with in_current_grid=0."""
+def test_filter_processes_all_rows():
+    """_phase_filter processes all rows for the case."""
     eng = _make_engine()
     with Session(eng) as s:
         row = _insert_run(s, noise_ratio=0.1, n_clusters=5)
-        row.in_current_grid = False
-        row.eligibility = 2
-        s.commit()
+        # passes_validation starts as None
+        assert row.passes_validation is None
         row_id = row.id
 
     from modules.clustering.validation import _phase_filter
@@ -150,7 +141,7 @@ def test_filter_ignores_stale_rows():
         _phase_filter(s, "video", _make_settings())
         result = s.get(ClusterRun, row_id)
         assert result is not None
-        assert result.eligibility == 2
+        assert result.passes_validation is not None
 
 
 # --- Phase 2: score ---
@@ -177,7 +168,7 @@ def test_phase_score_populates_dbcv_and_silhouette(monkeypatch):
             s,
             noise_ratio=0.0,
             n_clusters=2,
-            eligibility=1,
+            passes_validation=True,
             umap_n_components=5,
             hdbscan_min_cluster_size=10,
         )
@@ -214,7 +205,7 @@ def test_phase_score_skips_already_scored_rows(monkeypatch):
             s,
             noise_ratio=0.0,
             n_clusters=2,
-            eligibility=1,
+            passes_validation=True,
             umap_n_components=5,
             hdbscan_min_cluster_size=10,
         )
@@ -349,23 +340,21 @@ def test_phase_plateau_uses_dbcv_of_neighbors():
     with Session(eng) as s:
         r1 = _insert_run(
             s,
-            eligibility=1,
+            passes_validation=True,
             noise_ratio=0.1,
             n_clusters=5,
             umap_n_components=10,
             random_state=1,
         )
-        r1.in_current_grid = True
         r1.dbcv = 0.8
         r2 = _insert_run(
             s,
-            eligibility=1,
+            passes_validation=True,
             noise_ratio=0.1,
             n_clusters=5,
             umap_n_components=15,
             random_state=1,
         )
-        r2.in_current_grid = True
         r2.dbcv = 0.6
         s.commit()
         id1 = r1.id
@@ -388,13 +377,12 @@ def test_phase_plateau_covers_all_scored_rows():
         for i, nc in enumerate([10, 15, 20]):
             r = _insert_run(
                 s,
-                eligibility=1,
+                passes_validation=True,
                 noise_ratio=0.1,
                 n_clusters=5,
                 umap_n_components=nc,
                 random_state=1,
             )
-            r.in_current_grid = True
             r.dbcv = 0.5 + i * 0.1
             rows.append(r)
         s.commit()
@@ -416,13 +404,12 @@ def test_phase_plateau_no_neighbors_falls_back_to_own_dbcv():
     with Session(eng) as s:
         r = _insert_run(
             s,
-            eligibility=1,
+            passes_validation=True,
             noise_ratio=0.1,
             n_clusters=5,
             umap_n_components=10,
             random_state=1,
         )
-        r.in_current_grid = True
         r.dbcv = 0.75
         s.commit()
         rid = r.id
@@ -442,13 +429,12 @@ def test_phase_plateau_skips_already_set():
     with Session(eng) as s:
         row = _insert_run(
             s,
-            eligibility=1,
+            passes_validation=True,
             noise_ratio=0.1,
             n_clusters=5,
             umap_n_components=10,
             random_state=1,
         )
-        row.in_current_grid = True
         row.dbcv = 0.9
         row.param_plateau_score = 0.5  # already set
         s.commit()
@@ -472,24 +458,22 @@ def test_select_best_picks_highest_dbcv():
     with Session(eng) as s:
         r1 = _insert_run(
             s,
-            eligibility=1,
+            passes_validation=True,
             noise_ratio=0.1,
             n_clusters=5,
             umap_n_components=10,
             random_state=1,
         )
-        r1.in_current_grid = True
         r1.dbcv = 0.9
         r1.param_plateau_score = 0.88  # drop=0.02, within threshold
         r2 = _insert_run(
             s,
-            eligibility=1,
+            passes_validation=True,
             noise_ratio=0.1,
             n_clusters=5,
             umap_n_components=15,
             random_state=1,
         )
-        r2.in_current_grid = True
         r2.dbcv = 0.6
         r2.param_plateau_score = 0.59  # drop=0.01, within threshold
         s.commit()
@@ -510,25 +494,23 @@ def test_select_best_rejects_sharp_peak_by_plateau_filter():
         # r1 has higher DBCV but is a sharp peak
         r1 = _insert_run(
             s,
-            eligibility=1,
+            passes_validation=True,
             noise_ratio=0.1,
             n_clusters=5,
             umap_n_components=10,
             random_state=1,
         )
-        r1.in_current_grid = True
         r1.dbcv = 0.9
         r1.param_plateau_score = 0.3  # drop=0.6, far exceeds threshold → rejected
         # r2 has lower DBCV but is on a stable plateau
         r2 = _insert_run(
             s,
-            eligibility=1,
+            passes_validation=True,
             noise_ratio=0.1,
             n_clusters=5,
             umap_n_components=15,
             random_state=1,
         )
-        r2.in_current_grid = True
         r2.dbcv = 0.7
         r2.param_plateau_score = 0.68  # drop=0.02, within threshold → survives
         s.commit()
@@ -548,24 +530,22 @@ def test_select_best_falls_back_when_all_rejected():
     with Session(eng) as s:
         r1 = _insert_run(
             s,
-            eligibility=1,
+            passes_validation=True,
             noise_ratio=0.1,
             n_clusters=5,
             umap_n_components=10,
             random_state=1,
         )
-        r1.in_current_grid = True
         r1.dbcv = 0.9
         r1.param_plateau_score = 0.1  # sharp peak — would be rejected
         r2 = _insert_run(
             s,
-            eligibility=1,
+            passes_validation=True,
             noise_ratio=0.1,
             n_clusters=5,
             umap_n_components=15,
             random_state=1,
         )
-        r2.in_current_grid = True
         r2.dbcv = 0.7
         r2.param_plateau_score = 0.2  # also sharp — would be rejected
         s.commit()
@@ -582,9 +562,8 @@ def test_select_best_falls_back_when_all_rejected():
 def test_select_best_returns_none_when_no_eligible_runs():
     eng = _make_engine()
     with Session(eng) as s:
-        row = _insert_run(s, eligibility=1, noise_ratio=0.1, n_clusters=5)
-        row.in_current_grid = True
-        # no dbcv set → not eligible
+        _insert_run(s, passes_validation=True, noise_ratio=0.1, n_clusters=5)
+        # no dbcv set → not included in list_best_candidate_rows
         s.commit()
 
     from modules.clustering.validation import _select_best
@@ -593,18 +572,17 @@ def test_select_best_returns_none_when_no_eligible_runs():
         assert _select_best(s, "video", _make_settings()) is None
 
 
-def test_select_best_ignores_disqualified_eligibility():
+def test_select_best_ignores_disqualified():
     eng = _make_engine()
     with Session(eng) as s:
         row = _insert_run(
             s,
-            eligibility=2,
+            passes_validation=False,
             noise_ratio=0.1,
             n_clusters=5,
             umap_n_components=10,
             random_state=1,
         )
-        row.in_current_grid = True
         row.dbcv = 0.9
         row.param_plateau_score = 0.88
         s.commit()
@@ -621,24 +599,22 @@ def test_select_best_ignores_cluster_override_env(monkeypatch):
     with Session(eng) as s:
         r1 = _insert_run(
             s,
-            eligibility=1,
+            passes_validation=True,
             noise_ratio=0.1,
             n_clusters=5,
             umap_n_components=10,
             random_state=1,
         )
-        r1.in_current_grid = True
         r1.dbcv = 0.9
         r1.param_plateau_score = 0.88
         r2 = _insert_run(
             s,
-            eligibility=1,
+            passes_validation=True,
             noise_ratio=0.1,
             n_clusters=5,
             umap_n_components=15,
             random_state=1,
         )
-        r2.in_current_grid = True
         r2.dbcv = 0.1
         r2.param_plateau_score = 0.09
         s.commit()
@@ -659,13 +635,12 @@ def test_select_best_delegates_to_shared_selector(monkeypatch):
     with Session(eng) as s:
         row = _insert_run(
             s,
-            eligibility=1,
+            passes_validation=True,
             noise_ratio=0.1,
             n_clusters=5,
             umap_n_components=10,
             random_state=1,
         )
-        row.in_current_grid = True
         row.dbcv = 0.9
         row.param_plateau_score = 0.88
         s.commit()
@@ -691,192 +666,14 @@ def test_select_best_delegates_to_shared_selector(monkeypatch):
     assert calls["count"] == 1
 
 
-# --- Config hash ---
-
-
-def test_compute_validation_config_hash_is_deterministic():
-    from modules.clustering.validation import _compute_validation_config_hash
-
-    settings = _make_settings()
-    h1 = _compute_validation_config_hash(settings)
-    h2 = _compute_validation_config_hash(settings)
-    assert h1 == h2
-    assert len(h1) == 16
-
-
-def test_compute_validation_config_hash_changes_with_settings():
-    from modules.clustering.validation import _compute_validation_config_hash
-
-    base_settings = _make_settings()
-    changed_settings = _make_settings(plateau_drop_threshold=0.10)
-    h_base = _compute_validation_config_hash(base_settings)
-    h_changed = _compute_validation_config_hash(changed_settings)
-    assert h_base != h_changed
-
-
-def test_compute_validation_config_hash_with_custom_settings():
-    from modules.clustering.validation import _compute_validation_config_hash
-
-    custom_settings = _make_settings(
-        plateau_drop_threshold=0.1,
-        max_noise_ratio=0.5,
-        min_clusters=2,
-        max_clusters=30,
-    )
-    h = _compute_validation_config_hash(custom_settings)
-    assert len(h) == 16
-    assert all(ch in "0123456789abcdef" for ch in h)
-
-
-# --- Stale row invalidation ---
-
-
-def test_cluster_run_has_validation_config_hash_field():
-    eng = _make_engine()
-    with Session(eng) as s:
-        row = _insert_run(s)
-        row.validation_config_hash = "abc123def456abcd"
-        s.commit()
-        s.refresh(row)
-        assert row.validation_config_hash == "abc123def456abcd"
-
-
-def test_invalidate_stale_rows_nulls_plateau_when_hash_differs():
-    """Invalidation nulls param_plateau_score but preserves dbcv and silhouette."""
-    eng = _make_engine()
-    with Session(eng) as s:
-        row = _insert_run(s, noise_ratio=0.1, n_clusters=5)
-        row.in_current_grid = True
-        row.validation_config_hash = "oldhash00000000"
-        row.param_plateau_score = 0.7
-        row.dbcv = 0.9
-        row.silhouette = 0.85
-        s.commit()
-        row_id = row.id
-
-    from modules.clustering.validation import _invalidate_stale_rows
-
-    with Session(eng) as s:
-        _invalidate_stale_rows(s, "video", "newhash00000000")
-        updated = s.get(ClusterRun, row_id)
-        assert updated is not None
-        assert updated.param_plateau_score is None
-        assert updated.dbcv == pytest.approx(0.9)
-        assert updated.silhouette == pytest.approx(0.85)
-        assert updated.validation_config_hash == "newhash00000000"
-
-
-def test_invalidate_stale_rows_treats_null_hash_as_stale():
-    eng = _make_engine()
-    with Session(eng) as s:
-        row = _insert_run(s, noise_ratio=0.1, n_clusters=5)
-        row.in_current_grid = True
-        row.validation_config_hash = None
-        row.param_plateau_score = 0.4
-        s.commit()
-        row_id = row.id
-
-    from modules.clustering.validation import _invalidate_stale_rows
-
-    with Session(eng) as s:
-        _invalidate_stale_rows(s, "video", "currenthash0000")
-        updated = s.get(ClusterRun, row_id)
-        assert updated is not None
-        assert updated.param_plateau_score is None
-        assert updated.validation_config_hash == "currenthash0000"
-
-
-def test_invalidate_stale_rows_skips_matching_hash():
-    eng = _make_engine()
-    with Session(eng) as s:
-        row = _insert_run(s, noise_ratio=0.1, n_clusters=5)
-        row.in_current_grid = True
-        row.validation_config_hash = "currenthash0000"
-        row.param_plateau_score = 0.7
-        s.commit()
-        row_id = row.id
-
-    from modules.clustering.validation import _invalidate_stale_rows
-
-    with Session(eng) as s:
-        _invalidate_stale_rows(s, "video", "currenthash0000")
-        updated = s.get(ClusterRun, row_id)
-        assert updated is not None
-        assert updated.param_plateau_score == pytest.approx(0.7)
-
-
-def test_invalidate_stale_rows_ignores_non_current_grid_rows():
-    eng = _make_engine()
-    with Session(eng) as s:
-        row = _insert_run(s, noise_ratio=0.1, n_clusters=5)
-        row.in_current_grid = False
-        row.validation_config_hash = "oldhash00000000"
-        row.param_plateau_score = 0.7
-        s.commit()
-        row_id = row.id
-
-    from modules.clustering.validation import _invalidate_stale_rows
-
-    with Session(eng) as s:
-        _invalidate_stale_rows(s, "video", "newhash00000000")
-        updated = s.get(ClusterRun, row_id)
-        assert updated is not None
-        assert updated.param_plateau_score == pytest.approx(0.7)
-        assert updated.validation_config_hash == "oldhash00000000"
-
-
-def test_invalidate_stale_rows_only_affects_matching_case():
-    eng = _make_engine()
-    with Session(eng) as s:
-        video_row = _insert_run(
-            s,
-            embedding_case="video",
-            noise_ratio=0.1,
-            n_clusters=5,
-            umap_n_components=10,
-            random_state=1,
-        )
-        video_row.in_current_grid = True
-        video_row.validation_config_hash = "oldhash00000000"
-        video_row.param_plateau_score = 0.8
-
-        audio_row = _insert_run(
-            s,
-            embedding_case="audio",
-            noise_ratio=0.1,
-            n_clusters=5,
-            umap_n_components=10,
-            random_state=1,
-        )
-        audio_row.in_current_grid = True
-        audio_row.validation_config_hash = "oldhash00000000"
-        audio_row.param_plateau_score = 0.9
-        s.commit()
-        vid_id, aud_id = video_row.id, audio_row.id
-
-    from modules.clustering.validation import _invalidate_stale_rows
-
-    with Session(eng) as s:
-        _invalidate_stale_rows(s, "video", "newhash00000000")
-        vid = s.get(ClusterRun, vid_id)
-        aud = s.get(ClusterRun, aud_id)
-        assert vid is not None
-        assert aud is not None
-        assert vid.param_plateau_score is None
-        assert aud.param_plateau_score == pytest.approx(0.9)
-
-
 # --- Orchestration ---
 
 
 def test_validate_clustering_phase_order(monkeypatch):
-    """invalidate → filter → score → plateau → select, no bootstrap or composite."""
+    """filter → score → plateau → select (no invalidate, no bootstrap, no composite)."""
     from unittest.mock import MagicMock
 
     sequence = []
-
-    def fake_invalidate(session, case, current_hash):
-        sequence.append(("invalidate", case, current_hash))
 
     def fake_load_matrix(case):
         if case == "video":
@@ -896,9 +693,6 @@ def test_validate_clustering_phase_order(monkeypatch):
         return None
 
     monkeypatch.setattr(
-        "modules.clustering.validation._invalidate_stale_rows", fake_invalidate
-    )
-    monkeypatch.setattr(
         "modules.clustering.validation.load_user_matrix", fake_load_matrix
     )
     monkeypatch.setattr(
@@ -917,25 +711,21 @@ def test_validate_clustering_phase_order(monkeypatch):
 
     validate_clustering(_make_settings())
 
-    video_seq = [(op, c) for op, c, *_ in sequence if c == "video"]
+    video_seq = [(op, c) for op, c in sequence if c == "video"]
     assert video_seq, "no calls recorded for video case"
 
     ops = [op for op, _c in video_seq]
+    assert "invalidate" not in ops, "invalidate must not be called"
     assert "bootstrap" not in ops, "bootstrap must not be called"
     assert "composite" not in ops, "composite must not be called"
 
-    assert ("invalidate", "video") in video_seq
     assert ("filter", "video") in video_seq
     assert ("score", "video") in video_seq
     assert ("plateau", "video") in video_seq
 
-    invalidate_idx = video_seq.index(("invalidate", "video"))
     filter_idx = video_seq.index(("filter", "video"))
-    assert invalidate_idx < filter_idx, "invalidation must come before filter"
-
-    video_hash = next(h for op, c, h in sequence if c == "video" and op == "invalidate")
-    assert len(video_hash) == 16
-    assert all(ch in "0123456789abcdef" for ch in video_hash)
+    score_idx = video_seq.index(("score", "video"))
+    assert filter_idx < score_idx, "filter must come before score"
 
 
 def test_phase_score_uses_thread_pool_when_workers_gt_one(monkeypatch):
@@ -974,8 +764,7 @@ def test_phase_score_uses_thread_pool_when_workers_gt_one(monkeypatch):
 
     with Session(eng) as s:
         for nc in (15, 16):
-            row = _insert_run(s, umap_n_components=nc, eligibility=1)
-            row.in_current_grid = True
+            row = _insert_run(s, umap_n_components=nc, passes_validation=True)
             row.dbcv = None
             s.commit()
 
@@ -995,3 +784,89 @@ def test_phase_score_uses_thread_pool_when_workers_gt_one(monkeypatch):
 
     assert calls["n"] == 2
     assert max_workers_seen == [4]
+
+
+# --- New tests for Task 3 semantics ---
+
+
+def test_passes_validation_none_means_pending():
+    from modules.database import ClusterRun, get_session
+
+    session = get_session()
+    try:
+        session.query(ClusterRun).delete()
+        session.commit()
+        row = ClusterRun(
+            embedding_case="video",
+            umap_n_components=5,
+            umap_n_neighbors=15,
+            umap_min_dist=0.1,
+            umap_metric="cosine",
+            umap2d_n_neighbors=15,
+            umap2d_min_dist=0.1,
+            umap2d_metric="cosine",
+            hdbscan_min_cluster_size=15,
+            hdbscan_min_samples=None,
+            hdbscan_cluster_selection_method="eom",
+            hdbscan_metric="euclidean",
+            random_state=42,
+            n_clusters=5,
+            noise_ratio=0.1,
+            min_size=10,
+            median_size=20,
+            max_size=30,
+        )
+        session.add(row)
+        session.commit()
+        assert row.passes_validation is None
+    finally:
+        session.close()
+
+
+def test_list_best_candidate_rows_filters_by_passes_validation():
+    from modules.clustering import list_best_candidate_rows
+    from modules.database import ClusterRun, get_session
+
+    session = get_session()
+    try:
+        session.query(ClusterRun).delete()
+        session.commit()
+        base = dict(
+            embedding_case="video",
+            umap_n_components=5,
+            umap_n_neighbors=15,
+            umap_min_dist=0.1,
+            umap_metric="cosine",
+            umap2d_n_neighbors=15,
+            umap2d_min_dist=0.1,
+            umap2d_metric="cosine",
+            hdbscan_min_samples=None,
+            hdbscan_cluster_selection_method="eom",
+            hdbscan_metric="euclidean",
+            random_state=42,
+            n_clusters=5,
+            noise_ratio=0.1,
+            min_size=10,
+            median_size=20,
+            max_size=30,
+            dbcv=0.5,
+            silhouette=0.4,
+            param_plateau_score=0.45,
+        )
+        passed = ClusterRun(**base, hdbscan_min_cluster_size=15, passes_validation=True)
+        failed = ClusterRun(
+            **base, hdbscan_min_cluster_size=16, passes_validation=False
+        )
+        pending = ClusterRun(
+            **{**base, "dbcv": None, "param_plateau_score": None},
+            hdbscan_min_cluster_size=17,
+            passes_validation=None,
+        )
+        session.add_all([passed, failed, pending])
+        session.commit()
+
+        rows = list_best_candidate_rows(session, "video")
+        ids = sorted(r.hdbscan_min_cluster_size for r in rows)
+        assert ids == [15]
+    finally:
+        session.close()

@@ -24,8 +24,7 @@ def _run_row(
     silhouette: float | None,
     n_clusters: int,
     noise_ratio: float,
-    eligibility: int = 1,
-    in_current_grid: int | None = None,
+    passes_validation: bool | None = True,
 ) -> ClusterRun:
     return ClusterRun(
         embedding_case=embedding_case,
@@ -48,8 +47,7 @@ def _run_row(
         max_size=5,
         dbcv=dbcv,
         silhouette=silhouette,
-        eligibility=eligibility,
-        in_current_grid=in_current_grid,
+        passes_validation=passes_validation,
     )
 
 
@@ -64,8 +62,7 @@ def test_summarize_all_to_markdown_unified_table():
                 silhouette=0.0,
                 n_clusters=2,
                 noise_ratio=0.1,
-                eligibility=1,
-                in_current_grid=1,
+                passes_validation=True,
             )
         )
         s.add(
@@ -76,8 +73,7 @@ def test_summarize_all_to_markdown_unified_table():
                 silhouette=0.3,
                 n_clusters=4,
                 noise_ratio=0.0,
-                eligibility=1,
-                in_current_grid=1,
+                passes_validation=True,
             )
         )
         s.add(
@@ -88,8 +84,7 @@ def test_summarize_all_to_markdown_unified_table():
                 silhouette=0.2,
                 n_clusters=3,
                 noise_ratio=0.05,
-                eligibility=1,
-                in_current_grid=1,
+                passes_validation=True,
             )
         )
         s.commit()
@@ -119,8 +114,7 @@ def test_summarize_all_to_markdown_reports_total_and_filtered_counts():
                 silhouette=-0.5,
                 n_clusters=2,
                 noise_ratio=0.1,
-                eligibility=1,
-                in_current_grid=1,
+                passes_validation=True,
             )
         )
         s.add(
@@ -131,8 +125,7 @@ def test_summarize_all_to_markdown_reports_total_and_filtered_counts():
                 silhouette=0.0,
                 n_clusters=4,
                 noise_ratio=0.0,
-                eligibility=2,
-                in_current_grid=1,
+                passes_validation=False,
             )
         )
         s.add(
@@ -143,8 +136,7 @@ def test_summarize_all_to_markdown_reports_total_and_filtered_counts():
                 silhouette=0.0,
                 n_clusters=2,
                 noise_ratio=0.2,
-                eligibility=1,
-                in_current_grid=0,
+                passes_validation=None,
             )
         )
         s.commit()
@@ -173,8 +165,7 @@ def test_render_clustering_summary_returns_markdown_object():
                 silhouette=0.1,
                 n_clusters=2,
                 noise_ratio=0.1,
-                eligibility=1,
-                in_current_grid=1,
+                passes_validation=True,
             )
         )
         s.add(
@@ -185,8 +176,7 @@ def test_render_clustering_summary_returns_markdown_object():
                 silhouette=0.3,
                 n_clusters=4,
                 noise_ratio=0.0,
-                eligibility=1,
-                in_current_grid=1,
+                passes_validation=True,
             )
         )
         s.add(
@@ -197,8 +187,7 @@ def test_render_clustering_summary_returns_markdown_object():
                 silhouette=0.2,
                 n_clusters=3,
                 noise_ratio=0.05,
-                eligibility=1,
-                in_current_grid=1,
+                passes_validation=True,
             )
         )
         s.commit()

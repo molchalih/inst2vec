@@ -25,8 +25,7 @@ def _run_row(
     silhouette: float,
     n_clusters: int,
     noise_ratio: float,
-    eligibility: int = 1,
-    in_current_grid: int = 1,
+    passes_validation: bool | None = True,
 ) -> ClusterRun:
     return ClusterRun(
         embedding_case=embedding_case,
@@ -47,11 +46,10 @@ def _run_row(
         min_size=1,
         median_size=2,
         max_size=5,
-        eligibility=eligibility,
+        passes_validation=passes_validation,
         dbcv=dbcv,
         silhouette=silhouette,
         param_plateau_score=param_plateau_score,
-        in_current_grid=in_current_grid,
     )
 
 

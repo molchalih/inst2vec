@@ -1,11 +1,9 @@
 """Grid search over UMAP + HDBSCAN hyperparameters; saves aggregate metrics to ClusterRun."""
 
-import hashlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from itertools import product
 
 import numpy as np
-from sqlalchemy.exc import IntegrityError
 
 from modules.clustering.core import (
     DEFAULT_HDBSCAN_METRIC,
@@ -14,7 +12,6 @@ from modules.clustering.core import (
 )
 from modules.console import log, progress
 from modules.database import Base, ClusterRun, get_engine, get_session
-from modules.eligibility import Eligibility, eligibility_db
 
 _PARAM_KEYS = (
     "umap_n_components",
@@ -30,24 +27,6 @@ _PARAM_KEYS = (
     "hdbscan_metric",
     "random_state",
 )
-
-
-def _compute_dataset_hash(user_ids: list[int]) -> str:
-    """Compute a deterministic SHA-256 hash of the dataset.
-
-    The hash is based on sorted user IDs, ensuring it's order-independent.
-    """
-    payload = ",".join(str(uid) for uid in sorted(user_ids)).encode()
-    return hashlib.sha256(payload).hexdigest()
-
-
-def _combo_key(combo: dict) -> frozenset:
-    """Extract the hyperparameter key from a combo, excluding embedding_case.
-
-    Returns a frozenset of (key, value) tuples for all params except embedding_case.
-    This is used to check if a stored row matches the current grid configuration.
-    """
-    return frozenset((k, combo[k]) for k in _PARAM_KEYS)
 
 
 def _load_grid(settings) -> list[dict]:
@@ -101,14 +80,11 @@ def _load_grid(settings) -> list[dict]:
 
 
 def run_cluster_search(settings, clustering_grid_workers: int = 1) -> None:
-    """Run grid search over all hyperparameter combos from settings; save metrics to ClusterRun.
+    """Run grid search over all hyperparameter combos; save metrics to ClusterRun.
 
-    At the start of each run: marks existing rows as in_current_grid=False/DISQUALIFIED
-    if they belong to a combo not in the current grid, or were computed on a different
-    dataset (hash mismatch). New rows get in_current_grid=True and dataset_hash.
-
-    Idempotent: skips any combo already present in the DB with matching dataset hash.
-    Groups combos by embedding_case so the user embedding matrix is loaded once per case.
+    Idempotent at the (case, params) level: skips combos already present.
+    Stale handling (data/grid changes) is added in a later task via the
+    fingerprint layer.
     """
     Base.metadata.create_all(get_engine())
     combos = _load_grid(settings)
@@ -122,7 +98,7 @@ def run_cluster_search(settings, clustering_grid_workers: int = 1) -> None:
     total_skipped = 0
 
     for case, case_combos in combos_by_case.items():
-        matrix, user_ids = load_user_matrix(case)
+        matrix, _ = load_user_matrix(case)
         if matrix.shape[0] == 0:
             log(
                 f"cluster_search:{case}",
@@ -130,145 +106,50 @@ def run_cluster_search(settings, clustering_grid_workers: int = 1) -> None:
                 level="warn",
             )
             total_skipped += len(case_combos)
-            session = get_session()
-            try:
-                for row in (
-                    session.query(ClusterRun)
-                    .filter(ClusterRun.embedding_case == case)
-                    .all()
-                ):
-                    row.in_current_grid = False
-                    row.eligibility = eligibility_db(Eligibility.DISQUALIFIED)
-                session.commit()
-            finally:
-                session.close()
             continue
-
-        dataset_hash = _compute_dataset_hash(user_ids)
-        current_keys = {_combo_key(c) for c in case_combos}
-
-        # Invalidate stale rows: wrong grid params or dataset changed
-        session = get_session()
-        try:
-            existing_rows = (
-                session.query(ClusterRun)
-                .filter(ClusterRun.embedding_case == case)
-                .all()
-            )
-            for row in existing_rows:
-                row_key = frozenset((k, getattr(row, k)) for k in _PARAM_KEYS)
-                in_grid = row_key in current_keys
-                fp_match = row.dataset_hash == dataset_hash
-                if in_grid and fp_match:
-                    row.in_current_grid = True
-                else:
-                    row.in_current_grid = False
-                    row.eligibility = eligibility_db(Eligibility.DISQUALIFIED)
-            session.commit()
-        finally:
-            session.close()
 
         with progress(len(case_combos), f"cluster search · {case}") as advance:
             pending: list[dict] = []
-            for combo in case_combos:
-                short = (
-                    f"nc={combo['umap_n_components']} nn={combo['umap_n_neighbors']} "
-                    f"mcs={combo['hdbscan_min_cluster_size']}"
-                )
-                session = get_session()
-                try:
-                    if (
-                        session.query(ClusterRun)
-                        .filter_by(**combo)
-                        .filter(ClusterRun.dataset_hash == dataset_hash)
-                        .first()
-                    ):
+            session = get_session()
+            try:
+                for combo in case_combos:
+                    short = (
+                        f"nc={combo['umap_n_components']} nn={combo['umap_n_neighbors']} "
+                        f"mcs={combo['hdbscan_min_cluster_size']}"
+                    )
+                    if session.query(ClusterRun).filter_by(**combo).first():
                         total_skipped += 1
                         advance(1, detail=f"{short} | cached")
                     else:
                         pending.append(combo)
-                finally:
-                    session.close()
+            finally:
+                session.close()
 
-            def persist_result(
-                combo: dict,
-                result,
-                *,
-                _dataset_hash: str = dataset_hash,
-                _case: str = case,
-                _matrix=matrix,
-            ) -> None:
-                nonlocal total_new, total_skipped
-                short = (
-                    f"nc={combo['umap_n_components']} nn={combo['umap_n_neighbors']} "
-                    f"mcs={combo['hdbscan_min_cluster_size']}"
-                )
-                params = {k: v for k, v in combo.items() if k != "embedding_case"}
-                session = get_session()
-                try:
-                    if (
-                        session.query(ClusterRun)
-                        .filter_by(**combo)
-                        .filter(ClusterRun.dataset_hash == _dataset_hash)
-                        .first()
-                    ):
-                        total_skipped += 1
-                        advance(1, detail=f"{short} | cached")
-                        return
-                    sizes = result.cluster_sizes
-                    row = ClusterRun(
-                        **combo,
-                        n_clusters=result.n_clusters,
-                        noise_ratio=round(result.noise_ratio, 4),
-                        min_size=min(sizes) if sizes else 0,
-                        median_size=int(np.median(sizes)) if sizes else 0,
-                        max_size=max(sizes) if sizes else 0,
-                        in_current_grid=True,
-                        dataset_hash=_dataset_hash,
-                    )
-                    session.add(row)
-                    session.commit()
-                    total_new += 1
-                    advance(1, detail=f"{short} | k={result.n_clusters} new")
-                except IntegrityError:
-                    session.rollback()
-                    stale_row = session.query(ClusterRun).filter_by(**combo).first()
-                    if stale_row is not None:
-                        try:
-                            result = compute_clusters(_matrix, **params)
-                        except ValueError as exc:
-                            log(
-                                f"cluster_search:{_case}",
-                                f"update-skip — {exc}",
-                                level="warn",
-                            )
-                            total_skipped += 1
-                            advance(1, detail=f"{short} | upd-skip {str(exc)[:40]}")
-                            return
-                        sizes = result.cluster_sizes
-                        stale_row.n_clusters = result.n_clusters
-                        stale_row.noise_ratio = round(result.noise_ratio, 4)
-                        stale_row.min_size = min(sizes) if sizes else 0
-                        stale_row.median_size = int(np.median(sizes)) if sizes else 0
-                        stale_row.max_size = max(sizes) if sizes else 0
-                        stale_row.in_current_grid = True
-                        stale_row.dataset_hash = _dataset_hash
-                        stale_row.eligibility = eligibility_db(Eligibility.PENDING)
-                        stale_row.dbcv = None
-                        stale_row.silhouette = None
-                        stale_row.param_plateau_score = None
-                        session.commit()
-                        total_new += 1
-                        advance(1, detail=f"{short} | k={result.n_clusters} updated")
-                    else:
-                        total_skipped += 1
-                        advance(1, detail=f"{short} | integrity skip")
-                finally:
-                    session.close()
-
-            def run_one_combo(c: dict, *, _matrix=matrix):
+            def run_one(c: dict, *, _matrix=matrix):
                 p = {k: v for k, v in c.items() if k != "embedding_case"}
                 return c, compute_clusters(_matrix, **p)
+
+            def persist(combo, result) -> None:
+                nonlocal total_new
+                sizes = result.cluster_sizes
+                session = get_session()
+                try:
+                    if session.query(ClusterRun).filter_by(**combo).first():
+                        return
+                    session.add(
+                        ClusterRun(
+                            **combo,
+                            n_clusters=result.n_clusters,
+                            noise_ratio=round(result.noise_ratio, 4),
+                            min_size=min(sizes) if sizes else 0,
+                            median_size=int(np.median(sizes)) if sizes else 0,
+                            max_size=max(sizes) if sizes else 0,
+                        )
+                    )
+                    session.commit()
+                    total_new += 1
+                finally:
+                    session.close()
 
             if grid_workers == 1:
                 for combo in pending:
@@ -276,18 +157,19 @@ def run_cluster_search(settings, clustering_grid_workers: int = 1) -> None:
                         f"nc={combo['umap_n_components']} nn={combo['umap_n_neighbors']} "
                         f"mcs={combo['hdbscan_min_cluster_size']}"
                     )
-                    params = {k: v for k, v in combo.items() if k != "embedding_case"}
+                    p = {k: v for k, v in combo.items() if k != "embedding_case"}
                     try:
-                        result = compute_clusters(matrix, **params)
+                        result = compute_clusters(matrix, **p)
                     except ValueError as exc:
                         log(f"cluster_search:{case}", f"skipping — {exc}", level="warn")
                         total_skipped += 1
                         advance(1, detail=f"{short} | skip {str(exc)[:48]}")
                         continue
-                    persist_result(combo, result)
+                    persist(combo, result)
+                    advance(1, detail=f"{short} | k={result.n_clusters} new")
             else:
                 with ThreadPoolExecutor(max_workers=grid_workers) as ex:
-                    futures = {ex.submit(run_one_combo, c): c for c in pending}
+                    futures = {ex.submit(run_one, c): c for c in pending}
                     for fut in as_completed(futures):
                         combo = futures[fut]
                         short = (
@@ -295,7 +177,7 @@ def run_cluster_search(settings, clustering_grid_workers: int = 1) -> None:
                             f"mcs={combo['hdbscan_min_cluster_size']}"
                         )
                         try:
-                            combo_done, result = fut.result()
+                            c_done, result = fut.result()
                         except ValueError as exc:
                             log(
                                 f"cluster_search:{case}",
@@ -305,7 +187,8 @@ def run_cluster_search(settings, clustering_grid_workers: int = 1) -> None:
                             total_skipped += 1
                             advance(1, detail=f"{short} | skip {str(exc)[:48]}")
                             continue
-                        persist_result(combo_done, result)
+                        persist(c_done, result)
+                        advance(1, detail=f"{short} | k={result.n_clusters} new")
 
     log(
         "cluster_search", f"done — {total_new} new, {total_skipped} skipped", level="ok"

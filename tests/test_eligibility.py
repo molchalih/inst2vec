@@ -2,7 +2,6 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from modules.database import Base, ClusterRun, User
-from modules.eligibility import Eligibility, eligibility_db
 
 
 def test_user_and_cluster_run_default_to_pending():
@@ -38,4 +37,4 @@ def test_user_and_cluster_run_default_to_pending():
         loaded = s.get(User, 1)
         assert loaded is not None
         assert loaded.is_eligible is None  # NULL = pending
-        assert run.eligibility == eligibility_db(Eligibility.PENDING)
+        assert run.passes_validation is None  # NULL = pending

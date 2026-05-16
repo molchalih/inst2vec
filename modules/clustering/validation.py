@@ -1,14 +1,11 @@
 """Phase 6b — clustering validation: filter, score, plateau, select."""
 
-import hashlib
-import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import cast
 
 import hdbscan.validity
 import numpy as np
 from sklearn.metrics import silhouette_score
-from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from modules.clustering.core import (
@@ -18,12 +15,11 @@ from modules.clustering.core import (
     resolve_hdbscan_metric,
 )
 from modules.clustering.results import (
-    list_eligible_best_rows,
+    list_best_candidate_rows,
     pick_best_cluster_run,
 )
 from modules.console import log, progress
 from modules.database import ClusterRun, get_session
-from modules.eligibility import Eligibility, eligibility_db, is_eligible
 
 _PARAM_COLS = [
     "umap_n_components",
@@ -50,40 +46,6 @@ _NUMERIC_PARAM_COLS = [
     "hdbscan_min_samples",
     "random_state",
 ]
-
-
-def _compute_validation_config_hash(settings) -> str:
-    config = {
-        "max_noise": str(settings.max_noise_ratio),
-        "min_clusters": str(settings.min_clusters),
-        "max_clusters": str(settings.max_clusters),
-        "plateau_drop_threshold": str(settings.plateau_drop_threshold),
-    }
-    return hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()[:16]
-
-
-def _invalidate_stale_rows(session: Session, case: str, current_hash: str) -> None:
-    stale = (
-        session.query(ClusterRun)
-        .filter(
-            ClusterRun.embedding_case == case,
-            ClusterRun.in_current_grid,
-            or_(
-                ClusterRun.validation_config_hash.is_(None),
-                ClusterRun.validation_config_hash != current_hash,
-            ),
-        )
-        .all()
-    )
-    for row in stale:
-        row.param_plateau_score = None
-        row.validation_config_hash = current_hash
-    if stale:
-        session.commit()
-        log(
-            f"validate:{case}",
-            f"invalidated {len(stale)} stale rows (config hash changed)",
-        )
 
 
 def _row_to_params(row: ClusterRun) -> dict:
@@ -141,7 +103,6 @@ def _phase_filter(session: Session, case: str, settings) -> None:
         session.query(ClusterRun)
         .filter(
             ClusterRun.embedding_case == case,
-            ClusterRun.in_current_grid,
         )
         .all()
     )
@@ -153,11 +114,7 @@ def _phase_filter(session: Session, case: str, settings) -> None:
                     row.noise_ratio <= max_noise
                     and min_clusters <= row.n_clusters <= max_clusters
                 )
-                row.eligibility = (
-                    eligibility_db(Eligibility.ELIGIBLE)
-                    if passes
-                    else eligibility_db(Eligibility.DISQUALIFIED)
-                )
+                row.passes_validation = passes
                 n_pass += int(passes)
                 advance(1)
     session.commit()
@@ -174,7 +131,7 @@ def _phase_score(
         session.query(ClusterRun)
         .filter(
             ClusterRun.embedding_case == case,
-            is_eligible(ClusterRun.eligibility),
+            ClusterRun.passes_validation.is_(True),
             ClusterRun.dbcv.is_(None),
         )
         .all()
@@ -196,14 +153,14 @@ def _phase_score(
                     f"score skip id={row_id} — ValueError",
                     level="warn",
                 )
-                row.eligibility = eligibility_db(Eligibility.DISQUALIFIED)
+                row.passes_validation = False
             elif outcome == "dbcv_fail":
                 log(
                     f"validate:{case}",
                     f"dbcv failed id={row_id} — disqualifying",
                     level="err",
                 )
-                row.eligibility = eligibility_db(Eligibility.DISQUALIFIED)
+                row.passes_validation = False
             else:
                 dbcv, sil = outcome
                 row.dbcv = dbcv
@@ -224,14 +181,14 @@ def _phase_score(
                         f"score skip id={row.id} — ValueError",
                         level="warn",
                     )
-                    row.eligibility = eligibility_db(Eligibility.DISQUALIFIED)
+                    row.passes_validation = False
                 elif outcome == "dbcv_fail":
                     log(
                         f"validate:{case}",
                         f"dbcv failed id={row.id} — disqualifying",
                         level="err",
                     )
-                    row.eligibility = eligibility_db(Eligibility.DISQUALIFIED)
+                    row.passes_validation = False
                 else:
                     dbcv, sil = outcome
                     row.dbcv = dbcv
@@ -316,13 +273,12 @@ def _find_param_neighbors(
 
 
 def _phase_plateau(session: Session, case: str, settings) -> None:
-    """Compute local DBCV neighborhood mean for every qualifying run in the current grid."""
+    """Compute local DBCV neighborhood mean for every qualifying run."""
     all_scored = (
         session.query(ClusterRun)
         .filter(
             ClusterRun.embedding_case == case,
-            ClusterRun.in_current_grid,
-            is_eligible(ClusterRun.eligibility),
+            ClusterRun.passes_validation.is_(True),
             ClusterRun.dbcv.isnot(None),
         )
         .all()
@@ -350,7 +306,7 @@ def _phase_plateau(session: Session, case: str, settings) -> None:
 
 def _select_best(session: Session, case: str, settings) -> ClusterRun | None:
     threshold = float(settings.plateau_drop_threshold)
-    rows = list_eligible_best_rows(session, case)
+    rows = list_best_candidate_rows(session, case)
     if not rows:
         log(f"validate:{case}", "select — no eligible runs", level="warn")
         return None
@@ -378,7 +334,6 @@ def validate_clustering(
     settings, clustering_grid_workers: int = 1
 ) -> dict[str, dict | None]:
     """Phase 6b entry point: filter → score → plateau → select, per embedding case."""
-    current_hash = _compute_validation_config_hash(settings)
     result: dict[str, dict | None] = {}
     for case in ["video", "sandwich", "audio"]:
         log(f"validate:{case}", "starting")
@@ -389,7 +344,6 @@ def validate_clustering(
             continue
         session = get_session()
         try:
-            _invalidate_stale_rows(session, case, current_hash)
             _phase_filter(session, case, settings)
             _phase_score(session, case, matrix, clustering_grid_workers)
             _phase_plateau(session, case, settings)
