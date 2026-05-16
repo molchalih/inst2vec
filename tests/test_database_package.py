@@ -11,7 +11,6 @@ import inspect
 
 import modules.database as db
 
-
 CLASS_NAMES = [
     # ORM bases + models
     "Base",
