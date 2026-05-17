@@ -117,17 +117,26 @@ def db_session():
     session.close()
 
 
-def test_disabled_short_circuits(tmp_path, db_session):
+def test_runs_when_gemini_disabled(tmp_path, sample_mp4_with_audio, db_session):
+    """Stage runs regardless of embeddings.gemini_enabled; the flag only gates
+    the downstream gemini_mm embedding case, not audio extraction itself."""
     from modules.ingest.audio import extract_audio_stage
 
+    vid_dir = tmp_path / "video"
+    vid_dir.mkdir()
+    (vid_dir / "1.mp4").write_bytes(Path(sample_mp4_with_audio).read_bytes())
+
+    db_session.add(User(id=1, is_selected=True))
+    db_session.add(Clip(id=1, user_id=1, is_selected=True, is_downloaded=True))
+    db_session.commit()
+
     audio_dir = tmp_path / "audio"
-    video_dir = tmp_path / "video"
-    settings = _make_settings(audio_dir=audio_dir, enabled=False, video_dir=video_dir)
-    with patch("modules.ingest.audio.run_ffmpeg") as ff:
-        extract_audio_stage(settings)
-    ff.assert_not_called()
-    assert audio_dir.exists() is False
-    assert db_session.get(StageState, ("audio_extract", "default")) is None
+    settings = _make_settings(audio_dir=audio_dir, enabled=False, video_dir=vid_dir)
+
+    extract_audio_stage(settings)
+
+    assert (audio_dir / "1.mp3").exists()
+    assert db_session.get(StageState, ("audio_extract", "default")) is not None
 
 
 def test_stage_fingerprint_seals(tmp_path, sample_mp4_with_audio, db_session):

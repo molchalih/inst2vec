@@ -78,13 +78,8 @@ def _video_stat(video_dir: str, clip_id: int) -> tuple[int, int]:
 def extract_audio_stage(settings) -> None:
     """Extract mp3 audio for every downloaded clip into ``paths.audio_dir``.
 
-    No-op when ``embeddings.gemini_enabled`` is False — gemini_mm is the
-    only consumer today.
+    Always runs. Idempotent via fingerprint seal + per-file mtime check.
     """
-    if not settings.embeddings.gemini_enabled:
-        log(AUDIO_EXTRACT_STAGE, "disabled — skipping")
-        return
-
     Base.metadata.create_all(get_engine())
     session = get_session()
     try:
