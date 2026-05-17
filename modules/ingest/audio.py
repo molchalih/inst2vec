@@ -1,4 +1,4 @@
-"""Audio extraction stage."""
+"""Audio extraction stage: extract mp3 audio from downloaded videos."""
 
 from __future__ import annotations
 

@@ -16,7 +16,7 @@ from modules.database import (
     get_engine,
     get_session,
 )
-from modules.download import extract_audio
+from modules.ingest.audio import extract_audio
 
 
 def test_extracts_mp3_from_mp4(sample_mp4_with_audio, tmp_path):
@@ -118,12 +118,12 @@ def db_session():
 
 
 def test_disabled_short_circuits(tmp_path, db_session):
-    from modules.download import extract_audio_stage
+    from modules.ingest.audio import extract_audio_stage
 
     audio_dir = tmp_path / "audio"
     video_dir = tmp_path / "video"
     settings = _make_settings(audio_dir=audio_dir, enabled=False, video_dir=video_dir)
-    with patch("modules.download.run_ffmpeg") as ff:
+    with patch("modules.ingest.audio.run_ffmpeg") as ff:
         extract_audio_stage(settings)
     ff.assert_not_called()
     assert audio_dir.exists() is False
@@ -131,7 +131,7 @@ def test_disabled_short_circuits(tmp_path, db_session):
 
 
 def test_stage_fingerprint_seals(tmp_path, sample_mp4_with_audio, db_session):
-    from modules.download import extract_audio_stage
+    from modules.ingest.audio import extract_audio_stage
 
     vid_dir = tmp_path / "video"
     vid_dir.mkdir()
@@ -151,6 +151,6 @@ def test_stage_fingerprint_seals(tmp_path, sample_mp4_with_audio, db_session):
     assert row is not None  # sealed
 
     # Second run is a no-op (fingerprint matches → no ffmpeg invocation).
-    with patch("modules.download.run_ffmpeg") as ff:
+    with patch("modules.ingest.audio.run_ffmpeg") as ff:
         extract_audio_stage(settings)
     ff.assert_not_called()
