@@ -27,6 +27,19 @@ AUDIO_INSTRUCTION = (
 
 
 @dataclass(frozen=True)
+class EmbeddingSecrets:
+    """Secret bag threaded through provider factories.
+
+    Local providers ignore this; remote providers (e.g. Gemini) read the
+    credentials they need. Defaulting every field to ``None`` keeps
+    ``EmbeddingSecrets()`` a valid no-arg call for tests / pipelines that
+    don't use remote providers.
+    """
+
+    gemini_api_key: str | None = None
+
+
+@dataclass(frozen=True)
 class EmbeddingCaseSpec:
     name: str
     text_builder: Callable[[object, dict], str | None] | None
@@ -115,6 +128,18 @@ CASE_REGISTRY: dict[str, EmbeddingCaseSpec] = {
 }
 
 DEFAULT_CASES: tuple[str, ...] = ("video", "sandwich", "audio")
+
+
+def default_cases(settings) -> tuple[str, ...]:
+    """Return the default embedding cases, gated by settings.embeddings.gemini_enabled.
+
+    If gemini_enabled=True, includes gemini_mm in the defaults (if registered).
+    Otherwise, returns just (video, sandwich, audio).
+    """
+    cases = list(DEFAULT_CASES)
+    if getattr(settings.embeddings, "gemini_enabled", False) and "gemini_mm" in CASE_REGISTRY:
+        cases.append("gemini_mm")
+    return tuple(cases)
 
 
 # Recipe versions for text builders. Bump the value when the corresponding

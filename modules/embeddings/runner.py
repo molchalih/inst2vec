@@ -30,9 +30,10 @@ from modules.database import (
 )
 from modules.embeddings.cases import (
     CASE_REGISTRY,
-    DEFAULT_CASES,
     EmbeddingCaseSpec,
+    EmbeddingSecrets,
     case_config_identity,
+    default_cases,
 )
 from modules.embeddings.sampling import (
     adaptive_sampling,
@@ -50,10 +51,25 @@ from modules.embeddings.vectors import to_bytes
 STAGE = "clip_embeddings"
 
 
-def embed_clip_embeddings(settings, cases: list[str] | None = None) -> None:
-    """Embed clips for the given cases (default: all DEFAULT_CASES)."""
-    case_names = list(cases) if cases is not None else list(DEFAULT_CASES)
+def embed_clip_embeddings(
+    settings,
+    secrets: EmbeddingSecrets | None = None,
+    cases: list[str] | None = None,
+) -> None:
+    """Embed clips for the given cases (default: result of default_cases(settings)).
+
+    ``secrets`` carries credentials for remote provider factories; local
+    factories ignore it. Defaults to an empty ``EmbeddingSecrets()`` so
+    callers that don't use remote providers can omit it.
+    """
+    if secrets is None:
+        secrets = EmbeddingSecrets()
+    case_names = list(cases) if cases is not None else list(default_cases(settings))
     for name in case_names:
+        if name == "gemini_mm" and not settings.embeddings.gemini_enabled:
+            raise RuntimeError(
+                "gemini_mm case requested but embeddings.gemini_enabled=false"
+            )
         spec = CASE_REGISTRY[name]
         _run_case(settings, spec)
 
