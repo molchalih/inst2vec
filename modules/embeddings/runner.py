@@ -102,6 +102,20 @@ def _run_case(settings, spec: EmbeddingCaseSpec) -> None:
         candidates = get_clip_embedding_candidates(
             session, settings.embeddings.exclude_disqualified_users
         )
+        candidate_ids = {c.id for c in candidates}
+
+        # Sweep orphan ClipEmbedding rows for this case — clips no longer in
+        # the candidate set must not contaminate downstream aggregation. Runs
+        # unconditionally so even otherwise-sealed cases reclaim orphans.
+        orphan_q = session.query(ClipEmbedding).filter(
+            ClipEmbedding.embedding_case == spec.name,
+        )
+        if candidate_ids:
+            orphan_q = orphan_q.filter(~ClipEmbedding.clip_id.in_(candidate_ids))
+        deleted = orphan_q.delete(synchronize_session=False)
+        if deleted:
+            session.commit()
+            log(log_tag, f"swept {deleted} orphan row(s)")
 
         current, per_clip = _compute_fingerprint_and_per_clip(
             session, spec, settings, candidates
