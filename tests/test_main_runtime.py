@@ -126,12 +126,8 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
         main, "extract_music_features", lambda **kwargs: calls.append("music:features")
     )
     monkeypatch.setattr(
-        main, "classify_speech", lambda **kwargs: calls.append("speech:classify")
+        main, "process_speech", lambda *args, **kwargs: calls.append("speech:process")
     )
-    monkeypatch.setattr(
-        main, "translate_speech", lambda **kwargs: calls.append("speech:translate")
-    )
-    monkeypatch.setattr(main, "clean_speech", lambda: calls.append("speech:clean"))
     monkeypatch.setattr(
         main,
         "process_captions",

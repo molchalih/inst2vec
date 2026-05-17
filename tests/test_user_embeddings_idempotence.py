@@ -280,3 +280,91 @@ def test_empty_inputs_writes_stage_state_and_skips_next(db_session):
     db_session.expire_all()
     second_updated = db_session.get(StageState, ("user_embeddings", "video")).updated_at
     assert first_updated == second_updated
+
+
+def test_only_changed_user_is_recomputed(db_session):
+    """Changing one user's clip embedding must recompute only that user,
+    leaving the other user's stored vector + source_hash untouched.
+    """
+    _seed_users_and_clips(db_session, [(1, 10), (2, 20)])
+    _seed_clip_embeddings(db_session, "video", [(10, [1.0]), (20, [2.0])])
+
+    embed_user_embeddings(_settings_stub(), cases=["video"])
+    db_session.expire_all()
+
+    pre = {
+        r.user_id: (r.embedding, r.source_hash)
+        for r in db_session.query(UserEmbedding).filter_by(embedding_case="video")
+    }
+    assert pre[1][1] is not None and pre[2][1] is not None
+
+    # Mutate user 1's clip embedding bytes only — user 2 unaffected.
+    db_session.query(ClipEmbedding).filter_by(clip_id=10).update(
+        {"embedding": _blob([7.0])}
+    )
+    db_session.commit()
+
+    embed_user_embeddings(_settings_stub(), cases=["video"])
+    db_session.expire_all()
+
+    post = {
+        r.user_id: (r.embedding, r.source_hash)
+        for r in db_session.query(UserEmbedding).filter_by(embedding_case="video")
+    }
+    assert post[1][0] != pre[1][0], "user 1 must recompute"
+    assert post[1][1] != pre[1][1], "user 1's source_hash must flip"
+    assert post[2] == pre[2], "user 2 must be untouched, including source_hash"
+
+
+def test_user_with_no_remaining_clips_is_dropped(db_session):
+    """When a user's only clip is deselected, the stage fingerprint flips
+    AND the user must be removed from UserEmbedding as an orphan.
+    """
+    _seed_users_and_clips(db_session, [(1, 10), (2, 20)])
+    _seed_clip_embeddings(db_session, "video", [(10, [1.0]), (20, [2.0])])
+    embed_user_embeddings(_settings_stub(), cases=["video"])
+    db_session.expire_all()
+
+    db_session.query(Clip).filter_by(id=20).update({"is_selected": False})
+    db_session.commit()
+
+    embed_user_embeddings(_settings_stub(), cases=["video"])
+    db_session.expire_all()
+
+    ids = {
+        r.user_id
+        for r in db_session.query(UserEmbedding).filter_by(embedding_case="video")
+    }
+    assert ids == {1}, "user 2 must be dropped after their only clip is deselected"
+
+
+def test_each_merged_row_carries_source_hash(db_session):
+    _seed_users_and_clips(db_session, [(1, 10), (2, 20)])
+    _seed_clip_embeddings(db_session, "video", [(10, [1.0]), (20, [2.0])])
+    embed_user_embeddings(_settings_stub(), cases=["video"])
+    db_session.expire_all()
+
+    rows = db_session.query(UserEmbedding).filter_by(embedding_case="video").all()
+    assert rows and all(r.source_hash is not None for r in rows)
+
+
+def test_config_identity_change_triggers_full_recompute(db_session, monkeypatch):
+    """Bumping _CONFIG_IDENTITY (the aggregator version tag) must cause every
+    UserEmbedding row to be rebuilt (config-drift full-wipe escape hatch).
+    """
+    from modules.embeddings import users as users_mod
+
+    _seed_users_and_clips(db_session, [(1, 10), (2, 20)])
+    _seed_clip_embeddings(db_session, "video", [(10, [1.0]), (20, [2.0])])
+    embed_user_embeddings(_settings_stub(), cases=["video"])
+    db_session.expire_all()
+
+    monkeypatch.setattr(users_mod, "_CONFIG_IDENTITY", "agg=mean_pool|v=2")
+    embed_user_embeddings(_settings_stub(), cases=["video"])
+    db_session.expire_all()
+
+    ids = {
+        r.user_id
+        for r in db_session.query(UserEmbedding).filter_by(embedding_case="video")
+    }
+    assert ids == {1, 2}

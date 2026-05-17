@@ -3,11 +3,17 @@
 from unittest.mock import MagicMock
 
 import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session
 
 from modules.config import MusicSettings
-from modules.database import Base, Clip, Music, User
+from modules.database import (
+    Base,
+    Clip,
+    Music,
+    StageState,
+    User,
+    get_engine,
+    get_session,
+)
 from modules.music.clients import TransientError
 from modules.music.features import (
     _enrich_catalog_features,
@@ -45,11 +51,19 @@ def _music_settings(**overrides) -> MusicSettings:
 
 @pytest.fixture
 def db_session():
-    eng = create_engine("sqlite:///:memory:")
-    Base.metadata.create_all(eng)
-    s = Session(eng)
-    yield s
-    s.close()
+    Base.metadata.create_all(get_engine())
+    session = get_session()
+    for model in (StageState, Clip, Music, User):
+        session.query(model).delete()
+    session.commit()
+    try:
+        yield session
+    finally:
+        session.rollback()
+        for model in (StageState, Clip, Music, User):
+            session.query(model).delete()
+        session.commit()
+        session.close()
 
 
 def test_resolve_spotify_ids_terminal_marks_on_transient(db_session):
@@ -305,3 +319,229 @@ def test_music_has_features_helper():
     m.key = 5
     m.mode = 1
     assert music_has_features(m) is True
+
+
+def test_features_config_payload_ignores_classify_only_knobs():
+    """Changing a classify-only knob must not invalidate features
+    fingerprints — and vice versa."""
+    from modules.config import MusicSettings
+    from modules.music.state import features_config_payload
+
+    base = MusicSettings(
+        audio_fingerprint_confidence=0.5,
+        commit_every=50,
+        http_timeout=20.0,
+        spotify_search_limit=5,
+        spotify_token_skew_seconds=30,
+        spotify_request_timeout=8.0,
+        reccobeats_batch_size=20,
+        reccobeats_delay_min=0.0,
+        reccobeats_delay_max=0.0,
+        manual_features_max_seconds=20,
+        manual_features_sample_rate=44100,
+        manual_features_max_mb=5.0,
+        manual_features_mp3_bitrate="128k",
+        api_max_attempts=3,
+        api_retry_delay=0.0,
+        api_retry_jitter=0.0,
+        acr_max_attempts=2,
+        ffmpeg_timeout_seconds=60,
+    )
+    bumped_classify = base.model_copy(update={"audio_fingerprint_confidence": 0.95})
+    assert features_config_payload(base) == features_config_payload(bumped_classify)
+
+    bumped_features = base.model_copy(update={"reccobeats_batch_size": 99})
+    assert features_config_payload(base) != features_config_payload(bumped_features)
+
+
+def test_reset_music_features_nulls_feature_columns(db_session):
+    from modules.database import Music
+    from modules.music.state import reset_music_features
+
+    db_session.merge(
+        Music(
+            id=1,
+            artist="a",
+            track="t",
+            spotify_id="sp1",
+            reccobeats_id="rb1",
+            is_audio_features_extracted=True,
+            acousticness=0.5,
+            danceability=0.4,
+            energy=0.3,
+            instrumentalness=0.2,
+            key=1,
+            liveness=0.1,
+            loudness=-5.0,
+            mode=1,
+            speechiness=0.0,
+            tempo=120.0,
+            valence=0.8,
+        )
+    )
+    db_session.commit()
+
+    reset_music_features(db_session)
+    m = db_session.query(Music).filter_by(id=1).one()
+    assert m.spotify_id is None
+    assert m.reccobeats_id is None
+    assert m.is_audio_features_extracted is None
+    assert m.acousticness is None
+    assert m.tempo is None
+    assert m.valence is None
+
+
+def test_extract_music_features_config_change_triggers_reset(monkeypatch, db_session):
+    """Bumping a feature-relevant MusicSettings field flips the
+    features fingerprint and NULLs every feature column."""
+    import modules.music.features as features_mod
+    from modules.config import MusicSettings, PathsSettings
+    from modules.database import Music
+    from modules.music.features import MusicSecrets, extract_music_features
+
+    # No-op every sub-stage so we exercise only the gate.
+    monkeypatch.setattr(features_mod, "_resolve_spotify_ids", lambda *a, **kw: None)
+    monkeypatch.setattr(features_mod, "_resolve_reccobeats_ids", lambda *a, **kw: None)
+    monkeypatch.setattr(features_mod, "_enrich_catalog_features", lambda *a, **kw: None)
+    monkeypatch.setattr(features_mod, "_enrich_upload_fallback", lambda *a, **kw: None)
+
+    db_session.merge(
+        Music(
+            id=1,
+            artist="a",
+            track="t",
+            spotify_id="sp1",
+            reccobeats_id="rb1",
+            is_audio_features_extracted=True,
+            acousticness=0.5,
+            danceability=0.4,
+            energy=0.3,
+            instrumentalness=0.2,
+            key=1,
+            liveness=0.1,
+            loudness=-5.0,
+            mode=1,
+            speechiness=0.0,
+            tempo=120.0,
+            valence=0.8,
+        )
+    )
+    db_session.commit()
+
+    base = MusicSettings(
+        audio_fingerprint_confidence=0.7,
+        commit_every=1,
+        http_timeout=10.0,
+        spotify_search_limit=5,
+        spotify_token_skew_seconds=60,
+        spotify_request_timeout=10.0,
+        reccobeats_batch_size=10,
+        reccobeats_delay_min=0.1,
+        reccobeats_delay_max=0.2,
+        manual_features_max_seconds=20,
+        manual_features_sample_rate=22050,
+        manual_features_max_mb=4.0,
+        manual_features_mp3_bitrate="64k",
+        api_max_attempts=2,
+        api_retry_delay=0.0,
+        api_retry_jitter=0.0,
+        acr_max_attempts=1,
+        ffmpeg_timeout_seconds=5,
+    )
+    paths = PathsSettings(
+        video_dir="/tmp",
+        plots_dir="/tmp",
+        model_path="/tmp",
+        profile_pic_dir="/tmp",
+        thumbnail_dir="/tmp",
+        speech_audio_dir="/tmp",
+        data_csv_path="/tmp/x.csv",
+    )
+    secrets = MusicSecrets(spotify_client_id="x", spotify_client_secret="y")
+
+    extract_music_features(base, paths, secrets)
+    extract_music_features(
+        base.model_copy(update={"reccobeats_batch_size": 99}), paths, secrets
+    )
+
+    m = db_session.query(Music).filter_by(id=1).one()
+    assert m.spotify_id is None, "config drift must NULL feature columns"
+    assert m.tempo is None
+
+
+def test_extract_music_features_unchanged_config_does_not_reset(
+    monkeypatch, db_session
+):
+    """Two consecutive calls with the same config must preserve seeded
+    feature data (no prior state on the first call ⇒ no reset; second
+    call hits the fingerprint match)."""
+    import modules.music.features as features_mod
+    from modules.config import MusicSettings, PathsSettings
+    from modules.database import Music
+    from modules.music.features import MusicSecrets, extract_music_features
+
+    monkeypatch.setattr(features_mod, "_resolve_spotify_ids", lambda *a, **kw: None)
+    monkeypatch.setattr(features_mod, "_resolve_reccobeats_ids", lambda *a, **kw: None)
+    monkeypatch.setattr(features_mod, "_enrich_catalog_features", lambda *a, **kw: None)
+    monkeypatch.setattr(features_mod, "_enrich_upload_fallback", lambda *a, **kw: None)
+
+    db_session.merge(
+        Music(
+            id=1,
+            artist="a",
+            track="t",
+            spotify_id="sp1",
+            reccobeats_id="rb1",
+            is_audio_features_extracted=True,
+            acousticness=0.5,
+            danceability=0.4,
+            energy=0.3,
+            instrumentalness=0.2,
+            key=1,
+            liveness=0.1,
+            loudness=-5.0,
+            mode=1,
+            speechiness=0.0,
+            tempo=120.0,
+            valence=0.8,
+        )
+    )
+    db_session.commit()
+
+    music = MusicSettings(
+        audio_fingerprint_confidence=0.7,
+        commit_every=1,
+        http_timeout=10.0,
+        spotify_search_limit=5,
+        spotify_token_skew_seconds=60,
+        spotify_request_timeout=10.0,
+        reccobeats_batch_size=10,
+        reccobeats_delay_min=0.1,
+        reccobeats_delay_max=0.2,
+        manual_features_max_seconds=20,
+        manual_features_sample_rate=22050,
+        manual_features_max_mb=4.0,
+        manual_features_mp3_bitrate="64k",
+        api_max_attempts=2,
+        api_retry_delay=0.0,
+        api_retry_jitter=0.0,
+        acr_max_attempts=1,
+        ffmpeg_timeout_seconds=5,
+    )
+    paths = PathsSettings(
+        video_dir="/tmp",
+        plots_dir="/tmp",
+        model_path="/tmp",
+        profile_pic_dir="/tmp",
+        thumbnail_dir="/tmp",
+        speech_audio_dir="/tmp",
+        data_csv_path="/tmp/x.csv",
+    )
+    secrets = MusicSecrets(spotify_client_id="x", spotify_client_secret="y")
+
+    extract_music_features(music, paths, secrets)
+    extract_music_features(music, paths, secrets)
+
+    m = db_session.query(Music).filter_by(id=1).one()
+    assert m.spotify_id == "sp1"
+    assert m.tempo == 120.0

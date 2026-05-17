@@ -6,6 +6,9 @@ there are no DB status flags for embedding stages.
 
 from __future__ import annotations
 
+import hashlib
+from collections import defaultdict
+
 from sqlalchemy.orm import Session
 
 from modules import fingerprint as fp
@@ -197,3 +200,33 @@ def per_clip_source_hashes_and_aggregate(
     per_clip = {r[0]: fp.hash_rows([r]) for r in rows}
     aggregate = fp.hash_rows(rows)
     return per_clip, aggregate
+
+
+def get_stored_user_hashes(session: Session, case: str) -> dict[int, str | None]:
+    """Map user_id → stored source_hash for every UserEmbedding row of ``case``.
+
+    Used by the incremental user-aggregation stage to decide which users
+    need recomputing. A row that exists with source_hash=None is treated
+    as stale: a previous pre-incremental run wrote it without the hash,
+    and we cannot prove it still matches current upstream.
+    """
+    rows = (
+        session.query(UserEmbedding.user_id, UserEmbedding.source_hash)
+        .filter(UserEmbedding.embedding_case == case)
+        .all()
+    )
+    return {r.user_id: r.source_hash for r in rows}
+
+
+def per_user_source_hashes(rows: list[tuple[int, bytes, int]]) -> dict[int, str]:
+    """Per-user fingerprint of the (clip_id, blob) pairs the user contributes.
+
+    Accepts the same ``(clip_id, blob, user_id)`` triples consumed by the
+    user aggregation; rows are expected to be ordered by ``clip_id`` (the
+    aggregation query orders them that way), so the per-user digest is a
+    deterministic slice of the stage-level dependency hash. No DB hit.
+    """
+    by_user: dict[int, list[tuple[int, str]]] = defaultdict(list)
+    for clip_id, blob, user_id in rows:
+        by_user[user_id].append((clip_id, hashlib.sha256(blob).hexdigest()))
+    return {user_id: fp.hash_rows(pairs) for user_id, pairs in by_user.items()}
