@@ -12,8 +12,8 @@ from collections import defaultdict
 
 from sqlalchemy.orm import Session
 
-from modules import fingerprint as fp
-from modules.database import (
+from core import fingerprint as fp
+from core.database import (
     Clip,
     ClipEmbedding,
     Music,

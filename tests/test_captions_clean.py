@@ -4,9 +4,9 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
+from core.config import CaptionsSettings
+from core.database import Base, Clip, User
 from modules.captions.clean import clean_captions
-from modules.config import CaptionsSettings
-from modules.database import Base, Clip, User
 
 
 def _cfg() -> CaptionsSettings:

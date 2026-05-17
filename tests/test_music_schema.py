@@ -3,7 +3,7 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from modules.database import Base, Music
+from core.database import Base, Music
 
 
 def _engine():

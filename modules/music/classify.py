@@ -10,10 +10,10 @@ from pathlib import Path
 
 from acrcloud.recognizer import ACRCloudRecognizer
 
-from modules import fingerprint as fp
-from modules.config import MusicSettings, PathsSettings
-from modules.console import log, progress
-from modules.database import (
+from core import fingerprint as fp
+from core.config import MusicSettings, PathsSettings
+from core.console import log, progress
+from core.database import (
     Clip,
     Music,
     StageState,

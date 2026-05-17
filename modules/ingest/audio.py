@@ -6,10 +6,10 @@ import contextlib
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from modules import fingerprint as fp
-from modules.console import log, progress
-from modules.database import Base, Clip, get_engine, get_session
-from modules.ffmpeg import run_ffmpeg
+from core import fingerprint as fp
+from core.console import log, progress
+from core.database import Base, Clip, get_engine, get_session
+from core.ffmpeg import run_ffmpeg
 
 AUDIO_EXTRACT_STAGE = "audio_extract"
 AUDIO_EXTRACT_SCOPE = "default"

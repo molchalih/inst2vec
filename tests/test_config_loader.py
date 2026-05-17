@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from modules.config import Secrets, Settings
+from core.config import Secrets, Settings
 
 MINIMAL_TOML = b"""
 [paths]
@@ -119,7 +119,7 @@ FAKE_SECRETS = {
 
 
 def _load_with_fake_toml(tmp_path, env_overrides=None):
-    from modules import config as config_mod
+    from core import config as config_mod
 
     toml_file = tmp_path / "config.toml"
     toml_file.write_bytes(MINIMAL_TOML)
@@ -186,7 +186,7 @@ def test_paths_data_csv_path_present(tmp_path):
 
 
 def test_missing_secret_raises(tmp_path):
-    from modules import config as config_mod
+    from core import config as config_mod
 
     toml_file = tmp_path / "config.toml"
     toml_file.write_bytes(MINIMAL_TOML)
@@ -207,7 +207,7 @@ def test_download_settings_has_concurrency_and_jitter(tmp_path):
 
 
 def test_settings_has_no_pipeline_field():
-    from modules.config import Settings
+    from core.config import Settings
 
     assert "pipeline" not in Settings.model_fields
 
@@ -236,7 +236,7 @@ def test_secrets_optional_when_gemini_disabled(tmp_path):
 def test_secrets_required_when_gemini_enabled(tmp_path):
     # Flip gemini_enabled on via TOML override and confirm absence of the
     # env var produces a loud RuntimeError mentioning GEMINI_API_KEY.
-    from modules import config as config_mod
+    from core import config as config_mod
 
     toml_with_gemini = MINIMAL_TOML.replace(
         b"[embeddings]\nexclude_disqualified_users = true",
@@ -253,7 +253,7 @@ def test_secrets_required_when_gemini_enabled(tmp_path):
 
 
 def test_secrets_present_when_gemini_enabled_and_key_set(tmp_path):
-    from modules import config as config_mod
+    from core import config as config_mod
 
     toml_with_gemini = MINIMAL_TOML.replace(
         b"[embeddings]\nexclude_disqualified_users = true",

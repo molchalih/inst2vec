@@ -1,8 +1,8 @@
+from core.config import load_runtime_config
+from core.console import phase, startup
+from core.database import init_db
 from modules.captions import process_captions
 from modules.clustering import assign_clusters, run_cluster_search, validate_clustering
-from modules.config import load_runtime_config
-from modules.console import phase, startup
-from modules.database import init_db
 from modules.embeddings import (
     EmbeddingSecrets,
     embed_clip_embeddings,

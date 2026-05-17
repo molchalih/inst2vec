@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import inspect
 
-import modules.database as db
+import core.database as db
 
 CLASS_NAMES = [
     # ORM bases + models

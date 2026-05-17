@@ -4,7 +4,7 @@ import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from modules.config import MusicSettings
+from core.config import MusicSettings
 from modules.music.audio_sample import extract_audio_sample
 
 

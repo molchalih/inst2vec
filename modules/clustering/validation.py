@@ -10,7 +10,9 @@ import numpy as np
 from sklearn.metrics import silhouette_score
 from sqlalchemy.orm import Session
 
-from modules import fingerprint as fp
+from core import fingerprint as fp
+from core.console import log, progress
+from core.database import ClusterRun, get_session
 from modules.clustering.core import (
     CLUSTER_PARAM_COLS,
     DEFAULT_HDBSCAN_METRIC,
@@ -23,8 +25,6 @@ from modules.clustering.results import (
     pick_best_cluster_run,
     select_best_cluster_run,  # noqa: F401 -- used in _select_best (tested directly)
 )
-from modules.console import log, progress
-from modules.database import ClusterRun, get_session
 
 STAGE = "cluster_validation"
 

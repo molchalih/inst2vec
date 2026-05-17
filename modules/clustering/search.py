@@ -7,15 +7,9 @@ from itertools import product
 
 import numpy as np
 
-from modules import fingerprint as fp
-from modules.clustering.core import (
-    CLUSTER_PARAM_COLS,
-    DEFAULT_HDBSCAN_METRIC,
-    compute_clusters,
-    load_user_matrix,
-)
-from modules.console import log, progress
-from modules.database import (
+from core import fingerprint as fp
+from core.console import log, progress
+from core.database import (
     Base,
     Clip,
     ClusterRun,
@@ -23,6 +17,12 @@ from modules.database import (
     clip_used_in_analysis,
     get_engine,
     get_session,
+)
+from modules.clustering.core import (
+    CLUSTER_PARAM_COLS,
+    DEFAULT_HDBSCAN_METRIC,
+    compute_clusters,
+    load_user_matrix,
 )
 
 STAGE = "cluster_search"

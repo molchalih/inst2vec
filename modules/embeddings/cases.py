@@ -17,6 +17,7 @@ import os as _os
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from core.storage import get_object_store
 from modules.embeddings.providers import (
     LocalQwenProvider,
     Provider,
@@ -27,7 +28,6 @@ from modules.embeddings.text import (
     build_gemini_text,
     build_sandwich_text,
 )
-from modules.storage import get_object_store
 
 # audio_path is only consumed by the gemini_mm case; every other builder
 # accepts it and ignores it so the runner can pass it uniformly without

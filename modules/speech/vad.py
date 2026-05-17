@@ -28,7 +28,7 @@ import numpy as np
 # Imported via attribute so tests can monkeypatch the module reference.
 import silero_vad as _silero  # type: ignore[import-not-found]
 
-from modules.ffmpeg import run_ffmpeg as _run_ffmpeg
+from core.ffmpeg import run_ffmpeg as _run_ffmpeg
 
 _FFMPEG_TIMEOUT_SECONDS = 60
 

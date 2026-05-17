@@ -14,7 +14,10 @@ import json
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
-from modules import fingerprint as fp
+from core import fingerprint as fp
+from core.config import CaptionsSettings
+from core.console import log
+from core.database import StageState, get_engine
 from modules.captions.clean import clean_captions
 from modules.captions.detect import detect_caption_language
 from modules.captions.state import (
@@ -23,9 +26,6 @@ from modules.captions.state import (
     reset_caption_outputs,
 )
 from modules.captions.translate import translate_captions
-from modules.config import CaptionsSettings
-from modules.console import log
-from modules.database import StageState, get_engine
 
 __all__ = [
     "clean_captions",

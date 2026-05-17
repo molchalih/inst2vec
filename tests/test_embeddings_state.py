@@ -1,7 +1,7 @@
 import numpy as np
 
-from modules import fingerprint as fp
-from modules.database import (
+from core import fingerprint as fp
+from core.database import (
     Base,
     Clip,
     ClipEmbedding,
@@ -140,7 +140,7 @@ def test_per_clip_source_hashes_with_no_candidates():
 
 
 def test_get_stored_user_hashes_returns_user_id_to_hash_map():
-    from modules.database import UserEmbedding
+    from core.database import UserEmbedding
     from modules.embeddings.state import get_stored_user_hashes
 
     Base.metadata.create_all(get_engine())
@@ -180,7 +180,7 @@ def test_per_user_source_hashes_groups_clip_blob_pairs_by_user():
     """
     import hashlib
 
-    from modules import fingerprint as fp
+    from core import fingerprint as fp
     from modules.embeddings.state import per_user_source_hashes
 
     blob1 = _make_blob([1.0])

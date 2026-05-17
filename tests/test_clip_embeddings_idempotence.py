@@ -31,7 +31,7 @@ from dataclasses import dataclass
 import numpy as np
 import pytest
 
-from modules.database import (
+from core.database import (
     Base,
     Clip,
     ClipEmbedding,
@@ -564,7 +564,7 @@ def test_stale_row_with_missing_video_drops_row_and_leaves_stage_stale(
     # The pre-drift seal row persists in StageState, but its hashes must NOT
     # match the post-drift fingerprint — otherwise the next run would
     # skip and the stale-input scenario would silently pass.
-    from modules import fingerprint as fp_mod
+    from core import fingerprint as fp_mod
     from modules.embeddings import cases as cases_mod_local
     from modules.embeddings.state import per_clip_source_hashes_and_aggregate
 

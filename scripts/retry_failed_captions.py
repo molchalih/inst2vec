@@ -20,10 +20,9 @@ if str(_REPO_ROOT) not in sys.path:
 
 from sqlalchemy.orm import Session  # noqa: E402
 
-from modules.captions import process_captions  # noqa: E402
-from modules.config import CaptionsSettings, load_runtime_config  # noqa: E402
-from modules.console import log  # noqa: E402
-from modules.database import (  # noqa: E402
+from core.config import CaptionsSettings, load_runtime_config  # noqa: E402
+from core.console import log  # noqa: E402
+from core.database import (  # noqa: E402
     Clip,
     get_engine,
     init_db,
@@ -31,6 +30,7 @@ from modules.database import (  # noqa: E402
     needs_caption_language_detection,
     needs_caption_translation,
 )
+from modules.captions import process_captions  # noqa: E402
 
 SCOPE = "retry-captions"
 

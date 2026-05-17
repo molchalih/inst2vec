@@ -16,8 +16,8 @@ from types import SimpleNamespace
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import Session
 
-from modules import fingerprint as fp
-from modules.database import Base, StageState
+from core import fingerprint as fp
+from core.database import Base, StageState
 from modules.embeddings.state import get_clip_embedding_rows_for_user_aggregation
 from modules.embeddings.users import _compute_fingerprint
 from scripts.migrate_user_embeddings_source_hash import migrate_database

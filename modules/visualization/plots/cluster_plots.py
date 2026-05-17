@@ -4,8 +4,8 @@ import os
 
 import matplotlib.pyplot as plt
 
-from modules.console import log
-from modules.database import UserCluster, get_session
+from core.console import log
+from core.database import UserCluster, get_session
 from modules.visualization.plots.cluster_case_plots import cluster_plot_figure_for_case
 
 __all__ = ("plot_clusters",)

@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from modules.database import Base, Music
+from core.database import Base, Music
 from modules.music.state import _NO_MATCH
 
 
@@ -20,7 +20,7 @@ def _make_db_with_failed_music(rows):
 
 
 def _settings():
-    from modules.config import MusicSettings, PathsSettings
+    from core.config import MusicSettings, PathsSettings
     from modules.music.features import MusicSecrets
 
     paths = PathsSettings(

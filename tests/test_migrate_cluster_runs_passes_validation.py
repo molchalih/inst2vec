@@ -92,7 +92,7 @@ def test_sqlite_migration_is_idempotent_on_new_schema(tmp_path):
     db_path = tmp_path / "fresh.sqlite"
     eng = create_engine(f"sqlite:///{db_path}")
 
-    from modules.database import Base
+    from core.database import Base
 
     Base.metadata.create_all(eng)
     # Should not raise / not rebuild the table.

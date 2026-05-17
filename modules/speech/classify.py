@@ -7,8 +7,8 @@ from pathlib import Path
 import whisper
 from sqlalchemy import or_
 
-from modules.console import log, progress
-from modules.database import (
+from core.console import log, progress
+from core.database import (
     Clip,
     clip_has_detected_speech,
     clip_needs_speech_detection,

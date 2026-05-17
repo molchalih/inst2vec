@@ -6,7 +6,7 @@ Each helper returns a tuple of SQLAlchemy clause elements consumed by
 
 from sqlalchemy.sql import func
 
-from modules.database.models import Clip
+from core.database.models import Clip
 
 
 def clip_used_in_analysis():

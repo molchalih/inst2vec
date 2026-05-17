@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from modules.database import Base, Clip, User
+from core.database import Base, Clip, User
 from modules.speech.translate import translate_speech
 
 

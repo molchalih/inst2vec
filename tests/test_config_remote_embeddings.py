@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import pytest
 
-from modules.config import EmbeddingsSettings, StorageSettings
+from core.config import EmbeddingsSettings, StorageSettings
 
 
 def test_embeddings_settings_provider_defaults_to_local():
@@ -59,7 +59,7 @@ def test_secrets_includes_remote_embedder_and_storage():
         "OBJECT_STORE_SECRET_KEY": "sk",
     }
     with patch.dict(os.environ, env, clear=True):
-        from modules.config import load_runtime_config
+        from core.config import load_runtime_config
 
         _settings, secrets = load_runtime_config()
         assert secrets.embedder_remote_url == "https://pod.example/"
@@ -83,7 +83,7 @@ def test_secrets_remote_fields_default_empty_when_not_set():
         "HUGGINGFACE_TOKEN": "x",
     }
     with patch.dict(os.environ, env, clear=True):
-        from modules.config import load_runtime_config
+        from core.config import load_runtime_config
 
         _settings, secrets = load_runtime_config()
         assert secrets.embedder_remote_url == ""

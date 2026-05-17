@@ -5,7 +5,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from modules.config import MusicSettings
+from core.config import MusicSettings
 
 
 def extract_audio_sample(

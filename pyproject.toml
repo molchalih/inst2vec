@@ -59,7 +59,7 @@ hdbscan = ["setuptools", "cython"]
 flash-attn = ["torch", "ninja"]
 
 [tool.ruff]
-exclude = ["modules/external"]
+exclude = ["core/vendor"]
 line-length = 88
 
 [tool.ruff.lint]
@@ -80,8 +80,8 @@ ignore = [
 ]
 
 [tool.ty.src]
-include = ["modules", "scripts"]
-exclude = ["modules/external"]
+include = ["core", "modules", "scripts"]
+exclude = ["core/vendor"]
 
 [tool.ty.analysis]
 replace-imports-with-any = ["sqlalchemy.*", "sqlalchemy.orm.*"]

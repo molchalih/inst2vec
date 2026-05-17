@@ -8,8 +8,8 @@ from sqlalchemy.orm import Session
 
 sys.path.insert(0, __file__[: __file__.rfind("/")] + "/..")
 
+from core.database import Base, ClusterRun
 from modules.clustering import ClusterResult
-from modules.database import Base, ClusterRun
 from tests._clustering_helpers import (
     _make_minimal_search_settings,
     _mutate_one_embedding,
@@ -223,7 +223,7 @@ def mem_engine(monkeypatch):
     def _get_session():
         return Session(eng)
 
-    monkeypatch.setattr("modules.database.engine._main_engine", eng)
+    monkeypatch.setattr("core.database.engine._main_engine", eng)
     monkeypatch.setattr("modules.clustering.search.get_session", _get_session)
     return eng
 
@@ -382,8 +382,8 @@ def test_run_cluster_search_parallel_workers_uses_thread_pool(mem_engine, monkey
 
 def test_unchanged_fingerprint_skips_recomputation(monkeypatch):
     """Second call to run_cluster_search with unchanged inputs is a no-op."""
+    from core.database import ClusterRun, get_session
     from modules.clustering import run_cluster_search
-    from modules.database import ClusterRun, get_session
 
     monkeypatch.setattr(
         "modules.clustering.search.compute_clusters",
@@ -417,8 +417,8 @@ def test_changed_embeddings_wipes_and_recomputes(monkeypatch):
     and checking that the stored row reflects the new value.  If the delete
     path were broken the old row would remain and n_clusters would not change.
     """
+    from core.database import ClusterRun, StageState, get_session
     from modules.clustering import run_cluster_search
-    from modules.database import ClusterRun, StageState, get_session
 
     call_count = [0]
 
@@ -475,8 +475,8 @@ def test_changed_embeddings_wipes_and_recomputes(monkeypatch):
 
 def test_changed_grid_config_wipes_and_recomputes(monkeypatch):
     """Changing the grid (different umap_n_components) wipes old rows."""
+    from core.database import ClusterRun, get_session
     from modules.clustering import run_cluster_search
-    from modules.database import ClusterRun, get_session
 
     monkeypatch.setattr(
         "modules.clustering.search.compute_clusters",
@@ -509,8 +509,7 @@ def test_changed_grid_config_wipes_and_recomputes(monkeypatch):
 
 def test_no_user_embeddings_seals_empty_state():
     """Empty matrix: no rows inserted but StageState seal exists for the case."""
-    from modules.clustering import run_cluster_search
-    from modules.database import (
+    from core.database import (
         Base,
         Clip,
         ClusterRun,
@@ -520,6 +519,7 @@ def test_no_user_embeddings_seals_empty_state():
         get_engine,
         get_session,
     )
+    from modules.clustering import run_cluster_search
 
     Base.metadata.create_all(get_engine())
     session = get_session()

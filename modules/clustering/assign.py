@@ -12,16 +12,10 @@ from __future__ import annotations
 import hashlib
 import json
 
-from modules import fingerprint as fp
-from modules.clustering.core import (
-    CLUSTER_PARAM_COLS,
-    compute_clusters,
-    load_user_matrix,
-)
-from modules.clustering.results import DEFAULT_CASES, select_best_cluster_run
-from modules.config import ValidationSettings
-from modules.console import log
-from modules.database import (
+from core import fingerprint as fp
+from core.config import ValidationSettings
+from core.console import log
+from core.database import (
     Base,
     ClusterRun,
     StageState,
@@ -29,6 +23,12 @@ from modules.database import (
     get_engine,
     get_session,
 )
+from modules.clustering.core import (
+    CLUSTER_PARAM_COLS,
+    compute_clusters,
+    load_user_matrix,
+)
+from modules.clustering.results import DEFAULT_CASES, select_best_cluster_run
 
 STAGE = "cluster_assign"
 # Bump when assign-stage logic changes in a way the data/dependency

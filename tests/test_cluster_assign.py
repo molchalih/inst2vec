@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from modules.clustering import assign_clusters
-from modules.config import ValidationSettings
-from modules.database import (
+from core.config import ValidationSettings
+from core.database import (
     Base,
     Clip,
     ClusterRun,
@@ -17,6 +16,7 @@ from modules.database import (
     get_engine,
     get_session,
 )
+from modules.clustering import assign_clusters
 
 DEFAULT_SETTINGS = ValidationSettings(
     plateau_drop_threshold=0.05,
@@ -103,7 +103,7 @@ def test_assign_without_validation_state_does_not_seal():
 
 def test_assign_seals_empty_clusters_when_no_best_run():
     """If validation state exists but no best run: delete UserClusters, seal."""
-    from modules import fingerprint as fp
+    from core import fingerprint as fp
 
     _clear()
     session = get_session()
@@ -130,7 +130,7 @@ def test_assign_seals_empty_clusters_when_no_best_run():
 
 def test_assign_creates_user_clusters_for_best_run():
     """Best run exists: UserCluster rows materialized."""
-    from modules import fingerprint as fp
+    from core import fingerprint as fp
 
     _clear()
     session = get_session()
@@ -157,7 +157,7 @@ def test_assign_creates_user_clusters_for_best_run():
 
 def test_unchanged_fingerprint_skips_assign():
     """Second assign call with unchanged validation state is a no-op."""
-    from modules import fingerprint as fp
+    from core import fingerprint as fp
 
     _clear()
     session = get_session()
@@ -239,7 +239,7 @@ def _add_run(
 
 def test_assign_honors_configured_plateau_threshold():
     """Threshold from settings drives best-run selection in assign."""
-    from modules import fingerprint as fp
+    from core import fingerprint as fp
 
     _clear()
     case = "video"

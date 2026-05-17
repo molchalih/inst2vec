@@ -1,11 +1,11 @@
-from modules.database.engine import (  # noqa: F401  -- re-exports for modules.database.*
+from core.database.engine import (  # noqa: F401  -- re-exports for modules.database.*
     get_engine,
     get_identity_engine,
     get_identity_session,
     get_session,
     init_db,
 )
-from modules.database.identity import (  # noqa: F401  -- re-exports for modules.database.*
+from core.database.identity import (  # noqa: F401  -- re-exports for modules.database.*
     ClipIdentity,
     IdentityBase,
     UserIdentity,
@@ -16,7 +16,7 @@ from modules.database.identity import (  # noqa: F401  -- re-exports for modules
     get_username,
     update_user_identity,
 )
-from modules.database.models import (  # noqa: F401  -- re-exports for modules.database.*
+from core.database.models import (  # noqa: F401  -- re-exports for modules.database.*
     Base,
     Clip,
     ClipEmbedding,
@@ -28,7 +28,7 @@ from modules.database.models import (  # noqa: F401  -- re-exports for modules.d
     UserEmbedding,
     UserStats,
 )
-from modules.database.predicates import (  # noqa: F401  -- re-exports for modules.database.*
+from core.database.predicates import (  # noqa: F401  -- re-exports for modules.database.*
     clip_has_detected_speech,
     clip_needs_speech_detection,
     clip_needs_speech_translation,

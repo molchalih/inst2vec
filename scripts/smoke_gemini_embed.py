@@ -16,8 +16,8 @@ import os
 import sys
 import time
 
-from modules.config import load_runtime_config
-from modules.database import Clip, get_session, init_db
+from core.config import load_runtime_config
+from core.database import Clip, get_session, init_db
 from modules.embeddings.cases import EmbeddingSecrets, _gemini_mm_factory
 
 

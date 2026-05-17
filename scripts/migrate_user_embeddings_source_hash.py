@@ -37,8 +37,8 @@ from sqlalchemy.orm import Session
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from modules import fingerprint as fp
-from modules.database import UserEmbedding
+from core import fingerprint as fp
+from core.database import UserEmbedding
 
 TABLE = "user_embeddings"
 NEW_COLUMN = "source_hash"
@@ -131,7 +131,7 @@ def main() -> None:
     if not url:
         print("Set DATABASE_URL environment variable.", file=sys.stderr)
         raise SystemExit(1)
-    from modules.config import load_runtime_config
+    from core.config import load_runtime_config
 
     settings, _ = load_runtime_config()
     migrate_database(create_engine(url), settings)

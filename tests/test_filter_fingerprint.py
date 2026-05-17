@@ -2,8 +2,8 @@
 
 import pytest
 
-from modules.config import FilterSettings
-from modules.database import (
+from core.config import FilterSettings
+from core.database import (
     Base,
     Clip,
     StageState,

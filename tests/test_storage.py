@@ -6,8 +6,8 @@ boto3 = pytest.importorskip("boto3")
 moto = pytest.importorskip("moto")
 from moto import mock_aws  # noqa: E402
 
-from modules.config import StorageSettings  # noqa: E402
-from modules.storage import ObjectStore  # noqa: E402
+from core.config import StorageSettings  # noqa: E402
+from core.storage import ObjectStore  # noqa: E402
 
 
 @pytest.fixture

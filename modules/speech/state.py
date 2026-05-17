@@ -6,7 +6,7 @@ import re
 
 from sqlalchemy.orm import Session
 
-from modules.database import Clip
+from core.database import Clip
 
 SCOPE_CLASSIFY: str = "classify_speech"
 SCOPE_TRANSLATE: str = "translate_speech"

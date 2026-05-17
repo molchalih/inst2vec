@@ -6,7 +6,7 @@ import re
 
 from sqlalchemy.orm import Session
 
-from modules.database import Clip
+from core.database import Clip
 
 SCOPE_CLEAN: str = "clean_captions"
 SCOPE_DETECT: str = "detect_caption_language"

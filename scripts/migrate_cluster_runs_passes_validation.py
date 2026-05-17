@@ -29,10 +29,10 @@ from pathlib import Path
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import Engine
 
-# Allow `from modules.database import ...` when run as a top-level script.
+# Allow `from core.database import ...` when run as a top-level script.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from modules.database import Base
+from core.database import Base
 
 TABLE = "cluster_runs"
 LEGACY_COLUMNS: tuple[str, ...] = (

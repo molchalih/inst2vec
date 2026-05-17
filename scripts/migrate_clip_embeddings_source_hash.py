@@ -40,8 +40,8 @@ from sqlalchemy.orm import Session
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from modules import fingerprint as fp
-from modules.database import ClipEmbedding
+from core import fingerprint as fp
+from core.database import ClipEmbedding
 from modules.embeddings.cases import CASE_REGISTRY, case_config_identity
 from modules.embeddings.state import (
     get_clip_embedding_candidates,
@@ -151,7 +151,7 @@ def main() -> None:
     if not url:
         print("Set DATABASE_URL environment variable.", file=sys.stderr)
         raise SystemExit(1)
-    from modules.config import load_runtime_config
+    from core.config import load_runtime_config
 
     settings, _ = load_runtime_config()
     migrate_database(create_engine(url), settings)

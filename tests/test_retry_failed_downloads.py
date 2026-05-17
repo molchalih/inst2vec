@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import pytest
 
-from modules.database import Clip, User, get_session, init_db
+from core.database import Clip, User, get_session, init_db
 from scripts import retry_failed_downloads as rfd
 
 
 @pytest.fixture
 def isolated_db(tmp_path):
-    from modules.database import engine as engine_mod
+    from core.database import engine as engine_mod
 
     original_main = engine_mod._main_engine
     original_identity_eng = engine_mod._identity_engine
