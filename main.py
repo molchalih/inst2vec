@@ -4,7 +4,11 @@ from modules.config import load_runtime_config
 from modules.console import phase, startup
 from modules.database import init_db
 from modules.download import download_files
-from modules.embeddings import embed_clip_embeddings, embed_user_embeddings
+from modules.embeddings import (
+    EmbeddingSecrets,
+    embed_clip_embeddings,
+    embed_user_embeddings,
+)
 from modules.filter import process_dataset
 from modules.music import classify_music, extract_music_features
 from modules.music.classify import AcrSecrets
@@ -114,7 +118,17 @@ def run_pipeline() -> None:
     - audio: only audio
     """
     phase("Clip Embeddings")
-    embed_clip_embeddings(settings, secrets)
+    embed_clip_embeddings(
+        settings,
+        EmbeddingSecrets(
+            gemini_api_key=secrets.gemini_api_key,
+            embedder_remote_url=secrets.embedder_remote_url,
+            embedder_token=secrets.embedder_token,
+            object_store_endpoint=secrets.object_store_endpoint,
+            object_store_access_key=secrets.object_store_access_key,
+            object_store_secret_key=secrets.object_store_secret_key,
+        ),
+    )
 
     """
     9. USER EMBEDDINGS: calculates the average embedding of the clips belonging to a user, generating a user-level representation.

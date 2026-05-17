@@ -185,6 +185,16 @@ def dependency_rows_for_case(
         )
         return [tuple(r) for r in rows]
 
+    if case == "gemini_mm":
+        # Gemini multimodal: reads video (requires video file + is_downloaded status)
+        rows = (
+            session.query(Clip.id, Clip.is_downloaded)
+            .filter(Clip.id.in_(candidate_ids))
+            .order_by(Clip.id)
+            .all()
+        )
+        return [tuple(r) for r in rows]
+
     raise ValueError(f"Unknown embedding case: {case!r}")
 
 

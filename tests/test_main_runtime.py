@@ -97,6 +97,12 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
         spotify_client_id="spotify-id",
         spotify_client_secret="spotify-secret",
         huggingface_token="hf",
+        gemini_api_key=None,
+        embedder_remote_url="",
+        embedder_token="",
+        object_store_endpoint="",
+        object_store_access_key="",
+        object_store_secret_key="",
     )
 
     monkeypatch.setattr(main, "load_runtime_config", lambda: (settings, secrets))
@@ -140,7 +146,7 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
     monkeypatch.setattr(
         main,
         "embed_clip_embeddings",
-        lambda settings, secrets, cases=None: calls.append("embed:clip"),
+        lambda settings, secrets=None, cases=None: calls.append("embed:clip"),
     )
     monkeypatch.setattr(
         main,

@@ -32,6 +32,25 @@ AUDIO_INSTRUCTION = (
 
 
 @dataclass(frozen=True)
+class EmbeddingSecrets:
+    """Secret bag threaded through provider factories.
+
+    Local providers ignore this; remote providers (Gemini, the
+    self-hosted Qwen GPU pod) read the credentials they need. Every
+    field defaults to ``""``/``None`` so ``EmbeddingSecrets()`` is a
+    valid no-arg call for tests / pipelines that don't use remote
+    providers.
+    """
+
+    gemini_api_key: str | None = None
+    embedder_remote_url: str = ""
+    embedder_token: str = ""
+    object_store_endpoint: str = ""
+    object_store_access_key: str = ""
+    object_store_secret_key: str = ""
+
+
+@dataclass(frozen=True)
 class EmbeddingCaseSpec:
     name: str
     text_builder: Callable[[object, dict], str | None] | None
@@ -129,13 +148,54 @@ AUDIO_CASE = EmbeddingCaseSpec(
 )
 
 
+def _gemini_mm_factory(settings, _secrets=None) -> Provider:
+    """Placeholder factory for Gemini multimodal provider (not yet implemented)."""
+    raise NotImplementedError("Gemini multimodal provider not yet available")
+
+
+def _gemini_mm_text_builder(clip, music_map):
+    """Placeholder text builder for Gemini multimodal case."""
+    return None
+
+
+def _gemini_mm_payload(clip, text, video_path, fps, max_frames) -> dict:
+    """Placeholder payload builder for Gemini multimodal case."""
+    return {"video_path": video_path, "text": text}
+
+
+GEMINI_MM_CASE = EmbeddingCaseSpec(
+    name="gemini_mm",
+    text_builder=_gemini_mm_text_builder,
+    requires_video=True,
+    provider_factory=_gemini_mm_factory,
+    payload_builder=_gemini_mm_payload,
+    apply_video_token_fallback=False,
+)
+
+
 CASE_REGISTRY: dict[str, EmbeddingCaseSpec] = {
     "video": VIDEO_CASE,
     "sandwich": SANDWICH_CASE,
     "audio": AUDIO_CASE,
+    "gemini_mm": GEMINI_MM_CASE,
 }
 
 DEFAULT_CASES: tuple[str, ...] = ("video", "sandwich", "audio")
+
+
+def default_cases(settings) -> tuple[str, ...]:
+    """Return the default embedding cases, gated by settings.embeddings.gemini_enabled.
+
+    If gemini_enabled=True, includes gemini_mm in the defaults (if registered).
+    Otherwise, returns just (video, sandwich, audio).
+    """
+    cases = list(DEFAULT_CASES)
+    if (
+        getattr(settings.embeddings, "gemini_enabled", False)
+        and "gemini_mm" in CASE_REGISTRY
+    ):
+        cases.append("gemini_mm")
+    return tuple(cases)
 
 
 # Recipe versions for text builders. Bump the value when the corresponding
@@ -144,6 +204,7 @@ TEXT_RECIPE_VERSIONS: dict[str, str] = {
     "video": "none",
     "sandwich": "sandwich_v1",
     "audio": "audio_v1",
+    "gemini_mm": "gemini_mm_v1",
 }
 
 
@@ -166,6 +227,10 @@ def case_config_identity(spec: EmbeddingCaseSpec, settings) -> str:
     ]
     if spec.name == "audio":
         parts.append(f"instruction={AUDIO_INSTRUCTION}")
+    if spec.name == "gemini_mm":
+        # Include gemini-specific settings that affect output
+        output_dim = getattr(settings.embeddings, "gemini_output_dim", 3072)
+        parts.append(f"output_dim={output_dim}")
     return "|".join(parts)
 
 
