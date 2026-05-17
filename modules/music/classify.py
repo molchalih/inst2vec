@@ -174,9 +174,11 @@ def classify_music(
                     retry_jitter=music.api_retry_jitter,
                 )
             except TransientError:
-                clip.is_music_recognized = False
-                no_match += 1
-                advance(detail=f"{clip.id}: ACR transient (terminal-marked)")
+                # Leave is_music_recognized=None so the next run retries.
+                # Counter is bumped under the "missing/transient" label so the
+                # summary doesn't conflate transient errors with clean no-match.
+                missing += 1
+                advance(detail=f"{clip.id}: ACR transient (left retryable)")
                 if i % music.commit_every == 0:
                     session.commit()
                 continue
@@ -203,5 +205,5 @@ def classify_music(
     session.close()
     parts = [f"{matched} matched", f"{no_match} no match"]
     if missing:
-        parts.append(f"{missing} skipped (video not downloaded yet)")
+        parts.append(f"{missing} skipped (video missing or ACR transient)")
     log(SCOPE_CLASSIFY, f"done — {', '.join(parts)}", level="ok")

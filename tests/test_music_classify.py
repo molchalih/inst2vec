@@ -140,7 +140,9 @@ def test_classify_clean_no_match_sets_false(seeded_db, monkeypatch):
     assert clip.music_id is None
 
 
-def test_classify_transient_exhaustion_sets_false(seeded_db, monkeypatch):
+def test_classify_transient_exhaustion_leaves_row_retryable(seeded_db, monkeypatch):
+    """TransientError must NOT terminal-mark — leave is_music_recognized=None
+    so the predicate picks the row up on the next run."""
     s, tmp_path = seeded_db
 
     fake_acr = MagicMock()
@@ -157,8 +159,40 @@ def test_classify_transient_exhaustion_sets_false(seeded_db, monkeypatch):
     )
 
     clip = s.query(Clip).filter_by(id=10).one()
-    assert clip.is_music_recognized is False
+    assert clip.is_music_recognized is None, (
+        "transient errors must not terminal-mark; expected None, "
+        f"got {clip.is_music_recognized!r}"
+    )
     assert fake_acr.recognize_by_file.call_count == 2
+
+
+def test_acr_transient_leaves_row_retryable(seeded_db, monkeypatch):
+    """ACR TransientError must NOT terminal-mark the clip. The row must
+    stay at is_music_recognized=None so the next run reprocesses it."""
+    from modules.music.clients import TransientError
+
+    s, tmp_path = seeded_db
+
+    def raise_transient(*a, **kw):
+        raise TransientError("acr down")
+
+    monkeypatch.setattr("modules.music.classify._fingerprint", raise_transient)
+    monkeypatch.setattr(
+        "modules.music.classify.ACRCloudRecognizer",
+        lambda cfg: MagicMock(),
+    )
+
+    classify_music(
+        music=_music_settings(),
+        paths=_paths(str(tmp_path)),
+        secrets=AcrSecrets(host="h", access_key="k", access_secret="s"),
+    )
+
+    clip = s.query(Clip).filter_by(id=10).one()
+    assert clip.is_music_recognized is None, (
+        "transient errors must not terminal-mark; expected None, "
+        f"got {clip.is_music_recognized!r}"
+    )
 
 
 def test_classify_existing_music_row_reused(seeded_db, monkeypatch):
