@@ -152,19 +152,19 @@ def run_pipeline() -> None:
     10. CLUSTER SEARCH: ...
     """
     phase("Cluster Search")
-    run_cluster_search(settings=settings.search, clustering_grid_workers=workers)
+    run_cluster_search(settings=settings, clustering_grid_workers=workers)
 
     """
     11. CLUSTER VALIDATION: ...
     """
     phase("Cluster Validation")
-    validate_clustering(settings=settings.validation, clustering_grid_workers=workers)
+    validate_clustering(settings=settings, clustering_grid_workers=workers)
 
     """
     12. CLUSTERING: assign final cluster labels using the best run per case.
     """
     phase("Clustering")
-    assign_clusters(settings=settings.validation)
+    assign_clusters(settings=settings)
 
     """
     13. VISUALIZATION: ...

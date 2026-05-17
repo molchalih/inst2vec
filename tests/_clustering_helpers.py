@@ -76,20 +76,47 @@ def _mutate_one_embedding(case: str = "video") -> None:
 
 
 def _make_minimal_search_settings(
-    *, umap_n_components: list[int] | None = None
+    *, umap_n_components: list[int] | None = None, gemini_enabled: bool = False
 ) -> object:
-    """Tiny settings object with the fields _load_grid reads."""
+    """Tiny full-shaped settings object for run_cluster_search tests.
+
+    Returns a namespace with `.search` (the grid hyperparameters) and
+    `.embeddings.gemini_enabled` so `default_cases(settings)` works.
+    """
     if umap_n_components is None:
         umap_n_components = [3]
     return SimpleNamespace(
-        umap_n_components=umap_n_components,
-        umap_n_neighbors=[5],
-        umap_min_dist=[0.1],
-        umap_metrics=["cosine"],
-        umap2d_n_neighbors=5,
-        umap2d_min_dist=0.1,
-        umap2d_metrics=["cosine"],
-        hdbscan_min_cluster_size=[5],
-        hdbscan_selection=["eom"],
-        random_state=42,
+        search=SimpleNamespace(
+            umap_n_components=umap_n_components,
+            umap_n_neighbors=[5],
+            umap_min_dist=[0.1],
+            umap_metrics=["cosine"],
+            umap2d_n_neighbors=5,
+            umap2d_min_dist=0.1,
+            umap2d_metrics=["cosine"],
+            hdbscan_min_cluster_size=[5],
+            hdbscan_selection=["eom"],
+            random_state=42,
+        ),
+        embeddings=SimpleNamespace(gemini_enabled=gemini_enabled),
+    )
+
+
+def _make_minimal_validation_settings(
+    *,
+    plateau_drop_threshold: float = 0.05,
+    max_noise_ratio: float = 0.9,
+    min_clusters: int = 1,
+    max_clusters: int = 20,
+    gemini_enabled: bool = False,
+) -> object:
+    """Tiny full-shaped settings object for validate_clustering/assign_clusters tests."""
+    return SimpleNamespace(
+        validation=SimpleNamespace(
+            plateau_drop_threshold=plateau_drop_threshold,
+            max_noise_ratio=max_noise_ratio,
+            min_clusters=min_clusters,
+            max_clusters=max_clusters,
+        ),
+        embeddings=SimpleNamespace(gemini_enabled=gemini_enabled),
     )

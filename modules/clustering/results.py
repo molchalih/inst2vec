@@ -10,8 +10,6 @@ from sqlalchemy.orm import Session
 
 from core.database import ClusterRun
 
-DEFAULT_CASES: tuple[str, ...] = ("audio", "video", "sandwich")
-
 
 def get_plateau_drop_threshold(settings: SimpleNamespace | None = None) -> float:
     """Get plateau drop threshold from settings, or use hardcoded default."""

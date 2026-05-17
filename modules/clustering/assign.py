@@ -28,7 +28,8 @@ from modules.clustering.core import (
     compute_clusters,
     load_user_matrix,
 )
-from modules.clustering.results import DEFAULT_CASES, select_best_cluster_run
+from modules.clustering.results import select_best_cluster_run
+from modules.embeddings.cases import default_cases
 
 STAGE = "cluster_assign"
 # Bump when assign-stage logic changes in a way the data/dependency
@@ -134,12 +135,15 @@ def _assign_case(case: str, settings: ValidationSettings) -> None:
     )
 
 
-def assign_clusters(settings: ValidationSettings) -> None:
+def assign_clusters(settings) -> None:
     """Per-case final clustering assignment, fingerprint-gated.
 
-    Takes ValidationSettings so the best-run selection uses the same
-    plateau_drop_threshold the validation stage was configured with.
+    ``settings`` is the full runtime settings object; best-run selection
+    uses ``settings.validation.plateau_drop_threshold`` (so it matches
+    the threshold the validation stage was configured with), and the
+    case set is gated via ``default_cases(settings)``.
     """
     Base.metadata.create_all(get_engine())
-    for case in DEFAULT_CASES:
-        _assign_case(case, settings)
+    validation_settings = settings.validation
+    for case in default_cases(settings):
+        _assign_case(case, validation_settings)

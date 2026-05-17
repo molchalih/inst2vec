@@ -13,7 +13,7 @@ from core.database import Base, ClusterRun
 
 
 def _make_settings(**overrides):
-    """Create a settings object for validation tests."""
+    """Narrow validation-knobs SimpleNamespace for _phase_* helpers."""
     defaults = {
         "plateau_drop_threshold": 0.05,
         "max_noise_ratio": 0.3,
@@ -22,6 +22,15 @@ def _make_settings(**overrides):
     }
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
+
+
+def _make_full_settings(*, gemini_enabled: bool = False, **overrides):
+    """Full-shape settings namespace (validation + embeddings) for
+    validate_clustering, which now reads default_cases(settings)."""
+    return SimpleNamespace(
+        validation=_make_settings(**overrides),
+        embeddings=SimpleNamespace(gemini_enabled=gemini_enabled),
+    )
 
 
 def _make_engine():
@@ -718,7 +727,7 @@ def test_validate_clustering_phase_order(monkeypatch):
 
     from modules.clustering.validation import validate_clustering
 
-    validate_clustering(_make_settings())
+    validate_clustering(_make_full_settings())
 
     video_seq = [(op, c) for op, c in sequence if c == "video"]
 
@@ -884,7 +893,7 @@ def test_list_best_candidate_rows_filters_by_passes_validation():
 
 
 def _seed_validate_dataset() -> object:
-    """Seed Users/Clips/UserEmbeddings, run cluster_search, return validation settings."""
+    """Seed Users/Clips/UserEmbeddings, run cluster_search, return full settings."""
     from modules.clustering import run_cluster_search
     from tests._clustering_helpers import (
         _make_minimal_search_settings,
@@ -895,10 +904,13 @@ def _seed_validate_dataset() -> object:
     search_settings = _make_minimal_search_settings()
     run_cluster_search(search_settings)
     return SimpleNamespace(
-        max_noise_ratio=0.9,
-        min_clusters=1,
-        max_clusters=20,
-        plateau_drop_threshold=0.05,
+        validation=SimpleNamespace(
+            max_noise_ratio=0.9,
+            min_clusters=1,
+            max_clusters=20,
+            plateau_drop_threshold=0.05,
+        ),
+        embeddings=SimpleNamespace(gemini_enabled=False),
     )
 
 
@@ -944,10 +956,13 @@ def test_validate_changed_config_invalidates_and_rewrites_fields():
         session.close()
 
     changed = SimpleNamespace(
-        max_noise_ratio=settings.max_noise_ratio,
-        min_clusters=settings.min_clusters,
-        max_clusters=settings.max_clusters,
-        plateau_drop_threshold=0.20,
+        validation=SimpleNamespace(
+            max_noise_ratio=settings.validation.max_noise_ratio,
+            min_clusters=settings.validation.min_clusters,
+            max_clusters=settings.validation.max_clusters,
+            plateau_drop_threshold=0.20,
+        ),
+        embeddings=SimpleNamespace(gemini_enabled=False),
     )
     validate_clustering(changed)
 

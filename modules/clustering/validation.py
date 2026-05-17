@@ -25,6 +25,7 @@ from modules.clustering.results import (
     pick_best_cluster_run,
     select_best_cluster_run,  # noqa: F401 -- used in _select_best (tested directly)
 )
+from modules.embeddings.cases import default_cases
 
 STAGE = "cluster_validation"
 
@@ -518,12 +519,18 @@ def _compute_updates(
 
 
 def validate_clustering(settings, clustering_grid_workers: int = 1) -> None:
-    """Filter -> score -> plateau -> select, fingerprint-gated per case."""
-    for case in ["video", "sandwich", "audio"]:
+    """Filter -> score -> plateau -> select, fingerprint-gated per case.
+
+    ``settings`` is the full runtime settings object; per-case validation
+    knobs are read from ``settings.validation``, and the case set is
+    gated via ``default_cases(settings)``.
+    """
+    validation_settings = settings.validation
+    for case in default_cases(settings):
         # 1. fingerprint check
         session = get_session()
         try:
-            current = _fingerprint(session, case, settings)
+            current = _fingerprint(session, case, validation_settings)
             stale = fp.is_stale(session, STAGE, case, current)
             diff = fp.describe_diff(session, STAGE, case, current) if stale else ""
         finally:
@@ -560,7 +567,9 @@ def validate_clustering(settings, clustering_grid_workers: int = 1) -> None:
             continue
 
         # 3. compute in memory (no open write transaction)
-        updates = _compute_updates(case, matrix, settings, clustering_grid_workers)
+        updates = _compute_updates(
+            case, matrix, validation_settings, clustering_grid_workers
+        )
 
         # 4. short write section (open AFTER compute)
         session = get_session()

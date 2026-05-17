@@ -180,7 +180,7 @@ def test_render_best_cluster_run_returns_markdown_object(monkeypatch):
     assert isinstance(rendered, Markdown)
     assert rendered.data == best_runs_all_to_markdown(
         eng,
-        cases=("audio", "video", "sandwich"),
+        cases=("video", "sandwich", "audio"),
     )
 
 
