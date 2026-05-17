@@ -83,6 +83,7 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
         ),
         search=SimpleNamespace(),
         validation=SimpleNamespace(plateau_drop_threshold=0.05),
+        storage=SimpleNamespace(bucket=""),
         overrides=SimpleNamespace(video="", sandwich="", audio=""),
     )
 
@@ -118,6 +119,9 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
     )
     monkeypatch.setattr(
         main, "download_files", lambda *args, **kwargs: calls.append("download")
+    )
+    monkeypatch.setattr(
+        main, "upload_videos", lambda *args, **kwargs: calls.append("upload")
     )
     monkeypatch.setattr(
         main, "classify_music", lambda **kwargs: calls.append("music:classify")
