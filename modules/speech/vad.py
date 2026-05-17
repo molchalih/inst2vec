@@ -19,7 +19,6 @@ the row NULL for retry (mirrors Whisper's exception handling in classify.py).
 from __future__ import annotations
 
 import contextlib
-import subprocess
 import wave
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -28,6 +27,8 @@ import numpy as np
 
 # Imported via attribute so tests can monkeypatch the module reference.
 import silero_vad as _silero  # type: ignore[import-not-found]
+
+from modules.ffmpeg import run_ffmpeg as _run_ffmpeg
 
 _FFMPEG_TIMEOUT_SECONDS = 60
 
@@ -171,9 +172,3 @@ def _write_wav(path: Path, samples: np.ndarray, sampling_rate: int) -> None:
         wf.writeframes(pcm.tobytes())
 
 
-def _run_ffmpeg(cmd: list[str], timeout: int) -> bool:
-    try:
-        result = subprocess.run(cmd, capture_output=True, timeout=timeout)
-    except subprocess.TimeoutExpired:
-        return False
-    return result.returncode == 0
