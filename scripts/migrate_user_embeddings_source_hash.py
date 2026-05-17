@@ -39,11 +39,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from modules import fingerprint as fp
 from modules.database import UserEmbedding
-from modules.embeddings.state import (
-    get_clip_embedding_rows_for_user_aggregation,
-    per_user_source_hashes,
-)
-from modules.embeddings.users import _compute_fingerprint
 
 TABLE = "user_embeddings"
 NEW_COLUMN = "source_hash"
@@ -64,6 +59,12 @@ def _ensure_column(engine: Engine) -> None:
 
 
 def _backfill(engine: Engine, settings) -> None:
+    from modules.embeddings.state import (
+        get_clip_embedding_rows_for_user_aggregation,
+        per_user_source_hashes,
+    )
+    from modules.embeddings.users import _compute_fingerprint
+
     inspector = inspect(engine)
     if TABLE not in inspector.get_table_names():
         return

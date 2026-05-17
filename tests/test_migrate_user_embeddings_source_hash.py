@@ -13,7 +13,6 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-import numpy as np
 import pytest
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import Session
@@ -51,10 +50,6 @@ def _legacy_user_embeddings_ddl() -> str:
         CONSTRAINT uq_user_embeddings_user_case UNIQUE (user_id, embedding_case)
     )
     """
-
-
-def _blob(values: list[float]) -> bytes:
-    return np.array(values, dtype=np.float32).tobytes()
 
 
 def _seed_minimal_upstream(conn) -> None:
