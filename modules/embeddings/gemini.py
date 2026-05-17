@@ -11,6 +11,7 @@ import os
 import time
 from dataclasses import dataclass
 
+from core.console import log
 from modules.embeddings.sampling import probe_duration_seconds
 
 
@@ -125,7 +126,7 @@ class GeminiMultimodalProvider:
         try:
             elapsed = time.time() - t0
             bytes_up = os.path.getsize(video_path) + os.path.getsize(audio_path)
-            print(f"[gemini] bytes_uploaded={bytes_up} embed_seconds={elapsed:.2f}")
+            log("gemini", f"bytes_uploaded={bytes_up} embed_seconds={elapsed:.2f}")
         except OSError:
             pass
 
