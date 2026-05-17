@@ -170,5 +170,3 @@ def _write_wav(path: Path, samples: np.ndarray, sampling_rate: int) -> None:
         wf.setsampwidth(2)
         wf.setframerate(sampling_rate)
         wf.writeframes(pcm.tobytes())
-
-

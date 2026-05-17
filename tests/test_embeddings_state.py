@@ -205,4 +205,5 @@ def test_per_user_source_hashes_groups_clip_blob_pairs_by_user():
 
 def test_per_user_source_hashes_empty_rows_returns_empty():
     from modules.embeddings.state import per_user_source_hashes
+
     assert per_user_source_hashes([]) == {}
