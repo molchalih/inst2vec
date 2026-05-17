@@ -16,11 +16,9 @@ from core import fingerprint as fp
 from core.config import Settings, ValidationSettings
 from core.console import log
 from core.database import (
-    Base,
     ClusterRun,
     StageState,
     UserCluster,
-    get_engine,
     get_session,
 )
 from modules.clustering.core import (
@@ -143,7 +141,6 @@ def assign_clusters(settings: Settings) -> None:
     the threshold the validation stage was configured with), and the
     case set is gated via ``default_cases(settings)``.
     """
-    Base.metadata.create_all(get_engine())
     validation_settings = settings.validation
     for case in default_cases(settings):
         _assign_case(case, validation_settings)

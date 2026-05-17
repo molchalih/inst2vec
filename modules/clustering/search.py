@@ -12,12 +12,10 @@ from core import fingerprint as fp
 from core.config import Settings
 from core.console import log, progress
 from core.database import (
-    Base,
     Clip,
     ClusterRun,
     UserEmbedding,
     clip_used_in_analysis,
-    get_engine,
     get_session,
 )
 from modules.clustering.core import (
@@ -131,7 +129,6 @@ def run_cluster_search(settings: Settings, clustering_grid_workers: int = 1) -> 
     ``settings.embeddings.gemini_enabled`` via ``default_cases``) and
     grid hyperparameters from ``settings.search``.
     """
-    Base.metadata.create_all(get_engine())
     cases = default_cases(settings)
     combos = _load_grid(settings.search, cases=cases)
     grid_workers = max(1, clustering_grid_workers)

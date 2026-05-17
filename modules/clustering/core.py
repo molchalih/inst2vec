@@ -10,12 +10,10 @@ from umap import UMAP
 
 from core.console import log, progress
 from core.database import (
-    Base,
     Clip,
     UserCluster,
     UserEmbedding,
     clip_used_in_analysis,
-    get_engine,
     get_session,
 )
 
@@ -181,7 +179,6 @@ def load_user_matrix(embedding_case: str) -> tuple[np.ndarray, list[int]]:
 
 
 def cluster_users(embedding_case: str, **params) -> None:
-    Base.metadata.create_all(get_engine())
     matrix, user_ids = load_user_matrix(embedding_case)
 
     if matrix.shape[0] == 0:

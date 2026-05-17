@@ -26,10 +26,8 @@ import numpy as np
 from core import fingerprint as fp
 from core.console import log
 from core.database import (
-    Base,
     StageState,
     UserEmbedding,
-    get_engine,
     get_session,
 )
 from modules.embeddings.cases import DEFAULT_CASES
@@ -125,7 +123,6 @@ def embed_user_embeddings(settings, cases: list[str] | None = None) -> None:
     """
     case_names = list(cases) if cases is not None else list(DEFAULT_CASES)
     exclude_disqualified = settings.embeddings.exclude_disqualified_users
-    Base.metadata.create_all(get_engine())
     session = get_session()
     try:
         for case in case_names:

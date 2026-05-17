@@ -23,11 +23,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from core import fingerprint as fp
 from core.console import log, progress
 from core.database import (
-    Base,
     Clip,
     ClipEmbedding,
     StageState,
-    get_engine,
     get_session,
 )
 from modules.embeddings.cases import (
@@ -140,7 +138,6 @@ def _wipe_case(session, case: str) -> None:
 
 def _run_case(settings, secrets, spec: EmbeddingCaseSpec) -> None:
     log_tag = f"embed:{spec.name}"
-    Base.metadata.create_all(get_engine())
     session = get_session()
     try:
         candidates = get_clip_embedding_candidates(

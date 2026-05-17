@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from core import fingerprint as fp
 from core.console import log, progress
-from core.database import Base, Clip, get_engine, get_session
+from core.database import Clip, get_session
 from core.ffmpeg import run_ffmpeg
 
 AUDIO_EXTRACT_STAGE = "audio_extract"
@@ -81,7 +81,6 @@ def extract_audio_stage(settings) -> None:
 
     Always runs. Idempotent via fingerprint seal + per-file mtime check.
     """
-    Base.metadata.create_all(get_engine())
     session = get_session()
     try:
         clips = (
