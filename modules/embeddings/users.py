@@ -5,13 +5,15 @@ embedding_case the stage:
 
   1. computes Fingerprint(data, config, dependency) from the actual
      ClipEmbedding rows for the case;
-  2. if stale, deletes its UserEmbedding rows for the case, recomputes,
-     and merges StageState; commits once at the end so the seal lands
-     in the same transaction as the rewrite;
-  3. if not stale, logs and skips.
+  2. on fingerprint match, logs and skips;
+  3. on config drift, wipes every UserEmbedding row for the case so the
+     incremental diff that follows cannot trust any stored hash;
+  4. otherwise diffs per-user source hashes against stored ones,
+     recomputes only the changed users, deletes orphan users, writes
+     source_hash on every merged row, and seals the stage.
 
-config_hash is currently constant ("agg=mean_pool|v=1"). Bump the
-version tag when the aggregator changes.
+config_hash is currently ``"agg=mean_pool|v=1"``. Bump the version tag
+when the aggregator changes.
 """
 
 from __future__ import annotations
@@ -25,6 +27,7 @@ from modules import fingerprint as fp
 from modules.console import log
 from modules.database import (
     Base,
+    StageState,
     UserEmbedding,
     get_engine,
     get_session,
@@ -32,6 +35,8 @@ from modules.database import (
 from modules.embeddings.cases import DEFAULT_CASES
 from modules.embeddings.state import (
     get_clip_embedding_rows_for_user_aggregation,
+    get_stored_user_hashes,
+    per_user_source_hashes,
 )
 from modules.embeddings.vectors import bytes_to_array
 
@@ -59,10 +64,6 @@ def aggregate_user_embeddings_from_rows(
 def _compute_fingerprint(
     session, case: str, rows: list[tuple[int, bytes, int]]
 ) -> fp.Fingerprint:
-    # Hash the same filtered rows ``_recompute_case`` averages so the
-    # fingerprint flips whenever aggregation membership or content does
-    # (e.g. a clip deselected, a user marked ineligible, or — same row,
-    # new bytes within one SQLite second).
     dep = fp.hash_rows(
         (clip_id, hashlib.sha256(blob).hexdigest()) for clip_id, blob, _ in rows
     )
@@ -75,17 +76,41 @@ def _compute_fingerprint(
     )
 
 
-def _clear_case(session, case: str) -> None:
+def _wipe_case(session, case: str) -> None:
     session.query(UserEmbedding).filter_by(embedding_case=case).delete()
     session.commit()
 
 
-def _recompute_case(session, case: str, rows: list[tuple[int, bytes, int]]) -> None:
-    aggregated = aggregate_user_embeddings_from_rows(rows)
-    log(f"embed:user:{case}", f"{len(aggregated)} users to embed")
+def _delete_users(session, case: str, user_ids: set[int]) -> None:
+    if not user_ids:
+        return
+    session.query(UserEmbedding).filter(
+        UserEmbedding.embedding_case == case,
+        UserEmbedding.user_id.in_(user_ids),
+    ).delete(synchronize_session=False)
+    session.commit()
+
+
+def _recompute_users(
+    session,
+    case: str,
+    rows: list[tuple[int, bytes, int]],
+    user_ids: set[int],
+    desired_hashes: dict[int, str],
+) -> None:
+    if not user_ids:
+        return
+    subset = [r for r in rows if r[2] in user_ids]
+    aggregated = aggregate_user_embeddings_from_rows(subset)
+    log(f"embed:user:{case}", f"{len(aggregated)} users to (re-)embed")
     for user_id, mean_blob in aggregated.items():
         session.merge(
-            UserEmbedding(user_id=user_id, embedding_case=case, embedding=mean_blob)
+            UserEmbedding(
+                user_id=user_id,
+                embedding_case=case,
+                embedding=mean_blob,
+                source_hash=desired_hashes[user_id],
+            )
         )
         session.commit()
 
@@ -114,8 +139,23 @@ def embed_user_embeddings(settings, cases: list[str] | None = None) -> None:
 
             diff = fp.describe_diff(session, STAGE, case, current)
             log(f"embed:user:{case}", f"stale ({diff}) — recomputing")
-            _clear_case(session, case)
-            _recompute_case(session, case, rows)
+
+            stored_state = session.get(StageState, (STAGE, case))
+            if stored_state is not None and stored_state.config_hash != current.config:
+                log(
+                    f"embed:user:{case}",
+                    "config drift — wiping case before incremental diff",
+                )
+                _wipe_case(session, case)
+
+            desired = per_user_source_hashes(rows)
+            stored = get_stored_user_hashes(session, case)
+            changed = fp.row_diff(desired, stored)
+            orphans = set(stored) - set(desired)
+
+            _delete_users(session, case, orphans)
+            _recompute_users(session, case, rows, changed, desired)
+
             fp.mark_complete(session, STAGE, case, current)
             session.commit()
             log(f"embed:user:{case}", "done", level="ok")
