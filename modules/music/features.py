@@ -94,8 +94,8 @@ def _resolve_spotify_ids(session, spotify: SpotifyClient, music: MusicSettings) 
             try:
                 sid = spotify.search_id(row.artist, row.track)
             except TransientError:
-                row.spotify_id = _NO_MATCH
-                advance(detail=f"{row.artist} – {row.track} (transient)")
+                # Leave spotify_id=None so the next run retries the lookup.
+                advance(detail=f"{row.artist} – {row.track} (transient, retryable)")
                 if i % music.commit_every == 0:
                     session.commit()
                 continue

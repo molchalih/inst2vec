@@ -66,7 +66,10 @@ def db_session():
         session.close()
 
 
-def test_resolve_spotify_ids_terminal_marks_on_transient(db_session):
+def test_spotify_transient_leaves_row_retryable(db_session):
+    """SpotifyClient.search_id raising TransientError must NOT write the
+    _NO_MATCH sentinel. The row must stay at spotify_id=None so the next
+    run retries."""
     s = db_session
     s.add(Music(id=1, artist="a", track="t"))
     s.commit()
@@ -77,7 +80,9 @@ def test_resolve_spotify_ids_terminal_marks_on_transient(db_session):
     s.commit()
 
     row = s.query(Music).filter_by(id=1).one()
-    assert row.spotify_id == _NO_MATCH
+    assert row.spotify_id is None, (
+        f"transient must not write sentinel; got {row.spotify_id!r}"
+    )
 
 
 def test_resolve_spotify_ids_writes_no_match_for_empty_response(db_session):
