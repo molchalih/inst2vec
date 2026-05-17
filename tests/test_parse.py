@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules import parse as parse_mod
+from modules.ingest import profiles as parse_mod
 from modules.database import (
     Clip,
     User,

@@ -13,10 +13,9 @@ from modules.filter import process_dataset
 from modules.music import classify_music, extract_music_features
 from modules.music.classify import AcrSecrets
 from modules.music.features import MusicSecrets
-from modules.parse import fetch_profiles
+from modules.ingest import fetch_profiles, load_usernames_from_csv
 from modules.speech import process_speech
 from modules.upload import upload_videos
-from modules.ingest import load_usernames_from_csv
 from modules.visualization.plots import plot_clusters
 
 

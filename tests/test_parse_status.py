@@ -71,11 +71,11 @@ def test_fetch_profiles_reads_username_from_identity_db(monkeypatch):
             called_with_pk.append(pk)
             return {"response": {"items": []}}
 
-    monkeypatch.setattr("modules.parse.Client", lambda token: FakeClient())
-    monkeypatch.setattr("modules.parse.get_session", lambda: Session(main_eng))
-    monkeypatch.setattr("modules.parse.time.sleep", lambda _: None)
+    monkeypatch.setattr("modules.ingest.profiles.Client", lambda token: FakeClient())
+    monkeypatch.setattr("modules.ingest.profiles.get_session", lambda: Session(main_eng))
+    monkeypatch.setattr("modules.ingest.profiles.time.sleep", lambda _: None)
 
-    from modules.parse import fetch_profiles
+    from modules.ingest.profiles import fetch_profiles
 
     fetch_profiles(hiker_api_key="test_key")
 
@@ -149,11 +149,11 @@ def test_fetch_profiles_stores_sequential_clip_ids(monkeypatch):
                 }
             }
 
-    monkeypatch.setattr("modules.parse.Client", lambda token: FakeClient())
-    monkeypatch.setattr("modules.parse.get_session", lambda: Session(main_eng))
-    monkeypatch.setattr("modules.parse.time.sleep", lambda _: None)
+    monkeypatch.setattr("modules.ingest.profiles.Client", lambda token: FakeClient())
+    monkeypatch.setattr("modules.ingest.profiles.get_session", lambda: Session(main_eng))
+    monkeypatch.setattr("modules.ingest.profiles.time.sleep", lambda _: None)
 
-    from modules.parse import fetch_profiles
+    from modules.ingest.profiles import fetch_profiles
 
     fetch_profiles(hiker_api_key="test_key")
 
@@ -206,11 +206,11 @@ def test_fetch_profiles_retries_then_succeeds_third(monkeypatch):
         def user_clips_v2(self, pk):
             return {"response": {"items": []}}
 
-    monkeypatch.setattr("modules.parse.Client", lambda token: FakeClient())
-    monkeypatch.setattr("modules.parse.get_session", lambda: Session(main_eng))
-    monkeypatch.setattr("modules.parse.time.sleep", lambda _: None)
+    monkeypatch.setattr("modules.ingest.profiles.Client", lambda token: FakeClient())
+    monkeypatch.setattr("modules.ingest.profiles.get_session", lambda: Session(main_eng))
+    monkeypatch.setattr("modules.ingest.profiles.time.sleep", lambda _: None)
 
-    from modules.parse import fetch_profiles
+    from modules.ingest.profiles import fetch_profiles
 
     fetch_profiles(hiker_api_key="test_key")
 
@@ -244,11 +244,11 @@ def test_fetch_profiles_all_attempts_fail(monkeypatch):
         def user_clips_v2(self, pk):
             return {"response": {"items": []}}
 
-    monkeypatch.setattr("modules.parse.Client", lambda token: FakeClient())
-    monkeypatch.setattr("modules.parse.get_session", lambda: Session(main_eng))
-    monkeypatch.setattr("modules.parse.time.sleep", lambda _: None)
+    monkeypatch.setattr("modules.ingest.profiles.Client", lambda token: FakeClient())
+    monkeypatch.setattr("modules.ingest.profiles.get_session", lambda: Session(main_eng))
+    monkeypatch.setattr("modules.ingest.profiles.time.sleep", lambda _: None)
 
-    from modules.parse import fetch_profiles
+    from modules.ingest.profiles import fetch_profiles
 
     fetch_profiles(hiker_api_key="test_key")
 
