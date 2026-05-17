@@ -227,6 +227,13 @@ def extract_audio(
     ):
         return True
     os.makedirs(os.path.dirname(audio_path) or ".", exist_ok=True)
+    # Write to a temp path and only replace ``audio_path`` on success so a
+    # timeout / non-zero ffmpeg leaves no truncated mp3 behind. Without this,
+    # the mtime short-circuit above would treat a partial file as fresh and
+    # extract_audio_stage would seal over corrupt input.
+    tmp = audio_path + ".part"
+    # Pass ``-f mp3`` because the temp filename doesn't end in .mp3 and ffmpeg
+    # otherwise infers the container from the extension.
     cmd = [
         "ffmpeg",
         "-y",
@@ -239,9 +246,18 @@ def extract_audio(
         f"{bitrate_kbps}k",
         "-ar",
         str(sample_rate_hz),
-        audio_path,
+        "-f",
+        "mp3",
+        tmp,
     ]
-    return run_ffmpeg(cmd, timeout=timeout_s)
+    ok = run_ffmpeg(cmd, timeout=timeout_s)
+    if ok:
+        os.replace(tmp, audio_path)
+        return True
+    if os.path.exists(tmp):
+        with contextlib.suppress(OSError):
+            os.remove(tmp)
+    return False
 
 
 def _video_stat(video_dir: str, clip_id: int) -> tuple[int, int]:
@@ -290,8 +306,24 @@ def extract_audio_stage(settings) -> None:
             dependency=fp.hash_rows(_video_stat(video_dir, cid) for cid in ids),
         )
         if not fp.is_stale(session, AUDIO_EXTRACT_STAGE, AUDIO_EXTRACT_SCOPE, current):
-            log(AUDIO_EXTRACT_STAGE, "fingerprint match — skipping")
-            return
+            # The fingerprint only hashes video stats, so deleting / truncating
+            # an mp3 after a seal would not flip is_stale. Verify outputs exist
+            # before trusting the seal; if anything is missing fall through and
+            # re-extract (extract_audio is idempotent on intact outputs).
+            missing = [
+                c.id
+                for c in clips
+                if not os.path.exists(os.path.join(audio_dir, f"{c.id}.mp3"))
+            ]
+            if not missing:
+                log(AUDIO_EXTRACT_STAGE, "fingerprint match — skipping")
+                return
+            log(
+                AUDIO_EXTRACT_STAGE,
+                f"fingerprint match but {len(missing)} mp3 output(s) missing "
+                "— re-extracting",
+                level="warn",
+            )
 
         failures = 0
         with progress(len(clips), "Extracting audio") as advance:

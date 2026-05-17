@@ -120,6 +120,10 @@ def embed(req: EmbedRequest, _: None = Depends(_check_auth)) -> EmbedResponse:
             None,
             req.text,
             local_video_path,
+            # gemini_mm is not served by the Qwen pod, so no audio_path is
+            # threaded over the wire. If a gemini_mm request ever reaches
+            # this endpoint its payload_builder will raise.
+            None,
             req.fps,
             req.max_frames,
         )

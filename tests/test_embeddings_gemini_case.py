@@ -264,16 +264,11 @@ def test_dependency_rows_gemini_mm_includes_file_stats(
     )
     db_session.commit()
 
-    # Stub load_runtime_config so the test does not require real env / .env.
     fake_settings = SimpleNamespace(
         paths=SimpleNamespace(
             video_dir=str(tmp_path / "video"),
             audio_dir=str(tmp_path / "audio"),
         )
-    )
-    monkeypatch.setattr(
-        "modules.embeddings.state.load_runtime_config",
-        lambda: (fake_settings, None),
     )
     # Patch the stat helpers so the test does not need real files.
     monkeypatch.setattr(
@@ -283,7 +278,9 @@ def test_dependency_rows_gemini_mm_includes_file_stats(
         "modules.embeddings.state._audio_file_stat", lambda audio_dir, cid: (567, 2000)
     )
 
-    rows = dependency_rows_for_case(db_session, "gemini_mm", [1])
+    rows = dependency_rows_for_case(
+        db_session, "gemini_mm", [1], settings=fake_settings
+    )
     assert len(rows) == 1
     row = rows[0]
     assert (1234, 1000) in row
@@ -372,19 +369,6 @@ def test_runner_seals_when_all_clips_embed(
 
     settings = _runner_settings(vid_dir, aud_dir)
 
-    # dependency_rows_for_case("gemini_mm", ...) calls load_runtime_config()
-    # to learn the video/audio dirs. Stub it so no real env/.env is required.
-    monkeypatch.setattr(
-        "modules.embeddings.state.load_runtime_config",
-        lambda: (settings, None),
-    )
-    # _gemini_payload also calls load_runtime_config (imported lazily from
-    # modules.config) to resolve audio_dir.
-    monkeypatch.setattr(
-        "modules.config.load_runtime_config",
-        lambda: (settings, None),
-    )
-
     # Stub provider __init__ to avoid importing google.genai or doing any I/O.
     def _fake_init(self, **kwargs):
         self.model = kwargs["model"]
@@ -446,15 +430,6 @@ def test_runner_does_not_seal_on_failure(
     db_session.commit()
 
     settings = _runner_settings(vid_dir, aud_dir)
-
-    monkeypatch.setattr(
-        "modules.embeddings.state.load_runtime_config",
-        lambda: (settings, None),
-    )
-    monkeypatch.setattr(
-        "modules.config.load_runtime_config",
-        lambda: (settings, None),
-    )
 
     def _fake_init(self, **kwargs):
         self.model = kwargs["model"]
@@ -527,11 +502,6 @@ def test_config_drift_wipes_case(
 
     # Phase (a): baseline run with output_dim=3072.
     s1 = _runner_settings(vid_dir, aud_dir)
-    monkeypatch.setattr(
-        "modules.embeddings.state.load_runtime_config", lambda: (s1, None)
-    )
-    monkeypatch.setattr("modules.config.load_runtime_config", lambda: (s1, None))
-
     embed_clip_embeddings(s1, EmbeddingSecrets(gemini_api_key="x"), cases=["gemini_mm"])
     assert len(captured) == 1
     first_rows = (
@@ -544,11 +514,6 @@ def test_config_drift_wipes_case(
     # Phase (b): drift gemini_output_dim → config_hash changes → wipe + re-embed.
     s2 = _runner_settings(vid_dir, aud_dir)
     s2.embeddings.gemini_output_dim = 768
-    monkeypatch.setattr(
-        "modules.embeddings.state.load_runtime_config", lambda: (s2, None)
-    )
-    monkeypatch.setattr("modules.config.load_runtime_config", lambda: (s2, None))
-
     embed_clip_embeddings(s2, EmbeddingSecrets(gemini_api_key="x"), cases=["gemini_mm"])
     assert len(captured) == 1, f"expected exactly one re-embed, got {len(captured)}"
 
@@ -594,10 +559,6 @@ def test_per_clip_diff_re_embeds_only_touched_clip(
     db_session.commit()
 
     settings = _runner_settings(vid_dir, aud_dir)
-    monkeypatch.setattr(
-        "modules.embeddings.state.load_runtime_config", lambda: (settings, None)
-    )
-    monkeypatch.setattr("modules.config.load_runtime_config", lambda: (settings, None))
 
     def _fake_init(self, **kwargs):
         self.model = kwargs["model"]

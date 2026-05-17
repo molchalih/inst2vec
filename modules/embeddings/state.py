@@ -13,7 +13,6 @@ from collections import defaultdict
 from sqlalchemy.orm import Session
 
 from modules import fingerprint as fp
-from modules.config import load_runtime_config
 from modules.database import (
     Clip,
     ClipEmbedding,
@@ -130,7 +129,11 @@ def get_music_map(session: Session) -> dict[int, Music]:
 
 
 def dependency_rows_for_case(
-    session: Session, case: str, candidate_ids: list[int]
+    session: Session,
+    case: str,
+    candidate_ids: list[int],
+    *,
+    settings=None,
 ) -> list[tuple]:
     """Return the per-candidate tuple of upstream output state for ``case``.
 
@@ -212,7 +215,11 @@ def dependency_rows_for_case(
         return [tuple(r) for r in rows]
 
     if case == "gemini_mm":
-        settings, _ = load_runtime_config()
+        if settings is None:
+            raise ValueError(
+                "dependency_rows_for_case(case='gemini_mm') requires settings "
+                "so the runner's paths (not a reread of config.toml) are hashed"
+            )
         video_dir = settings.paths.video_dir
         audio_dir = settings.paths.audio_dir
         rows = (
@@ -250,14 +257,18 @@ def dependency_rows_for_case(
 
 
 def per_clip_source_hashes_and_aggregate(
-    session: Session, case: str, candidate_ids: list[int]
+    session: Session,
+    case: str,
+    candidate_ids: list[int],
+    *,
+    settings=None,
 ) -> tuple[dict[int, str], str]:
     """Return ({clip_id: per_clip_hash}, aggregate_hash) for ``case``.
 
     Both values are derived from the same call to ``dependency_rows_for_case``
     so the per-clip hashes and the stage-level aggregate stay byte-identical.
     """
-    rows = dependency_rows_for_case(session, case, candidate_ids)
+    rows = dependency_rows_for_case(session, case, candidate_ids, settings=settings)
     per_clip = {r[0]: fp.hash_rows([r]) for r in rows}
     aggregate = fp.hash_rows(rows)
     return per_clip, aggregate

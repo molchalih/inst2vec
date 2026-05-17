@@ -29,6 +29,10 @@ from modules.embeddings.text import (
 )
 from modules.storage import get_object_store
 
+# audio_path is only consumed by the gemini_mm case; every other builder
+# accepts it and ignores it so the runner can pass it uniformly without
+# branching by case name.
+
 AUDIO_INSTRUCTION = (
     "Represent the audio character of this video: its musical mood, energy, "
     "and any spoken content."
@@ -61,7 +65,7 @@ class EmbeddingCaseSpec:
     requires_video: bool
     provider_factory: Callable[[object, object], Provider]
     payload_builder: Callable[
-        [object, str | None, str | None, float | None, int | None], dict
+        [object, str | None, str | None, str | None, float | None, int | None], dict
     ]
     apply_video_token_fallback: bool
 
@@ -128,11 +132,11 @@ def _qwen_text_factory(settings, secrets) -> Provider:
 # ── payload builders ─────────────────────────────────────────────────────────
 
 
-def _video_payload(clip, text, video_path, fps, max_frames) -> dict:
+def _video_payload(clip, text, video_path, audio_path, fps, max_frames) -> dict:
     return {"video": video_path, "fps": fps, "max_frames": max_frames}
 
 
-def _sandwich_payload(clip, text, video_path, fps, max_frames) -> dict:
+def _sandwich_payload(clip, text, video_path, audio_path, fps, max_frames) -> dict:
     return {
         "video": video_path,
         "fps": fps,
@@ -141,7 +145,7 @@ def _sandwich_payload(clip, text, video_path, fps, max_frames) -> dict:
     }
 
 
-def _audio_payload(clip, text, video_path, fps, max_frames) -> dict:
+def _audio_payload(clip, text, video_path, audio_path, fps, max_frames) -> dict:
     return {"text": text, "instruction": AUDIO_INSTRUCTION}
 
 
@@ -195,11 +199,12 @@ def _gemini_mm_factory(settings, secrets) -> Provider:
     )
 
 
-def _gemini_mm_payload(clip, text, video_path, fps, max_frames) -> dict:
-    from modules.config import load_runtime_config
-
-    settings, _ = load_runtime_config()
-    audio_path = _os.path.join(settings.paths.audio_dir, f"{clip.id}.mp3")
+def _gemini_mm_payload(clip, text, video_path, audio_path, fps, max_frames) -> dict:
+    if audio_path is None:
+        raise ValueError(
+            "gemini_mm payload requires audio_path; the runner must compute it "
+            "from settings.paths.audio_dir, not reload config.toml"
+        )
     return {"video_path": video_path, "audio_path": audio_path, "text": text}
 
 
@@ -268,6 +273,10 @@ def case_config_identity(spec: EmbeddingCaseSpec, settings) -> str:
     if spec.name == "audio":
         parts.append(f"instruction={AUDIO_INSTRUCTION}")
     if spec.name == "gemini_mm":
+        # The common ``model=`` field above is the Qwen path and does not
+        # distinguish Gemini model versions; include the real Gemini model
+        # so operators changing gemini_model invalidate the config hash.
+        parts.append(f"gemini_model={settings.embeddings.gemini_model}")
         parts.append(f"output_dim={settings.embeddings.gemini_output_dim}")
         parts.append(f"audio_bitrate={settings.embeddings.audio_bitrate_kbps}")
         parts.append(f"audio_sample_rate={settings.embeddings.audio_sample_rate_hz}")

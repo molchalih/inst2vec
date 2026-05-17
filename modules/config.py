@@ -17,7 +17,10 @@ class PathsSettings(BaseModel):
     profile_pic_dir: str
     thumbnail_dir: str
     speech_audio_dir: str
-    audio_dir: str
+    # Default keeps pre-Gemini config.toml files loadable. extract_audio_stage
+    # short-circuits and gemini_mm is opt-in via embeddings.gemini_enabled, so
+    # the directory only gets created when the feature is actually used.
+    audio_dir: str = "data/audio"
     data_csv_path: str
 
 
