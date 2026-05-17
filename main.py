@@ -3,7 +3,7 @@ from modules.clustering import assign_clusters, run_cluster_search, validate_clu
 from modules.config import load_runtime_config
 from modules.console import phase, startup
 from modules.database import init_db
-from modules.download import download_files
+from modules.download import download_files, extract_audio_stage
 from modules.embeddings import (
     EmbeddingSecrets,
     embed_clip_embeddings,
@@ -66,6 +66,14 @@ def run_pipeline() -> None:
     """
     phase("Upload")
     upload_videos(settings, secrets)
+
+    """
+    3.6 AUDIO EXTRACTION: extracts and fingerprints mp3 audio from downloaded
+    videos for the Gemini multimodal embedding case. No-op when
+    embeddings.gemini_enabled is false.
+    """
+    phase("Audio extraction")
+    extract_audio_stage(settings)
 
     """
     4.1 MUSIC: fingerprints the music in videos.
