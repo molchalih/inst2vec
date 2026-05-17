@@ -25,11 +25,13 @@ dependencies = [
     "transformers>=5.8.0",
     "umap-learn>=0.5.12",
     "setuptools",
+    "boto3>=1.43.9",
 ]
 
 [dependency-groups]
 dev = [
     "autoflake>=2.3.3",
+    "moto[s3]>=5.2.1",
     "pytest>=9.0.3",
     "radon>=6.0.1",
     "ruff>=0.15.12",
