@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from modules import fingerprint as fp
 from modules.console import log, progress
@@ -128,7 +129,14 @@ def extract_audio_stage(settings) -> None:
             )
 
         failures = 0
-        with progress(len(clips), "Extracting audio") as advance:
+        bitrate = settings.embeddings.audio_bitrate_kbps
+        sr = settings.embeddings.audio_sample_rate_hz
+        timeout_s = settings.embeddings.audio_extract_timeout_s
+        with (
+            progress(len(clips), "Extracting audio") as advance,
+            ThreadPoolExecutor(max_workers=settings.download.concurrency) as pool,
+        ):
+            future_to_id: dict = {}
             for clip in clips:
                 video_path = os.path.join(video_dir, f"{clip.id}.mp4")
                 audio_path = os.path.join(audio_dir, f"{clip.id}.mp3")
@@ -136,18 +144,24 @@ def extract_audio_stage(settings) -> None:
                     failures += 1
                     advance(detail=f"✗ {clip.id} (no video)")
                     continue
-                ok = extract_audio(
+                fut = pool.submit(
+                    extract_audio,
                     video_path,
                     audio_path,
-                    bitrate_kbps=settings.embeddings.audio_bitrate_kbps,
-                    sample_rate_hz=settings.embeddings.audio_sample_rate_hz,
-                    timeout_s=settings.embeddings.audio_extract_timeout_s,
+                    bitrate_kbps=bitrate,
+                    sample_rate_hz=sr,
+                    timeout_s=timeout_s,
                 )
+                future_to_id[fut] = clip.id
+
+            for fut in as_completed(future_to_id):
+                cid = future_to_id[fut]
+                ok = fut.result()
                 if ok:
-                    advance(detail=f"✓ {clip.id}")
+                    advance(detail=f"✓ {cid}")
                 else:
                     failures += 1
-                    advance(detail=f"✗ {clip.id}")
+                    advance(detail=f"✗ {cid}")
 
         if failures == 0:
             fp.mark_complete(session, AUDIO_EXTRACT_STAGE, AUDIO_EXTRACT_SCOPE, current)

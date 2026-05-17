@@ -94,15 +94,22 @@ class _EmbeddingsStub:
 
 
 @dataclass
+class _DownloadStub:
+    concurrency: int = 2
+
+
+@dataclass
 class _SettingsStub:
     paths: _PathsStub
     embeddings: _EmbeddingsStub
+    download: _DownloadStub
 
 
-def _make_settings(*, audio_dir, enabled: bool, video_dir) -> _SettingsStub:
+def _make_settings(*, audio_dir, enabled: bool, video_dir, concurrency: int = 2) -> _SettingsStub:
     return _SettingsStub(
         paths=_PathsStub(video_dir=str(video_dir), audio_dir=str(audio_dir)),
         embeddings=_EmbeddingsStub(gemini_enabled=enabled),
+        download=_DownloadStub(concurrency=concurrency),
     )
 
 
@@ -163,3 +170,31 @@ def test_stage_fingerprint_seals(tmp_path, sample_mp4_with_audio, db_session):
     with patch("modules.ingest.audio.run_ffmpeg") as ff:
         extract_audio_stage(settings)
     ff.assert_not_called()
+
+
+def test_extract_audio_stage_dispatches_through_thread_pool(
+    tmp_path, sample_mp4_with_audio, db_session
+):
+    """extract_audio_stage must run ffmpeg invocations via a
+    ThreadPoolExecutor sized by settings.download.concurrency."""
+    from modules.ingest import audio as audio_mod
+    from modules.ingest.audio import extract_audio_stage
+
+    vid_dir = tmp_path / "video"
+    vid_dir.mkdir()
+    for cid in (1, 2, 3):
+        (vid_dir / f"{cid}.mp4").write_bytes(Path(sample_mp4_with_audio).read_bytes())
+        db_session.add(User(id=cid, is_selected=True))
+        db_session.add(Clip(id=cid, user_id=cid, is_selected=True, is_downloaded=True))
+    db_session.commit()
+
+    audio_dir = tmp_path / "audio"
+    settings = _make_settings(
+        audio_dir=audio_dir, enabled=True, video_dir=vid_dir, concurrency=4
+    )
+
+    with patch.object(audio_mod, "ThreadPoolExecutor", wraps=audio_mod.ThreadPoolExecutor) as TPE:
+        extract_audio_stage(settings)
+
+    TPE.assert_called_once_with(max_workers=4)
+    assert all((audio_dir / f"{cid}.mp3").exists() for cid in (1, 2, 3))
