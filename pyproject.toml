@@ -37,6 +37,10 @@ dev = [
     "ruff>=0.15.12",
     "ty>=0.0.35",
 ]
+embedder = [
+    "fastapi>=0.136.1",
+    "uvicorn[standard]>=0.47.0",
+]
 gpu = [
     "ninja>=1.13.0",
     "flash-attn>=2.8.3",
