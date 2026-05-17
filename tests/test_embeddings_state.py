@@ -137,3 +137,72 @@ def test_per_clip_source_hashes_with_no_candidates():
     assert per_clip == {}
     assert aggregate == fp.hash_rows([])
     session.close()
+
+
+def test_get_stored_user_hashes_returns_user_id_to_hash_map():
+    from modules.database import UserEmbedding
+    from modules.embeddings.state import get_stored_user_hashes
+
+    Base.metadata.create_all(get_engine())
+    session = get_session()
+    for model in (UserEmbedding, User):
+        session.query(model).delete()
+    session.commit()
+
+    session.merge(User(id=1, is_selected=True, is_eligible=True))
+    session.merge(User(id=2, is_selected=True, is_eligible=True))
+    session.merge(
+        UserEmbedding(
+            user_id=1, embedding_case="video", embedding=b"\x00" * 4, source_hash="h1"
+        )
+    )
+    session.merge(
+        UserEmbedding(
+            user_id=2, embedding_case="video", embedding=b"\x00" * 4, source_hash=None
+        )
+    )
+    session.merge(
+        UserEmbedding(
+            user_id=1, embedding_case="audio", embedding=b"\x00" * 4, source_hash="aud"
+        )
+    )
+    session.commit()
+
+    assert get_stored_user_hashes(session, "video") == {1: "h1", 2: None}
+    session.close()
+
+
+def test_per_user_source_hashes_groups_clip_blob_pairs_by_user():
+    """Per-user hash digests the same (clip_id, sha256(blob)) pairs the
+    user's clips contribute, in the row order returned by the aggregation
+    query. This keeps users.py's per-user hash byte-identical with the
+    sub-slice of _compute_fingerprint's dependency hash.
+    """
+    import hashlib
+
+    from modules import fingerprint as fp
+    from modules.embeddings.state import per_user_source_hashes
+
+    blob1 = _make_blob([1.0])
+    blob2 = _make_blob([2.0])
+    blob3 = _make_blob([3.0])
+    rows = [
+        (10, blob1, 1),
+        (11, blob2, 1),
+        (20, blob3, 2),
+    ]
+
+    out = per_user_source_hashes(rows)
+    expected_user1 = fp.hash_rows(
+        [
+            (10, hashlib.sha256(blob1).hexdigest()),
+            (11, hashlib.sha256(blob2).hexdigest()),
+        ]
+    )
+    expected_user2 = fp.hash_rows([(20, hashlib.sha256(blob3).hexdigest())])
+    assert out == {1: expected_user1, 2: expected_user2}
+
+
+def test_per_user_source_hashes_empty_rows_returns_empty():
+    from modules.embeddings.state import per_user_source_hashes
+    assert per_user_source_hashes([]) == {}
