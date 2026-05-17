@@ -7,6 +7,7 @@ there are no DB status flags for embedding stages.
 from __future__ import annotations
 
 import hashlib
+import os
 from collections import defaultdict
 
 from sqlalchemy.orm import Session
@@ -20,6 +21,21 @@ from modules.database import (
     UserEmbedding,
     clip_used_in_analysis,
 )
+
+
+def _stat_or_sentinel(path: str) -> tuple[int, int]:
+    if not os.path.exists(path):
+        return (-1, -1)
+    st = os.stat(path)
+    return (st.st_size, st.st_mtime_ns)
+
+
+def _video_file_stat(video_dir: str, clip_id: int) -> tuple[int, int]:
+    return _stat_or_sentinel(os.path.join(video_dir, f"{clip_id}.mp4"))
+
+
+def _audio_file_stat(audio_dir: str, clip_id: int) -> tuple[int, int]:
+    return _stat_or_sentinel(os.path.join(audio_dir, f"{clip_id}.mp3"))
 
 
 def get_embedded_clip_ids(session: Session, case: str) -> set[int]:
@@ -113,7 +129,11 @@ def get_music_map(session: Session) -> dict[int, Music]:
 
 
 def dependency_rows_for_case(
-    session: Session, case: str, candidate_ids: list[int]
+    session: Session,
+    case: str,
+    candidate_ids: list[int],
+    *,
+    settings=None,
 ) -> list[tuple]:
     """Return the per-candidate tuple of upstream output state for ``case``.
 
@@ -195,27 +215,60 @@ def dependency_rows_for_case(
         return [tuple(r) for r in rows]
 
     if case == "gemini_mm":
-        # Gemini multimodal: reads video (requires video file + is_downloaded status)
+        if settings is None:
+            raise ValueError(
+                "dependency_rows_for_case(case='gemini_mm') requires settings "
+                "so the runner's paths (not a reread of config.toml) are hashed"
+            )
+        video_dir = settings.paths.video_dir
+        audio_dir = settings.paths.audio_dir
         rows = (
-            session.query(Clip.id, Clip.is_downloaded)
+            session.query(
+                Clip.id,
+                Clip.caption_text,
+                Clip.caption_clean,
+                Clip.caption_language,
+                Clip.caption_translation,
+                Clip.speech_transcription,
+                Clip.speech_language,
+                Clip.speech_translation,
+            )
             .filter(Clip.id.in_(candidate_ids))
             .order_by(Clip.id)
             .all()
         )
-        return [tuple(r) for r in rows]
+        return [
+            (
+                r.id,
+                r.caption_text,
+                r.caption_clean,
+                r.caption_language,
+                r.caption_translation,
+                r.speech_transcription,
+                r.speech_language,
+                r.speech_translation,
+                _video_file_stat(video_dir, r.id),
+                _audio_file_stat(audio_dir, r.id),
+            )
+            for r in rows
+        ]
 
     raise ValueError(f"Unknown embedding case: {case!r}")
 
 
 def per_clip_source_hashes_and_aggregate(
-    session: Session, case: str, candidate_ids: list[int]
+    session: Session,
+    case: str,
+    candidate_ids: list[int],
+    *,
+    settings=None,
 ) -> tuple[dict[int, str], str]:
     """Return ({clip_id: per_clip_hash}, aggregate_hash) for ``case``.
 
     Both values are derived from the same call to ``dependency_rows_for_case``
     so the per-clip hashes and the stage-level aggregate stay byte-identical.
     """
-    rows = dependency_rows_for_case(session, case, candidate_ids)
+    rows = dependency_rows_for_case(session, case, candidate_ids, settings=settings)
     per_clip = {r[0]: fp.hash_rows([r]) for r in rows}
     aggregate = fp.hash_rows(rows)
     return per_clip, aggregate

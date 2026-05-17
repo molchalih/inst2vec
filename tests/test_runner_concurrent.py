@@ -93,10 +93,10 @@ def test_embed_with_token_fallback_injects_case_and_clip_id():
     clip = SimpleNamespace(id=42)
 
     _embed_with_token_fallback(
-        _Provider(), CASE_REGISTRY["audio"], clip, "hello", None, None, None
+        _Provider(), CASE_REGISTRY["audio"], clip, "hello", None, None, None, None
     )
     _embed_with_token_fallback(
-        _Provider(), CASE_REGISTRY["video"], clip, None, "/v/42.mp4", 1.0, 32
+        _Provider(), CASE_REGISTRY["video"], clip, None, "/v/42.mp4", None, 1.0, 32
     )
 
     assert captured[0]["case"] == "audio"

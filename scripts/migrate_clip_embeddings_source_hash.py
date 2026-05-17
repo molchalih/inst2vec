@@ -103,7 +103,7 @@ def _backfill(engine: Engine, settings) -> None:
             )
             candidate_ids = sorted(c.id for c in candidates)
             per_clip, dep_agg = per_clip_source_hashes_and_aggregate(
-                session, case, candidate_ids
+                session, case, candidate_ids, settings=settings
             )
             current = fp.Fingerprint(
                 data=fp.hash_rows((cid,) for cid in candidate_ids),

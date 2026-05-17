@@ -123,7 +123,7 @@ def _compute_fingerprint_and_per_clip(
     """
     candidate_ids = sorted(c.id for c in candidates)
     per_clip, dep_agg = per_clip_source_hashes_and_aggregate(
-        session, spec.name, candidate_ids
+        session, spec.name, candidate_ids, settings=settings
     )
     current = fp.Fingerprint(
         data=fp.hash_rows((cid,) for cid in candidate_ids),
@@ -233,6 +233,9 @@ def _embed_targets(
         music_map = get_music_map(session)
 
     video_dir = settings.paths.video_dir
+    # Only gemini_mm reads audio_path; keep this resolution next to video_dir
+    # so the runner's settings.paths is the single source of truth for both.
+    audio_dir = settings.paths.audio_dir if spec.name == "gemini_mm" else None
     jobs: list[tuple[Clip, str | None]] = []
     stale_skipped: list[int] = []  # had a row, can't rebuild → block sealing
     fresh_skipped = 0  # never had a row, can't build → fine to seal
@@ -308,11 +311,17 @@ def _embed_targets(
             )
         else:
             path, fps_, max_frames = None, None, None
+        audio_path = (
+            os.path.abspath(os.path.join(audio_dir, f"{clip.id}.mp3"))
+            if audio_dir is not None
+            else None
+        )
         job_specs.append(
             {
                 "clip_id": clip.id,
                 "text": text,
                 "path": path,
+                "audio_path": audio_path,
                 "fps": fps_,
                 "max_frames": max_frames,
             }
@@ -326,6 +335,7 @@ def _embed_targets(
             clip,
             job["text"],
             job["path"],
+            job["audio_path"],
             job["fps"],
             job["max_frames"],
         )
@@ -367,6 +377,7 @@ def _embed_with_token_fallback(
     clip,
     text: str | None,
     video_path: str | None,
+    audio_path: str | None,
     fps_: float | None,
     max_frames: int | None,
 ) -> bytes | None:
@@ -376,7 +387,7 @@ def _embed_with_token_fallback(
     """
 
     def _build(cap_: int | None) -> dict:
-        p = spec.payload_builder(clip, text, video_path, fps_, cap_)
+        p = spec.payload_builder(clip, text, video_path, audio_path, fps_, cap_)
         p["clip_id"] = clip.id
         p["case"] = spec.name
         return p

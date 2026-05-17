@@ -50,6 +50,7 @@ def _paths(video_dir: str) -> PathsSettings:
         profile_pic_dir="/tmp",
         thumbnail_dir="/tmp",
         speech_audio_dir="/tmp/audio",
+        audio_dir="/tmp/audio",
         data_csv_path="/tmp/data.csv",
     )
 
@@ -384,6 +385,7 @@ def test_classify_music_config_change_triggers_reset(monkeypatch, db_session):
         profile_pic_dir="/tmp",
         thumbnail_dir="/tmp",
         speech_audio_dir="/tmp",
+        audio_dir="/tmp",
         data_csv_path="/tmp/x.csv",
     )
     secrets = AcrSecrets(host="h", access_key="k", access_secret="s")
@@ -453,6 +455,7 @@ def test_classify_music_unchanged_config_does_not_reset(monkeypatch, db_session)
         profile_pic_dir="/tmp",
         thumbnail_dir="/tmp",
         speech_audio_dir="/tmp",
+        audio_dir="/tmp",
         data_csv_path="/tmp/x.csv",
     )
     secrets = AcrSecrets(host="h", access_key="k", access_secret="s")

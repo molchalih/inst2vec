@@ -16,6 +16,7 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
             profile_pic_dir="data/source/profile_pics",
             thumbnail_dir="data/source/thumbnails",
             speech_audio_dir="data/source/audio",
+            audio_dir="data/source/audio",
             data_csv_path="data/data.csv",
         ),
         parse=SimpleNamespace(fetch_retry_delays_sec=[0, 30, 60, 90]),
@@ -80,6 +81,7 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
             embed_max_length=32768,
             adaptive_max_frames=96,
             adaptive_default_fps=2.0,
+            gemini_enabled=False,
         ),
         search=SimpleNamespace(),
         validation=SimpleNamespace(plateau_drop_threshold=0.05),
@@ -130,6 +132,11 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
         main, "upload_videos", lambda *args, **kwargs: calls.append("upload")
     )
     monkeypatch.setattr(
+        main,
+        "extract_audio_stage",
+        lambda *args, **kwargs: calls.append("audio:extract"),
+    )
+    monkeypatch.setattr(
         main, "classify_music", lambda **kwargs: calls.append("music:classify")
     )
     monkeypatch.setattr(
@@ -170,5 +177,6 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
     assert calls[2] == "import:csv"
     assert calls[3] == "parse"
     assert "download" in calls
+    assert "audio:extract" in calls
     assert "cluster:search" in calls
     assert calls[-1] == "viz"
