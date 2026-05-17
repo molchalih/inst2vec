@@ -4,9 +4,16 @@ from __future__ import annotations
 
 import re
 
+from sqlalchemy.orm import Session
+
+from modules.database import Clip, clip_used_in_analysis
+
 SCOPE_CLASSIFY: str = "classify_speech"
 SCOPE_TRANSLATE: str = "translate_speech"
 SCOPE_CLEAN: str = "clean_speech"
+
+STAGE_SPEECH: str = "speech"
+SCOPE_SPEECH: str = "all"
 
 # Substrings that indicate a hallucination / non-speech transcription.
 # Clips whose translation/transcription contains one are reclassified as no-speech.
@@ -51,3 +58,22 @@ def is_repeated_output(text: str | None) -> bool:
         else:
             run = 1
     return False
+
+
+def reset_speech_outputs(session: Session) -> None:
+    """NULL the four speech output columns on every eligible clip.
+
+    Called from process_speech() when the speech config fingerprint drifts.
+    The row-level idempotence inside classify/translate/clean then refills
+    the cleared columns on the next pass.
+    """
+    session.query(Clip).filter(*clip_used_in_analysis()).update(
+        {
+            Clip.is_speech_detected: None,
+            Clip.speech_transcription: None,
+            Clip.speech_language: None,
+            Clip.speech_translation: None,
+        },
+        synchronize_session=False,
+    )
+    session.commit()
