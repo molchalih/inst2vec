@@ -12,7 +12,7 @@ __all__ = ("get_clips_count", "get_users_count")
 
 def get_users_count(eng) -> dict[str, int]:
     with Session(eng) as session:
-        all = int(session.query(func.count(User.id)).scalar() or 0)
+        total = int(session.query(func.count(User.id)).scalar() or 0)
         kept = int(
             session.query(func.count(User.id))
             .filter(User.is_eligible.is_(True))
@@ -20,19 +20,19 @@ def get_users_count(eng) -> dict[str, int]:
             or 0
         )
 
-        users = {"all": all, "kept": kept}
+        users = {"all": total, "kept": kept}
 
         return users
 
 
 def get_clips_count(eng) -> dict[str, int]:
     with Session(eng) as session:
-        all = int(session.query(func.count(Clip.id)).scalar() or 0)
+        total = int(session.query(func.count(Clip.id)).scalar() or 0)
         kept = int(
             session.query(func.count(Clip.id)).filter(*clip_used_in_analysis()).scalar()
             or 0
         )
 
-        clips = {"all": all, "kept": kept}
+        clips = {"all": total, "kept": kept}
 
         return clips
