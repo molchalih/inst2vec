@@ -354,3 +354,31 @@ def test_vad_speech_path_is_passed_to_whisper(db_session, monkeypatch):
     assert model.transcribe.call_args.args[0] == str(speech_wav)
     clip = s.query(Clip).filter_by(id=10).one()
     assert clip.is_speech_detected is True
+
+
+def test_reset_speech_outputs_nulls_all_seven_columns(db_session):
+    """Reset must NULL every speech column, including the three metric
+    columns, so derived stats can't carry stale prior-config values."""
+    from modules.speech.state import reset_speech_outputs
+
+    s, _ = db_session
+    clip = s.query(Clip).filter_by(id=10).one()
+    clip.is_speech_detected = True
+    clip.speech_transcription = "hello"
+    clip.speech_language = "en"
+    clip.speech_translation = "hello"
+    clip.speech_confidence = 0.9
+    clip.speech_avg_logprob = -0.3
+    clip.speech_compression_ratio = 1.4
+    s.commit()
+
+    reset_speech_outputs(s)
+
+    clip = s.query(Clip).filter_by(id=10).one()
+    assert clip.is_speech_detected is None
+    assert clip.speech_transcription is None
+    assert clip.speech_language is None
+    assert clip.speech_translation is None
+    assert clip.speech_confidence is None
+    assert clip.speech_avg_logprob is None
+    assert clip.speech_compression_ratio is None
