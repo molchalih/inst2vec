@@ -22,7 +22,11 @@ from modules.embeddings.providers import (
     Provider,
     RemoteQwenProvider,
 )
-from modules.embeddings.text import build_audio_text, build_sandwich_text
+from modules.embeddings.text import (
+    build_audio_text,
+    build_gemini_text,
+    build_sandwich_text,
+)
 from modules.storage import get_object_store
 
 AUDIO_INSTRUCTION = (
@@ -172,24 +176,36 @@ AUDIO_CASE = EmbeddingCaseSpec(
 )
 
 
-def _gemini_mm_factory(settings, _secrets=None) -> Provider:
-    """Placeholder factory for Gemini multimodal provider (not yet implemented)."""
-    raise NotImplementedError("Gemini multimodal provider not yet available")
+def _gemini_mm_factory(settings, secrets) -> Provider:
+    from modules.embeddings.gemini import GeminiMultimodalProvider
 
-
-def _gemini_mm_text_builder(clip, music_map):
-    """Placeholder text builder for Gemini multimodal case."""
-    return None
+    if secrets is None or getattr(secrets, "gemini_api_key", None) is None:
+        raise RuntimeError(
+            "gemini_mm provider requires secrets.gemini_api_key; "
+            "set GEMINI_API_KEY and embeddings.gemini_enabled=true"
+        )
+    return GeminiMultimodalProvider(
+        api_key=secrets.gemini_api_key,
+        model=settings.embeddings.gemini_model,
+        output_dim=settings.embeddings.gemini_output_dim,
+        max_video_seconds=settings.embeddings.gemini_max_video_seconds,
+        max_audio_seconds=settings.embeddings.gemini_max_audio_seconds,
+        request_timeout_s=settings.embeddings.gemini_request_timeout_s,
+        max_retries=settings.embeddings.gemini_max_retries,
+    )
 
 
 def _gemini_mm_payload(clip, text, video_path, fps, max_frames) -> dict:
-    """Placeholder payload builder for Gemini multimodal case."""
-    return {"video_path": video_path, "text": text}
+    from modules.config import load_runtime_config
+
+    settings, _ = load_runtime_config()
+    audio_path = _os.path.join(settings.paths.audio_dir, f"{clip.id}.mp3")
+    return {"video_path": video_path, "audio_path": audio_path, "text": text}
 
 
 GEMINI_MM_CASE = EmbeddingCaseSpec(
     name="gemini_mm",
-    text_builder=_gemini_mm_text_builder,
+    text_builder=build_gemini_text,
     requires_video=True,
     provider_factory=_gemini_mm_factory,
     payload_builder=_gemini_mm_payload,
@@ -252,9 +268,11 @@ def case_config_identity(spec: EmbeddingCaseSpec, settings) -> str:
     if spec.name == "audio":
         parts.append(f"instruction={AUDIO_INSTRUCTION}")
     if spec.name == "gemini_mm":
-        # Include gemini-specific settings that affect output
-        output_dim = getattr(settings.embeddings, "gemini_output_dim", 3072)
-        parts.append(f"output_dim={output_dim}")
+        parts.append(f"output_dim={settings.embeddings.gemini_output_dim}")
+        parts.append(f"audio_bitrate={settings.embeddings.audio_bitrate_kbps}")
+        parts.append(f"audio_sample_rate={settings.embeddings.audio_sample_rate_hz}")
+        parts.append(f"max_video_s={settings.embeddings.gemini_max_video_seconds}")
+        parts.append(f"max_audio_s={settings.embeddings.gemini_max_audio_seconds}")
     return "|".join(parts)
 
 

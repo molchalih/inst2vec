@@ -102,6 +102,10 @@ class _EmbeddingsStub:
     adaptive_default_fps: float = 1.0
     gemini_enabled: bool = True
     gemini_output_dim: int = 3072
+    gemini_max_video_seconds: int = 120
+    gemini_max_audio_seconds: int = 80
+    audio_bitrate_kbps: int = 128
+    audio_sample_rate_hz: int = 44100
     inflight: int = 1
     provider: str = "local"
 
