@@ -13,7 +13,15 @@ load_dotenv()
 
 from sqlalchemy import func  # noqa: E402
 
-from core.database import Clip, Music, User, get_session  # noqa: E402
+from core.config import load_runtime_config  # noqa: E402
+from core.database import (  # noqa: E402
+    Clip,
+    Music,
+    User,
+    clip_used_in_analysis,
+    get_session,
+    init_db,
+)
 
 
 def _pct(n, total):
@@ -39,9 +47,15 @@ def section_health(session):
     _header("PIPELINE HEALTH")
 
     # Totals
-    n_users = session.query(func.count(User.id)).scalar()
-    n_clips = session.query(func.count(Clip.id)).scalar()
-    n_disq = session.query(func.count(Clip.id)).filter(Clip.disqualified == 1).scalar()
+    n_users = session.query(func.count(User.id)).scalar() or 0
+    n_clips = session.query(func.count(Clip.id)).scalar() or 0
+    n_kept = (
+        session.query(func.count(Clip.id))
+        .filter(*clip_used_in_analysis())
+        .scalar()
+        or 0
+    )
+    n_disq = n_clips - n_kept
     print(f"\nUsers:              {n_users:>8,}")
     print(f"Clips total:        {n_clips:>8,}")
     print(f"Clips disqualified: {n_disq:>8,}  ({_pct(n_disq, n_clips)})")
@@ -321,6 +335,8 @@ def section_speech(session):
 
 
 def main():
+    _settings, secrets = load_runtime_config()
+    init_db(secrets.database_url, secrets.identity_db_url)
     session = get_session()
     try:
         print("=" * 52)
