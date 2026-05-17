@@ -10,6 +10,7 @@ Four sub-stages, each idempotent:
 
 from __future__ import annotations
 
+import json
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,17 +18,21 @@ from pathlib import Path
 import httpx
 from sqlalchemy import func
 
+from modules import fingerprint as fp
 from modules.config import MusicSettings, PathsSettings
 from modules.console import log, progress
-from modules.database import Clip, Music, clip_used_in_analysis, get_session
+from modules.database import Clip, Music, StageState, clip_used_in_analysis, get_session
 from modules.music.audio_sample import extract_audio_sample
 from modules.music.clients import ReccoBeatsClient, SpotifyClient, TransientError
 from modules.music.state import (
     _NO_MATCH,
     FEATURE_FIELDS,
     SCOPE_FEATURES,
+    SCOPE_MUSIC,
+    STAGE_MUSIC_FEATURES,
     UPLOAD_FIELDS,
     music_has_features,
+    reset_music_features,
 )
 
 
@@ -275,6 +280,23 @@ def extract_music_features(
     """Fill Spotify IDs, ReccoBeats IDs, and audio features for all linked Music rows."""
     session = get_session()
     try:
+        current = fp.Fingerprint(
+            data=fp.hash_text(""),
+            config=fp.hash_text(
+                json.dumps(music.model_dump(), sort_keys=True, default=str)
+            ),
+            dependency=fp.hash_text(""),
+        )
+        stored = session.get(StageState, (STAGE_MUSIC_FEATURES, SCOPE_MUSIC))
+        if stored is not None and stored.config_hash != current.config:
+            diff = fp.describe_diff(session, STAGE_MUSIC_FEATURES, SCOPE_MUSIC, current)
+            log(SCOPE_FEATURES, f"config drift ({diff}) — resetting feature columns")
+            reset_music_features(session)
+        elif stored is None:
+            log(SCOPE_FEATURES, "no prior state — sealing on completion")
+        else:
+            log(SCOPE_FEATURES, "fingerprint match — skipping reset")
+
         with httpx.Client(timeout=music.http_timeout) as http:
             spotify = _make_spotify(http, music, secrets)
             rb = _make_reccobeats(http, music)
@@ -282,5 +304,8 @@ def extract_music_features(
             _resolve_reccobeats_ids(session, rb)
             _enrich_catalog_features(session, rb)
             _enrich_upload_fallback(session, rb, paths.video_dir, music)
+
+        fp.mark_complete(session, STAGE_MUSIC_FEATURES, SCOPE_MUSIC, current)
+        session.commit()
     finally:
         session.close()
