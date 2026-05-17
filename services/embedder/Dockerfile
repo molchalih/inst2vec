@@ -24,6 +24,7 @@ ENV PATH="/root/.local/bin:${PATH}"
 WORKDIR /app
 
 COPY pyproject.toml uv.lock ./
+COPY core/ ./core/
 COPY modules/ ./modules/
 COPY services/embedder/ ./services/embedder/
 
