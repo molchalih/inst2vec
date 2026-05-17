@@ -2,7 +2,7 @@
 
 Public API:
 
-    embed_clip_embeddings(settings, cases=None)
+    embed_clip_embeddings(settings, secrets, cases=None)
     embed_user_embeddings(settings, cases=None)
 
 Adding a new embedding case generally only requires:

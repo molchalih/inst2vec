@@ -135,7 +135,7 @@ def run_pipeline() -> None:
     - audio: only audio
     """
     phase("Clip Embeddings")
-    embed_clip_embeddings(settings)
+    embed_clip_embeddings(settings, secrets)
 
     """
     9. USER EMBEDDINGS: calculates the average embedding of the clips belonging to a user, generating a user-level representation.

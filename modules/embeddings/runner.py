@@ -50,12 +50,12 @@ from modules.embeddings.vectors import to_bytes
 STAGE = "clip_embeddings"
 
 
-def embed_clip_embeddings(settings, cases: list[str] | None = None) -> None:
+def embed_clip_embeddings(settings, secrets, cases: list[str] | None = None) -> None:
     """Embed clips for the given cases (default: all DEFAULT_CASES)."""
     case_names = list(cases) if cases is not None else list(DEFAULT_CASES)
     for name in case_names:
         spec = CASE_REGISTRY[name]
-        _run_case(settings, spec)
+        _run_case(settings, secrets, spec)
 
 
 def _video_path(clip_id: int, video_dir: str) -> str:
@@ -94,7 +94,7 @@ def _diff_targets(
     return {cid for cid, want in per_clip.items() if embedded.get(cid) != want}
 
 
-def _run_case(settings, spec: EmbeddingCaseSpec) -> None:
+def _run_case(settings, secrets, spec: EmbeddingCaseSpec) -> None:
     log_tag = f"embed:{spec.name}"
     Base.metadata.create_all(get_engine())
     session = get_session()
@@ -124,6 +124,7 @@ def _run_case(settings, spec: EmbeddingCaseSpec) -> None:
             session,
             spec,
             settings,
+            secrets,
             log_tag,
             candidates,
             target_ids,
@@ -139,6 +140,7 @@ def _embed_targets(
     session,
     spec: EmbeddingCaseSpec,
     settings,
+    secrets,
     log_tag: str,
     candidates: list[Clip],
     target_ids: set[int],
@@ -229,7 +231,7 @@ def _embed_targets(
 
     log(log_tag, f"{len(jobs)} clips to embed")
 
-    provider = spec.provider_factory(settings)
+    provider = spec.provider_factory(settings, secrets)
     failures = 0
     with progress(len(jobs), f"Embedding {spec.name}") as advance:
         for clip, text in jobs:

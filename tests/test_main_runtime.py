@@ -144,7 +144,7 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
     monkeypatch.setattr(
         main,
         "embed_clip_embeddings",
-        lambda settings, cases=None: calls.append("embed:clip"),
+        lambda settings, secrets, cases=None: calls.append("embed:clip"),
     )
     monkeypatch.setattr(
         main,
