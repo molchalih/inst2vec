@@ -64,14 +64,18 @@ def _dispatch_embedding_jobs(
 
     Exceptions inside ``embed_fn`` are caught and converted to
     ``(clip_id, None)`` so the runner's main-thread loop can advance
-    progress and account for failures uniformly.
+    progress and account for failures uniformly. The exception is
+    logged at warn level so operators see the failure cause; the loop
+    continues.
     """
     if inflight <= 1:
         for job in jobs:
             try:
                 yield embed_fn(job)
-            except Exception:
-                yield (job.get("clip_id", -1), None)
+            except Exception as exc:
+                clip_id = job.get("clip_id", -1)
+                log("embed", f"clip {clip_id} failed: {exc!r}", level="warn")
+                yield (clip_id, None)
         return
 
     with ThreadPoolExecutor(max_workers=inflight) as pool:
@@ -80,8 +84,10 @@ def _dispatch_embedding_jobs(
             job = futures[fut]
             try:
                 yield fut.result()
-            except Exception:
-                yield (job.get("clip_id", -1), None)
+            except Exception as exc:
+                clip_id = job.get("clip_id", -1)
+                log("embed", f"clip {clip_id} failed: {exc!r}", level="warn")
+                yield (clip_id, None)
 
 
 def embed_clip_embeddings(
