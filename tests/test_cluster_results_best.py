@@ -53,8 +53,7 @@ def _run_row(
     )
 
 
-def test_best_run_to_markdown_uses_validation_pick_for_case(monkeypatch):
-    monkeypatch.setenv("VALIDATION_PLATEAU_DROP_THRESHOLD", "0.05")
+def test_best_run_to_markdown_uses_validation_pick_for_case():
     eng = _make_engine()
 
     with Session(eng) as s:
@@ -84,15 +83,14 @@ def test_best_run_to_markdown_uses_validation_pick_for_case(monkeypatch):
 
     from modules.visualization.tables.cluster_results_best import best_run_to_markdown
 
-    out = best_run_to_markdown(eng, "audio")
+    out = best_run_to_markdown(eng, "audio", threshold=0.05)
 
     assert out.startswith("| Field | Value |")
     assert "| $\\mathrm{DBCV}^*$ | 0.8200 |" in out
     assert "| $n_{\\mathrm{UMAP}}^*$ | 20 |" in out
 
 
-def test_best_runs_all_to_markdown_unified_table(monkeypatch):
-    monkeypatch.setenv("VALIDATION_PLATEAU_DROP_THRESHOLD", "0.05")
+def test_best_runs_all_to_markdown_unified_table():
     eng = _make_engine()
 
     with Session(eng) as s:
@@ -146,14 +144,15 @@ def test_best_runs_all_to_markdown_unified_table(monkeypatch):
         best_runs_all_to_markdown,
     )
 
-    out = best_runs_all_to_markdown(eng, cases=("audio", "video", "sandwich"))
+    out = best_runs_all_to_markdown(
+        eng, threshold=0.05, cases=("audio", "video", "sandwich")
+    )
 
     assert "| Field | audio | video | sandwich |" in out
     assert "| $\\mathrm{DBCV}^*$ | 0.8200 | 0.7000 | 0.5500 |" in out
 
 
-def test_render_best_cluster_run_returns_markdown_object(monkeypatch):
-    monkeypatch.setenv("VALIDATION_PLATEAU_DROP_THRESHOLD", "0.05")
+def test_render_best_cluster_run_returns_markdown_object():
     eng = _make_engine()
 
     with Session(eng) as s:
@@ -170,16 +169,21 @@ def test_render_best_cluster_run_returns_markdown_object(monkeypatch):
         )
         s.commit()
 
-    from docs.quarto_helpers import render_best_cluster_run
+    from docs.quarto_helpers import (
+        _load_plateau_drop_threshold,
+        render_best_cluster_run,
+    )
     from modules.visualization.tables.cluster_results_best import (
         best_runs_all_to_markdown,
     )
 
     rendered = render_best_cluster_run(eng=eng)
+    threshold = _load_plateau_drop_threshold()
 
     assert isinstance(rendered, Markdown)
     assert rendered.data == best_runs_all_to_markdown(
         eng,
+        threshold=threshold,
         cases=("video", "sandwich", "audio"),
     )
 
@@ -210,6 +214,6 @@ def test_best_run_to_markdown_delegates_selection(monkeypatch):
 
     from modules.visualization.tables.cluster_results_best import best_run_to_markdown
 
-    out = best_run_to_markdown(eng, "audio")
+    out = best_run_to_markdown(eng, "audio", threshold=0.05)
 
     assert "| $\\mathrm{DBCV}^*$ | 0.8200 |" in out

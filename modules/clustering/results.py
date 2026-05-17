@@ -11,10 +11,10 @@ from sqlalchemy.orm import Session
 from core.database import ClusterRun
 
 
-def get_plateau_drop_threshold(settings: SimpleNamespace | None = None) -> float:
-    """Get plateau drop threshold from settings, or use hardcoded default."""
-    if settings is None or not hasattr(settings, "plateau_drop_threshold"):
-        return 0.05
+def get_plateau_drop_threshold(settings: SimpleNamespace) -> float:
+    """Get plateau drop threshold from settings. Required field — the
+    caller is responsible for passing a populated ValidationSettings
+    (or a SimpleNamespace with a plateau_drop_threshold attribute)."""
     return float(settings.plateau_drop_threshold)
 
 
@@ -42,7 +42,15 @@ def pick_best_cluster_run(
 ) -> ClusterRun | None:
     if not rows:
         return None
-    t = get_plateau_drop_threshold(settings) if threshold is None else threshold
+    if threshold is not None:
+        t = threshold
+    elif settings is not None:
+        t = get_plateau_drop_threshold(settings)
+    else:
+        raise ValueError(
+            "pick_best_cluster_run requires either threshold or settings "
+            "(with plateau_drop_threshold) to be provided"
+        )
     survivors = [r for r in rows if (r.dbcv - r.param_plateau_score) <= t]  # type: ignore[operator]
     pool = survivors if survivors else rows
     return max(pool, key=lambda r: r.dbcv if r.dbcv is not None else 0.0)  # type: ignore[arg-type]

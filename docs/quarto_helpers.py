@@ -77,6 +77,20 @@ def render_clustering_summary_by_case(case: str, *, eng=None) -> Markdown:
     return Markdown(summarize_to_markdown(eng, case))
 
 
+def _load_plateau_drop_threshold() -> float:
+    """Read validation.plateau_drop_threshold from config.toml.
+
+    Avoids load_runtime_config() so docs/notebooks can render without
+    requiring the full set of runtime secrets in the environment.
+    """
+    import tomllib
+
+    config_path = _project_root() / "config.toml"
+    with open(config_path, "rb") as f:
+        raw = tomllib.load(f)
+    return float(raw["validation"]["plateau_drop_threshold"])
+
+
 def render_best_cluster_run(*, eng=None) -> Markdown:
     _ensure_project_root_on_path()
 
@@ -88,7 +102,11 @@ def render_best_cluster_run(*, eng=None) -> Markdown:
     if eng is None:
         eng = _get_default_engine()
 
-    return Markdown(best_runs_all_to_markdown(eng, cases=DEFAULT_CASES))
+    threshold = _load_plateau_drop_threshold()
+
+    return Markdown(
+        best_runs_all_to_markdown(eng, threshold=threshold, cases=DEFAULT_CASES)
+    )
 
 
 # ── USER-related ─────────────────────────────────────────────────────────────────
