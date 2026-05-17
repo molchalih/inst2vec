@@ -26,7 +26,12 @@ import httpx
 
 from modules.config import DownloadSettings, PathsSettings
 from modules.console import log, progress
-from modules.database import Clip, User, get_profile_pic_url, get_session
+from modules.database import (
+    Clip,
+    User,
+    get_profile_pic_url,
+    get_session,
+)
 
 SCOPE = "download"
 

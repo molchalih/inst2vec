@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from modules.config import load_runtime_config
 from modules.console import log
 from modules.database import Clip, get_session, init_db
-from modules.download import fetch_file
+from modules.ingest.download import fetch_file
 
 SCOPE = "retry"
 _DELAY_MIN = 0.3

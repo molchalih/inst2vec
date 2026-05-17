@@ -12,7 +12,7 @@ from unittest.mock import MagicMock
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 
-from modules.visualization import plot_clusters
+from modules.visualization.plots import plot_clusters
 from modules.visualization.plots.cluster_case_plots import _plot_case
 
 
@@ -86,14 +86,16 @@ def test_plot_clusters_uses_shared_cluster_plot_generator(monkeypatch, tmp_path)
         called_cases.append((eng, case, title_label))
         return plt.figure()
 
-    monkeypatch.setattr("modules.visualization.get_session", lambda: fake_session)
-    monkeypatch.setattr("modules.visualization.PLOTS_DIR", str(tmp_path))
     monkeypatch.setattr(
-        "modules.visualization.cluster_plot_figure_for_case",
+        "modules.visualization.plots.cluster_plots.get_session",
+        lambda: fake_session,
+    )
+    monkeypatch.setattr(
+        "modules.visualization.plots.cluster_plots.cluster_plot_figure_for_case",
         fake_cluster_plot_figure_for_case,
     )
 
-    plot_clusters()
+    plot_clusters(plots_dir=str(tmp_path))
 
     assert called_cases == [
         (fake_session.get_bind.return_value, "audio", None),

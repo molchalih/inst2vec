@@ -16,6 +16,7 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
             profile_pic_dir="data/source/profile_pics",
             thumbnail_dir="data/source/thumbnails",
             speech_audio_dir="data/source/audio",
+            audio_dir="data/source/audio",
             data_csv_path="data/data.csv",
         ),
         parse=SimpleNamespace(fetch_retry_delays_sec=[0, 30, 60, 90]),
@@ -80,9 +81,11 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
             embed_max_length=32768,
             adaptive_max_frames=96,
             adaptive_default_fps=2.0,
+            gemini_enabled=False,
         ),
         search=SimpleNamespace(),
         validation=SimpleNamespace(plateau_drop_threshold=0.05),
+        storage=SimpleNamespace(bucket=""),
         overrides=SimpleNamespace(video="", sandwich="", audio=""),
     )
 
@@ -96,6 +99,12 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
         spotify_client_id="spotify-id",
         spotify_client_secret="spotify-secret",
         huggingface_token="hf",
+        gemini_api_key=None,
+        embedder_remote_url="",
+        embedder_token="",
+        object_store_endpoint="",
+        object_store_access_key="",
+        object_store_secret_key="",
     )
 
     monkeypatch.setattr(main, "load_runtime_config", lambda: (settings, secrets))
@@ -120,18 +129,22 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
         main, "download_files", lambda *args, **kwargs: calls.append("download")
     )
     monkeypatch.setattr(
+        main, "upload_videos", lambda *args, **kwargs: calls.append("upload")
+    )
+    monkeypatch.setattr(
+        main,
+        "extract_audio_stage",
+        lambda *args, **kwargs: calls.append("audio:extract"),
+    )
+    monkeypatch.setattr(
         main, "classify_music", lambda **kwargs: calls.append("music:classify")
     )
     monkeypatch.setattr(
         main, "extract_music_features", lambda **kwargs: calls.append("music:features")
     )
     monkeypatch.setattr(
-        main, "classify_speech", lambda **kwargs: calls.append("speech:classify")
+        main, "process_speech", lambda *args, **kwargs: calls.append("speech:process")
     )
-    monkeypatch.setattr(
-        main, "translate_speech", lambda **kwargs: calls.append("speech:translate")
-    )
-    monkeypatch.setattr(main, "clean_speech", lambda: calls.append("speech:clean"))
     monkeypatch.setattr(
         main,
         "process_captions",
@@ -140,7 +153,7 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
     monkeypatch.setattr(
         main,
         "embed_clip_embeddings",
-        lambda settings, cases=None: calls.append("embed:clip"),
+        lambda settings, secrets=None, cases=None: calls.append("embed:clip"),
     )
     monkeypatch.setattr(
         main,
@@ -164,5 +177,6 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
     assert calls[2] == "import:csv"
     assert calls[3] == "parse"
     assert "download" in calls
+    assert "audio:extract" in calls
     assert "cluster:search" in calls
     assert calls[-1] == "viz"

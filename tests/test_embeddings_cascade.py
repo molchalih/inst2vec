@@ -97,7 +97,10 @@ class _FakeProvider:
         return _TorchLikeArray(arr)
 
 
-def _fake_factory(_settings):
+_FAKE_SECRETS = object()  # sentinel; never inspected by the fake factory
+
+
+def _fake_factory(_settings, _secrets):
     return _FakeProvider()
 
 
@@ -116,6 +119,8 @@ class _EmbeddingsStub:
     embed_max_length: int = 1024
     adaptive_max_frames: int = 8
     adaptive_default_fps: float = 1.0
+    inflight: int = 1
+    provider: str = "local"
 
 
 @dataclass
@@ -245,7 +250,7 @@ def test_audio_instruction_change_cascades_only_to_audio(
     _seed(db_session, settings)
 
     # Phase (a): baseline
-    embed_clip_embeddings(settings)
+    embed_clip_embeddings(settings, _FAKE_SECRETS)
     embed_user_embeddings(settings)
     db_session.expire_all()
 
@@ -270,7 +275,7 @@ def test_audio_instruction_change_cascades_only_to_audio(
     # Phase (b): mutate audio knob → re-run both stages
     monkeypatch.setattr(cases_mod, "AUDIO_INSTRUCTION", "DIFFERENT INSTRUCTION")
 
-    embed_clip_embeddings(settings)  # audio re-runs; video/sandwich skip
+    embed_clip_embeddings(settings, _FAKE_SECRETS)  # audio re-runs; video/sandwich skip
     # Bump updated_at on the audio ClipEmbedding row so user_embeddings
     # can detect the upstream change (sub-second cascade workaround).
     _bump_audio_clip_embedding_ts(db_session)

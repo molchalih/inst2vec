@@ -109,6 +109,39 @@ def build_sandwich_text(clip, music_map: dict) -> str | None:
     return " | ".join(parts) if parts else None
 
 
+def build_gemini_text(clip, _music_map: dict) -> str | None:
+    """Caption + transcript for the gemini_mm case.
+
+    Uses translation when source language is non-English and a non-empty
+    translation exists; otherwise the cleaned/original text. Music is
+    NOT verbalized — the model gets the raw audio track separately.
+    Returns ``None`` when both caption and transcript are empty.
+    """
+    cap = (
+        clip.caption_translation
+        if clip.caption_language not in ("en", None)
+        and clip.caption_translation
+        and clip.caption_translation.strip()
+        else (clip.caption_clean or clip.caption_text or "")
+    )
+    speech = (
+        clip.speech_translation
+        if clip.speech_language not in ("en", None)
+        and clip.speech_translation
+        and clip.speech_translation.strip()
+        else (clip.speech_transcription or "")
+    )
+
+    parts = []
+    if cap and cap.strip():
+        parts.append(cap.strip())
+    if speech and speech.strip():
+        parts.append(speech.strip())
+    if not parts:
+        return None
+    return "\n\n---\n\n".join(parts)
+
+
 def build_audio_text(clip, music_map: dict) -> str | None:
     # Order: speech first, music second — matches the audio embedding
     # instruction priority. Captions are deliberately excluded.

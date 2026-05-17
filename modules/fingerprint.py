@@ -47,6 +47,16 @@ def hash_text(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
 
 
+def row_diff(desired: dict[int, str], stored: dict[int, str | None]) -> set[int]:
+    """Ids in ``desired`` whose ``stored`` hash is missing or different.
+
+    Treats a NULL stored hash as stale. Ids present only in ``stored``
+    (orphans) are not returned — the caller is expected to handle them
+    separately if removal is required.
+    """
+    return {key for key, want in desired.items() if stored.get(key) != want}
+
+
 # ── compare + store ──────────────────────────────────────────────────────────
 
 

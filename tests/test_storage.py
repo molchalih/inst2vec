@@ -1,0 +1,75 @@
+"""Storage abstraction tests using moto's in-process S3 mock."""
+
+import pytest
+
+boto3 = pytest.importorskip("boto3")
+moto = pytest.importorskip("moto")
+from moto import mock_aws  # noqa: E402
+
+from modules.config import StorageSettings  # noqa: E402
+from modules.storage import ObjectStore  # noqa: E402
+
+
+@pytest.fixture
+def store(tmp_path):
+    with mock_aws():
+        # moto auto-creates an in-process S3 server scoped to the with-block.
+        s = ObjectStore(
+            settings=StorageSettings(
+                backend="s3",
+                bucket="test-bucket",
+                prefix="videos/",
+                signed_url_ttl_s=60,
+            ),
+            endpoint_url=None,  # use moto default (real AWS endpoint stub)
+            access_key="test",
+            secret_key="test",
+        )
+        s.client.create_bucket(Bucket="test-bucket")
+        yield s
+
+
+def test_head_returns_none_when_object_missing(store):
+    assert store.head("videos/12345.mp4") is None
+
+
+def test_put_then_head_returns_size(store, tmp_path):
+    p = tmp_path / "12345.mp4"
+    p.write_bytes(b"\x00" * 4096)
+    store.put(str(p), "videos/12345.mp4")
+    meta = store.head("videos/12345.mp4")
+    assert meta is not None
+    assert meta["size"] == 4096
+
+
+def test_put_is_idempotent(store, tmp_path):
+    p = tmp_path / "x.mp4"
+    p.write_bytes(b"abc")
+    store.put(str(p), "videos/x.mp4")
+    store.put(str(p), "videos/x.mp4")  # should not raise
+    assert store.head("videos/x.mp4")["size"] == 3
+
+
+def test_signed_get_returns_url(store, tmp_path):
+    p = tmp_path / "x.mp4"
+    p.write_bytes(b"abc")
+    store.put(str(p), "videos/x.mp4")
+    url = store.signed_get("videos/x.mp4", ttl_s=60)
+    assert url.startswith("https://") or url.startswith("http://")
+    assert "videos/x.mp4" in url
+
+
+def test_key_for_clip_uses_prefix(store):
+    assert store.key_for_clip(12345) == "videos/12345.mp4"
+
+
+def test_key_for_clip_without_trailing_slash():
+    s = ObjectStore(
+        settings=StorageSettings(
+            backend="s3", bucket="b", prefix="videos", signed_url_ttl_s=60
+        ),
+        endpoint_url=None,
+        access_key="t",
+        secret_key="t",
+    )
+    assert s.key_for_clip(7) == "videos/7.mp4"

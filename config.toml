@@ -5,6 +5,7 @@ model_path = "./models/Qwen3-VL-Embedding-8B"
 profile_pic_dir = "data/source/profile_pics"
 thumbnail_dir = "data/source/thumbnails"
 speech_audio_dir = "data/source/audio"
+audio_dir = "data/audio"
 data_csv_path = "data/data.csv"
 
 [parse]
@@ -79,6 +80,22 @@ exclude_disqualified_users = true
 embed_max_length = 32768
 adaptive_max_frames = 96
 adaptive_default_fps = 2.0
+provider = "local"
+inflight = 1
+request_timeout_s = 120
+max_retries = 3
+# ── audio extraction (used by gemini_mm) ──
+audio_bitrate_kbps       = 128
+audio_sample_rate_hz     = 44100
+audio_extract_timeout_s  = 60
+# ── Gemini Embedding 2 case ──
+gemini_enabled           = false
+gemini_model             = "gemini-embedding-2-preview"
+gemini_output_dim        = 3072
+gemini_max_video_seconds = 120
+gemini_max_audio_seconds = 80
+gemini_request_timeout_s = 60
+gemini_max_retries       = 5
 
 [search]
 umap_n_components = [15]
@@ -103,3 +120,9 @@ max_clusters = 20
 video = ""
 sandwich = ""
 audio = ""
+
+[storage]
+backend = "s3"
+bucket = ""
+prefix = "videos/"
+signed_url_ttl_s = 3600

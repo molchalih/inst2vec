@@ -10,9 +10,9 @@ from unittest.mock import MagicMock
 import httpx
 import pytest
 
-from modules import download as dl_mod
 from modules.config import DownloadSettings, PathsSettings
 from modules.database import Clip, User, get_session, init_db
+from modules.ingest import download as dl_mod
 
 
 def _dl(tmp_path, max_attempts=1, retry_delay=0, retry_jitter=0, concurrency=2):
@@ -28,6 +28,7 @@ def _dl(tmp_path, max_attempts=1, retry_delay=0, retry_jitter=0, concurrency=2):
             thumbnail_dir=str(tmp_path / "thumbs"),
             video_dir=str(tmp_path / "vids"),
             speech_audio_dir=str(tmp_path / "audio"),
+            audio_dir=str(tmp_path / "audio"),
             plots_dir="",
             model_path="",
             data_csv_path="",

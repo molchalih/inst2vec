@@ -187,3 +187,23 @@ def test_stage_dependency_hash_changes_when_dependency_changes(fresh_state):
     second = stage_dependency_hash(fresh_state, "upstream", "case-a")
 
     assert first != second
+
+
+def test_row_diff_picks_missing_and_changed():
+    from modules.fingerprint import row_diff
+
+    desired = {10: "h10", 11: "h11", 12: "h12"}
+    stored = {10: "h10", 11: "old", 13: "h13"}  # 12 missing, 11 stale, 13 orphan
+    assert row_diff(desired, stored) == {11, 12}
+
+
+def test_row_diff_treats_none_as_stale():
+    from modules.fingerprint import row_diff
+
+    assert row_diff({10: "h10"}, {10: None}) == {10}
+
+
+def test_row_diff_empty_desired_returns_empty():
+    from modules.fingerprint import row_diff
+
+    assert row_diff({}, {10: "h10"}) == set()

@@ -3,7 +3,6 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules import parse as parse_mod
 from modules.database import (
     Clip,
     User,
@@ -11,6 +10,7 @@ from modules.database import (
     get_session,
     update_user_identity,
 )
+from modules.ingest import profiles as parse_mod
 
 
 def test_fetch_profiles_accepts_explicit_params():

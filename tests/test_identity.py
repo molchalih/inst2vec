@@ -160,7 +160,7 @@ def test_load_usernames_from_csv_creates_user_with_sequential_id(tmp_path, monke
     # --- main DB: in-memory ---
     main_eng = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(main_eng)
-    monkeypatch.setattr("modules.utils.get_session", lambda: Session(main_eng))
+    monkeypatch.setattr("modules.ingest.seed.get_session", lambda: Session(main_eng))
 
     # --- identity DB already isolated by autouse fixture ---
     # The autouse fixture (isolated_identity_engine) already replaced _engine with in-memory
@@ -175,7 +175,7 @@ def test_load_usernames_from_csv_creates_user_with_sequential_id(tmp_path, monke
             ]
         )
 
-    from modules.utils import load_usernames_from_csv
+    from modules.ingest import load_usernames_from_csv
 
     load_usernames_from_csv(csv_path=csv_path)
 
@@ -197,7 +197,7 @@ def test_load_usernames_from_csv_creates_user_with_sequential_id(tmp_path, monke
 
 def test_load_usernames_from_csv_missing_file_is_noop(monkeypatch):
     """If the CSV does not exist the function returns without raising."""
-    from modules.utils import load_usernames_from_csv
+    from modules.ingest import load_usernames_from_csv
 
     load_usernames_from_csv(csv_path="/nonexistent/path/data.csv")
 

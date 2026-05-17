@@ -3,16 +3,24 @@ from modules.clustering import assign_clusters, run_cluster_search, validate_clu
 from modules.config import load_runtime_config
 from modules.console import phase, startup
 from modules.database import init_db
-from modules.download import download_files
-from modules.embeddings import embed_clip_embeddings, embed_user_embeddings
+from modules.embeddings import (
+    EmbeddingSecrets,
+    embed_clip_embeddings,
+    embed_user_embeddings,
+)
 from modules.filter import process_dataset
+from modules.ingest import (
+    download_files,
+    extract_audio_stage,
+    fetch_profiles,
+    load_usernames_from_csv,
+)
 from modules.music import classify_music, extract_music_features
 from modules.music.classify import AcrSecrets
 from modules.music.features import MusicSecrets
-from modules.parse import fetch_profiles
-from modules.speech import VadConfig, classify_speech, clean_speech, translate_speech
-from modules.utils import load_usernames_from_csv
-from modules.visualization import plot_clusters
+from modules.speech import process_speech
+from modules.upload import upload_videos
+from modules.visualization.plots import plot_clusters
 
 
 def run_pipeline() -> None:
@@ -56,6 +64,20 @@ def run_pipeline() -> None:
     download_files(settings.download, settings.paths)
 
     """
+    3.5 UPLOAD: pushes selected+downloaded videos to the object store so the
+    remote embedder GPU pod can fetch them. No-op when storage.bucket is unset.
+    """
+    phase("Upload")
+    upload_videos(settings, secrets)
+
+    """
+    3.6 AUDIO EXTRACTION: extracts and fingerprints mp3 audio from downloaded
+    videos. Always runs; idempotent via fingerprint seal + per-file mtime.
+    """
+    phase("Audio extraction")
+    extract_audio_stage(settings)
+
+    """
     4.1 MUSIC: fingerprints the music in videos.
     """
     phase("Music fingerprinting")
@@ -87,32 +109,11 @@ def run_pipeline() -> None:
        hallucination-marker translations.
     """
     phase("Speech transcription")
-    classify_speech(
+    process_speech(
+        settings.speech,
         video_dir=settings.paths.video_dir,
         speech_audio_dir=settings.paths.speech_audio_dir,
-        whisper_model=settings.speech.whisper_model,
-        commit_every=settings.speech.commit_every,
-        logprob_threshold=settings.speech.logprob_threshold,
-        compression_threshold=settings.speech.compression_threshold,
-        min_meaningful_chars=settings.speech.min_meaningful_chars,
-        vad_config=VadConfig(
-            enabled=settings.speech.vad_enabled,
-            sampling_rate=settings.speech.vad_sampling_rate,
-            threshold=settings.speech.vad_threshold,
-            min_speech_ms=settings.speech.vad_min_speech_ms,
-            min_silence_ms=settings.speech.vad_min_silence_ms,
-            speech_pad_ms=settings.speech.vad_speech_pad_ms,
-            min_total_speech_s=settings.speech.vad_min_total_speech_s,
-        ),
     )
-    translate_speech(
-        commit_every=settings.speech.commit_every,
-        translate_model=settings.speech.translate_model,
-        translate_target_lang=settings.speech.translate_target_lang,
-        translation_max_chars=settings.speech.translation_max_chars,
-        translate_max_new_tokens=settings.speech.translate_max_new_tokens,
-    )
-    clean_speech()
 
     """
     6. CAPTIONS: translates applicable captions.
@@ -127,7 +128,17 @@ def run_pipeline() -> None:
     - audio: only audio
     """
     phase("Clip Embeddings")
-    embed_clip_embeddings(settings)
+    embed_clip_embeddings(
+        settings,
+        EmbeddingSecrets(
+            gemini_api_key=secrets.gemini_api_key,
+            embedder_remote_url=secrets.embedder_remote_url,
+            embedder_token=secrets.embedder_token,
+            object_store_endpoint=secrets.object_store_endpoint,
+            object_store_access_key=secrets.object_store_access_key,
+            object_store_secret_key=secrets.object_store_secret_key,
+        ),
+    )
 
     """
     9. USER EMBEDDINGS: calculates the average embedding of the clips belonging to a user, generating a user-level representation.
