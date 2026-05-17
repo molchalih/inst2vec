@@ -19,8 +19,8 @@ def _make_provider(monkeypatch, video_seconds, audio_seconds):
     fake_client = MagicMock()
     durations = {"v.mp4": video_seconds, "a.mp3": audio_seconds}
     monkeypatch.setattr(
-        "modules.embeddings.gemini._probe_duration_seconds",
-        lambda path: durations[os.path.basename(path)],
+        "modules.embeddings.gemini.probe_duration_seconds",
+        lambda path, *, strict=False: durations[os.path.basename(path)],
     )
     return GeminiMultimodalProvider(
         api_key="x",
@@ -62,8 +62,8 @@ def test_embed_uploads_and_returns_vector(monkeypatch, tmp_path):
     a = tmp_path / "a.mp3"
     a.write_bytes(b"a")
     monkeypatch.setattr(
-        "modules.embeddings.gemini._probe_duration_seconds",
-        lambda p: 10.0,
+        "modules.embeddings.gemini.probe_duration_seconds",
+        lambda p, *, strict=False: 10.0,
     )
 
     fake_client = MagicMock()
@@ -107,8 +107,8 @@ def test_embed_raises_on_dim_mismatch(monkeypatch, tmp_path):
     a = tmp_path / "a.mp3"
     a.write_bytes(b"a")
     monkeypatch.setattr(
-        "modules.embeddings.gemini._probe_duration_seconds",
-        lambda p: 10.0,
+        "modules.embeddings.gemini.probe_duration_seconds",
+        lambda p, *, strict=False: 10.0,
     )
     fake_client = MagicMock()
     fake_client.files.upload.side_effect = [
@@ -146,8 +146,8 @@ def test_embed_retries_on_5xx(monkeypatch, tmp_path):
     a = tmp_path / "a.mp3"
     a.write_bytes(b"a")
     monkeypatch.setattr(
-        "modules.embeddings.gemini._probe_duration_seconds",
-        lambda p: 10.0,
+        "modules.embeddings.gemini.probe_duration_seconds",
+        lambda p, *, strict=False: 10.0,
     )
 
     fake_client = MagicMock()

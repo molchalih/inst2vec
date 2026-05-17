@@ -3,10 +3,24 @@
 from __future__ import annotations
 
 import subprocess
+from typing import Literal, overload
 
 
-def probe_duration_seconds(path: str) -> float | None:
-    """Return video duration in seconds via ffprobe, or None if unavailable."""
+@overload
+def probe_duration_seconds(path: str, *, strict: Literal[True]) -> float: ...
+@overload
+def probe_duration_seconds(
+    path: str, *, strict: Literal[False] = False
+) -> float | None: ...
+def probe_duration_seconds(path: str, *, strict: bool = False) -> float | None:
+    """Return video duration in seconds via ffprobe.
+
+    strict=False (default): swallow all errors and return None when the
+    duration cannot be determined.
+    strict=True: re-raise the underlying exception (matches the
+    previous gemini-side behavior — used for the gemini upload path
+    where a missing duration is fatal).
+    """
     try:
         result = subprocess.run(
             [
@@ -21,21 +35,33 @@ def probe_duration_seconds(path: str) -> float | None:
             ],
             capture_output=True,
             text=True,
-            check=False,
+            check=strict,
             timeout=10,
         )
     except Exception:
+        if strict:
+            raise
         return None
     if result.returncode != 0:
+        if strict:
+            raise RuntimeError(f"ffprobe failed: {result.stderr.strip()}")
         return None
     raw = (result.stdout or "").strip()
     if not raw:
+        if strict:
+            raise RuntimeError("ffprobe returned empty duration")
         return None
     try:
         duration = float(raw)
     except ValueError:
+        if strict:
+            raise
         return None
-    return duration if duration > 0 else None
+    if duration > 0:
+        return duration
+    if strict:
+        raise RuntimeError(f"ffprobe returned non-positive duration: {duration}")
+    return None
 
 
 def adaptive_sampling(
