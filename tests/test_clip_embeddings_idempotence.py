@@ -109,10 +109,10 @@ def stub_providers(monkeypatch, tmp_path):
     monkeypatch.setattr(runner_mod, "CASE_REGISTRY", new_registry)
 
     monkeypatch.setattr(
-        sampling_mod, "adaptive_sampling", lambda *a, **kw: (1.0, 8, None)
+        sampling_mod, "adaptive_sampling", lambda *a, **kw: (1.0, 8)
     )
     monkeypatch.setattr(
-        runner_mod, "adaptive_sampling", lambda *a, **kw: (1.0, 8, None)
+        runner_mod, "adaptive_sampling", lambda *a, **kw: (1.0, 8)
     )
     return tmp_path
 

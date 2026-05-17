@@ -66,16 +66,16 @@ def probe_duration_seconds(path: str, *, strict: bool = False) -> float | None:
 
 def adaptive_sampling(
     path: str, adaptive_max_frames: int, adaptive_default_fps: float
-) -> tuple[float, int, float | None]:
-    """Choose (fps, max_frames, duration) from probed clip duration."""
+) -> tuple[float, int]:
+    """Choose (fps, max_frames) from probed clip duration."""
     duration = probe_duration_seconds(path)
     if duration is None:
-        return adaptive_default_fps, adaptive_max_frames, None
+        return adaptive_default_fps, adaptive_max_frames
     if duration < 15:
-        return 3.0, adaptive_max_frames, duration
+        return 3.0, adaptive_max_frames
     if duration <= 45:
-        return 2.0, adaptive_max_frames, duration
-    return 1.0, adaptive_max_frames, duration
+        return 2.0, adaptive_max_frames
+    return 1.0, adaptive_max_frames
 
 
 def frame_retry_schedule(initial_max_frames: int) -> list[int]:

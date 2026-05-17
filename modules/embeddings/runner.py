@@ -301,7 +301,7 @@ def _embed_targets(
         clip_by_id[clip.id] = clip
         if spec.requires_video:
             path = _video_path(clip.id, video_dir)
-            fps_, max_frames, _ = adaptive_sampling(
+            fps_, max_frames = adaptive_sampling(
                 path,
                 settings.embeddings.adaptive_max_frames,
                 settings.embeddings.adaptive_default_fps,
