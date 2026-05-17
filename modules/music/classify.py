@@ -162,8 +162,6 @@ def classify_music(
                 advance()
                 continue
 
-            clip.music_id = None
-            clip.music_confidence = None
             try:
                 result = _fingerprint(
                     acr,
