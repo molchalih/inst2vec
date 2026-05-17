@@ -126,6 +126,7 @@ class Clip(Base):
     is_eligible: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     is_selected: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     is_downloaded: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    is_uploaded: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 
     user: Mapped["User"] = relationship("User", back_populates="clips")  # type: ignore[assignment]
     music: Mapped[Optional["Music"]] = relationship("Music", back_populates="clips")  # type: ignore[assignment]
