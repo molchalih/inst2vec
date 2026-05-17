@@ -2,7 +2,7 @@ import os
 import sys
 
 from IPython.display import Markdown
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
@@ -183,71 +183,3 @@ def test_render_users_summary_returns_markdown_object():
 
     assert isinstance(rendered, Markdown)
     assert rendered.data == users_summary_to_markdown(eng)
-
-
-def test_users_summary_legacy_db_without_parse_status_column():
-    """Older on-disk DBs may lack users.parse_status; summary must not crash."""
-    eng = create_engine("sqlite:///:memory:")
-    with eng.begin() as conn:
-        conn.execute(
-            text(
-                """
-                CREATE TABLE users (
-                    id INTEGER PRIMARY KEY,
-                    following_count INTEGER,
-                    is_eligible BOOLEAN
-                )
-                """
-            )
-        )
-        conn.execute(text("INSERT INTO users (id, is_eligible) VALUES (1, 1)"))
-
-    from modules.visualization.tables.dataset_summary_users import (
-        users_summary_to_markdown,
-    )
-
-    out = users_summary_to_markdown(eng)
-
-    assert r"| $N$ | 1 |" in out
-    assert r"| $N_{\mathrm{kept}}$ | 1 (100.0%) |" in out
-    assert r"| $\tilde{x}_{\mathrm{following}}$ | - |" in out
-    assert r"| $\mu_\mathrm{following}$ | - |" in out
-    assert r"| $[\min-max]_{\mathrm{following}}$ | - |" in out
-    assert r"| $\tilde{x}_{\mathrm{views}}$ | - |" in out
-    assert r"| $\mu_\mathrm{views}$ | - |" in out
-
-
-def test_users_summary_legacy_db_without_play_count_columns():
-    """Legacy DB with legacy clips schema should still render safely."""
-    eng = create_engine("sqlite:///:memory:")
-    with eng.begin() as conn:
-        conn.execute(
-            text(
-                """
-                CREATE TABLE users (
-                    id INTEGER PRIMARY KEY,
-                    following_count INTEGER,
-                    is_eligible BOOLEAN
-                )
-                """
-            )
-        )
-        conn.execute(
-            text("CREATE TABLE clips (id BIGINT PRIMARY KEY, user_id BIGINT NOT NULL)")
-        )
-        conn.execute(text("INSERT INTO users (id, is_eligible) VALUES (1, 1)"))
-        conn.execute(text("INSERT INTO clips (id, user_id) VALUES (1, 1)"))
-
-    from modules.visualization.tables.dataset_summary_users import (
-        users_summary_to_markdown,
-    )
-
-    out = users_summary_to_markdown(eng)
-
-    assert r"| $N$ | 1 |" in out
-    assert r"| $N_{\mathrm{kept}}$ | 1 (100.0%) |" in out
-    assert r"| $\tilde{x}_{\mathrm{following}}$ | - |" in out
-    assert r"| $\mu_\mathrm{following}$ | - |" in out
-    assert r"| $[\min-max]_{\mathrm{following}}$ | - |" in out
-    assert r"| $\tilde{x}_{\mathrm{views}}$ | - |" in out
-    assert r"| $\mu_\mathrm{views}$ | - |" in out

@@ -4,20 +4,10 @@ from __future__ import annotations
 
 from statistics import mean, median
 
-from sqlalchemy import func, inspect
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from core.database import Clip, User, clip_used_in_analysis
-
-
-def _table_exists(bind, table_name: str) -> bool:
-    return table_name in inspect(bind).get_table_names()
-
-
-def _table_has_columns(bind, table_name: str, *column_names: str) -> bool:
-    columns = {c["name"] for c in inspect(bind).get_columns(table_name)}
-    return all(name in columns for name in column_names)
-
 
 __all__ = ("users_summary_to_markdown",)
 
@@ -54,11 +44,6 @@ def _fmt_distribution(values: list[float]) -> tuple[str, str, str]:
 
 
 def _kept_play_count_distribution(session: Session) -> list[float]:
-    if not _table_exists(session.get_bind(), "clips") or not _table_has_columns(
-        session.get_bind(), "clips", "play_count", "is_selected", "is_downloaded"
-    ):
-        return []
-
     rows = (
         session.query(Clip.user_id, func.avg(Clip.play_count).label("avg_play_count"))
         .join(User, Clip.user_id == User.id)
@@ -101,7 +86,6 @@ def _summary_cells(session: Session) -> dict[str, str]:
         "following_count_minmax": following_distribution[2],
         "play_count_per_user_median": play_distribution[0],
         "play_count_per_user_mean": play_distribution[1],
-        "play_count_per_user_minmax": play_distribution[2],
     }
 
 
