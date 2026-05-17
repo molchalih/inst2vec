@@ -81,7 +81,7 @@ class _FakeGeminiProvider:
         return _TorchLikeArray(arr)
 
 
-def _fake_gemini_factory(settings):
+def _fake_gemini_factory(settings, _secrets=None):
     """Factory for fake Gemini provider that reads output_dim from settings."""
     output_dim = getattr(settings.embeddings, "gemini_output_dim", 3072)
     return _FakeGeminiProvider(output_dim=output_dim)
@@ -102,6 +102,7 @@ class _EmbeddingsStub:
     adaptive_default_fps: float = 1.0
     gemini_enabled: bool = True
     gemini_output_dim: int = 3072
+    inflight: int = 1
 
 
 @dataclass

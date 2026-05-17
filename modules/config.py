@@ -3,8 +3,9 @@ from __future__ import annotations
 import os
 import tomllib
 from pathlib import Path
+from typing import Literal
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 _CONFIG_PATH = Path(__file__).parent.parent / "config.toml"
 
@@ -106,6 +107,17 @@ class EmbeddingsSettings(BaseModel):
     embed_max_length: int
     adaptive_max_frames: int
     adaptive_default_fps: float
+    provider: Literal["local", "remote"] = "local"
+    inflight: int = 1
+    request_timeout_s: int = 120
+    max_retries: int = 3
+
+    @field_validator("inflight", "request_timeout_s", "max_retries")
+    @classmethod
+    def _positive(cls, v: int) -> int:
+        if v <= 0:
+            raise ValueError("must be > 0")
+        return v
 
 
 class SearchSettings(BaseModel):
@@ -135,6 +147,20 @@ class OverridesSettings(BaseModel):
     audio: str = ""
 
 
+class StorageSettings(BaseModel):
+    backend: str = "s3"
+    bucket: str = ""
+    prefix: str = "videos/"
+    signed_url_ttl_s: int = 3600
+
+    @field_validator("signed_url_ttl_s")
+    @classmethod
+    def _positive(cls, v: int) -> int:
+        if v <= 0:
+            raise ValueError("must be > 0")
+        return v
+
+
 class Settings(BaseModel):
     paths: PathsSettings
     parse: ParseSettings
@@ -147,6 +173,7 @@ class Settings(BaseModel):
     search: SearchSettings
     validation: ValidationSettings
     overrides: OverridesSettings
+    storage: StorageSettings = Field(default_factory=StorageSettings)
 
 
 class Secrets(BaseModel):
@@ -159,6 +186,11 @@ class Secrets(BaseModel):
     spotify_client_id: str
     spotify_client_secret: str
     huggingface_token: str
+    embedder_remote_url: str = ""
+    embedder_token: str = ""
+    object_store_endpoint: str = ""
+    object_store_access_key: str = ""
+    object_store_secret_key: str = ""
 
 
 def load_runtime_config() -> tuple[Settings, Secrets]:
@@ -177,6 +209,7 @@ def load_runtime_config() -> tuple[Settings, Secrets]:
         search=SearchSettings(**raw.get("search", {})),
         validation=ValidationSettings(**raw["validation"]),
         overrides=OverridesSettings(**raw["overrides"]),
+        storage=StorageSettings(**raw.get("storage", {})),
     )
 
     secrets = Secrets(
@@ -189,6 +222,11 @@ def load_runtime_config() -> tuple[Settings, Secrets]:
         spotify_client_id=os.environ["SPOTIFY_CLIENT_ID"],
         spotify_client_secret=os.environ["SPOTIFY_CLIENT_SECRET"],
         huggingface_token=os.environ["HUGGINGFACE_TOKEN"],
+        embedder_remote_url=os.environ.get("EMBEDDER_REMOTE_URL", ""),
+        embedder_token=os.environ.get("EMBEDDER_TOKEN", ""),
+        object_store_endpoint=os.environ.get("OBJECT_STORE_ENDPOINT", ""),
+        object_store_access_key=os.environ.get("OBJECT_STORE_ACCESS_KEY", ""),
+        object_store_secret_key=os.environ.get("OBJECT_STORE_SECRET_KEY", ""),
     )
 
     return settings, secrets

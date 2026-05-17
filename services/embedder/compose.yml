@@ -1,0 +1,26 @@
+# Optional local test: `docker compose -f services/embedder/compose.yml up`
+# Requires a host with an NVIDIA GPU and the nvidia-container-runtime.
+
+services:
+  embedder:
+    build:
+      context: ../..
+      dockerfile: services/embedder/Dockerfile
+    image: inst2vec-embedder:dev
+    environment:
+      EMBEDDER_TOKEN: ${EMBEDDER_TOKEN:?set EMBEDDER_TOKEN in env}
+      HUGGINGFACE_TOKEN: ${HUGGINGFACE_TOKEN:?set HUGGINGFACE_TOKEN in env}
+    ports:
+      - "8000:8000"
+    volumes:
+      - embedder-workspace:/workspace
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+volumes:
+  embedder-workspace:

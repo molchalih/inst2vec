@@ -77,7 +77,10 @@ class _FakeProvider:
         return _TorchLikeArray(arr)
 
 
-def _fake_factory(_settings):
+_FAKE_SECRETS = object()  # sentinel; never inspected by the fake factory
+
+
+def _fake_factory(_settings, _secrets):
     return _FakeProvider()
 
 
@@ -129,6 +132,7 @@ class _EmbeddingsStub:
     embed_max_length: int = 1024
     adaptive_max_frames: int = 8
     adaptive_default_fps: float = 1.0
+    inflight: int = 1
 
 
 @dataclass
@@ -204,7 +208,7 @@ def test_first_run_embeds_all_three_cases(db_session, stub_providers):
     db_session.query(Clip).filter_by(id=10).update({"music_id": 1})
     db_session.commit()
 
-    embed_clip_embeddings(settings)
+    embed_clip_embeddings(settings, _FAKE_SECRETS)
     db_session.expire_all()
 
     rows = db_session.query(ClipEmbedding).all()
@@ -219,10 +223,10 @@ def test_rerun_identical_inputs_is_noop(db_session, stub_providers):
     settings = _settings(stub_providers)
     _seed(db_session, settings, clips=[dict(id=10, user_id=1)])
 
-    embed_clip_embeddings(settings, cases=["video"])
+    embed_clip_embeddings(settings, _FAKE_SECRETS, cases=["video"])
     first = db_session.get(StageState, ("clip_embeddings", "video")).updated_at
 
-    embed_clip_embeddings(settings, cases=["video"])
+    embed_clip_embeddings(settings, _FAKE_SECRETS, cases=["video"])
     db_session.expire_all()
     second = db_session.get(StageState, ("clip_embeddings", "video")).updated_at
     assert first == second
@@ -231,10 +235,10 @@ def test_rerun_identical_inputs_is_noop(db_session, stub_providers):
 def test_new_candidate_triggers_recompute(db_session, stub_providers):
     settings = _settings(stub_providers)
     _seed(db_session, settings, clips=[dict(id=10, user_id=1)])
-    embed_clip_embeddings(settings, cases=["video"])
+    embed_clip_embeddings(settings, _FAKE_SECRETS, cases=["video"])
 
     _seed(db_session, settings, clips=[dict(id=11, user_id=1)])
-    embed_clip_embeddings(settings, cases=["video"])
+    embed_clip_embeddings(settings, _FAKE_SECRETS, cases=["video"])
     db_session.expire_all()
 
     ids = {
@@ -251,7 +255,7 @@ def test_audio_speech_change_only_invalidates_audio(db_session, stub_providers):
         settings,
         clips=[dict(id=10, user_id=1, speech_transcription="hi")],
     )
-    embed_clip_embeddings(settings)
+    embed_clip_embeddings(settings, _FAKE_SECRETS)
     db_session.expire_all()
 
     before = {
@@ -265,7 +269,7 @@ def test_audio_speech_change_only_invalidates_audio(db_session, stub_providers):
     )
     db_session.commit()
 
-    embed_clip_embeddings(settings)
+    embed_clip_embeddings(settings, _FAKE_SECRETS)
     db_session.expire_all()
 
     after = {
@@ -282,7 +286,7 @@ def test_audio_instruction_change_only_invalidates_audio(
 ):
     settings = _settings(stub_providers)
     _seed(db_session, settings, clips=[dict(id=10, user_id=1)])
-    embed_clip_embeddings(settings)
+    embed_clip_embeddings(settings, _FAKE_SECRETS)
     db_session.expire_all()
     # Compare config_hash (not updated_at): SQLite server_default/onupdate has
     # second-level precision, so two runs within the same second look identical.
@@ -295,7 +299,7 @@ def test_audio_instruction_change_only_invalidates_audio(
 
     monkeypatch.setattr(cases_mod, "AUDIO_INSTRUCTION", "NEW INSTRUCTION TEXT")
 
-    embed_clip_embeddings(settings)
+    embed_clip_embeddings(settings, _FAKE_SECRETS)
     db_session.expire_all()
     after = {
         case: db_session.get(StageState, ("clip_embeddings", case)).config_hash
@@ -308,7 +312,7 @@ def test_audio_instruction_change_only_invalidates_audio(
 
 def test_empty_candidates_writes_stage_state(db_session, stub_providers):
     settings = _settings(stub_providers)
-    embed_clip_embeddings(settings, cases=["video"])
+    embed_clip_embeddings(settings, _FAKE_SECRETS, cases=["video"])
     state = db_session.get(StageState, ("clip_embeddings", "video"))
     assert state is not None
 
@@ -339,7 +343,7 @@ def test_partial_failure_does_not_seal_stage(db_session, stub_providers, monkeyp
 
     monkeypatch.setattr(runner_mod, "_embed_with_token_fallback", flaky)
 
-    embed_clip_embeddings(settings, cases=["video"])
+    embed_clip_embeddings(settings, _FAKE_SECRETS, cases=["video"])
     db_session.expire_all()
 
     rows = {
@@ -352,7 +356,7 @@ def test_partial_failure_does_not_seal_stage(db_session, stub_providers, monkeyp
     )
 
     # Rerun: same inputs, but no stage_state → recompute → both clips embedded.
-    embed_clip_embeddings(settings, cases=["video"])
+    embed_clip_embeddings(settings, _FAKE_SECRETS, cases=["video"])
     db_session.expire_all()
     rows = {
         r.clip_id
@@ -376,7 +380,7 @@ def test_adding_new_candidate_only_embeds_the_new_one(
     """Adding a clip to the candidate set must not re-embed existing clips."""
     settings = _settings(stub_providers)
     _seed(db_session, settings, clips=[dict(id=10, user_id=1)])
-    embed_clip_embeddings(settings, cases=["video"])
+    embed_clip_embeddings(settings, _FAKE_SECRETS, cases=["video"])
 
     from modules.embeddings import runner as runner_mod
 
@@ -391,7 +395,7 @@ def test_adding_new_candidate_only_embeds_the_new_one(
 
     # Add a second clip without touching the first.
     _seed(db_session, settings, clips=[dict(id=11, user_id=1)])
-    embed_clip_embeddings(settings, cases=["video"])
+    embed_clip_embeddings(settings, _FAKE_SECRETS, cases=["video"])
     db_session.expire_all()
 
     assert call_log == [11], "only the new clip should hit the provider"
@@ -417,7 +421,7 @@ def test_caption_change_reembeds_only_changed_clip_for_sandwich(
             dict(id=11, user_id=1, caption_clean="beta"),
         ],
     )
-    embed_clip_embeddings(settings, cases=["sandwich"])
+    embed_clip_embeddings(settings, _FAKE_SECRETS, cases=["sandwich"])
 
     from modules.embeddings import runner as runner_mod
 
@@ -434,7 +438,7 @@ def test_caption_change_reembeds_only_changed_clip_for_sandwich(
     db_session.query(Clip).filter_by(id=10).update({"caption_clean": "ALPHA-EDIT"})
     db_session.commit()
 
-    embed_clip_embeddings(settings, cases=["sandwich"])
+    embed_clip_embeddings(settings, _FAKE_SECRETS, cases=["sandwich"])
     db_session.expire_all()
 
     assert call_log == [10], (
@@ -459,14 +463,14 @@ def test_deselecting_a_clip_sweeps_its_row_and_drops_it_from_aggregation(
         settings,
         clips=[dict(id=10, user_id=1), dict(id=11, user_id=1)],
     )
-    embed_clip_embeddings(settings, cases=["video"])
+    embed_clip_embeddings(settings, _FAKE_SECRETS, cases=["video"])
     db_session.expire_all()
 
     # Deselect clip 11.
     db_session.query(Clip).filter_by(id=11).update({"is_selected": False})
     db_session.commit()
 
-    embed_clip_embeddings(settings, cases=["video"])
+    embed_clip_embeddings(settings, _FAKE_SECRETS, cases=["video"])
     db_session.expire_all()
 
     row_ids = {
@@ -493,7 +497,7 @@ def test_config_change_still_wipes(db_session, stub_providers, monkeypatch):
             dict(id=11, user_id=1, speech_transcription="world"),
         ],
     )
-    embed_clip_embeddings(settings)
+    embed_clip_embeddings(settings, _FAKE_SECRETS)
     db_session.expire_all()
 
     from modules.embeddings import runner as runner_mod
@@ -510,7 +514,7 @@ def test_config_change_still_wipes(db_session, stub_providers, monkeypatch):
     # Mutate AUDIO_INSTRUCTION → only audio's config_hash changes.
     monkeypatch.setattr(cases_mod, "AUDIO_INSTRUCTION", "NEW INSTRUCTION TEXT")
 
-    embed_clip_embeddings(settings)
+    embed_clip_embeddings(settings, _FAKE_SECRETS)
     db_session.expire_all()
 
     audio_calls = sorted(cid for case, cid in call_log if case == "audio")
@@ -541,7 +545,7 @@ def test_stale_row_with_missing_video_drops_row_and_leaves_stage_stale(
         settings,
         clips=[dict(id=10, user_id=1, caption_clean="alpha")],
     )
-    embed_clip_embeddings(settings, cases=["sandwich"])
+    embed_clip_embeddings(settings, _FAKE_SECRETS, cases=["sandwich"])
     db_session.expire_all()
     assert db_session.get(StageState, ("clip_embeddings", "sandwich")) is not None
 
@@ -550,7 +554,7 @@ def test_stale_row_with_missing_video_drops_row_and_leaves_stage_stale(
     db_session.query(Clip).filter_by(id=10).update({"caption_clean": "ALPHA-EDIT"})
     db_session.commit()
 
-    embed_clip_embeddings(settings, cases=["sandwich"])
+    embed_clip_embeddings(settings, _FAKE_SECRETS, cases=["sandwich"])
     db_session.expire_all()
 
     rows = db_session.query(ClipEmbedding).filter_by(embedding_case="sandwich").all()
@@ -584,7 +588,7 @@ def test_reselecting_a_clip_after_orphan_sweep_reembeds_it(
         settings,
         clips=[dict(id=10, user_id=1), dict(id=11, user_id=1)],
     )
-    embed_clip_embeddings(settings, cases=["video"])
+    embed_clip_embeddings(settings, _FAKE_SECRETS, cases=["video"])
     db_session.expire_all()
 
     pre_hash = (
@@ -596,7 +600,7 @@ def test_reselecting_a_clip_after_orphan_sweep_reembeds_it(
 
     db_session.query(Clip).filter_by(id=11).update({"is_selected": False})
     db_session.commit()
-    embed_clip_embeddings(settings, cases=["video"])
+    embed_clip_embeddings(settings, _FAKE_SECRETS, cases=["video"])
     db_session.expire_all()
 
     # Orphan sweep removed clip 11's row when it left the candidate set.
@@ -620,7 +624,7 @@ def test_reselecting_a_clip_after_orphan_sweep_reembeds_it(
 
     db_session.query(Clip).filter_by(id=11).update({"is_selected": True})
     db_session.commit()
-    embed_clip_embeddings(settings, cases=["video"])
+    embed_clip_embeddings(settings, _FAKE_SECRETS, cases=["video"])
     db_session.expire_all()
 
     assert call_log == [11], (
@@ -642,7 +646,7 @@ def test_orphan_row_swept_even_when_stage_sealed(db_session, stub_providers):
     """
     settings = _settings(stub_providers)
     _seed(db_session, settings, clips=[dict(id=10, user_id=1)])
-    embed_clip_embeddings(settings, cases=["video"])
+    embed_clip_embeddings(settings, _FAKE_SECRETS, cases=["video"])
     db_session.expire_all()
 
     # Manually insert an orphan: clip 99 is not in the candidate set at all.
@@ -666,7 +670,7 @@ def test_orphan_row_swept_even_when_stage_sealed(db_session, stub_providers):
         for r in db_session.query(ClipEmbedding).filter_by(embedding_case="video")
     } == {10, 99}
 
-    embed_clip_embeddings(settings, cases=["video"])
+    embed_clip_embeddings(settings, _FAKE_SECRETS, cases=["video"])
     db_session.expire_all()
 
     assert {

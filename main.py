@@ -15,6 +15,7 @@ from modules.music.classify import AcrSecrets
 from modules.music.features import MusicSecrets
 from modules.parse import fetch_profiles
 from modules.speech import process_speech
+from modules.upload import upload_videos
 from modules.utils import load_usernames_from_csv
 from modules.visualization.plots import plot_clusters
 
@@ -58,6 +59,13 @@ def run_pipeline() -> None:
     """
     phase("Download")
     download_files(settings.download, settings.paths)
+
+    """
+    3.5 UPLOAD: pushes selected+downloaded videos to the object store so the
+    remote embedder GPU pod can fetch them. No-op when storage.bucket is unset.
+    """
+    phase("Upload")
+    upload_videos(settings, secrets)
 
     """
     4.1 MUSIC: fingerprints the music in videos.
@@ -112,7 +120,14 @@ def run_pipeline() -> None:
     phase("Clip Embeddings")
     embed_clip_embeddings(
         settings,
-        EmbeddingSecrets(gemini_api_key=secrets.gemini_api_key),
+        EmbeddingSecrets(
+            gemini_api_key=secrets.gemini_api_key,
+            embedder_remote_url=secrets.embedder_remote_url,
+            embedder_token=secrets.embedder_token,
+            object_store_endpoint=secrets.object_store_endpoint,
+            object_store_access_key=secrets.object_store_access_key,
+            object_store_secret_key=secrets.object_store_secret_key,
+        ),
     )
 
     """

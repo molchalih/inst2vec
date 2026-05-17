@@ -83,6 +83,7 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
         ),
         search=SimpleNamespace(),
         validation=SimpleNamespace(plateau_drop_threshold=0.05),
+        storage=SimpleNamespace(bucket=""),
         overrides=SimpleNamespace(video="", sandwich="", audio=""),
     )
 
@@ -97,6 +98,11 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
         spotify_client_secret="spotify-secret",
         huggingface_token="hf",
         gemini_api_key=None,
+        embedder_remote_url="",
+        embedder_token="",
+        object_store_endpoint="",
+        object_store_access_key="",
+        object_store_secret_key="",
     )
 
     monkeypatch.setattr(main, "load_runtime_config", lambda: (settings, secrets))
@@ -119,6 +125,9 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
     )
     monkeypatch.setattr(
         main, "download_files", lambda *args, **kwargs: calls.append("download")
+    )
+    monkeypatch.setattr(
+        main, "upload_videos", lambda *args, **kwargs: calls.append("upload")
     )
     monkeypatch.setattr(
         main, "classify_music", lambda **kwargs: calls.append("music:classify")

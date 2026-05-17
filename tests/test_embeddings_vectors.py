@@ -45,3 +45,17 @@ def test_to_bytes_accepts_torch_tensor_like():
     arr = np.array([1.0, 2.0, 3.0], dtype=np.float32)
     blob = to_bytes(FakeTensor(arr))
     assert bytes_to_array(blob).tolist() == [1.0, 2.0, 3.0]
+
+
+def test_to_bytes_accepts_plain_list():
+    """Remote provider returns JSON lists; to_bytes must accept them."""
+    blob = to_bytes([0.1, 0.2, 0.3])
+    np.testing.assert_array_almost_equal(
+        bytes_to_array(blob), np.array([0.1, 0.2, 0.3], dtype=np.float32)
+    )
+
+
+def test_to_bytes_accepts_numpy_array():
+    arr = np.array([1.0, 2.0, 3.0], dtype=np.float32)
+    blob = to_bytes(arr)
+    np.testing.assert_array_almost_equal(bytes_to_array(blob), arr)

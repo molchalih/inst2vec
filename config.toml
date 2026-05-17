@@ -79,6 +79,10 @@ exclude_disqualified_users = true
 embed_max_length = 32768
 adaptive_max_frames = 96
 adaptive_default_fps = 2.0
+provider = "local"
+inflight = 1
+request_timeout_s = 120
+max_retries = 3
 
 [search]
 umap_n_components = [15]
@@ -103,3 +107,9 @@ max_clusters = 20
 video = ""
 sandwich = ""
 audio = ""
+
+[storage]
+backend = "s3"
+bucket = ""
+prefix = "videos/"
+signed_url_ttl_s = 3600

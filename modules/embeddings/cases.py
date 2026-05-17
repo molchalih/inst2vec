@@ -17,8 +17,13 @@ import os as _os
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from modules.embeddings.providers import LocalQwenProvider, Provider
+from modules.embeddings.providers import (
+    LocalQwenProvider,
+    Provider,
+    RemoteQwenProvider,
+)
 from modules.embeddings.text import build_audio_text, build_sandwich_text
+from modules.storage import get_object_store
 
 AUDIO_INSTRUCTION = (
     "Represent the audio character of this video: its musical mood, energy, "
@@ -30,13 +35,19 @@ AUDIO_INSTRUCTION = (
 class EmbeddingSecrets:
     """Secret bag threaded through provider factories.
 
-    Local providers ignore this; remote providers (e.g. Gemini) read the
-    credentials they need. Defaulting every field to ``None`` keeps
-    ``EmbeddingSecrets()`` a valid no-arg call for tests / pipelines that
-    don't use remote providers.
+    Local providers ignore this; remote providers (Gemini, the
+    self-hosted Qwen GPU pod) read the credentials they need. Every
+    field defaults to ``""``/``None`` so ``EmbeddingSecrets()`` is a
+    valid no-arg call for tests / pipelines that don't use remote
+    providers.
     """
 
     gemini_api_key: str | None = None
+    embedder_remote_url: str = ""
+    embedder_token: str = ""
+    object_store_endpoint: str = ""
+    object_store_access_key: str = ""
+    object_store_secret_key: str = ""
 
 
 @dataclass(frozen=True)
@@ -44,7 +55,7 @@ class EmbeddingCaseSpec:
     name: str
     text_builder: Callable[[object, dict], str | None] | None
     requires_video: bool
-    provider_factory: Callable[[object], Provider]
+    provider_factory: Callable[[object, object], Provider]
     payload_builder: Callable[
         [object, str | None, str | None, float | None, int | None], dict
     ]
@@ -54,7 +65,15 @@ class EmbeddingCaseSpec:
 # ── provider factories ───────────────────────────────────────────────────────
 
 
-def _local_qwen_video_factory(settings) -> Provider:
+def _qwen_video_factory(settings, secrets) -> Provider:
+    if settings.embeddings.provider == "remote":
+        return RemoteQwenProvider(
+            url=secrets.embedder_remote_url,
+            token=secrets.embedder_token,
+            storage=get_object_store(settings, secrets),
+            timeout_s=settings.embeddings.request_timeout_s,
+            max_retries=settings.embeddings.max_retries,
+        )
     return LocalQwenProvider(
         model_path=settings.paths.model_path,
         max_length=settings.embeddings.embed_max_length,
@@ -63,7 +82,15 @@ def _local_qwen_video_factory(settings) -> Provider:
     )
 
 
-def _local_qwen_text_factory(settings) -> Provider:
+def _qwen_text_factory(settings, secrets) -> Provider:
+    if settings.embeddings.provider == "remote":
+        return RemoteQwenProvider(
+            url=secrets.embedder_remote_url,
+            token=secrets.embedder_token,
+            storage=get_object_store(settings, secrets),
+            timeout_s=settings.embeddings.request_timeout_s,
+            max_retries=settings.embeddings.max_retries,
+        )
     return LocalQwenProvider(
         model_path=settings.paths.model_path,
         max_length=settings.embeddings.embed_max_length,
@@ -97,7 +124,7 @@ VIDEO_CASE = EmbeddingCaseSpec(
     name="video",
     text_builder=None,
     requires_video=True,
-    provider_factory=_local_qwen_video_factory,
+    provider_factory=_qwen_video_factory,
     payload_builder=_video_payload,
     apply_video_token_fallback=True,
 )
@@ -106,7 +133,7 @@ SANDWICH_CASE = EmbeddingCaseSpec(
     name="sandwich",
     text_builder=build_sandwich_text,
     requires_video=True,
-    provider_factory=_local_qwen_video_factory,
+    provider_factory=_qwen_video_factory,
     payload_builder=_sandwich_payload,
     apply_video_token_fallback=True,
 )
@@ -115,13 +142,13 @@ AUDIO_CASE = EmbeddingCaseSpec(
     name="audio",
     text_builder=build_audio_text,
     requires_video=False,
-    provider_factory=_local_qwen_text_factory,
+    provider_factory=_qwen_text_factory,
     payload_builder=_audio_payload,
     apply_video_token_fallback=False,
 )
 
 
-def _gemini_mm_factory(settings) -> Provider:
+def _gemini_mm_factory(settings, _secrets=None) -> Provider:
     """Placeholder factory for Gemini multimodal provider (not yet implemented)."""
     raise NotImplementedError("Gemini multimodal provider not yet available")
 
@@ -163,7 +190,10 @@ def default_cases(settings) -> tuple[str, ...]:
     Otherwise, returns just (video, sandwich, audio).
     """
     cases = list(DEFAULT_CASES)
-    if getattr(settings.embeddings, "gemini_enabled", False) and "gemini_mm" in CASE_REGISTRY:
+    if (
+        getattr(settings.embeddings, "gemini_enabled", False)
+        and "gemini_mm" in CASE_REGISTRY
+    ):
         cases.append("gemini_mm")
     return tuple(cases)
 
@@ -187,7 +217,7 @@ def case_config_identity(spec: EmbeddingCaseSpec, settings) -> str:
     """
     parts = [
         f"case={spec.name}",
-        f"provider={getattr(spec.provider_factory, '__name__', repr(spec.provider_factory))}",
+        f"provider={_legacy_provider_name(spec.provider_factory)}",
         f"model={_os.path.basename(settings.paths.model_path)}",
         f"max_len={settings.embeddings.embed_max_length}",
         f"max_frames={settings.embeddings.adaptive_max_frames}",
@@ -202,3 +232,18 @@ def case_config_identity(spec: EmbeddingCaseSpec, settings) -> str:
         output_dim = getattr(settings.embeddings, "gemini_output_dim", 3072)
         parts.append(f"output_dim={output_dim}")
     return "|".join(parts)
+
+
+def _legacy_provider_name(factory) -> str:
+    """Map the new (post-remote-switch) factory names back to their
+    pre-switch identities so existing clip embeddings stay valid.
+    The names changed from `_local_qwen_*_factory` to `_qwen_*_factory`
+    when the remote path was added, but the local-provider config that
+    each factory produces is bit-for-bit identical, so the config
+    fingerprint must not change.
+    """
+    name = getattr(factory, "__name__", repr(factory))
+    return {
+        "_qwen_video_factory": "_local_qwen_video_factory",
+        "_qwen_text_factory": "_local_qwen_text_factory",
+    }.get(name, name)
