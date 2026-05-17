@@ -3,17 +3,17 @@ from modules.clustering import assign_clusters, run_cluster_search, validate_clu
 from modules.config import load_runtime_config
 from modules.console import phase, startup
 from modules.database import init_db
-from modules.download import download_files, extract_audio_stage
+from modules.download import extract_audio_stage
 from modules.embeddings import (
     EmbeddingSecrets,
     embed_clip_embeddings,
     embed_user_embeddings,
 )
 from modules.filter import process_dataset
+from modules.ingest import download_files, fetch_profiles, load_usernames_from_csv
 from modules.music import classify_music, extract_music_features
 from modules.music.classify import AcrSecrets
 from modules.music.features import MusicSecrets
-from modules.ingest import fetch_profiles, load_usernames_from_csv
 from modules.speech import process_speech
 from modules.upload import upload_videos
 from modules.visualization.plots import plot_clusters

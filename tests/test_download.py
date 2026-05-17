@@ -10,7 +10,7 @@ from unittest.mock import MagicMock
 import httpx
 import pytest
 
-from modules import download as dl_mod
+from modules.ingest import download as dl_mod
 from modules.config import DownloadSettings, PathsSettings
 from modules.database import Clip, User, get_session, init_db
 
