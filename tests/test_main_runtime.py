@@ -68,6 +68,7 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
             vad_min_silence_ms=100,
             vad_speech_pad_ms=150,
             vad_min_total_speech_s=0.5,
+            vad_ffmpeg_timeout_s=60,
         ),
         captions=SimpleNamespace(
             commit_every=50,

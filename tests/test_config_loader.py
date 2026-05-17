@@ -77,6 +77,7 @@ vad_min_speech_ms = 250
 vad_min_silence_ms = 100
 vad_speech_pad_ms = 150
 vad_min_total_speech_s = 0.5
+vad_ffmpeg_timeout_s = 60
 
 [captions]
 commit_every = 50
@@ -222,6 +223,7 @@ def test_speech_settings_has_vad_fields(tmp_path):
     assert settings.speech.vad_min_silence_ms == 100
     assert settings.speech.vad_speech_pad_ms == 150
     assert settings.speech.vad_min_total_speech_s == 0.5
+    assert settings.speech.vad_ffmpeg_timeout_s == 60
 
 
 def test_secrets_optional_when_gemini_disabled(tmp_path):

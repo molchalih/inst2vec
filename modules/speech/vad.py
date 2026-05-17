@@ -30,8 +30,6 @@ import silero_vad as _silero  # type: ignore[import-not-found]
 
 from core.ffmpeg import run_ffmpeg as _run_ffmpeg
 
-_FFMPEG_TIMEOUT_SECONDS = 60
-
 
 @dataclass(frozen=True)
 class VadConfig:
@@ -42,6 +40,7 @@ class VadConfig:
     min_silence_ms: int = 100
     speech_pad_ms: int = 150
     min_total_speech_s: float = 0.5
+    ffmpeg_timeout_s: int = 60
 
 
 @dataclass(frozen=True)
@@ -88,7 +87,7 @@ def prepare_for_whisper(
         return VadResult(is_speech_detected=True, speech_audio_path=media_path)
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    samples = _load_mono_16k(media_path, config.sampling_rate)
+    samples = _load_mono_16k(media_path, config.sampling_rate, config.ffmpeg_timeout_s)
 
     timestamps = _silero.get_speech_timestamps(
         _to_tensor(samples),
@@ -128,7 +127,9 @@ def prepare_for_whisper(
     )
 
 
-def _load_mono_16k(media_path: Path, sampling_rate: int) -> np.ndarray:
+def _load_mono_16k(
+    media_path: Path, sampling_rate: int, ffmpeg_timeout_s: int
+) -> np.ndarray:
     """ffmpeg -> int16 PCM WAV -> float32 numpy array in [-1, 1]."""
     tmp = media_path.with_suffix(media_path.suffix + ".vad.wav")
     cmd = [
@@ -145,7 +146,7 @@ def _load_mono_16k(media_path: Path, sampling_rate: int) -> np.ndarray:
         "pcm_s16le",
         str(tmp),
     ]
-    if not _run_ffmpeg(cmd, timeout=_FFMPEG_TIMEOUT_SECONDS):
+    if not _run_ffmpeg(cmd, timeout=ffmpeg_timeout_s):
         raise RuntimeError(f"ffmpeg failed to normalize {media_path}")
     try:
         with wave.open(str(tmp), "rb") as wf:

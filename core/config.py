@@ -96,6 +96,7 @@ class SpeechSettings(BaseModel):
     vad_min_silence_ms: int
     vad_speech_pad_ms: int
     vad_min_total_speech_s: float
+    vad_ffmpeg_timeout_s: int
 
 
 class CaptionsSettings(BaseModel):

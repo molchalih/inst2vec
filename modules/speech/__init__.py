@@ -91,6 +91,7 @@ def process_speech(
             min_silence_ms=cfg.vad_min_silence_ms,
             speech_pad_ms=cfg.vad_speech_pad_ms,
             min_total_speech_s=cfg.vad_min_total_speech_s,
+            ffmpeg_timeout_s=cfg.vad_ffmpeg_timeout_s,
         ),
     )
     translate_speech(

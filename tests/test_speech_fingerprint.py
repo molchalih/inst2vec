@@ -36,6 +36,7 @@ class _SpeechCfg:
     vad_min_silence_ms: int = 250
     vad_speech_pad_ms: int = 30
     vad_min_total_speech_s: float = 0.5
+    vad_ffmpeg_timeout_s: int = 60
 
 
 @pytest.fixture

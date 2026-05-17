@@ -67,6 +67,7 @@ vad_min_speech_ms = 250
 vad_min_silence_ms = 100
 vad_speech_pad_ms = 150
 vad_min_total_speech_s = 0.5
+vad_ffmpeg_timeout_s = 60
 
 [captions]
 commit_every = 50
