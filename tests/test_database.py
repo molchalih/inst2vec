@@ -294,3 +294,14 @@ def test_clip_needs_speech_translation_filter():
             c.id for c in s.query(Clip).filter(*clip_needs_speech_translation()).all()
         ]
         assert ids == [10]
+
+
+def test_user_embedding_has_nullable_source_hash():
+    from sqlalchemy import inspect
+
+    from modules.database import UserEmbedding, get_engine
+
+    cols = {c["name"]: c for c in inspect(get_engine()).get_columns("user_embeddings")}
+    assert "source_hash" in cols, "UserEmbedding must expose source_hash"
+    assert cols["source_hash"]["nullable"] is True
+    assert UserEmbedding.source_hash.property.columns[0].nullable is True

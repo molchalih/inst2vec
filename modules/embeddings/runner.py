@@ -122,13 +122,6 @@ def _wipe_case(session, case: str) -> None:
     session.commit()
 
 
-def _diff_targets(
-    per_clip: dict[int, str], embedded: dict[int, str | None]
-) -> set[int]:
-    """Clip ids that need (re-)embedding: missing rows or stored hash != desired."""
-    return {cid for cid, want in per_clip.items() if embedded.get(cid) != want}
-
-
 def _run_case(settings, secrets, spec: EmbeddingCaseSpec) -> None:
     log_tag = f"embed:{spec.name}"
     Base.metadata.create_all(get_engine())
@@ -137,6 +130,20 @@ def _run_case(settings, secrets, spec: EmbeddingCaseSpec) -> None:
         candidates = get_clip_embedding_candidates(
             session, settings.embeddings.exclude_disqualified_users
         )
+        candidate_ids = {c.id for c in candidates}
+
+        # Sweep orphan ClipEmbedding rows for this case — clips no longer in
+        # the candidate set must not contaminate downstream aggregation. Runs
+        # unconditionally so even otherwise-sealed cases reclaim orphans.
+        orphan_q = session.query(ClipEmbedding).filter(
+            ClipEmbedding.embedding_case == spec.name,
+        )
+        if candidate_ids:
+            orphan_q = orphan_q.filter(~ClipEmbedding.clip_id.in_(candidate_ids))
+        deleted = orphan_q.delete(synchronize_session=False)
+        if deleted:
+            session.commit()
+            log(log_tag, f"swept {deleted} orphan row(s)")
 
         current, per_clip = _compute_fingerprint_and_per_clip(
             session, spec, settings, candidates
@@ -152,7 +159,7 @@ def _run_case(settings, secrets, spec: EmbeddingCaseSpec) -> None:
             _wipe_case(session, spec.name)
 
         embedded = get_embedded_source_hashes(session, spec.name)
-        target_ids = _diff_targets(per_clip, embedded)
+        target_ids = fp.row_diff(per_clip, embedded)
         log(log_tag, f"{len(target_ids)} clip(s) to (re-)embed")
 
         _embed_targets(

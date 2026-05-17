@@ -10,11 +10,24 @@ from pathlib import Path
 
 from acrcloud.recognizer import ACRCloudRecognizer
 
+from modules import fingerprint as fp
 from modules.config import MusicSettings, PathsSettings
 from modules.console import log, progress
-from modules.database import Clip, Music, clip_used_in_analysis, get_session
+from modules.database import (
+    Clip,
+    Music,
+    StageState,
+    clip_used_in_analysis,
+    get_session,
+)
 from modules.music.clients import TransientError
-from modules.music.state import SCOPE_CLASSIFY
+from modules.music.state import (
+    SCOPE_CLASSIFY,
+    SCOPE_MUSIC,
+    STAGE_MUSIC_CLASSIFY,
+    classify_config_payload,
+    reset_music_classify,
+)
 
 
 @dataclass(frozen=True)
@@ -100,6 +113,21 @@ def classify_music(
     session = get_session()
     video_dir_path = Path(paths.video_dir)
 
+    current = fp.Fingerprint(
+        data=fp.hash_text(""),
+        config=fp.hash_text(classify_config_payload(music)),
+        dependency=fp.hash_text(""),
+    )
+    stored = session.get(StageState, (STAGE_MUSIC_CLASSIFY, SCOPE_MUSIC))
+    if stored is not None and stored.config_hash != current.config:
+        diff = fp.describe_diff(session, STAGE_MUSIC_CLASSIFY, SCOPE_MUSIC, current)
+        log(SCOPE_CLASSIFY, f"config drift ({diff}) — resetting music classify outputs")
+        reset_music_classify(session)
+    elif stored is None:
+        log(SCOPE_CLASSIFY, "no prior state — sealing on completion")
+    else:
+        log(SCOPE_CLASSIFY, "fingerprint match — skipping reset")
+
     clips = (
         session.query(Clip)
         .filter(
@@ -110,6 +138,8 @@ def classify_music(
         .all()
     )
     if not clips:
+        fp.mark_complete(session, STAGE_MUSIC_CLASSIFY, SCOPE_MUSIC, current)
+        session.commit()
         session.close()
         return
 
@@ -167,6 +197,8 @@ def classify_music(
             if i % music.commit_every == 0:
                 session.commit()
 
+    session.commit()
+    fp.mark_complete(session, STAGE_MUSIC_CLASSIFY, SCOPE_MUSIC, current)
     session.commit()
     session.close()
     parts = [f"{matched} matched", f"{no_match} no match"]

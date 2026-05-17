@@ -213,6 +213,7 @@ class UserEmbedding(Base):
     )
     embedding_case: Mapped[str] = mapped_column(String, primary_key=True)
     embedding: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    source_hash: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[DateTime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

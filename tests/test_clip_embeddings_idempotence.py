@@ -42,7 +42,7 @@ from modules.database import (
     get_session,
 )
 from modules.embeddings import cases as cases_mod
-from modules.embeddings.runner import _diff_targets, embed_clip_embeddings
+from modules.embeddings.runner import embed_clip_embeddings
 
 # ── fake provider ────────────────────────────────────────────────────────────
 
@@ -374,22 +374,6 @@ def test_partial_failure_does_not_seal_stage(db_session, stub_providers, monkeyp
     assert db_session.get(StageState, ("clip_embeddings", "video")) is not None
 
 
-def test_diff_targets_picks_missing_and_changed():
-    per_clip = {10: "h10", 11: "h11", 12: "h12"}
-    embedded = {10: "h10", 11: "old", 13: "h13"}  # 12 missing, 11 stale, 13 orphan
-    assert _diff_targets(per_clip, embedded) == {11, 12}
-
-
-def test_diff_targets_treats_none_as_stale():
-    per_clip = {10: "h10"}
-    embedded = {10: None}
-    assert _diff_targets(per_clip, embedded) == {10}
-
-
-def test_diff_targets_empty_per_clip_returns_empty():
-    assert _diff_targets({}, {10: "h10"}) == set()
-
-
 def test_adding_new_candidate_only_embeds_the_new_one(
     db_session, stub_providers, monkeypatch
 ):
@@ -468,7 +452,7 @@ def test_caption_change_reembeds_only_changed_clip_for_sandwich(
     assert all(v is not None for v in rows.values())
 
 
-def test_deselecting_a_clip_keeps_its_row_but_drops_it_from_aggregation(
+def test_deselecting_a_clip_sweeps_its_row_and_drops_it_from_aggregation(
     db_session, stub_providers
 ):
     from modules.embeddings.state import get_clip_embedding_rows_for_user_aggregation
@@ -493,13 +477,12 @@ def test_deselecting_a_clip_keeps_its_row_but_drops_it_from_aggregation(
         r.clip_id
         for r in db_session.query(ClipEmbedding).filter_by(embedding_case="video")
     }
-    assert row_ids == {10, 11}, "orphan rows must persist"
+    assert row_ids == {10}, "deselected clip's row must be swept as an orphan"
 
     agg = get_clip_embedding_rows_for_user_aggregation(
         db_session, "video", exclude_disqualified_users=False
     )
-    # The orphan must not contribute to aggregation. User 1 still has clip 10,
-    # so exactly one row comes back.
+    # User 1 still has clip 10, so exactly one row comes back.
     assert len(agg) == 1
 
 
@@ -596,7 +579,7 @@ def test_stale_row_with_missing_video_drops_row_and_leaves_stage_stale(
     )
 
 
-def test_reselecting_a_clip_with_unchanged_upstream_skips_reembed(
+def test_reselecting_a_clip_after_orphan_sweep_reembeds_it(
     db_session, stub_providers, monkeypatch
 ):
     settings = _settings(stub_providers)
@@ -620,6 +603,14 @@ def test_reselecting_a_clip_with_unchanged_upstream_skips_reembed(
     embed_clip_embeddings(settings, _FAKE_SECRETS, cases=["video"])
     db_session.expire_all()
 
+    # Orphan sweep removed clip 11's row when it left the candidate set.
+    assert (
+        db_session.query(ClipEmbedding)
+        .filter_by(clip_id=11, embedding_case="video")
+        .first()
+        is None
+    )
+
     from modules.embeddings import runner as runner_mod
 
     original = runner_mod._embed_with_token_fallback
@@ -636,8 +627,8 @@ def test_reselecting_a_clip_with_unchanged_upstream_skips_reembed(
     embed_clip_embeddings(settings, _FAKE_SECRETS, cases=["video"])
     db_session.expire_all()
 
-    assert call_log == [], (
-        "reselecting a clip with unchanged upstream must not re-embed"
+    assert call_log == [11], (
+        "reselected clip must be re-embedded after the orphan sweep removed it"
     )
     post_hash = (
         db_session.query(ClipEmbedding.source_hash)
@@ -645,5 +636,44 @@ def test_reselecting_a_clip_with_unchanged_upstream_skips_reembed(
         .scalar()
     )
     assert post_hash == pre_hash, (
-        "stored source_hash must be preserved across the cycle"
+        "the regenerated source_hash for unchanged upstream must match the original"
     )
+
+
+def test_orphan_row_swept_even_when_stage_sealed(db_session, stub_providers):
+    """A ClipEmbedding row for a clip no longer in the candidate set must be
+    deleted on the next runner pass, even if the stage fingerprint matches.
+    """
+    settings = _settings(stub_providers)
+    _seed(db_session, settings, clips=[dict(id=10, user_id=1)])
+    embed_clip_embeddings(settings, _FAKE_SECRETS, cases=["video"])
+    db_session.expire_all()
+
+    # Manually insert an orphan: clip 99 is not in the candidate set at all.
+    db_session.merge(
+        ClipEmbedding(
+            clip_id=10,  # use existing FK target via merge on existing row
+            embedding_case="video",
+            embedding=b"\x00" * 4,
+        )
+    )
+    # Fabricate a true orphan: insert a clip row not in the candidate set
+    # (is_selected=False) so the orphan ClipEmbedding has a valid FK.
+    db_session.merge(Clip(id=99, user_id=1, is_selected=False, is_downloaded=True))
+    db_session.merge(
+        ClipEmbedding(clip_id=99, embedding_case="video", embedding=b"\x00" * 4)
+    )
+    db_session.commit()
+
+    assert {
+        r.clip_id
+        for r in db_session.query(ClipEmbedding).filter_by(embedding_case="video")
+    } == {10, 99}
+
+    embed_clip_embeddings(settings, _FAKE_SECRETS, cases=["video"])
+    db_session.expire_all()
+
+    assert {
+        r.clip_id
+        for r in db_session.query(ClipEmbedding).filter_by(embedding_case="video")
+    } == {10}, "orphan row must be swept on the next run, even when stage is sealed"
