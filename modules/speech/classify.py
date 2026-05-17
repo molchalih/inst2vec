@@ -173,9 +173,15 @@ def classify_speech(
 
 
 def clean_speech() -> None:
-    """Reset is_speech_detected=False for clips whose translation matches a
+    """Null the seven speech columns for clips whose translation matches a
     hallucination marker — a post-hoc safety net for cases the classifier
-    let through."""
+    let through.
+
+    Nulls all seven columns (matching reset_speech_outputs) so
+    downstream text builders see the row as empty and the embedding
+    dependency hash invalidates any sealed poisoned embeddings on the
+    next run.
+    """
     session = get_session()
     filter_conditions = [
         Clip.speech_translation.contains(marker) for marker in HALLUCINATION_MARKERS
@@ -195,11 +201,17 @@ def clean_speech() -> None:
         return
 
     for clip in clips:
+        original = (clip.speech_translation or "")[:60]
         clip.is_speech_detected = False
+        clip.speech_transcription = None
+        clip.speech_language = None
+        clip.speech_translation = None
+        clip.speech_confidence = None
+        clip.speech_avg_logprob = None
+        clip.speech_compression_ratio = None
         log(
             SCOPE_CLEAN,
-            f"{clip.id}: marked is_speech_detected=False "
-            f'(translation: "{(clip.speech_translation or "")[:60]}")',
+            f'{clip.id}: cleared poisoned speech columns (was: "{original}")',
         )
 
     session.commit()

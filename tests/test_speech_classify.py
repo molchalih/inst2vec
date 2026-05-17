@@ -267,6 +267,34 @@ def test_clean_speech_resets_marker_translations(db_session):
 
     clip = s.query(Clip).filter_by(id=10).one()
     assert clip.is_speech_detected is False
+    assert clip.speech_translation is None
+
+
+def test_clean_speech_nulls_poisoned_text(db_session):
+    """clean_speech must NULL the seven speech columns when a
+    hallucination marker is detected, so downstream text builders and
+    the dependency hash see the poisoned row as empty."""
+    s, _ = db_session
+    clip = s.query(Clip).filter_by(id=10).one()
+    clip.is_speech_detected = True
+    clip.speech_transcription = "real text DimaTorzok"
+    clip.speech_language = "en"
+    clip.speech_translation = "real text DimaTorzok"
+    clip.speech_confidence = 0.9
+    clip.speech_avg_logprob = -0.3
+    clip.speech_compression_ratio = 1.4
+    s.commit()
+
+    clean_speech()
+
+    clip = s.query(Clip).filter_by(id=10).one()
+    assert clip.is_speech_detected is False
+    assert clip.speech_transcription is None
+    assert clip.speech_language is None
+    assert clip.speech_translation is None
+    assert clip.speech_confidence is None
+    assert clip.speech_avg_logprob is None
+    assert clip.speech_compression_ratio is None
 
 
 def _vad_disabled():
