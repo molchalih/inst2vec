@@ -72,8 +72,7 @@ def run_pipeline() -> None:
 
     """
     3.6 AUDIO EXTRACTION: extracts and fingerprints mp3 audio from downloaded
-    videos for the Gemini multimodal embedding case. No-op when
-    embeddings.gemini_enabled is false.
+    videos. Always runs; idempotent via fingerprint seal + per-file mtime.
     """
     phase("Audio extraction")
     extract_audio_stage(settings)
