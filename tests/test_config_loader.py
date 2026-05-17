@@ -222,3 +222,50 @@ def test_speech_settings_has_vad_fields(tmp_path):
     assert settings.speech.vad_min_silence_ms == 100
     assert settings.speech.vad_speech_pad_ms == 150
     assert settings.speech.vad_min_total_speech_s == 0.5
+
+
+def test_secrets_optional_when_gemini_disabled(tmp_path):
+    # Default MINIMAL_TOML has no gemini_enabled key — EmbeddingsSettings
+    # defaults it to False. GEMINI_API_KEY is intentionally absent from
+    # FAKE_SECRETS, so load must succeed and gemini_api_key must be None.
+    settings, secrets = _load_with_fake_toml(tmp_path)
+    assert settings.embeddings.gemini_enabled is False
+    assert secrets.gemini_api_key is None
+
+
+def test_secrets_required_when_gemini_enabled(tmp_path):
+    # Flip gemini_enabled on via TOML override and confirm absence of the
+    # env var produces a loud RuntimeError mentioning GEMINI_API_KEY.
+    from modules import config as config_mod
+
+    toml_with_gemini = MINIMAL_TOML.replace(
+        b"[embeddings]\nexclude_disqualified_users = true",
+        b"[embeddings]\nexclude_disqualified_users = true\ngemini_enabled = true",
+    )
+    toml_file = tmp_path / "config.toml"
+    toml_file.write_bytes(toml_with_gemini)
+    with (
+        patch.object(config_mod, "_CONFIG_PATH", toml_file),
+        patch.dict(os.environ, FAKE_SECRETS, clear=True),
+        pytest.raises(RuntimeError, match="GEMINI_API_KEY"),
+    ):
+        config_mod.load_runtime_config()
+
+
+def test_secrets_present_when_gemini_enabled_and_key_set(tmp_path):
+    from modules import config as config_mod
+
+    toml_with_gemini = MINIMAL_TOML.replace(
+        b"[embeddings]\nexclude_disqualified_users = true",
+        b"[embeddings]\nexclude_disqualified_users = true\ngemini_enabled = true",
+    )
+    toml_file = tmp_path / "config.toml"
+    toml_file.write_bytes(toml_with_gemini)
+    env = {**FAKE_SECRETS, "GEMINI_API_KEY": "gem-key"}
+    with (
+        patch.object(config_mod, "_CONFIG_PATH", toml_file),
+        patch.dict(os.environ, env, clear=True),
+    ):
+        settings, secrets = config_mod.load_runtime_config()
+    assert settings.embeddings.gemini_enabled is True
+    assert secrets.gemini_api_key == "gem-key"
