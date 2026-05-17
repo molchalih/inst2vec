@@ -72,7 +72,9 @@ def test_fetch_profiles_reads_username_from_identity_db(monkeypatch):
             return {"response": {"items": []}}
 
     monkeypatch.setattr("modules.ingest.profiles.Client", lambda token: FakeClient())
-    monkeypatch.setattr("modules.ingest.profiles.get_session", lambda: Session(main_eng))
+    monkeypatch.setattr(
+        "modules.ingest.profiles.get_session", lambda: Session(main_eng)
+    )
     monkeypatch.setattr("modules.ingest.profiles.time.sleep", lambda _: None)
 
     from modules.ingest.profiles import fetch_profiles
@@ -150,7 +152,9 @@ def test_fetch_profiles_stores_sequential_clip_ids(monkeypatch):
             }
 
     monkeypatch.setattr("modules.ingest.profiles.Client", lambda token: FakeClient())
-    monkeypatch.setattr("modules.ingest.profiles.get_session", lambda: Session(main_eng))
+    monkeypatch.setattr(
+        "modules.ingest.profiles.get_session", lambda: Session(main_eng)
+    )
     monkeypatch.setattr("modules.ingest.profiles.time.sleep", lambda _: None)
 
     from modules.ingest.profiles import fetch_profiles
@@ -207,7 +211,9 @@ def test_fetch_profiles_retries_then_succeeds_third(monkeypatch):
             return {"response": {"items": []}}
 
     monkeypatch.setattr("modules.ingest.profiles.Client", lambda token: FakeClient())
-    monkeypatch.setattr("modules.ingest.profiles.get_session", lambda: Session(main_eng))
+    monkeypatch.setattr(
+        "modules.ingest.profiles.get_session", lambda: Session(main_eng)
+    )
     monkeypatch.setattr("modules.ingest.profiles.time.sleep", lambda _: None)
 
     from modules.ingest.profiles import fetch_profiles
@@ -245,7 +251,9 @@ def test_fetch_profiles_all_attempts_fail(monkeypatch):
             return {"response": {"items": []}}
 
     monkeypatch.setattr("modules.ingest.profiles.Client", lambda token: FakeClient())
-    monkeypatch.setattr("modules.ingest.profiles.get_session", lambda: Session(main_eng))
+    monkeypatch.setattr(
+        "modules.ingest.profiles.get_session", lambda: Session(main_eng)
+    )
     monkeypatch.setattr("modules.ingest.profiles.time.sleep", lambda _: None)
 
     from modules.ingest.profiles import fetch_profiles

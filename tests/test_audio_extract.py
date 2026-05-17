@@ -105,7 +105,9 @@ class _SettingsStub:
     download: _DownloadStub
 
 
-def _make_settings(*, audio_dir, enabled: bool, video_dir, concurrency: int = 2) -> _SettingsStub:
+def _make_settings(
+    *, audio_dir, enabled: bool, video_dir, concurrency: int = 2
+) -> _SettingsStub:
     return _SettingsStub(
         paths=_PathsStub(video_dir=str(video_dir), audio_dir=str(audio_dir)),
         embeddings=_EmbeddingsStub(gemini_enabled=enabled),
@@ -193,7 +195,9 @@ def test_extract_audio_stage_dispatches_through_thread_pool(
         audio_dir=audio_dir, enabled=True, video_dir=vid_dir, concurrency=4
     )
 
-    with patch.object(audio_mod, "ThreadPoolExecutor", wraps=audio_mod.ThreadPoolExecutor) as TPE:
+    with patch.object(
+        audio_mod, "ThreadPoolExecutor", wraps=audio_mod.ThreadPoolExecutor
+    ) as TPE:
         extract_audio_stage(settings)
 
     TPE.assert_called_once_with(max_workers=4)

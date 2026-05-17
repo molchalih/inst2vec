@@ -10,9 +10,9 @@ from unittest.mock import MagicMock
 import httpx
 import pytest
 
-from modules.ingest import download as dl_mod
 from modules.config import DownloadSettings, PathsSettings
 from modules.database import Clip, User, get_session, init_db
+from modules.ingest import download as dl_mod
 
 
 def _dl(tmp_path, max_attempts=1, retry_delay=0, retry_jitter=0, concurrency=2):
