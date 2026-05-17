@@ -87,13 +87,6 @@ def _wipe_case(session, case: str) -> None:
     session.commit()
 
 
-def _diff_targets(
-    per_clip: dict[int, str], embedded: dict[int, str | None]
-) -> set[int]:
-    """Clip ids that need (re-)embedding: missing rows or stored hash != desired."""
-    return {cid for cid, want in per_clip.items() if embedded.get(cid) != want}
-
-
 def _run_case(settings, spec: EmbeddingCaseSpec) -> None:
     log_tag = f"embed:{spec.name}"
     Base.metadata.create_all(get_engine())
@@ -131,7 +124,7 @@ def _run_case(settings, spec: EmbeddingCaseSpec) -> None:
             _wipe_case(session, spec.name)
 
         embedded = get_embedded_source_hashes(session, spec.name)
-        target_ids = _diff_targets(per_clip, embedded)
+        target_ids = fp.row_diff(per_clip, embedded)
         log(log_tag, f"{len(target_ids)} clip(s) to (re-)embed")
 
         _embed_targets(
