@@ -17,6 +17,8 @@ Per case the stage:
 from __future__ import annotations
 
 import os
+from collections.abc import Callable, Iterator
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from modules import fingerprint as fp
 from modules.console import log, progress
@@ -48,6 +50,39 @@ from modules.embeddings.state import (
 from modules.embeddings.vectors import to_bytes
 
 STAGE = "clip_embeddings"
+
+
+def _dispatch_embedding_jobs(
+    jobs: list[dict],
+    embed_fn: Callable[[dict], tuple[int, bytes | None]],
+    inflight: int,
+) -> Iterator[tuple[int, bytes | None]]:
+    """Run ``embed_fn`` over ``jobs`` with bounded concurrency.
+
+    Yields (clip_id, blob_or_none) as each future resolves, in completion
+    order (not submission order). When ``inflight == 1`` behavior is
+    sequential and order-preserving relative to ``jobs``.
+
+    Exceptions inside ``embed_fn`` are caught and converted to
+    ``(clip_id, None)`` so the runner's main-thread loop can advance
+    progress and account for failures uniformly.
+    """
+    if inflight <= 1:
+        for job in jobs:
+            try:
+                yield embed_fn(job)
+            except Exception:
+                yield (job.get("clip_id", -1), None)
+        return
+
+    with ThreadPoolExecutor(max_workers=inflight) as pool:
+        futures = {pool.submit(embed_fn, job): job for job in jobs}
+        for fut in as_completed(futures):
+            job = futures[fut]
+            try:
+                yield fut.result()
+            except Exception:
+                yield (job.get("clip_id", -1), None)
 
 
 def embed_clip_embeddings(settings, secrets, cases: list[str] | None = None) -> None:
@@ -232,36 +267,62 @@ def _embed_targets(
     log(log_tag, f"{len(jobs)} clips to embed")
 
     provider = spec.provider_factory(settings, secrets)
-    failures = 0
-    with progress(len(jobs), f"Embedding {spec.name}") as advance:
-        for clip, text in jobs:
-            if spec.requires_video:
-                path = _video_path(clip.id, video_dir)
-                fps_, max_frames, _ = adaptive_sampling(
-                    path,
-                    settings.embeddings.adaptive_max_frames,
-                    settings.embeddings.adaptive_default_fps,
-                )
-            else:
-                path, fps_, max_frames = None, None, None
 
-            blob = _embed_with_token_fallback(
-                provider, spec, clip, text, path, fps_, max_frames
+    # Pre-compute per-clip sampling on the main thread (ffprobe subprocess
+    # calls are cheap and keep the worker thread closure small).
+    job_specs: list[dict] = []
+    clip_by_id: dict[int, Clip] = {}
+    for clip, text in jobs:
+        clip_by_id[clip.id] = clip
+        if spec.requires_video:
+            path = _video_path(clip.id, video_dir)
+            fps_, max_frames, _ = adaptive_sampling(
+                path,
+                settings.embeddings.adaptive_max_frames,
+                settings.embeddings.adaptive_default_fps,
             )
+        else:
+            path, fps_, max_frames = None, None, None
+        job_specs.append(
+            {
+                "clip_id": clip.id,
+                "text": text,
+                "path": path,
+                "fps": fps_,
+                "max_frames": max_frames,
+            }
+        )
+
+    def _embed_job(job: dict) -> tuple[int, bytes | None]:
+        clip = clip_by_id[job["clip_id"]]
+        blob = _embed_with_token_fallback(
+            provider,
+            spec,
+            clip,
+            job["text"],
+            job["path"],
+            job["fps"],
+            job["max_frames"],
+        )
+        return clip.id, blob
+
+    failures = 0
+    inflight = settings.embeddings.inflight
+    with progress(len(jobs), f"Embedding {spec.name}") as advance:
+        for clip_id, blob in _dispatch_embedding_jobs(job_specs, _embed_job, inflight):
             if blob is None:
                 failures += 1
-                advance(detail=f"✗ {clip.id}")
+                advance(detail=f"✗ {clip_id}")
                 continue
-
             row = ClipEmbedding(
-                clip_id=clip.id,
+                clip_id=clip_id,
                 embedding_case=spec.name,
                 embedding=blob,
-                source_hash=per_clip[clip.id],
+                source_hash=per_clip[clip_id],
             )
-            session.merge(row)
+            session.merge(row)  # main thread, single session
             session.commit()
-            advance(detail=f"✓ {clip.id}")
+            advance(detail=f"✓ {clip_id}")
 
     if failures or stale_skipped:
         log(

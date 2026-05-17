@@ -119,6 +119,7 @@ class _EmbeddingsStub:
     embed_max_length: int = 1024
     adaptive_max_frames: int = 8
     adaptive_default_fps: float = 1.0
+    inflight: int = 1
 
 
 @dataclass
