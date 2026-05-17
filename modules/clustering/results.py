@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 from sqlalchemy.orm import Session
 
-from modules.database import ClusterRun
+from core.database import ClusterRun
 
 DEFAULT_CASES: tuple[str, ...] = ("audio", "video", "sandwich")
 

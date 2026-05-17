@@ -1,4 +1,4 @@
-from modules.database import Clip
+from core.database import Clip
 
 
 def test_clip_has_is_uploaded_column():

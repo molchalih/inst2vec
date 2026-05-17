@@ -15,7 +15,7 @@ import boto3
 from botocore.exceptions import ClientError
 
 if TYPE_CHECKING:
-    from modules.config import StorageSettings
+    from core.config import StorageSettings
 
 
 @dataclass

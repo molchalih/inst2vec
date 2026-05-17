@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from modules.database import (
+from core.database import (
     Base,
     Clip,
     StageState,
@@ -80,7 +80,7 @@ def test_reset_speech_outputs_nulls_the_four_fields(db_session):
 def test_reset_speech_outputs_also_clears_ineligible_clips(db_session):
     """Stale speech outputs on a currently-ineligible clip must be cleared
     too so re-selection in a later run does not skip re-processing."""
-    from modules.database import User
+    from core.database import User
 
     db_session.merge(User(id=2, is_selected=True, is_eligible=True))
     db_session.merge(

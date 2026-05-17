@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
-from modules.database import Clip, User, UserStats
+from core.database import Clip, User, UserStats
 
 STAGE = "filter"
 SCOPE = "all"

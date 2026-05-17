@@ -6,8 +6,8 @@ import statistics
 import numpy as np
 from sqlalchemy.orm import Session
 
-from modules.config import FilterSettings
-from modules.database import Clip, User
+from core.config import FilterSettings
+from core.database import Clip, User
 from modules.filter.predicates import (
     _has_any_flag,
     _is_garbage,

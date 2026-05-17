@@ -2,8 +2,8 @@
 
 import pytest
 
-from modules.database import Base, StageState, get_engine, get_session
-from modules.fingerprint import (
+from core.database import Base, StageState, get_engine, get_session
+from core.fingerprint import (
     Fingerprint,
     describe_diff,
     hash_rows,
@@ -132,13 +132,13 @@ def test_describe_diff_lists_changed_fields(fresh_state):
 
 
 def test_stage_dependency_hash_returns_empty_text_hash_when_absent(fresh_state):
-    from modules.fingerprint import hash_text, stage_dependency_hash
+    from core.fingerprint import hash_text, stage_dependency_hash
 
     assert stage_dependency_hash(fresh_state, "missing_stage", "scp") == hash_text("")
 
 
 def test_stage_dependency_hash_combines_three_fields(fresh_state):
-    from modules.fingerprint import hash_text, stage_dependency_hash
+    from core.fingerprint import hash_text, stage_dependency_hash
 
     mark_complete(fresh_state, "upstream", "case-a", _fp("d1", "c1", "x1"))
     fresh_state.commit()
@@ -148,7 +148,7 @@ def test_stage_dependency_hash_combines_three_fields(fresh_state):
 
 
 def test_stage_dependency_hash_changes_when_data_changes(fresh_state):
-    from modules.fingerprint import stage_dependency_hash
+    from core.fingerprint import stage_dependency_hash
 
     mark_complete(fresh_state, "upstream", "case-a", _fp("d1", "c1", "x1"))
     fresh_state.commit()
@@ -162,7 +162,7 @@ def test_stage_dependency_hash_changes_when_data_changes(fresh_state):
 
 
 def test_stage_dependency_hash_changes_when_config_changes(fresh_state):
-    from modules.fingerprint import stage_dependency_hash
+    from core.fingerprint import stage_dependency_hash
 
     mark_complete(fresh_state, "upstream", "case-a", _fp("d1", "c1", "x1"))
     fresh_state.commit()
@@ -176,7 +176,7 @@ def test_stage_dependency_hash_changes_when_config_changes(fresh_state):
 
 
 def test_stage_dependency_hash_changes_when_dependency_changes(fresh_state):
-    from modules.fingerprint import stage_dependency_hash
+    from core.fingerprint import stage_dependency_hash
 
     mark_complete(fresh_state, "upstream", "case-a", _fp("d1", "c1", "x1"))
     fresh_state.commit()
@@ -190,7 +190,7 @@ def test_stage_dependency_hash_changes_when_dependency_changes(fresh_state):
 
 
 def test_row_diff_picks_missing_and_changed():
-    from modules.fingerprint import row_diff
+    from core.fingerprint import row_diff
 
     desired = {10: "h10", 11: "h11", 12: "h12"}
     stored = {10: "h10", 11: "old", 13: "h13"}  # 12 missing, 11 stale, 13 orphan
@@ -198,12 +198,12 @@ def test_row_diff_picks_missing_and_changed():
 
 
 def test_row_diff_treats_none_as_stale():
-    from modules.fingerprint import row_diff
+    from core.fingerprint import row_diff
 
     assert row_diff({10: "h10"}, {10: None}) == {10}
 
 
 def test_row_diff_empty_desired_returns_empty():
-    from modules.fingerprint import row_diff
+    from core.fingerprint import row_diff
 
     assert row_diff({}, {10: "h10"}) == set()

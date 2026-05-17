@@ -31,7 +31,7 @@ def test_quarto_default_engine_resolves_relative_sqlite_url(monkeypatch):
 
 
 def test_get_engine_raises_before_init(monkeypatch):
-    from modules.database import engine as engine_mod
+    from core.database import engine as engine_mod
 
     monkeypatch.setattr(engine_mod, "_main_engine", None)
     with pytest.raises((AssertionError, RuntimeError)):
@@ -39,7 +39,7 @@ def test_get_engine_raises_before_init(monkeypatch):
 
 
 def test_init_db_sets_engine(tmp_path, monkeypatch):
-    from modules.database import engine as engine_mod
+    from core.database import engine as engine_mod
 
     monkeypatch.setattr(engine_mod, "_main_engine", None)
     url = f"sqlite:///{tmp_path}/test.db"
@@ -49,31 +49,31 @@ def test_init_db_sets_engine(tmp_path, monkeypatch):
 
 
 def test_user_has_follower_count_column():
-    from modules.database import User
+    from core.database import User
 
     assert hasattr(User, "follower_count")
 
 
 def test_clip_has_video_duration_column():
-    from modules.database import Clip
+    from core.database import Clip
 
     assert hasattr(Clip, "video_duration")
 
 
 def test_clip_has_taken_at_column():
-    from modules.database import Clip
+    from core.database import Clip
 
     assert hasattr(Clip, "taken_at")
 
 
 def test_clip_has_is_downloaded_column():
-    from modules.database import Clip
+    from core.database import Clip
 
     assert "is_downloaded" in Clip.__table__.columns
 
 
 def test_clip_used_in_analysis_returns_two_clauses():
-    from modules.database import clip_used_in_analysis
+    from core.database import clip_used_in_analysis
 
     clauses = clip_used_in_analysis()
     assert len(clauses) == 2
@@ -83,13 +83,13 @@ def test_clip_used_in_analysis_returns_two_clauses():
 
 
 def test_clip_no_longer_has_eligibility_column():
-    from modules.database import Clip
+    from core.database import Clip
 
     assert "eligibility" not in Clip.__table__.columns
 
 
 def test_download_model_removed():
-    import modules.database as db
+    import core.database as db
 
     assert not hasattr(db, "Download")
 
@@ -99,7 +99,7 @@ def test_clip_needs_speech_detection_filter():
     from sqlalchemy import create_engine
     from sqlalchemy.orm import Session
 
-    from modules.database import (
+    from core.database import (
         Base,
         Clip,
         User,
@@ -164,7 +164,7 @@ def test_clip_has_detected_speech_filter():
     from sqlalchemy import create_engine
     from sqlalchemy.orm import Session
 
-    from modules.database import (
+    from core.database import (
         Base,
         Clip,
         User,
@@ -213,7 +213,7 @@ def test_clip_needs_speech_translation_filter():
     from sqlalchemy import create_engine
     from sqlalchemy.orm import Session
 
-    from modules.database import (
+    from core.database import (
         Base,
         Clip,
         User,
@@ -299,7 +299,7 @@ def test_clip_needs_speech_translation_filter():
 def test_user_embedding_has_nullable_source_hash():
     from sqlalchemy import inspect
 
-    from modules.database import UserEmbedding, get_engine
+    from core.database import UserEmbedding, get_engine
 
     cols = {c["name"]: c for c in inspect(get_engine()).get_columns("user_embeddings")}
     assert "source_hash" in cols, "UserEmbedding must expose source_hash"

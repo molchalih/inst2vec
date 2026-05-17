@@ -2,10 +2,8 @@
 
 import pytest
 
-from modules import captions as captions_pkg
-from modules.captions import process_captions
-from modules.config import CaptionsSettings
-from modules.database import (
+from core.config import CaptionsSettings
+from core.database import (
     Base,
     Clip,
     StageState,
@@ -13,6 +11,8 @@ from modules.database import (
     get_engine,
     get_session,
 )
+from modules import captions as captions_pkg
+from modules.captions import process_captions
 
 
 def _cfg():
@@ -86,8 +86,8 @@ def test_process_captions_propagates_engine(monkeypatch, db_session):
 
 
 def test_reset_caption_outputs_nulls_the_three_fields(db_session):
+    from core.database import Clip, User
     from modules.captions.state import reset_caption_outputs
-    from modules.database import Clip, User
 
     db_session.merge(User(id=1, is_selected=True, is_eligible=True))
     db_session.merge(
@@ -116,8 +116,8 @@ def test_reset_caption_outputs_also_clears_ineligible_clips(db_session):
     """Stale derived outputs on a clip that is currently ineligible must be
     cleared too, so that the row-level idempotence rebuilds them if the
     clip later re-enters the selection pool."""
+    from core.database import Clip, User
     from modules.captions.state import reset_caption_outputs
-    from modules.database import Clip, User
 
     db_session.merge(User(id=1, is_selected=True, is_eligible=True))
     # is_selected=False makes the clip currently ineligible.
@@ -144,9 +144,9 @@ def test_reset_caption_outputs_also_clears_ineligible_clips(db_session):
 
 def test_process_captions_config_change_triggers_reset(monkeypatch, db_session):
     import modules.captions as captions_pkg
+    from core.config import CaptionsSettings
+    from core.database import Clip, User
     from modules.captions import process_captions
-    from modules.config import CaptionsSettings
-    from modules.database import Clip, User
 
     # Stub the three row-level stages so only the gate matters.
     monkeypatch.setattr(
@@ -197,9 +197,9 @@ def test_process_captions_unchanged_config_does_not_reset(monkeypatch, db_sessio
     """Two consecutive calls with the same config must preserve seeded
     caption data."""
     import modules.captions as captions_pkg
+    from core.config import CaptionsSettings
+    from core.database import Clip, User
     from modules.captions import process_captions
-    from modules.config import CaptionsSettings
-    from modules.database import Clip, User
 
     monkeypatch.setattr(
         captions_pkg, "clean_captions", lambda cfg, *, engine=None: None

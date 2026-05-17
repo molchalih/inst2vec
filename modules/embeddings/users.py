@@ -23,9 +23,9 @@ from collections import defaultdict
 
 import numpy as np
 
-from modules import fingerprint as fp
-from modules.console import log
-from modules.database import (
+from core import fingerprint as fp
+from core.console import log
+from core.database import (
     Base,
     StageState,
     UserEmbedding,

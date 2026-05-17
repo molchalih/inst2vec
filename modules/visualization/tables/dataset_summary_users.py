@@ -7,7 +7,7 @@ from statistics import mean, median
 from sqlalchemy import func, inspect
 from sqlalchemy.orm import Session
 
-from modules.database import Clip, User, clip_used_in_analysis
+from core.database import Clip, User, clip_used_in_analysis
 
 
 def _table_exists(bind, table_name: str) -> bool:

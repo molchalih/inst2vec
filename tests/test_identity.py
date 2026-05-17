@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from modules.database import (
+from core.database import (
     ClipIdentity,
     IdentityBase,
     UserIdentity,
@@ -18,7 +18,7 @@ from modules.database import (
     get_username,
     update_user_identity,
 )
-from modules.database import engine as engine_mod
+from core.database import engine as engine_mod
 
 
 @pytest.fixture(autouse=True)
@@ -34,8 +34,8 @@ def test_init_db_creates_identity_tables(tmp_path, monkeypatch):
     """init_db must auto-wrap a bare file path with sqlite:/// and create both identity tables."""
     from sqlalchemy import inspect
 
-    from modules.database import engine as engine_mod
-    from modules.database import init_db
+    from core.database import engine as engine_mod
+    from core.database import init_db
 
     # Capture current engines so monkeypatch restores them after the test.
     monkeypatch.setattr(engine_mod, "_main_engine", engine_mod._main_engine)
@@ -80,7 +80,7 @@ def test_update_user_identity_stores_pii():
         profile_pic_url="https://example.com/eve.jpg",
         profile_pic_url_hd="https://example.com/eve-hd.jpg",
     )
-    from modules.database import get_identity_session
+    from core.database import get_identity_session
 
     with get_identity_session() as s:
         ui = s.get(UserIdentity, uid)
@@ -142,7 +142,7 @@ def test_get_or_create_clip_identity_is_idempotent():
 
 def test_clip_identity_api_pk_stored():
     cid = get_or_create_clip_identity(api_pk=9004)
-    from modules.database import get_identity_session
+    from core.database import get_identity_session
 
     with get_identity_session() as s:
         ci = s.get(ClipIdentity, cid)
@@ -155,7 +155,7 @@ def test_load_usernames_from_csv_creates_user_with_sequential_id(tmp_path, monke
 
     from sqlalchemy import create_engine
 
-    from modules.database import Base, User
+    from core.database import Base, User
 
     # --- main DB: in-memory ---
     main_eng = create_engine("sqlite:///:memory:")
@@ -188,7 +188,7 @@ def test_load_usernames_from_csv_creates_user_with_sequential_id(tmp_path, monke
         assert all(1 <= uid <= 1000 for uid in user_ids)
 
     # Identity DB: usernames stored there (via the monkeypatched _engine)
-    from modules.database import UserIdentity, get_identity_session
+    from core.database import UserIdentity, get_identity_session
 
     with get_identity_session() as s:
         usernames = {ui.username for ui in s.query(UserIdentity).all()}
@@ -201,7 +201,7 @@ def test_load_usernames_from_csv_missing_file_is_noop(monkeypatch):
 
     load_usernames_from_csv(csv_path="/nonexistent/path/data.csv")
 
-    from modules.database import UserIdentity, get_identity_session
+    from core.database import UserIdentity, get_identity_session
 
     with get_identity_session() as s:
         assert s.query(UserIdentity).count() == 0

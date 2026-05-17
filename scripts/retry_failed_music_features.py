@@ -16,9 +16,9 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from modules.config import MusicSettings, PathsSettings, load_runtime_config
-from modules.console import log
-from modules.database import Music, get_session, init_db
+from core.config import MusicSettings, PathsSettings, load_runtime_config
+from core.console import log
+from core.database import Music, get_session, init_db
 from modules.music.features import MusicSecrets, extract_music_features
 from modules.music.state import _NO_MATCH
 

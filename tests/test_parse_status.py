@@ -7,14 +7,14 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from modules.database import (
+from core.database import (
     Base,
     Clip,
     IdentityBase,
     User,
     UserIdentity,
 )
-from modules.database import engine as engine_mod
+from core.database import engine as engine_mod
 
 # fetch_profiles tests updated in Task 5 (parse.py now reads username from identity DB)
 
@@ -102,7 +102,7 @@ def test_fetch_profiles_reads_username_from_identity_db(monkeypatch):
 
 def test_fetch_profiles_stores_sequential_clip_ids(monkeypatch):
     """Clip rows must use sequential IDs from identity DB, not Instagram PKs."""
-    from modules.database import ClipIdentity
+    from core.database import ClipIdentity
 
     main_eng = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(main_eng)

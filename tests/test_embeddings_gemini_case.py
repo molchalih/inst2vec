@@ -223,7 +223,7 @@ def test_gemini_text_returns_none_when_empty():
 
 @pytest.fixture
 def db_session():
-    from modules.database import (
+    from core.database import (
         Base,
         Clip,
         ClipEmbedding,
@@ -246,7 +246,7 @@ def db_session():
 def test_dependency_rows_gemini_mm_includes_file_stats(
     db_session, monkeypatch, tmp_path
 ):
-    from modules.database import Clip, User
+    from core.database import Clip, User
     from modules.embeddings.state import dependency_rows_for_case
 
     db_session.add(User(id=1, is_selected=True))
@@ -343,7 +343,7 @@ def test_runner_seals_when_all_clips_embed(
 ):
     from pathlib import Path
 
-    from modules.database import Clip, ClipEmbedding, StageState, User
+    from core.database import Clip, ClipEmbedding, StageState, User
     from modules.embeddings import EmbeddingSecrets, embed_clip_embeddings
     from modules.embeddings.gemini import GeminiMultimodalProvider
 
@@ -402,7 +402,7 @@ def test_runner_does_not_seal_on_failure(
 ):
     from pathlib import Path
 
-    from modules.database import Clip, ClipEmbedding, StageState, User
+    from core.database import Clip, ClipEmbedding, StageState, User
     from modules.embeddings import EmbeddingSecrets, embed_clip_embeddings
     from modules.embeddings.gemini import GeminiMultimodalProvider
 
@@ -460,7 +460,7 @@ def test_config_drift_wipes_case(
 ):
     from pathlib import Path
 
-    from modules.database import Clip, ClipEmbedding, User
+    from core.database import Clip, ClipEmbedding, User
     from modules.embeddings import EmbeddingSecrets, embed_clip_embeddings
     from modules.embeddings.gemini import GeminiMultimodalProvider
 
@@ -531,7 +531,7 @@ def test_per_clip_diff_re_embeds_only_touched_clip(
 ):
     from pathlib import Path
 
-    from modules.database import Clip, User
+    from core.database import Clip, User
     from modules.embeddings import EmbeddingSecrets, embed_clip_embeddings
     from modules.embeddings.gemini import GeminiMultimodalProvider
 

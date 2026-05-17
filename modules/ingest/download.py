@@ -24,9 +24,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import httpx
 
-from modules.config import DownloadSettings, PathsSettings
-from modules.console import log, progress
-from modules.database import (
+from core.config import DownloadSettings, PathsSettings
+from core.console import log, progress
+from core.database import (
     Clip,
     User,
     get_profile_pic_url,

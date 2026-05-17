@@ -3,7 +3,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from modules.console import log, phase, progress, startup
+from core.console import log, phase, progress, startup
 
 
 def test_log_info_does_not_raise():

@@ -1,7 +1,7 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from modules.database import Base, Clip, User
+from core.database import Base, Clip, User
 from modules.filter import (
     _is_garbage,
     _is_too_long,
@@ -79,7 +79,7 @@ def test_user_filter_columns_default_null():
 
 
 def test_filter_settings_load():
-    from modules.config import FilterSettings
+    from core.config import FilterSettings
 
     cfg = FilterSettings(
         min_video_duration=3,
@@ -250,7 +250,7 @@ def test_user_exclusion_flags_tuple_contents():
 
 
 def _make_db():
-    from modules.database import Base
+    from core.database import Base
 
     eng = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(eng)
@@ -258,7 +258,7 @@ def _make_db():
 
 
 def test_flag_garbage_clips_sets_is_garbage():
-    from modules.database import Clip, User
+    from core.database import Clip, User
     from modules.filter import _flag_garbage_clips
 
     eng = _make_db()
@@ -298,8 +298,8 @@ def test_flag_garbage_clips_sets_is_garbage():
 
 
 def test_flag_basic_policy_clips():
-    from modules.config import FilterSettings
-    from modules.database import Clip, User
+    from core.config import FilterSettings
+    from core.database import Clip, User
     from modules.filter import _flag_basic_policy_clips
 
     eng = _make_db()
@@ -383,8 +383,8 @@ def test_flag_basic_policy_clips():
 
 
 def test_flag_low_median_creators():
-    from modules.config import FilterSettings
-    from modules.database import Clip, User
+    from core.config import FilterSettings
+    from core.database import Clip, User
     from modules.filter import _flag_low_median_creators
 
     eng = _make_db()
@@ -438,8 +438,8 @@ def test_flag_low_median_creators():
 
 
 def test_flag_low_median_creators_excludes_garbage():
-    from modules.config import FilterSettings
-    from modules.database import Clip, User
+    from core.config import FilterSettings
+    from core.database import Clip, User
     from modules.filter import _flag_low_median_creators
 
     eng = _make_db()
@@ -491,8 +491,8 @@ def test_flag_low_median_creators_excludes_garbage():
 
 
 def test_flag_users_without_enough_clips():
-    from modules.config import FilterSettings
-    from modules.database import Clip, User
+    from core.config import FilterSettings
+    from core.database import Clip, User
     from modules.filter import _flag_users_without_enough_clips
 
     eng = _make_db()
@@ -546,8 +546,8 @@ def test_flag_users_without_enough_clips():
 
 
 def test_flag_global_percentile_clips():
-    from modules.config import FilterSettings
-    from modules.database import Clip, User
+    from core.config import FilterSettings
+    from core.database import Clip, User
     from modules.filter import _flag_global_percentile_clips
 
     eng = _make_db()
@@ -585,8 +585,8 @@ def test_flag_global_percentile_clips():
 
 
 def test_compute_creator_robust_stats():
-    from modules.config import FilterSettings
-    from modules.database import Clip, User
+    from core.config import FilterSettings
+    from core.database import Clip, User
     from modules.filter import _compute_creator_robust_stats
 
     eng = _make_db()
@@ -620,8 +620,8 @@ def test_compute_creator_robust_stats():
 
 
 def test_compute_creator_robust_stats_mad_zero_no_crash():
-    from modules.config import FilterSettings
-    from modules.database import Clip, User
+    from core.config import FilterSettings
+    from core.database import Clip, User
     from modules.filter import _compute_creator_robust_stats
 
     eng = _make_db()
@@ -652,8 +652,8 @@ def test_compute_creator_robust_stats_mad_zero_no_crash():
 
 
 def test_compute_creator_robust_stats_outlier_flagged():
-    from modules.config import FilterSettings
-    from modules.database import Clip, User
+    from core.config import FilterSettings
+    from core.database import Clip, User
     from modules.filter import _compute_creator_robust_stats
 
     eng = _make_db()
@@ -685,8 +685,8 @@ def test_compute_creator_robust_stats_outlier_flagged():
 
 def test_compute_creator_robust_stats_does_not_write_to_user():
     """User-level log-play stats live in UserStats; this stage must not touch User."""
-    from modules.config import FilterSettings
-    from modules.database import Clip, User
+    from core.config import FilterSettings
+    from core.database import Clip, User
     from modules.filter import _compute_creator_robust_stats
 
     eng = _make_db()
@@ -714,8 +714,8 @@ def test_compute_creator_robust_stats_does_not_write_to_user():
 
 
 def test_compute_creator_robust_stats_skips_low_percentile_clips():
-    from modules.config import FilterSettings
-    from modules.database import Clip, User
+    from core.config import FilterSettings
+    from core.database import Clip, User
     from modules.filter import _compute_creator_robust_stats
 
     eng = _make_db()
@@ -754,7 +754,7 @@ def test_compute_creator_robust_stats_skips_low_percentile_clips():
 
 
 def test_derive_eligibility_sets_all_clips():
-    from modules.database import Clip, User
+    from core.database import Clip, User
     from modules.filter import _derive_eligibility
 
     eng = _make_db()
@@ -815,7 +815,7 @@ def test_derive_eligibility_sets_all_clips():
 
 
 def test_derive_eligibility_no_nulls_after_run():
-    from modules.database import Clip, User
+    from core.database import Clip, User
     from modules.filter import _derive_eligibility
 
     eng = _make_db()
@@ -844,7 +844,7 @@ def test_derive_eligibility_no_nulls_after_run():
 
 def _seed_eligible_clips(s, user_id: int, play_counts: list, id_offset: int = 0):
     """Add eligible clips with given play counts for a user."""
-    from modules.database import Clip
+    from core.database import Clip
 
     for i, plays in enumerate(play_counts):
         s.add(
@@ -868,8 +868,8 @@ def _seed_eligible_clips(s, user_id: int, play_counts: list, id_offset: int = 0)
 
 
 def test_select_clips_basic():
-    from modules.config import FilterSettings
-    from modules.database import Clip, User
+    from core.config import FilterSettings
+    from core.database import Clip, User
     from modules.filter import select_clips
 
     eng = _make_db()
@@ -891,8 +891,8 @@ def test_select_clips_basic():
 
 
 def test_select_clips_stable_across_new_users():
-    from modules.config import FilterSettings
-    from modules.database import Clip, User
+    from core.config import FilterSettings
+    from core.database import Clip, User
     from modules.filter import select_clips
 
     eng = _make_db()
@@ -926,8 +926,8 @@ def test_select_clips_stable_across_new_users():
 
 
 def test_select_clips_user_with_no_eligible_clips_not_selected():
-    from modules.config import FilterSettings
-    from modules.database import Clip, User
+    from core.config import FilterSettings
+    from core.database import Clip, User
     from modules.filter import select_clips
 
     eng = _make_db()
@@ -967,7 +967,7 @@ def test_not_enough_clips_independent_of_low_plays_median():
         s.add(User(id=1, is_low_plays_median=True))
         s.commit()
 
-        from modules.config import FilterSettings
+        from core.config import FilterSettings
         from modules.filter import _flag_users_without_enough_clips
 
         cfg = FilterSettings(min_eligible_clips_per_user=5)
@@ -979,8 +979,8 @@ def test_not_enough_clips_independent_of_low_plays_median():
 
 
 def test_flag_users_without_enough_clips_second_pass_counts_after_soft_exclusions():
-    from modules.config import FilterSettings
-    from modules.database import Clip, User
+    from core.config import FilterSettings
+    from core.database import Clip, User
     from modules.filter import _flag_users_without_enough_clips
 
     eng = _make_db()
@@ -1001,7 +1001,7 @@ def test_flag_users_without_enough_clips_second_pass_counts_after_soft_exclusion
 
 
 def test_user_stats_table_columns():
-    from modules.database import UserStats
+    from core.database import UserStats
 
     cols = {c.key for c in UserStats.__table__.columns}
     expected = {
@@ -1029,14 +1029,14 @@ def test_user_stats_table_columns():
 
 
 def test_user_stats_user_id_is_primary_key():
-    from modules.database import UserStats
+    from core.database import UserStats
 
     pk_cols = {c.key for c in UserStats.__table__.primary_key.columns}
     assert pk_cols == {"user_id"}
 
 
 def test_user_stats_insert_roundtrip():
-    from modules.database import Base, User, UserStats
+    from core.database import Base, User, UserStats
 
     eng = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(eng)
@@ -1111,7 +1111,7 @@ def test_selected_clips_filters_by_is_selected_true():
 
 
 def test_derive_preprocessing_status_marks_clean_clips_true():
-    from modules.database import Clip, User
+    from core.database import Clip, User
     from modules.filter import _derive_preprocessing_status
 
     eng = _make_db()
@@ -1134,7 +1134,7 @@ def test_derive_preprocessing_status_marks_clean_clips_true():
 
 
 def test_derive_preprocessing_status_marks_garbage_clips_false():
-    from modules.database import Clip, User
+    from core.database import Clip, User
     from modules.filter import _derive_preprocessing_status
 
     eng = _make_db()
@@ -1157,7 +1157,7 @@ def test_derive_preprocessing_status_marks_garbage_clips_false():
 
 
 def test_derive_preprocessing_status_handles_none_hard_flags_as_not_excluded():
-    from modules.database import Clip, User
+    from core.database import Clip, User
     from modules.filter import _derive_preprocessing_status
 
     eng = _make_db()
@@ -1173,8 +1173,8 @@ def test_derive_preprocessing_status_handles_none_hard_flags_as_not_excluded():
 
 def test_flag_low_median_creators_uses_preprocessed_clips_only():
     """Garbage clips with extreme play counts must not skew the median."""
-    from modules.config import FilterSettings
-    from modules.database import Clip, User
+    from core.config import FilterSettings
+    from core.database import Clip, User
     from modules.filter import _flag_low_median_creators
 
     eng = _make_db()
@@ -1208,7 +1208,7 @@ def test_flag_low_median_creators_uses_preprocessed_clips_only():
 
 
 def test_calculate_user_stats_inserts_row_per_user_with_preprocessed_clips():
-    from modules.database import Clip, User, UserStats
+    from core.database import Clip, User, UserStats
     from modules.filter import calculate_user_stats
 
     eng = _make_db()
@@ -1240,7 +1240,7 @@ def test_calculate_user_stats_inserts_row_per_user_with_preprocessed_clips():
 
 
 def test_calculate_user_stats_skips_users_with_no_preprocessed_clips():
-    from modules.database import Clip, User, UserStats
+    from core.database import Clip, User, UserStats
     from modules.filter import calculate_user_stats
 
     eng = _make_db()
@@ -1255,7 +1255,7 @@ def test_calculate_user_stats_skips_users_with_no_preprocessed_clips():
 
 def test_calculate_user_stats_is_idempotent_and_recomputes():
     """Running twice produces the same final row (upsert/recompute semantics)."""
-    from modules.database import Clip, User, UserStats
+    from core.database import Clip, User, UserStats
     from modules.filter import calculate_user_stats
 
     eng = _make_db()
@@ -1287,7 +1287,7 @@ def test_calculate_user_stats_is_idempotent_and_recomputes():
 
 
 def test_calculate_user_stats_share_and_ratio():
-    from modules.database import Clip, User, UserStats
+    from core.database import Clip, User, UserStats
     from modules.filter import calculate_user_stats
 
     eng = _make_db()
@@ -1314,7 +1314,7 @@ def test_calculate_user_stats_share_and_ratio():
 
 
 def test_calculate_user_stats_time_span_and_cadence():
-    from modules.database import Clip, User, UserStats
+    from core.database import Clip, User, UserStats
     from modules.filter import calculate_user_stats
 
     eng = _make_db()
@@ -1353,8 +1353,8 @@ def test_calculate_user_stats_time_span_and_cadence():
 
 
 def test_process_dataset_end_to_end():
-    from modules.config import FilterSettings
-    from modules.database import Clip, User
+    from core.config import FilterSettings
+    from core.database import Clip, User
     from modules.filter import process_dataset
 
     eng = _make_db()
@@ -1414,8 +1414,8 @@ def test_process_dataset_end_to_end():
 
 
 def test_process_dataset_is_idempotent():
-    from modules.config import FilterSettings
-    from modules.database import Clip, User, UserStats
+    from core.config import FilterSettings
+    from core.database import Clip, User, UserStats
     from modules.filter import process_dataset
 
     eng = _make_db()
@@ -1502,7 +1502,7 @@ def test_process_dataset_runs_not_enough_clips_after_robust_stats():
             )
         s.commit()
 
-    from modules.config import FilterSettings
+    from core.config import FilterSettings
     from modules.filter import process_dataset
 
     cfg = FilterSettings(
@@ -1529,8 +1529,8 @@ def test_process_dataset_runs_not_enough_clips_after_robust_stats():
 
 
 def test_reset_dataset_processing_state_clears_all_derived_fields():
-    from modules.config import FilterSettings
-    from modules.database import Clip, User, UserStats
+    from core.config import FilterSettings
+    from core.database import Clip, User, UserStats
     from modules.filter import _reset_dataset_processing_state, process_dataset
 
     eng = _make_db()

@@ -5,7 +5,7 @@ from __future__ import annotations
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from modules.database import Clip, User, clip_used_in_analysis
+from core.database import Clip, User, clip_used_in_analysis
 
 __all__ = ("get_clips_count", "get_users_count")
 

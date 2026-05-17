@@ -2,8 +2,8 @@ import csv
 import os
 from urllib.parse import urlparse
 
-from modules.console import log
-from modules.database import User, get_or_create_user_identity, get_session
+from core.console import log
+from core.database import User, get_or_create_user_identity, get_session
 
 
 def load_usernames_from_csv(csv_path: str = "data/data.csv"):

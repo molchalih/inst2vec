@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules.database import (
+from core.database import (
     Clip,
     User,
     get_or_create_user_identity,

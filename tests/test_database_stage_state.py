@@ -4,7 +4,7 @@ from datetime import datetime
 
 import pytest
 
-from modules.database import (
+from core.database import (
     Base,
     StageState,
     get_engine,

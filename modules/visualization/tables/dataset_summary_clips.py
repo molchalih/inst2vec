@@ -7,7 +7,7 @@ from statistics import mean, median
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from modules.database import Clip, clip_used_in_analysis
+from core.database import Clip, clip_used_in_analysis
 
 __all__ = ("clips_summary_to_markdown",)
 

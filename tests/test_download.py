@@ -10,8 +10,8 @@ from unittest.mock import MagicMock
 import httpx
 import pytest
 
-from modules.config import DownloadSettings, PathsSettings
-from modules.database import Clip, User, get_session, init_db
+from core.config import DownloadSettings, PathsSettings
+from core.database import Clip, User, get_session, init_db
 from modules.ingest import download as dl_mod
 
 
@@ -147,7 +147,7 @@ def test_fetch_file_no_partial_on_write_failure(tmp_path, monkeypatch):
 @pytest.fixture
 def isolated_db(tmp_path):
     """Point the global engine at a fresh per-test DB, restore after."""
-    from modules.database import engine as engine_mod
+    from core.database import engine as engine_mod
 
     original_main = engine_mod._main_engine
     original_identity_eng = engine_mod._identity_engine

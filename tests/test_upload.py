@@ -10,16 +10,16 @@ import pytest
 pytest.importorskip("moto")
 from moto import mock_aws
 
-from modules.config import StorageSettings
-from modules.database import Clip, User, get_session, init_db
-from modules.storage import ObjectStore
+from core.config import StorageSettings
+from core.database import Clip, User, get_session, init_db
+from core.storage import ObjectStore
 from modules.upload import upload_videos
 
 
 @pytest.fixture
 def isolated_db(tmp_path):
     """Point the global engine at a fresh per-test DB, restore after."""
-    from modules.database import engine as engine_mod
+    from core.database import engine as engine_mod
 
     original_main = engine_mod._main_engine
     original_identity = engine_mod._identity_engine
@@ -166,7 +166,7 @@ def _make_settings(tmp_path, *, bucket: str, video_dir: str | None = None):
 
 
 def _make_secrets():
-    from modules.config import Secrets
+    from core.config import Secrets
 
     return Secrets(
         database_url=os.environ.get("DATABASE_URL", "sqlite:///:memory:"),

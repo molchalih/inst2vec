@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from modules.database import Base, Clip, User
+from core.database import Base, Clip, User
 
 
 def _make_engine():

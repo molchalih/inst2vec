@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from modules.database import (
+from core.database import (
     Base,
     Clip,
     ClipEmbedding,

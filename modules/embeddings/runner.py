@@ -20,9 +20,9 @@ import os
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from modules import fingerprint as fp
-from modules.console import log, progress
-from modules.database import (
+from core import fingerprint as fp
+from core.console import log, progress
+from core.database import (
     Base,
     Clip,
     ClipEmbedding,

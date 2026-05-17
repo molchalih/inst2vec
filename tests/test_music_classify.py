@@ -4,8 +4,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules.config import MusicSettings, PathsSettings
-from modules.database import (
+from core.config import MusicSettings, PathsSettings
+from core.database import (
     Base,
     Clip,
     Music,
@@ -207,7 +207,7 @@ def test_classify_skips_non_null_clips(seeded_db, monkeypatch):
 
 
 def test_reset_music_classify_nulls_clip_links_and_deletes_orphan_music(db_session):
-    from modules.database import Clip, Music, User
+    from core.database import Clip, Music, User
     from modules.music.state import reset_music_classify
 
     db_session.merge(User(id=1, is_selected=True, is_eligible=True))
@@ -238,7 +238,7 @@ def test_reset_music_classify_nulls_clip_links_and_deletes_orphan_music(db_sessi
 def test_reset_music_classify_also_clears_ineligible_clips(db_session):
     """Stale classify outputs on a currently-ineligible clip must be cleared
     too, otherwise re-selection in a later run skips re-fingerprinting."""
-    from modules.database import Clip, Music, User
+    from core.database import Clip, Music, User
     from modules.music.state import reset_music_classify
 
     db_session.merge(User(id=1, is_selected=True, is_eligible=True))
@@ -283,7 +283,7 @@ def test_classify_music_features_only_knob_change_does_not_reset(
 ):
     """Bumping a features-only setting must NOT trigger a music-classify reset."""
     import modules.music.classify as classify_mod
-    from modules.database import StageState
+    from core.database import StageState
     from modules.music.classify import classify_music
     from modules.music.state import SCOPE_MUSIC, STAGE_MUSIC_CLASSIFY
 
@@ -332,8 +332,8 @@ def test_classify_music_config_change_triggers_reset(monkeypatch, db_session):
     """A config change in MusicSettings must reset clip → music links so the
     next classify run re-fingerprints."""
     import modules.music.classify as classify_mod
-    from modules.config import MusicSettings, PathsSettings
-    from modules.database import Clip, Music, StageState, User
+    from core.config import MusicSettings, PathsSettings
+    from core.database import Clip, Music, StageState, User
     from modules.music.classify import AcrSecrets, classify_music
     from modules.music.state import SCOPE_MUSIC, STAGE_MUSIC_CLASSIFY
 
@@ -403,8 +403,8 @@ def test_classify_music_config_change_triggers_reset(monkeypatch, db_session):
 
 def test_classify_music_unchanged_config_does_not_reset(monkeypatch, db_session):
     import modules.music.classify as classify_mod
-    from modules.config import MusicSettings, PathsSettings
-    from modules.database import Clip, Music, User
+    from core.config import MusicSettings, PathsSettings
+    from core.database import Clip, Music, User
     from modules.music.classify import AcrSecrets, classify_music
 
     class _NoOpAcr:

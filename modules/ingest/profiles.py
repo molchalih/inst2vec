@@ -3,8 +3,8 @@ from typing import Any
 
 from hikerapi import Client
 
-from modules.console import log, progress
-from modules.database import (
+from core.console import log, progress
+from core.database import (
     Clip,
     User,
     get_api_pk,

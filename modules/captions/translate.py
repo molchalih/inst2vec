@@ -5,11 +5,11 @@ from __future__ import annotations
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
+from core.config import CaptionsSettings
+from core.console import log, progress
+from core.database import Clip, get_engine, needs_caption_translation
+from core.vendor.gemma_translate import GemmaTranslator
 from modules.captions.state import SCOPE_TRANSLATE
-from modules.config import CaptionsSettings
-from modules.console import log, progress
-from modules.database import Clip, get_engine, needs_caption_translation
-from modules.external.gemma_translate import GemmaTranslator
 
 
 def translate_captions(cfg: CaptionsSettings, *, engine: Engine | None = None) -> None:

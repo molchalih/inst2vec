@@ -13,7 +13,7 @@ load_dotenv()
 
 from sqlalchemy import func  # noqa: E402
 
-from modules.database import Clip, Music, User, get_session  # noqa: E402
+from core.database import Clip, Music, User, get_session  # noqa: E402
 
 
 def _pct(n, total):

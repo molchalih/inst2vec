@@ -51,7 +51,7 @@ import numpy as np
 import pytest
 from sqlalchemy import text
 
-from modules.database import (
+from core.database import (
     Base,
     Clip,
     ClipEmbedding,

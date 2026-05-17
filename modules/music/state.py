@@ -6,8 +6,8 @@ import json
 
 from sqlalchemy.orm import Session
 
-from modules.config import MusicSettings
-from modules.database import Clip, Music
+from core.config import MusicSettings
+from core.database import Clip, Music
 
 FEATURE_FIELDS: list[str] = [
     "acousticness",

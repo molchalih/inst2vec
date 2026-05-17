@@ -11,9 +11,9 @@ from __future__ import annotations
 
 import os
 
-from modules.console import log, progress
-from modules.database import Clip, get_session
-from modules.storage import get_object_store
+from core.console import log, progress
+from core.database import Clip, get_session
+from core.storage import get_object_store
 
 STAGE = "upload"
 

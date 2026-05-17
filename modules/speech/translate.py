@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from modules.console import log, progress
-from modules.database import Clip, clip_needs_speech_translation, get_session
-from modules.external.gemma_translate import GemmaTranslator
+from core.console import log, progress
+from core.database import Clip, clip_needs_speech_translation, get_session
+from core.vendor.gemma_translate import GemmaTranslator
 from modules.speech.state import SCOPE_TRANSLATE
 
 

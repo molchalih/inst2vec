@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from modules.database import (
+from core.database import (
     Base,
     Clip,
     User,

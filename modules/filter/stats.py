@@ -5,7 +5,7 @@ import statistics
 
 from sqlalchemy.orm import Session
 
-from modules.database import User, UserStats
+from core.database import User, UserStats
 from modules.filter.predicates import _preprocessed_clips
 
 

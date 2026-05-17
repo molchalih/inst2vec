@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from modules.database import Base, Clip, User
+from core.database import Base, Clip, User
 
 
 def _make_db(tmp_path: Path):

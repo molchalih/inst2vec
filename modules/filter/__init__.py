@@ -12,10 +12,10 @@ from itertools import chain
 
 from sqlalchemy.orm import Session
 
-from modules import fingerprint as fp
-from modules.config import FilterSettings
-from modules.console import log
-from modules.database import Clip, User, get_engine
+from core import fingerprint as fp
+from core.config import FilterSettings
+from core.console import log
+from core.database import Clip, User, get_engine
 from modules.filter.predicates import (  # noqa: F401
     _eligible_clips,
     _has_any_flag,

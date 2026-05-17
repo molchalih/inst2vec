@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
+from core.database import UserCluster
 from modules.clustering import (
     DEFAULT_HDBSCAN_METRIC,
     ClusterResult,
@@ -18,7 +19,6 @@ from modules.clustering import (
 from modules.clustering.core import (  # noqa: F401 -- patch targets live here
     compute_clusters as _compute_clusters_core,
 )
-from modules.database import UserCluster
 
 
 def test_resolve_hdbscan_metric_always_returns_euclidean():

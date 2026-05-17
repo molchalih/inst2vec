@@ -5,8 +5,8 @@ import random
 
 from sqlalchemy.orm import Session
 
-from modules.config import FilterSettings
-from modules.database import Clip, User
+from core.config import FilterSettings
+from core.database import Clip, User
 from modules.filter.predicates import _eligible_clips
 
 

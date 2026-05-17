@@ -4,8 +4,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules.config import MusicSettings
-from modules.database import (
+from core.config import MusicSettings
+from core.database import (
     Base,
     Clip,
     Music,
@@ -324,7 +324,7 @@ def test_music_has_features_helper():
 def test_features_config_payload_ignores_classify_only_knobs():
     """Changing a classify-only knob must not invalidate features
     fingerprints — and vice versa."""
-    from modules.config import MusicSettings
+    from core.config import MusicSettings
     from modules.music.state import features_config_payload
 
     base = MusicSettings(
@@ -355,7 +355,7 @@ def test_features_config_payload_ignores_classify_only_knobs():
 
 
 def test_reset_music_features_nulls_feature_columns(db_session):
-    from modules.database import Music
+    from core.database import Music
     from modules.music.state import reset_music_features
 
     db_session.merge(
@@ -395,8 +395,8 @@ def test_extract_music_features_config_change_triggers_reset(monkeypatch, db_ses
     """Bumping a feature-relevant MusicSettings field flips the
     features fingerprint and NULLs every feature column."""
     import modules.music.features as features_mod
-    from modules.config import MusicSettings, PathsSettings
-    from modules.database import Music
+    from core.config import MusicSettings, PathsSettings
+    from core.database import Music
     from modules.music.features import MusicSecrets, extract_music_features
 
     # No-op every sub-stage so we exercise only the gate.
@@ -477,8 +477,8 @@ def test_extract_music_features_unchanged_config_does_not_reset(
     feature data (no prior state on the first call ⇒ no reset; second
     call hits the fingerprint match)."""
     import modules.music.features as features_mod
-    from modules.config import MusicSettings, PathsSettings
-    from modules.database import Music
+    from core.config import MusicSettings, PathsSettings
+    from core.database import Music
     from modules.music.features import MusicSecrets, extract_music_features
 
     monkeypatch.setattr(features_mod, "_resolve_spotify_ids", lambda *a, **kw: None)

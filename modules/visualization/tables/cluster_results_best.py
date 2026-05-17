@@ -6,11 +6,11 @@ import math
 
 from sqlalchemy.orm import Session
 
+from core.database import ClusterRun
 from modules.clustering import (
     DEFAULT_CASES,
     select_best_cluster_run,
 )
-from modules.database import ClusterRun
 
 __all__ = ("best_run_to_markdown", "best_runs_all_to_markdown")
 

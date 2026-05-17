@@ -16,10 +16,10 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from modules import fingerprint as fp
-from modules.config import SpeechSettings
-from modules.console import log
-from modules.database import StageState, get_engine
+from core import fingerprint as fp
+from core.config import SpeechSettings
+from core.console import log
+from core.database import StageState, get_engine
 from modules.speech.classify import classify_speech, clean_speech
 from modules.speech.state import (
     SCOPE_SPEECH,

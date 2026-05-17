@@ -16,7 +16,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from modules.database import StageState
+from core.database import StageState
 
 
 @dataclass(frozen=True)

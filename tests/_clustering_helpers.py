@@ -11,7 +11,7 @@ def _seed_search_dataset(n_users: int = 30, case: str = "video") -> None:
     """Seed Users + selected/downloaded Clips + UserEmbeddings."""
     import numpy as np
 
-    from modules.database import (
+    from core.database import (
         Base,
         Clip,
         ClusterRun,
@@ -57,7 +57,7 @@ def _mutate_one_embedding(case: str = "video") -> None:
     """Replace one UserEmbedding blob with new random bytes."""
     import numpy as np
 
-    from modules.database import UserEmbedding, get_session
+    from core.database import UserEmbedding, get_session
 
     session = get_session()
     try:

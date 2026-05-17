@@ -5,10 +5,10 @@ from __future__ import annotations
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
+from core.config import CaptionsSettings
+from core.console import log
+from core.database import Clip, get_engine, needs_caption_cleaning
 from modules.captions.state import SCOPE_CLEAN, clean_caption_text
-from modules.config import CaptionsSettings
-from modules.console import log
-from modules.database import Clip, get_engine, needs_caption_cleaning
 
 
 def clean_captions(cfg: CaptionsSettings, *, engine: Engine | None = None) -> None:

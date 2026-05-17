@@ -8,8 +8,8 @@ import numpy as np
 from sqlalchemy import select
 from umap import UMAP
 
-from modules.console import log, progress
-from modules.database import (
+from core.console import log, progress
+from core.database import (
     Base,
     Clip,
     UserCluster,

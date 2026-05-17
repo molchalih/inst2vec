@@ -11,7 +11,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
-from modules.database.models import Base
+from core.database.models import Base
 
 _main_engine: Engine | None = None
 _identity_engine: Engine | None = None
@@ -56,6 +56,6 @@ def init_db(database_url: str, identity_db_url: str) -> None:
         wrapped_url = f"sqlite:///{identity_db_url}"
     _identity_engine = create_engine(wrapped_url)
 
-    from modules.database.identity import IdentityBase
+    from core.database.identity import IdentityBase
 
     IdentityBase.metadata.create_all(_identity_engine)

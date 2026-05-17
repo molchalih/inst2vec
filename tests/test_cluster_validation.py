@@ -9,7 +9,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from modules.database import Base, ClusterRun
+from core.database import Base, ClusterRun
 
 
 def _make_settings(**overrides):
@@ -682,7 +682,7 @@ def test_validate_clustering_phase_order(monkeypatch):
     """
     # Seed one ClusterRun row so _compute_updates is guaranteed to be invoked
     # (fingerprint is stale on a fresh DB, and the matrix is non-empty).
-    from modules.database import Base, ClusterRun, get_engine, get_session
+    from core.database import Base, ClusterRun, get_engine, get_session
 
     Base.metadata.create_all(get_engine())
     seed_session = get_session()
@@ -796,7 +796,7 @@ def test_phase_score_uses_thread_pool_when_workers_gt_one(monkeypatch):
 
 
 def test_passes_validation_none_means_pending():
-    from modules.database import ClusterRun, get_session
+    from core.database import ClusterRun, get_session
 
     session = get_session()
     try:
@@ -830,8 +830,8 @@ def test_passes_validation_none_means_pending():
 
 
 def test_list_best_candidate_rows_filters_by_passes_validation():
+    from core.database import ClusterRun, get_session
     from modules.clustering import list_best_candidate_rows
-    from modules.database import ClusterRun, get_session
 
     session = get_session()
     try:
@@ -924,8 +924,8 @@ def test_validate_unchanged_fingerprint_skips_recomputation(monkeypatch):
 
 def test_validate_changed_config_invalidates_and_rewrites_fields():
     """Changing plateau_drop_threshold triggers a recompute on next call."""
+    from core.database import ClusterRun, get_session
     from modules.clustering import validate_clustering
-    from modules.database import ClusterRun, get_session
 
     settings = _seed_validate_dataset()
     validate_clustering(settings)
@@ -963,8 +963,8 @@ def test_validate_changed_config_invalidates_and_rewrites_fields():
 
 def test_validate_passes_validation_semantics_pending_pass_fail():
     """After validate runs, all rows for the case have passes_validation set."""
+    from core.database import ClusterRun, get_session
     from modules.clustering import validate_clustering
-    from modules.database import ClusterRun, get_session
 
     settings = _seed_validate_dataset()
     validate_clustering(settings)
@@ -983,9 +983,9 @@ def test_validate_passes_validation_semantics_pending_pass_fail():
 
 def test_validate_score_value_error_marks_false(monkeypatch):
     """compute_clusters ValueError inside scoring sets passes_validation=False."""
+    from core.database import ClusterRun, get_session
     from modules.clustering import validate_clustering
     from modules.clustering import validation as validation_mod
-    from modules.database import ClusterRun, get_session
 
     settings = _seed_validate_dataset()
 

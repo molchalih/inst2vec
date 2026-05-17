@@ -37,7 +37,7 @@ class ClipIdentity(IdentityBase):
 
 def get_or_create_user_identity(username: str) -> int:
     """Return sequential user id for username, creating a new UserIdentity if needed."""
-    from modules.database.engine import get_identity_session
+    from core.database.engine import get_identity_session
 
     with get_identity_session() as s:
         ui = s.query(UserIdentity).filter_by(username=username).first()
@@ -62,7 +62,7 @@ def update_user_identity(
     profile_pic_url_hd: str | None,
 ) -> None:
     """Store API PK and PII for an existing UserIdentity row."""
-    from modules.database.engine import get_identity_session
+    from core.database.engine import get_identity_session
 
     with get_identity_session() as s:
         ui = s.get(UserIdentity, user_id)
@@ -78,7 +78,7 @@ def update_user_identity(
 
 def get_username(user_id: int) -> str:
     """Return the Instagram username for a user by sequential id."""
-    from modules.database.engine import get_identity_session
+    from core.database.engine import get_identity_session
 
     with get_identity_session() as s:
         ui = s.get(UserIdentity, user_id)
@@ -89,7 +89,7 @@ def get_username(user_id: int) -> str:
 
 def get_api_pk(user_id: int) -> int | None:
     """Return the Instagram API PK for a user, or None if not yet fetched."""
-    from modules.database.engine import get_identity_session
+    from core.database.engine import get_identity_session
 
     with get_identity_session() as s:
         ui = s.get(UserIdentity, user_id)
@@ -100,7 +100,7 @@ def get_api_pk(user_id: int) -> int | None:
 
 def get_profile_pic_url(user_id: int) -> str | None:
     """Return profile_pic_url from identity DB, or None."""
-    from modules.database.engine import get_identity_session
+    from core.database.engine import get_identity_session
 
     with get_identity_session() as s:
         ui = s.get(UserIdentity, user_id)
@@ -111,7 +111,7 @@ def get_profile_pic_url(user_id: int) -> str | None:
 
 def get_or_create_clip_identity(api_pk: int) -> int:
     """Return sequential clip id for Instagram clip PK, creating a new entry if needed."""
-    from modules.database.engine import get_identity_session
+    from core.database.engine import get_identity_session
 
     with get_identity_session() as s:
         ci = s.query(ClipIdentity).filter_by(api_pk=api_pk).first()

@@ -12,9 +12,9 @@ from __future__ import annotations
 
 import os
 
-from modules.config import load_runtime_config
-from modules.console import log
-from modules.database import (
+from core.config import load_runtime_config
+from core.console import log
+from core.database import (
     Clip,
     clip_needs_speech_detection,
     get_session,

@@ -17,10 +17,10 @@ from pathlib import Path
 import httpx
 from sqlalchemy import func
 
-from modules import fingerprint as fp
-from modules.config import MusicSettings, PathsSettings
-from modules.console import log, progress
-from modules.database import Clip, Music, StageState, clip_used_in_analysis, get_session
+from core import fingerprint as fp
+from core.config import MusicSettings, PathsSettings
+from core.console import log, progress
+from core.database import Clip, Music, StageState, clip_used_in_analysis, get_session
 from modules.music.audio_sample import extract_audio_sample
 from modules.music.clients import ReccoBeatsClient, SpotifyClient, TransientError
 from modules.music.state import (

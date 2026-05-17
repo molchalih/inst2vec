@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from modules.database import Base, ClusterRun
+from core.database import Base, ClusterRun
 
 
 def _make_engine():

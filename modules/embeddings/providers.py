@@ -30,7 +30,7 @@ class LocalQwenProvider:
         max_frames: int | None = None,
         fps: float | None = None,
     ) -> None:
-        from modules.external.qwen3_vl_embedding import Qwen3VLEmbedder
+        from core.vendor.qwen3_vl_embedding import Qwen3VLEmbedder
 
         kwargs: dict = {
             "model_name_or_path": model_path,

@@ -6,10 +6,10 @@ from lingua import LanguageDetectorBuilder
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
+from core.config import CaptionsSettings
+from core.console import log, progress
+from core.database import Clip, get_engine, needs_caption_language_detection
 from modules.captions.state import SCOPE_DETECT
-from modules.config import CaptionsSettings
-from modules.console import log, progress
-from modules.database import Clip, get_engine, needs_caption_language_detection
 
 
 def detect_caption_language(
