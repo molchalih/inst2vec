@@ -13,7 +13,7 @@ import hashlib
 import json
 
 from core import fingerprint as fp
-from core.config import ValidationSettings
+from core.config import Settings, ValidationSettings
 from core.console import log
 from core.database import (
     Base,
@@ -135,7 +135,7 @@ def _assign_case(case: str, settings: ValidationSettings) -> None:
     )
 
 
-def assign_clusters(settings) -> None:
+def assign_clusters(settings: Settings) -> None:
     """Per-case final clustering assignment, fingerprint-gated.
 
     ``settings`` is the full runtime settings object; best-run selection

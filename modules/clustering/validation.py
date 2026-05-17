@@ -11,6 +11,7 @@ from sklearn.metrics import silhouette_score
 from sqlalchemy.orm import Session
 
 from core import fingerprint as fp
+from core.config import Settings
 from core.console import log, progress
 from core.database import ClusterRun, get_session
 from modules.clustering.core import (
@@ -518,7 +519,7 @@ def _compute_updates(
 # ── orchestration entry point ─────────────────────────────────────────────────
 
 
-def validate_clustering(settings, clustering_grid_workers: int = 1) -> None:
+def validate_clustering(settings: Settings, clustering_grid_workers: int = 1) -> None:
     """Filter -> score -> plateau -> select, fingerprint-gated per case.
 
     ``settings`` is the full runtime settings object; per-case validation

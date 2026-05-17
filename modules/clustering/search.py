@@ -9,6 +9,7 @@ from itertools import product
 import numpy as np
 
 from core import fingerprint as fp
+from core.config import Settings
 from core.console import log, progress
 from core.database import (
     Base,
@@ -119,7 +120,7 @@ def _combo_to_row(combo: dict, result) -> ClusterRun:
     )
 
 
-def run_cluster_search(settings, clustering_grid_workers: int = 1) -> None:
+def run_cluster_search(settings: Settings, clustering_grid_workers: int = 1) -> None:
     """Run grid search over hyperparameter combos per embedding case.
 
     Idempotent via modules.fingerprint: fingerprint per case, wipe scoped
