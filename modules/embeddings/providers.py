@@ -9,7 +9,6 @@ different providers produce incompatible vector spaces.
 
 from __future__ import annotations
 
-import os
 import time
 from typing import Protocol
 
@@ -85,10 +84,7 @@ class RemoteQwenProvider:
         self._client = _client or httpx.Client(timeout=timeout_s)
 
     def embed(self, payload: dict):
-        clip_id = payload.get("clip_id")
-        if clip_id is None and "video" in payload:
-            clip_id = _infer_clip_id_from_path(payload["video"])
-
+        clip_id = payload["clip_id"]
         body, signed_key = self._build_body(payload, clip_id)
         attempts = 0
         signed_refreshes = 0
@@ -132,18 +128,13 @@ class RemoteQwenProvider:
 
     # ── internals ────────────────────────────────────────────────────────────
 
-    def _build_body(
-        self, payload: dict, clip_id: int | None
-    ) -> tuple[dict, str | None]:
+    def _build_body(self, payload: dict, clip_id: int) -> tuple[dict, str | None]:
         body = dict(payload)
         signed_key: str | None = None
         if "video" in body:
-            local_path = body.pop("video")
-            if clip_id is None:
-                clip_id = _infer_clip_id_from_path(local_path)
+            body.pop("video")
             signed_key = self._storage.key_for_clip(clip_id)
             body["video_url"] = self._storage.signed_get(signed_key)
-        body.setdefault("clip_id", clip_id)
         return body, signed_key
 
 
@@ -156,9 +147,3 @@ def _safe_error(resp: httpx.Response) -> str:
         return (resp.json() or {}).get("error", "")
     except Exception:
         return resp.text[:200]
-
-
-def _infer_clip_id_from_path(path: str) -> int:
-    base = os.path.basename(path)
-    stem, _ = os.path.splitext(base)
-    return int(stem)

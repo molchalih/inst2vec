@@ -84,6 +84,37 @@ def test_embed_video_downloads_url_to_temp_file_and_passes_path():
         assert "video_url" not in call_payload
 
 
+def test_embed_returns_structured_token_mismatch():
+    """Qwen video-token mismatch must surface as 422 {error: token_mismatch},
+    not a generic 500, so RemoteQwenProvider's frame-cap fallback engages.
+    """
+    from services.embedder import app as app_module
+
+    fake = MagicMock()
+    fake.embed.side_effect = RuntimeError(
+        "Mismatch in `video` token count vs payload size"
+    )
+    with (
+        patch.object(app_module, "_get_provider", return_value=fake),
+        patch.object(app_module, "_resolve_video_url", return_value="/tmp/1.mp4"),
+    ):
+        app_module._reset_for_tests(token="tok")
+        c = TestClient(app_module.app)
+        r = c.post(
+            "/embed",
+            headers={"Authorization": "Bearer tok"},
+            json={
+                "case": "video",
+                "clip_id": 1,
+                "video_url": "https://r2/1.mp4",
+                "fps": 1.0,
+                "max_frames": 64,
+            },
+        )
+        assert r.status_code == 422
+        assert r.json()["error"] == "token_mismatch"
+
+
 def test_embed_rejects_unknown_case(client):
     r = client.post(
         "/embed",

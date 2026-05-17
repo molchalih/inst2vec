@@ -22,10 +22,12 @@ import urllib.request
 from typing import Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from modules.embeddings.cases import CASE_REGISTRY
 from modules.embeddings.providers import LocalQwenProvider
+from modules.embeddings.sampling import is_token_mismatch_error
 
 # ── module-level state (constructed at startup, swappable in tests) ─────────
 
@@ -121,7 +123,15 @@ def embed(req: EmbedRequest, _: None = Depends(_check_auth)) -> EmbedResponse:
             req.fps,
             req.max_frames,
         )
-        out = _get_provider().embed(payload)
+        try:
+            out = _get_provider().embed(payload)
+        except Exception as e:
+            if is_token_mismatch_error(e):
+                return JSONResponse(
+                    status_code=422,
+                    content={"error": "token_mismatch", "detail": str(e)},
+                )
+            raise
     finally:
         if local_video_path and os.path.exists(local_video_path):
             with contextlib.suppress(OSError):

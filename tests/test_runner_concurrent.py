@@ -72,3 +72,34 @@ def test_failure_in_one_job_does_not_kill_others():
     assert len(succeeded) == 4
     assert len(failed) == 1
     assert failed[0][0] == 3
+
+
+def test_embed_with_token_fallback_injects_case_and_clip_id():
+    """Runner must enrich every payload with `case` and `clip_id` so the
+    remote embedder service (which requires both) accepts it, even for
+    cases like `audio` whose payload_builder has no video path."""
+    from types import SimpleNamespace
+
+    from modules.embeddings.cases import CASE_REGISTRY
+    from modules.embeddings.runner import _embed_with_token_fallback
+
+    captured: list[dict] = []
+
+    class _Provider:
+        def embed(self, payload):
+            captured.append(dict(payload))
+            return [[1.0, 2.0]]
+
+    clip = SimpleNamespace(id=42)
+
+    _embed_with_token_fallback(
+        _Provider(), CASE_REGISTRY["audio"], clip, "hello", None, None, None
+    )
+    _embed_with_token_fallback(
+        _Provider(), CASE_REGISTRY["video"], clip, None, "/v/42.mp4", 1.0, 32
+    )
+
+    assert captured[0]["case"] == "audio"
+    assert captured[0]["clip_id"] == 42
+    assert captured[1]["case"] == "video"
+    assert captured[1]["clip_id"] == 42

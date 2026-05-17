@@ -349,8 +349,15 @@ def _embed_with_token_fallback(
     cases that opt into video token-budget fallback. Returns the float32
     blob on success, or None if all attempts fail (next run will retry).
     """
+
+    def _build(cap_: int | None) -> dict:
+        p = spec.payload_builder(clip, text, video_path, fps_, cap_)
+        p["clip_id"] = clip.id
+        p["case"] = spec.name
+        return p
+
     if not spec.apply_video_token_fallback or max_frames is None:
-        payload = spec.payload_builder(clip, text, video_path, fps_, max_frames)
+        payload = _build(max_frames)
         try:
             out = provider.embed(payload)
         except Exception:
@@ -359,7 +366,7 @@ def _embed_with_token_fallback(
 
     caps = frame_retry_schedule(max_frames)
     for attempt_idx, cap in enumerate(caps):
-        payload = spec.payload_builder(clip, text, video_path, fps_, cap)
+        payload = _build(cap)
         try:
             out = provider.embed(payload)
             return to_bytes(out[0])

@@ -6,8 +6,10 @@ import numpy as np
 
 
 def to_bytes(tensor) -> bytes:
-    """Serialize a torch-like tensor to a float32 byte blob."""
-    return tensor.cpu().float().numpy().tobytes()
+    """Serialize a torch-like tensor, numpy array, or list to a float32 byte blob."""
+    if hasattr(tensor, "cpu"):
+        return tensor.cpu().float().numpy().tobytes()
+    return np.asarray(tensor, dtype=np.float32).tobytes()
 
 
 def bytes_to_array(blob: bytes) -> np.ndarray:
