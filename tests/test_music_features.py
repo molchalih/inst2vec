@@ -321,6 +321,39 @@ def test_music_has_features_helper():
     assert music_has_features(m) is True
 
 
+def test_features_config_payload_ignores_classify_only_knobs():
+    """Changing a classify-only knob must not invalidate features
+    fingerprints — and vice versa."""
+    from modules.config import MusicSettings
+    from modules.music.state import features_config_payload
+
+    base = MusicSettings(
+        audio_fingerprint_confidence=0.5,
+        commit_every=50,
+        http_timeout=20.0,
+        spotify_search_limit=5,
+        spotify_token_skew_seconds=30,
+        spotify_request_timeout=8.0,
+        reccobeats_batch_size=20,
+        reccobeats_delay_min=0.0,
+        reccobeats_delay_max=0.0,
+        manual_features_max_seconds=20,
+        manual_features_sample_rate=44100,
+        manual_features_max_mb=5.0,
+        manual_features_mp3_bitrate="128k",
+        api_max_attempts=3,
+        api_retry_delay=0.0,
+        api_retry_jitter=0.0,
+        acr_max_attempts=2,
+        ffmpeg_timeout_seconds=60,
+    )
+    bumped_classify = base.model_copy(update={"audio_fingerprint_confidence": 0.95})
+    assert features_config_payload(base) == features_config_payload(bumped_classify)
+
+    bumped_features = base.model_copy(update={"reccobeats_batch_size": 99})
+    assert features_config_payload(base) != features_config_payload(bumped_features)
+
+
 def test_reset_music_features_nulls_feature_columns(db_session):
     from modules.database import Music
     from modules.music.state import reset_music_features

@@ -10,7 +10,6 @@ Four sub-stages, each idempotent:
 
 from __future__ import annotations
 
-import json
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -31,6 +30,7 @@ from modules.music.state import (
     SCOPE_MUSIC,
     STAGE_MUSIC_FEATURES,
     UPLOAD_FIELDS,
+    features_config_payload,
     music_has_features,
     reset_music_features,
 )
@@ -282,9 +282,7 @@ def extract_music_features(
     try:
         current = fp.Fingerprint(
             data=fp.hash_text(""),
-            config=fp.hash_text(
-                json.dumps(music.model_dump(), sort_keys=True, default=str)
-            ),
+            config=fp.hash_text(features_config_payload(music)),
             dependency=fp.hash_text(""),
         )
         stored = session.get(StageState, (STAGE_MUSIC_FEATURES, SCOPE_MUSIC))

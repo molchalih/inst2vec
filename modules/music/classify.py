@@ -25,6 +25,7 @@ from modules.music.state import (
     SCOPE_CLASSIFY,
     SCOPE_MUSIC,
     STAGE_MUSIC_CLASSIFY,
+    classify_config_payload,
     reset_music_classify,
 )
 
@@ -114,9 +115,7 @@ def classify_music(
 
     current = fp.Fingerprint(
         data=fp.hash_text(""),
-        config=fp.hash_text(
-            json.dumps(music.model_dump(), sort_keys=True, default=str)
-        ),
+        config=fp.hash_text(classify_config_payload(music)),
         dependency=fp.hash_text(""),
     )
     stored = session.get(StageState, (STAGE_MUSIC_CLASSIFY, SCOPE_MUSIC))

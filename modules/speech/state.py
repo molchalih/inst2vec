@@ -6,7 +6,7 @@ import re
 
 from sqlalchemy.orm import Session
 
-from modules.database import Clip, clip_used_in_analysis
+from modules.database import Clip
 
 SCOPE_CLASSIFY: str = "classify_speech"
 SCOPE_TRANSLATE: str = "translate_speech"
@@ -61,13 +61,16 @@ def is_repeated_output(text: str | None) -> bool:
 
 
 def reset_speech_outputs(session: Session) -> None:
-    """NULL the four speech output columns on every eligible clip.
+    """NULL the four speech output columns on every clip.
 
-    Called from process_speech() when the speech config fingerprint drifts.
-    The row-level idempotence inside classify/translate/clean then refills
-    the cleared columns on the next pass.
+    Called from process_speech() when the speech config fingerprint
+    drifts. Resets all clips (not just currently-eligible ones) so
+    clips that re-enter the selection pool on a later run can't carry
+    stale derived fields produced under the previous config. The
+    row-level idempotence inside classify/translate/clean refills the
+    cleared columns for eligible clips on the next pass.
     """
-    session.query(Clip).filter(*clip_used_in_analysis()).update(
+    session.query(Clip).update(
         {
             Clip.is_speech_detected: None,
             Clip.speech_transcription: None,

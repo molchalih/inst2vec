@@ -234,6 +234,99 @@ def test_reset_music_classify_nulls_clip_links_and_deletes_orphan_music(db_sessi
     assert db_session.query(Music).all() == []
 
 
+def test_reset_music_classify_also_clears_ineligible_clips(db_session):
+    """Stale classify outputs on a currently-ineligible clip must be cleared
+    too, otherwise re-selection in a later run skips re-fingerprinting."""
+    from modules.database import Clip, Music, User
+    from modules.music.state import reset_music_classify
+
+    db_session.merge(User(id=1, is_selected=True, is_eligible=True))
+    db_session.merge(Music(id=1, artist="a", track="t"))
+    db_session.merge(
+        Clip(
+            id=20,
+            user_id=1,
+            is_selected=False,
+            is_downloaded=True,
+            music_id=1,
+            music_confidence=0.8,
+            is_music_recognized=True,
+        )
+    )
+    db_session.commit()
+
+    reset_music_classify(db_session)
+
+    clip = db_session.query(Clip).filter_by(id=20).one()
+    assert clip.music_id is None
+    assert clip.music_confidence is None
+    assert clip.is_music_recognized is None
+    assert db_session.query(Music).all() == []
+
+
+def test_classify_config_payload_ignores_features_only_knobs():
+    """Changing a features-only knob must not invalidate classify
+    fingerprints — and vice versa."""
+    from modules.music.state import classify_config_payload
+
+    base = _music_settings()
+    bumped_features = base.model_copy(update={"reccobeats_batch_size": 99})
+    assert classify_config_payload(base) == classify_config_payload(bumped_features)
+
+    bumped_classify = base.model_copy(update={"audio_fingerprint_confidence": 0.95})
+    assert classify_config_payload(base) != classify_config_payload(bumped_classify)
+
+
+def test_classify_music_features_only_knob_change_does_not_reset(
+    monkeypatch, db_session
+):
+    """Bumping a features-only setting must NOT trigger a music-classify reset."""
+    import modules.music.classify as classify_mod
+    from modules.database import StageState
+    from modules.music.classify import classify_music
+    from modules.music.state import SCOPE_MUSIC, STAGE_MUSIC_CLASSIFY
+
+    class _NoOpAcr:
+        def __init__(self, *a, **kw):
+            pass
+
+    monkeypatch.setattr(classify_mod, "ACRCloudRecognizer", _NoOpAcr)
+
+    db_session.merge(User(id=1, is_selected=True, is_eligible=True))
+    db_session.merge(Music(id=1, artist="a", track="t"))
+    db_session.merge(
+        Clip(
+            id=30,
+            user_id=1,
+            is_selected=True,
+            is_downloaded=True,
+            music_id=1,
+            music_confidence=0.9,
+            is_music_recognized=True,
+        )
+    )
+    db_session.commit()
+
+    paths = _paths("/tmp")
+    secrets = AcrSecrets(host="h", access_key="k", access_secret="s")
+
+    classify_music(_music_settings(), paths, secrets)
+    sealed = db_session.get(StageState, (STAGE_MUSIC_CLASSIFY, SCOPE_MUSIC))
+    assert sealed is not None
+    config_hash_before = sealed.config_hash
+
+    classify_music(_music_settings(reccobeats_batch_size=99), paths, secrets)
+
+    # No reset: row preserved.
+    clip = db_session.query(Clip).filter_by(id=30).one()
+    assert clip.music_id == 1
+    assert clip.is_music_recognized is True
+    # Fingerprint unchanged: scope is stage-specific.
+    db_session.expire_all()
+    sealed = db_session.get(StageState, (STAGE_MUSIC_CLASSIFY, SCOPE_MUSIC))
+    assert sealed.config_hash == config_hash_before
+
+
 def test_classify_music_config_change_triggers_reset(monkeypatch, db_session):
     """A config change in MusicSettings must reset clip → music links so the
     next classify run re-fingerprints."""

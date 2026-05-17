@@ -112,6 +112,36 @@ def test_reset_caption_outputs_nulls_the_three_fields(db_session):
     assert c.caption_translation is None
 
 
+def test_reset_caption_outputs_also_clears_ineligible_clips(db_session):
+    """Stale derived outputs on a clip that is currently ineligible must be
+    cleared too, so that the row-level idempotence rebuilds them if the
+    clip later re-enters the selection pool."""
+    from modules.captions.state import reset_caption_outputs
+    from modules.database import Clip, User
+
+    db_session.merge(User(id=1, is_selected=True, is_eligible=True))
+    # is_selected=False makes the clip currently ineligible.
+    db_session.merge(
+        Clip(
+            id=11,
+            user_id=1,
+            is_selected=False,
+            is_downloaded=True,
+            caption_text="raw",
+            caption_clean="cleaned-old",
+            caption_language="en",
+            caption_translation="translated-old",
+        )
+    )
+    db_session.commit()
+
+    reset_caption_outputs(db_session)
+    c = db_session.query(Clip).filter_by(id=11).one()
+    assert c.caption_clean is None
+    assert c.caption_language is None
+    assert c.caption_translation is None
+
+
 def test_process_captions_config_change_triggers_reset(monkeypatch, db_session):
     import modules.captions as captions_pkg
     from modules.captions import process_captions
