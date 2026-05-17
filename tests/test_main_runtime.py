@@ -16,6 +16,7 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
             profile_pic_dir="data/source/profile_pics",
             thumbnail_dir="data/source/thumbnails",
             speech_audio_dir="data/source/audio",
+            audio_dir="data/source/audio",
             data_csv_path="data/data.csv",
         ),
         parse=SimpleNamespace(fetch_retry_delays_sec=[0, 30, 60, 90]),

@@ -15,6 +15,7 @@ model_path = "./models/Qwen3-VL-Embedding-8B"
 profile_pic_dir = "data/source/profile_pics"
 thumbnail_dir = "data/source/thumbnails"
 speech_audio_dir = "data/source/audio"
+audio_dir = "data/audio"
 data_csv_path = "data/data.csv"
 
 [parse]

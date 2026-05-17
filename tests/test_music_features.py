@@ -455,6 +455,7 @@ def test_extract_music_features_config_change_triggers_reset(monkeypatch, db_ses
         profile_pic_dir="/tmp",
         thumbnail_dir="/tmp",
         speech_audio_dir="/tmp",
+        audio_dir="/tmp",
         data_csv_path="/tmp/x.csv",
     )
     secrets = MusicSecrets(spotify_client_id="x", spotify_client_secret="y")
@@ -535,6 +536,7 @@ def test_extract_music_features_unchanged_config_does_not_reset(
         profile_pic_dir="/tmp",
         thumbnail_dir="/tmp",
         speech_audio_dir="/tmp",
+        audio_dir="/tmp",
         data_csv_path="/tmp/x.csv",
     )
     secrets = MusicSecrets(spotify_client_id="x", spotify_client_secret="y")
