@@ -1,14 +1,19 @@
-FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
+# `devel` (not `runtime`): flash-attn ships only as an sdist in uv.lock and
+# is marked `no-build-isolation-package`, so `uv sync --group gpu` compiles
+# it against the system CUDA + Python. That needs nvcc and Python.h, neither
+# of which exist on the runtime image.
+FROM nvidia/cuda:12.4.1-devel-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
-    UV_LINK_MODE=copy
+    UV_LINK_MODE=copy \
+    UV_PYTHON=python3.12
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         software-properties-common gnupg ca-certificates \
     && add-apt-repository -y ppa:deadsnakes/ppa \
     && apt-get update && apt-get install -y --no-install-recommends \
-        python3.12 python3.12-venv python3-pip curl git \
+        python3.12 python3.12-venv python3.12-dev python3-pip curl git \
         ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 

@@ -65,8 +65,31 @@ class EmbeddingCaseSpec:
 # ── provider factories ───────────────────────────────────────────────────────
 
 
+def _require_remote_config(settings, secrets) -> None:
+    """Fail fast when [embeddings].provider = "remote" but the required
+    URL / token / object-store settings are still at their empty defaults.
+
+    Raised once at factory-time so the operator sees one actionable error
+    instead of every clip embedding failing generically inside the runner.
+    """
+    missing: list[str] = []
+    if not secrets.embedder_remote_url:
+        missing.append("EMBEDDER_REMOTE_URL")
+    if not secrets.embedder_token:
+        missing.append("EMBEDDER_TOKEN")
+    if not settings.storage.bucket:
+        missing.append("[storage].bucket")
+    if not secrets.object_store_access_key:
+        missing.append("OBJECT_STORE_ACCESS_KEY")
+    if not secrets.object_store_secret_key:
+        missing.append("OBJECT_STORE_SECRET_KEY")
+    if missing:
+        raise RuntimeError("embeddings.provider=remote requires: " + ", ".join(missing))
+
+
 def _qwen_video_factory(settings, secrets) -> Provider:
     if settings.embeddings.provider == "remote":
+        _require_remote_config(settings, secrets)
         return RemoteQwenProvider(
             url=secrets.embedder_remote_url,
             token=secrets.embedder_token,
@@ -84,6 +107,7 @@ def _qwen_video_factory(settings, secrets) -> Provider:
 
 def _qwen_text_factory(settings, secrets) -> Provider:
     if settings.embeddings.provider == "remote":
+        _require_remote_config(settings, secrets)
         return RemoteQwenProvider(
             url=secrets.embedder_remote_url,
             token=secrets.embedder_token,

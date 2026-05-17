@@ -103,6 +103,7 @@ class _EmbeddingsStub:
     gemini_enabled: bool = True
     gemini_output_dim: int = 3072
     inflight: int = 1
+    provider: str = "local"
 
 
 @dataclass

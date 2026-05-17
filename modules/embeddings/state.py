@@ -59,14 +59,23 @@ def get_embedded_user_ids(session: Session, case: str) -> set[int]:
 
 
 def get_clip_embedding_candidates(
-    session: Session, exclude_disqualified_users: bool
+    session: Session,
+    exclude_disqualified_users: bool,
+    require_uploaded: bool = False,
 ) -> list[Clip]:
     """Eligible clips (selected + downloaded), optionally restricted to
     users marked is_eligible.
+
+    When ``require_uploaded`` is True, also requires ``is_uploaded=True``
+    — used by the remote provider so we don't sign URLs for clips that
+    never made it to the object store and burn pod retries on guaranteed
+    fetch failures.
     """
     q = session.query(Clip).filter(*clip_used_in_analysis())
     if exclude_disqualified_users:
         q = q.join(User, Clip.user_id == User.id).filter(User.is_eligible.is_(True))
+    if require_uploaded:
+        q = q.filter(Clip.is_uploaded.is_(True))
     return q.all()
 
 

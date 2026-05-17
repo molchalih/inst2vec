@@ -144,7 +144,9 @@ def _run_case(settings, secrets, spec: EmbeddingCaseSpec) -> None:
     session = get_session()
     try:
         candidates = get_clip_embedding_candidates(
-            session, settings.embeddings.exclude_disqualified_users
+            session,
+            settings.embeddings.exclude_disqualified_users,
+            require_uploaded=settings.embeddings.provider == "remote",
         )
         candidate_ids = {c.id for c in candidates}
 

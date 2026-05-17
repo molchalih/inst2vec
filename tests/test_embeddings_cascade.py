@@ -120,6 +120,7 @@ class _EmbeddingsStub:
     adaptive_max_frames: int = 8
     adaptive_default_fps: float = 1.0
     inflight: int = 1
+    provider: str = "local"
 
 
 @dataclass
