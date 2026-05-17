@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 
 from core.config import MusicSettings
+from core.ffmpeg import run_ffmpeg
 
 
 def extract_audio_sample(
@@ -34,8 +34,9 @@ def extract_audio_sample(
 
     wav = out_dir / f"{video.stem}.wav"
     if (
-        _run(
-            [*base, "-c:a", "pcm_s16le", str(wav)], timeout=music.ffmpeg_timeout_seconds
+        run_ffmpeg(
+            [*base, "-c:a", "pcm_s16le", str(wav)],
+            timeout=music.ffmpeg_timeout_seconds,
         )
         and wav.exists()
         and wav.stat().st_size <= sample_max_bytes
@@ -44,7 +45,7 @@ def extract_audio_sample(
 
     mp3 = out_dir / f"{video.stem}.mp3"
     if (
-        _run(
+        run_ffmpeg(
             [*base, "-b:a", music.manual_features_mp3_bitrate, str(mp3)],
             timeout=music.ffmpeg_timeout_seconds,
         )
@@ -54,12 +55,3 @@ def extract_audio_sample(
         return mp3
 
     return None
-
-
-def _run(cmd: list[str], timeout: int) -> bool:
-    """Run ffmpeg; return True iff it exited 0 within the timeout."""
-    try:
-        result = subprocess.run(cmd, capture_output=True, timeout=timeout)
-    except subprocess.TimeoutExpired:
-        return False
-    return result.returncode == 0
