@@ -7,11 +7,13 @@ there are no DB status flags for embedding stages.
 from __future__ import annotations
 
 import hashlib
+import os
 from collections import defaultdict
 
 from sqlalchemy.orm import Session
 
 from modules import fingerprint as fp
+from modules.config import load_runtime_config
 from modules.database import (
     Clip,
     ClipEmbedding,
@@ -20,6 +22,21 @@ from modules.database import (
     UserEmbedding,
     clip_used_in_analysis,
 )
+
+
+def _stat_or_sentinel(path: str) -> tuple[int, int]:
+    if not os.path.exists(path):
+        return (-1, -1)
+    st = os.stat(path)
+    return (st.st_size, st.st_mtime_ns)
+
+
+def _video_file_stat(video_dir: str, clip_id: int) -> tuple[int, int]:
+    return _stat_or_sentinel(os.path.join(video_dir, f"{clip_id}.mp4"))
+
+
+def _audio_file_stat(audio_dir: str, clip_id: int) -> tuple[int, int]:
+    return _stat_or_sentinel(os.path.join(audio_dir, f"{clip_id}.mp3"))
 
 
 def get_embedded_clip_ids(session: Session, case: str) -> set[int]:
@@ -195,14 +212,39 @@ def dependency_rows_for_case(
         return [tuple(r) for r in rows]
 
     if case == "gemini_mm":
-        # Gemini multimodal: reads video (requires video file + is_downloaded status)
+        settings, _ = load_runtime_config()
+        video_dir = settings.paths.video_dir
+        audio_dir = settings.paths.audio_dir
         rows = (
-            session.query(Clip.id, Clip.is_downloaded)
+            session.query(
+                Clip.id,
+                Clip.caption_text,
+                Clip.caption_clean,
+                Clip.caption_language,
+                Clip.caption_translation,
+                Clip.speech_transcription,
+                Clip.speech_language,
+                Clip.speech_translation,
+            )
             .filter(Clip.id.in_(candidate_ids))
             .order_by(Clip.id)
             .all()
         )
-        return [tuple(r) for r in rows]
+        return [
+            (
+                r.id,
+                r.caption_text,
+                r.caption_clean,
+                r.caption_language,
+                r.caption_translation,
+                r.speech_transcription,
+                r.speech_language,
+                r.speech_translation,
+                _video_file_stat(video_dir, r.id),
+                _audio_file_stat(audio_dir, r.id),
+            )
+            for r in rows
+        ]
 
     raise ValueError(f"Unknown embedding case: {case!r}")
 

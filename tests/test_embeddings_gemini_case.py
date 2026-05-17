@@ -199,6 +199,13 @@ def test_config_drift_wipes_case(tmp_path, monkeypatch):
         # Phase (a): baseline run with output_dim=3072
         s1 = _runner_settings(tmp_path, vid_dir, aud_dir)
 
+        # dependency_rows_for_case("gemini_mm", ...) calls load_runtime_config()
+        # to resolve audio_dir / video_dir; stub it so tests don't need .env.
+        monkeypatch.setattr(
+            "modules.embeddings.state.load_runtime_config",
+            lambda: (s1, None),
+        )
+
         embed_clip_embeddings(
             s1, EmbeddingSecrets(gemini_api_key="x"), cases=["gemini_mm"]
         )
@@ -220,6 +227,10 @@ def test_config_drift_wipes_case(tmp_path, monkeypatch):
         # Phase (b): drift config by changing output_dim
         s2 = _runner_settings(tmp_path, vid_dir, aud_dir)
         s2.embeddings.gemini_output_dim = 768  # drift the config
+        monkeypatch.setattr(
+            "modules.embeddings.state.load_runtime_config",
+            lambda: (s2, None),
+        )
 
         embed_clip_embeddings(
             s2, EmbeddingSecrets(gemini_api_key="x"), cases=["gemini_mm"]
