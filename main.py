@@ -16,7 +16,7 @@ from modules.music.features import MusicSecrets
 from modules.parse import fetch_profiles
 from modules.speech import process_speech
 from modules.upload import upload_videos
-from modules.utils import load_usernames_from_csv
+from modules.ingest import load_usernames_from_csv
 from modules.visualization.plots import plot_clusters
 
 
