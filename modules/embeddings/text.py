@@ -8,17 +8,14 @@ textual description.
 
 from __future__ import annotations
 
+from core.lang import is_english
+
 _KEY_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
 
 def _is_non_english(lang: str | None) -> bool:
-    """True iff ``lang`` is present and not an English-family tag.
-
-    Canonical English check across the codebase. SQL equivalent:
-    ``func.lower(col).notlike("en%")``. Matches "en", "EN", "eng",
-    "en-US", "English" all as English.
-    """
-    return bool(lang) and not lang.lower().startswith("en")
+    """True iff ``lang`` is present and not an English-family tag."""
+    return bool(lang) and not is_english(lang)
 
 
 def verbalize_music(music) -> str:

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 
 def has_any_flag(obj: Any, flags: tuple[str, ...]) -> bool:
@@ -41,3 +44,11 @@ def _is_too_long(clip: Any, *, max_video_duration: float) -> bool:
 
 def _is_too_old(clip: Any, *, min_taken_at: int) -> bool:
     return (clip.taken_at or 0) < min_taken_at
+
+
+def is_creator_low_outlier(session: Session, clip: Any) -> bool:
+    """Return True iff the scratch row marks this clip as a creator-relative low outlier."""
+    from core.database import ClipFilterScratch
+
+    row = session.get(ClipFilterScratch, clip.id)
+    return bool(row and row.is_creator_low_outlier)

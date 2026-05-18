@@ -1,7 +1,7 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from core.database import Base, Clip, User
+from core.database import Base, Clip, ClipFilterScratch, User
 from modules.filter.predicates import (
     _is_garbage,
     _is_too_long,
@@ -19,9 +19,6 @@ def test_clip_has_filter_columns():
         "is_too_old",
         "is_low_percentile",
         "is_high_percentile",
-        "is_creator_low_outlier",
-        "log_plays",
-        "creator_relative_robust_z",
         "is_preprocessed",
         "is_eligible",
         "is_selected",
@@ -64,7 +61,6 @@ def test_clip_filter_columns_default_null():
         assert clip.is_preprocessed is None
         assert clip.is_eligible is None
         assert clip.is_selected is None
-        assert clip.log_plays is None
 
 
 def test_user_filter_columns_default_null():
@@ -204,7 +200,6 @@ def test_clip_exclusion_flags_tuple_contents():
         "is_too_old",
         "is_low_percentile",
         "is_high_percentile",
-        "is_creator_low_outlier",
     )
 
 
@@ -225,7 +220,6 @@ def test_soft_clip_exclusion_flags_tuple_contents():
     assert SOFT_CLIP_EXCLUSION_FLAGS == (
         "is_low_percentile",
         "is_high_percentile",
-        "is_creator_low_outlier",
     )
 
 
@@ -616,9 +610,11 @@ def test_compute_creator_robust_stats():
         s.commit()
         clips = s.query(Clip).filter(Clip.user_id == 1).all()
         for c in clips:
-            assert c.log_plays is not None
-            assert c.creator_relative_robust_z is not None
-            assert c.is_creator_low_outlier is not None
+            row = s.get(ClipFilterScratch, c.id)
+            assert row is not None
+            assert row.log_plays is not None
+            assert row.creator_relative_robust_z is not None
+            assert row.is_creator_low_outlier is not None
 
 
 def test_compute_creator_robust_stats_mad_zero_no_crash():
@@ -650,7 +646,9 @@ def test_compute_creator_robust_stats_mad_zero_no_crash():
         s.commit()
         clips = s.query(Clip).filter(Clip.user_id == 1).all()
         for c in clips:
-            assert c.is_creator_low_outlier is False
+            row = s.get(ClipFilterScratch, c.id)
+            assert row is not None
+            assert row.is_creator_low_outlier is False
 
 
 def test_compute_creator_robust_stats_outlier_flagged():
@@ -681,8 +679,9 @@ def test_compute_creator_robust_stats_outlier_flagged():
         s.commit()
         compute_creator_robust_stats(s, cfg)
         s.commit()
-        c_low = s.get(Clip, 1)
-        assert c_low.is_creator_low_outlier is True
+        row = s.get(ClipFilterScratch, 1)
+        assert row is not None
+        assert row.is_creator_low_outlier is True
 
 
 def test_compute_creator_robust_stats_does_not_write_to_user():
@@ -736,7 +735,7 @@ def test_compute_creator_robust_stats_skips_low_percentile_clips():
                     is_high_percentile=False,
                 )
             )
-        # Soft-excluded — must not get robust-z assigned
+        # Soft-excluded — must not get scratch row
         s.add(
             Clip(
                 id=99,
@@ -750,9 +749,7 @@ def test_compute_creator_robust_stats_skips_low_percentile_clips():
         s.commit()
         compute_creator_robust_stats(s, cfg)
         s.commit()
-        skipped = s.get(Clip, 99)
-        assert skipped.log_plays is None
-        assert skipped.creator_relative_robust_z is None
+        assert s.get(ClipFilterScratch, 99) is None
 
 
 def test_derive_eligibility_sets_all_clips():
@@ -773,7 +770,6 @@ def test_derive_eligibility_sets_all_clips():
                 is_too_long=False,
                 is_too_short=False,
                 is_low_percentile=False,
-                is_creator_low_outlier=False,
             )
         )
         # disqualified: is_garbage
@@ -787,7 +783,6 @@ def test_derive_eligibility_sets_all_clips():
                 is_too_long=False,
                 is_too_short=False,
                 is_low_percentile=False,
-                is_creator_low_outlier=False,
             )
         )
         # disqualified: creator is_low_plays_median
@@ -802,7 +797,6 @@ def test_derive_eligibility_sets_all_clips():
                 is_too_long=False,
                 is_too_short=False,
                 is_low_percentile=False,
-                is_creator_low_outlier=False,
             )
         )
         s.commit()
@@ -833,7 +827,6 @@ def test_derive_eligibility_no_nulls_after_run():
                 is_too_long=False,
                 is_too_short=False,
                 is_low_percentile=False,
-                is_creator_low_outlier=False,
             )
         )
         s.commit()
@@ -863,7 +856,6 @@ def __seed_eligible_clips(s, user_id: int, play_counts: list, id_offset: int = 0
                 is_too_long=False,
                 is_too_old=False,
                 is_low_percentile=False,
-                is_creator_low_outlier=False,
                 is_eligible=True,
             )
         )
@@ -1517,16 +1509,9 @@ def test_process_dataset_runs_not_enough_clips_after_robust_stats():
     with Session(eng) as s:
         u = s.get(User, 1)
         clips = s.query(Clip).filter(Clip.user_id == 1).all()
-        surviving = [
-            c
-            for c in clips
-            if c.is_preprocessed is True
-            and not any(
-                [c.is_low_percentile, c.is_high_percentile, c.is_creator_low_outlier]
-            )
-        ]
+        n_eligible = sum(1 for c in clips if c.is_eligible is True)
         assert u.is_not_enough_eligible == (
-            len(surviving) < cfg.min_eligible_clips_per_user
+            n_eligible < cfg.min_eligible_clips_per_user
         )
 
 
@@ -1577,14 +1562,12 @@ def test_reset_dataset_processing_state_clears_all_derived_fields():
                 "is_too_old",
                 "is_low_percentile",
                 "is_high_percentile",
-                "is_creator_low_outlier",
-                "log_plays",
-                "creator_relative_robust_z",
                 "is_preprocessed",
                 "is_eligible",
                 "is_selected",
             ]:
                 assert getattr(c, col) is None, f"{col} not reset on clip {c.id}"
+        assert s.query(ClipFilterScratch).count() == 0
         for u in s.query(User).all():
             assert u.is_low_plays_median is None
             assert u.is_not_enough_preprocessed is None

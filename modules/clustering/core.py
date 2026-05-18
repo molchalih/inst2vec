@@ -8,10 +8,8 @@ import numpy as np
 from sqlalchemy import select
 from umap import UMAP
 
-from core.console import log, progress
 from core.database import (
     Clip,
-    UserCluster,
     UserEmbedding,
     clip_used_in_analysis,
     get_session,
@@ -176,52 +174,3 @@ def load_user_matrix(embedding_case: str) -> tuple[np.ndarray, list[int]]:
         return np.stack(arrays), user_ids
     finally:
         session.close()
-
-
-def cluster_users(embedding_case: str, **params) -> None:
-    matrix, user_ids = load_user_matrix(embedding_case)
-
-    if matrix.shape[0] == 0:
-        log(f"cluster:{embedding_case}", "nothing to do")
-        return
-
-    n_users = matrix.shape[0]
-    log(f"cluster:{embedding_case}", f"{n_users} users — running UMAP + HDBSCAN")
-    with progress(1, f"cluster fit · {embedding_case}") as advance:
-        advance(0, detail="UMAP + HDBSCAN (may take a while)")
-        try:
-            result = compute_clusters(matrix, **params)
-        except ValueError as exc:
-            log(f"cluster:{embedding_case}", f"skipping — {exc}", level="warn")
-            return
-        advance(
-            1, detail=f"{result.n_clusters} clusters, {result.noise_ratio:.1%} noise"
-        )
-
-    session = get_session()
-    try:
-        with progress(len(user_ids), f"cluster save · {embedding_case}") as advance:
-            for i, user_id in enumerate(user_ids):
-                row = UserCluster(
-                    user_id=user_id,
-                    embedding_case=embedding_case,
-                    cluster_id=int(result.labels[i]),
-                    umap_x=float(result.coords_2d[i, 0]),
-                    umap_y=float(result.coords_2d[i, 1]),
-                )
-                session.merge(row)
-                advance(1, detail=f"{i + 1}/{len(user_ids)}")
-        session.commit()
-    finally:
-        session.close()
-
-    sizes_str = (
-        f"min={min(result.cluster_sizes)} median={int(np.median(result.cluster_sizes))} max={max(result.cluster_sizes)}"
-        if result.cluster_sizes
-        else "n/a"
-    )
-    log(
-        f"cluster:{embedding_case}",
-        f"{result.n_clusters} clusters, {result.noise_ratio:.1%} noise, sizes: {sizes_str}",
-        level="ok",
-    )

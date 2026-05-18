@@ -1,4 +1,4 @@
-"""Tests for scripts/retry_failed_speech_detection.py"""
+"""Tests for modules/speech/retry.py::retry_failed_detection"""
 
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -31,20 +31,18 @@ def _make_db(tmp_path: Path):
 
 def test_retry_invokes_classify_speech_with_kwargs(tmp_path, monkeypatch):
     s = _make_db(tmp_path)
-    monkeypatch.setattr("scripts.retry_failed_speech_detection.get_session", lambda: s)
+    monkeypatch.setattr("modules.speech.retry.get_session", lambda: s)
 
     captured = {}
 
     def _fake_classify(**kwargs):
         captured.update(kwargs)
 
-    monkeypatch.setattr(
-        "scripts.retry_failed_speech_detection.classify_speech", _fake_classify
-    )
+    monkeypatch.setattr("modules.speech.retry.classify_speech", _fake_classify)
 
-    from scripts.retry_failed_speech_detection import retry_failed_speech_detection
+    from modules.speech.retry import retry_failed_detection
 
-    retry_failed_speech_detection(
+    retry_failed_detection(
         video_dir=str(tmp_path),
         speech_audio_dir=str(tmp_path / "audio"),
         whisper_model="tiny",
@@ -69,14 +67,14 @@ def test_retry_short_circuits_when_no_unresolved_clips(tmp_path, monkeypatch):
     eng = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(eng)
     s = Session(eng)
-    monkeypatch.setattr("scripts.retry_failed_speech_detection.get_session", lambda: s)
+    monkeypatch.setattr("modules.speech.retry.get_session", lambda: s)
 
     fake = MagicMock(side_effect=AssertionError("should not be called"))
-    monkeypatch.setattr("scripts.retry_failed_speech_detection.classify_speech", fake)
+    monkeypatch.setattr("modules.speech.retry.classify_speech", fake)
 
-    from scripts.retry_failed_speech_detection import retry_failed_speech_detection
+    from modules.speech.retry import retry_failed_detection
 
-    retry_failed_speech_detection(
+    retry_failed_detection(
         video_dir=str(tmp_path),
         speech_audio_dir=str(tmp_path / "audio"),
         whisper_model="tiny",

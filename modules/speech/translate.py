@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from core.console import log, progress
 from core.database import Clip, clip_needs_speech_translation, get_session
+from core.lang import is_english
 from core.vendor.gemma_translate import GemmaTranslator
 from modules.speech.state import SCOPE_TRANSLATE
 
@@ -41,7 +42,7 @@ def translate_speech(
         for i, clip in enumerate(clips, 1):
             source = (clip.speech_transcription or "").strip()[:translation_max_chars]
             source_lang = (clip.speech_language or "").strip().replace("_", "-")
-            if not source or not source_lang or source_lang.lower().startswith("en"):
+            if not source or not source_lang or is_english(source_lang):
                 advance()
                 continue
 

@@ -1,4 +1,4 @@
-"""Tests for scripts/retry_failed_music_recognition.py"""
+"""Tests for modules/music/retry.py::retry_failed_recognition"""
 
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -77,7 +77,7 @@ def test_retry_nulls_failed_rows_then_calls_classify_music(tmp_path, monkeypatch
     fields would shift the seal hash and trigger reset_music_classify,
     wiping every Music row."""
     s = _make_db(tmp_path)
-    monkeypatch.setattr("scripts.retry_failed_music_recognition.get_session", lambda: s)
+    monkeypatch.setattr("modules.music.retry.get_session", lambda: s)
 
     captured: dict = {}
 
@@ -90,14 +90,12 @@ def test_retry_nulls_failed_rows_then_calls_classify_music(tmp_path, monkeypatch
             s.query(Clip).filter_by(id=10).one().is_music_recognized
         )
 
-    monkeypatch.setattr(
-        "scripts.retry_failed_music_recognition.classify_music", fake_classify_music
-    )
+    monkeypatch.setattr("modules.music.retry.classify_music", fake_classify_music)
 
-    from scripts.retry_failed_music_recognition import retry_failed_music_recognition
+    from modules.music.retry import retry_failed_recognition
 
     music_in = _music_settings()
-    retry_failed_music_recognition(
+    retry_failed_recognition(
         music=music_in, paths=_paths(tmp_path), secrets=_acr_secrets()
     )
 
@@ -114,16 +112,14 @@ def test_retry_skips_when_no_failed_rows(tmp_path, monkeypatch):
     eng = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(eng)
     s = Session(eng)
-    monkeypatch.setattr("scripts.retry_failed_music_recognition.get_session", lambda: s)
+    monkeypatch.setattr("modules.music.retry.get_session", lambda: s)
 
     fake_classify = MagicMock(side_effect=AssertionError("should not be called"))
-    monkeypatch.setattr(
-        "scripts.retry_failed_music_recognition.classify_music", fake_classify
-    )
+    monkeypatch.setattr("modules.music.retry.classify_music", fake_classify)
 
-    from scripts.retry_failed_music_recognition import retry_failed_music_recognition
+    from modules.music.retry import retry_failed_recognition
 
-    retry_failed_music_recognition(
+    retry_failed_recognition(
         music=_music_settings(), paths=_paths(tmp_path), secrets=_acr_secrets()
     )
 

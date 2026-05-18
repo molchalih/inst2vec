@@ -20,6 +20,7 @@ from core.database.models import (  # noqa: F401  -- re-exports for core.databas
     Base,
     Clip,
     ClipEmbedding,
+    ClipFilterScratch,
     ClusterRun,
     Music,
     StageState,

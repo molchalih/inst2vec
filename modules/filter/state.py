@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
-from core.database import Clip, User, UserStats
+from core.database import Clip, ClipFilterScratch, User, UserStats
 from core.pipeline import Stage
 
 STAGE = Stage.FILTER
@@ -18,7 +18,6 @@ HARD_CLIP_EXCLUSION_FLAGS: tuple[str, ...] = (
 SOFT_CLIP_EXCLUSION_FLAGS: tuple[str, ...] = (
     "is_low_percentile",
     "is_high_percentile",
-    "is_creator_low_outlier",
 )
 
 CLIP_EXCLUSION_FLAGS: tuple[str, ...] = (
@@ -40,9 +39,6 @@ def _reset_dataset_processing_state(session: Session) -> None:
         clip.is_too_old = None
         clip.is_low_percentile = None
         clip.is_high_percentile = None
-        clip.is_creator_low_outlier = None
-        clip.log_plays = None
-        clip.creator_relative_robust_z = None
         clip.is_preprocessed = None
         clip.is_eligible = None
         clip.is_selected = None
@@ -52,4 +48,5 @@ def _reset_dataset_processing_state(session: Session) -> None:
         user.is_not_enough_eligible = None
         user.is_selected = None
         user.is_eligible = None
+    session.query(ClipFilterScratch).delete()
     session.query(UserStats).delete()
