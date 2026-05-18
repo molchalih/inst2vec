@@ -28,6 +28,11 @@ from modules.embeddings.cases import CASE_REGISTRY
 from modules.embeddings.providers import LocalQwenProvider
 from modules.embeddings.sampling import is_token_mismatch_error
 
+# Cases the Qwen pod can actually serve. gemini_mm is in CASE_REGISTRY but
+# its payload_builder requires audio_path, which the pod cannot resolve — so
+# accepting it here would surface as an unhandled 500 inside the handler.
+SERVED_CASES: frozenset[str] = frozenset({"video", "sandwich", "audio"})
+
 # ── module-level state (constructed at startup, swappable in tests) ─────────
 
 _token: str = ""
@@ -80,6 +85,10 @@ class EmbedRequest(BaseModel):
         if v not in CASE_REGISTRY:
             raise ValueError(
                 f"unknown case: {v!r}; expected one of {sorted(CASE_REGISTRY)}"
+            )
+        if v not in SERVED_CASES:
+            raise ValueError(
+                f"unsupported case: {v!r}; this pod serves {sorted(SERVED_CASES)}"
             )
         return v
 

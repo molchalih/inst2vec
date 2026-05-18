@@ -125,3 +125,16 @@ def test_embed_rejects_unknown_case(client):
     )
     assert r.status_code == 422, r.text
     assert "unknown case" in r.text.lower()
+
+
+def test_embed_rejects_unsupported_case(client):
+    """A case registered in CASE_REGISTRY but not served by the Qwen pod
+    (e.g. gemini_mm) must produce a 422 — not an unhandled 500 from the
+    payload builder that requires audio_path."""
+    r = client.post(
+        "/embed",
+        headers={"Authorization": "Bearer tok"},
+        json={"case": "gemini_mm", "clip_id": 1, "text": "x"},
+    )
+    assert r.status_code == 422, r.text
+    assert "unsupported case" in r.text.lower()

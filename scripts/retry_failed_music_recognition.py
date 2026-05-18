@@ -1,8 +1,9 @@
 """Manual recovery: re-attempt clips marked is_music_recognized=False.
 
 Flips is_music_recognized=False rows back to NULL, then calls public
-classify_music with api_max_attempts=1 / acr_max_attempts=1 so each clip
-gets a single fresh attempt with no internal retries.
+classify_music with the configured MusicSettings so the classify seal
+is preserved (overriding retry knobs would change the config hash and
+trigger reset_music_classify, wiping every Music row).
 
 Usage:
     uv run python scripts/retry_failed_music_recognition.py
@@ -46,16 +47,8 @@ def retry_failed_music_recognition(
     finally:
         session.close()
 
-    retry_music = music.model_copy(
-        update={
-            "api_max_attempts": 1,
-            "acr_max_attempts": 1,
-            "api_retry_delay": 0.0,
-            "api_retry_jitter": 0.0,
-        }
-    )
-    log(SCOPE, "re-running classify_music with single-attempt config")
-    classify_music(music=retry_music, paths=paths, secrets=secrets)
+    log(SCOPE, "re-running classify_music with configured MusicSettings")
+    classify_music(music=music, paths=paths, secrets=secrets)
 
 
 if __name__ == "__main__":

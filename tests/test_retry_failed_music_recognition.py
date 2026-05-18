@@ -73,7 +73,9 @@ def _make_db(tmp_path: Path):
 
 def test_retry_nulls_failed_rows_then_calls_classify_music(tmp_path, monkeypatch):
     """Failed rows must be flipped to NULL and classify_music re-invoked
-    with a single-attempt MusicSettings copy."""
+    with the *unmodified* MusicSettings — overriding the classify-config
+    fields would shift the seal hash and trigger reset_music_classify,
+    wiping every Music row."""
     s = _make_db(tmp_path)
     monkeypatch.setattr("scripts.retry_failed_music_recognition.get_session", lambda: s)
 
@@ -94,15 +96,17 @@ def test_retry_nulls_failed_rows_then_calls_classify_music(tmp_path, monkeypatch
 
     from scripts.retry_failed_music_recognition import retry_failed_music_recognition
 
+    music_in = _music_settings()
     retry_failed_music_recognition(
-        music=_music_settings(), paths=_paths(tmp_path), secrets=_acr_secrets()
+        music=music_in, paths=_paths(tmp_path), secrets=_acr_secrets()
     )
 
     assert captured["row_state_at_call"] is None
-    assert captured["music"].api_max_attempts == 1
-    assert captured["music"].acr_max_attempts == 1
-    assert captured["music"].api_retry_delay == 0.0
-    assert captured["music"].api_retry_jitter == 0.0
+    # Same instance, not a model_copy — preserves the seal config hash.
+    assert captured["music"] is music_in
+    assert captured["music"].acr_max_attempts == music_in.acr_max_attempts
+    assert captured["music"].api_retry_delay == music_in.api_retry_delay
+    assert captured["music"].api_retry_jitter == music_in.api_retry_jitter
 
 
 def test_retry_skips_when_no_failed_rows(tmp_path, monkeypatch):
