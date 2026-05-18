@@ -7,13 +7,14 @@ import numpy as np
 from sqlalchemy.orm import Session
 
 from core.config import FilterSettings
-from core.database import Clip, User
+from core.database import Clip, ClipFilterScratch, User
 from modules.filter.predicates import (
     _is_garbage,
     _is_too_long,
     _is_too_old,
     _is_too_short,
     has_any_flag,
+    is_creator_low_outlier,
     preprocessed_clips,
 )
 from modules.filter.state import (
@@ -79,6 +80,7 @@ def flag_users_without_enough_eligible_clips(
             1
             for clip in preprocessed_clips(user)
             if not has_any_flag(clip, SOFT_CLIP_EXCLUSION_FLAGS)
+            and not is_creator_low_outlier(session, clip)
         )
         user.is_not_enough_eligible = count < cfg.min_eligible_clips_per_user
 
@@ -107,12 +109,7 @@ def flag_global_percentile_clips(session: Session, cfg: FilterSettings) -> None:
 
 
 def compute_creator_robust_stats(session: Session, cfg: FilterSettings) -> None:
-    # Reset state-dependent clip fields before recomputing so the result is
-    # determined only by the current (preprocessed, soft-flag) state.
-    for clip in session.query(Clip).all():
-        clip.log_plays = None
-        clip.creator_relative_robust_z = None
-        clip.is_creator_low_outlier = False
+    session.query(ClipFilterScratch).delete()
 
     for user in session.query(User).all():
         if has_any_flag(user, USER_EXCLUSION_FLAGS):
@@ -131,10 +128,15 @@ def compute_creator_robust_stats(session: Session, cfg: FilterSettings) -> None:
 
         for clip in candidates:
             lp = math.log1p(clip.play_count)
-            clip.log_plays = lp
             z = 0.6745 * (lp - creator_median) / mad if mad > 0 else 0.0
-            clip.creator_relative_robust_z = z
-            clip.is_creator_low_outlier = z < cfg.creator_low_z_threshold
+            session.add(
+                ClipFilterScratch(
+                    clip_id=clip.id,
+                    log_plays=lp,
+                    creator_relative_robust_z=z,
+                    is_creator_low_outlier=z < cfg.creator_low_z_threshold,
+                )
+            )
 
 
 def derive_eligibility(session: Session) -> None:
@@ -147,6 +149,7 @@ def derive_eligibility(session: Session) -> None:
         clip.is_eligible = (
             clip.is_preprocessed is True
             and not has_any_flag(clip, SOFT_CLIP_EXCLUSION_FLAGS)
+            and not is_creator_low_outlier(session, clip)
             and not has_any_flag(user, USER_EXCLUSION_FLAGS)
         )
 

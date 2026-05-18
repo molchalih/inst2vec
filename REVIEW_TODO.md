@@ -12,7 +12,7 @@ Plan: `docs/superpowers/plans/2026-05-18-audit-final-cleanup.md` (pending).
   - Verify no live imports first.
   - Commit: `chore(scripts): drop one-shot migrate_* scripts and tests`
 
-- [ ] **2. Extract Clip filter scratch state (audit 3.2 / 3.8)**
+- [x] **2. Extract Clip filter scratch state (audit 3.2 / 3.8)**
   - New `clip_filter_scratch` table (1:1 on `clip_id`).
   - Move `log_plays`, `creator_relative_robust_z`, `is_creator_low_outlier` off `Clip`.
   - Update filter stage writers/readers; no migration (throwaway DB).
