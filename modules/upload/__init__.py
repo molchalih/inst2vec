@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 
+from core.config import Secrets, Settings
 from core.console import log, progress
 from core.database import Clip, get_session
 from core.storage import get_object_store
@@ -80,3 +81,8 @@ def upload_videos(settings, secrets) -> None:
             level="warn",
         )
     log(STAGE, "done", level="ok")
+
+
+def run(settings: Settings, secrets: Secrets) -> None:
+    """Upload selected clip videos to the object store."""
+    upload_videos(settings, secrets)

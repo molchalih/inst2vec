@@ -13,7 +13,7 @@ from itertools import chain
 from sqlalchemy.orm import Session
 
 from core import fingerprint as fp
-from core.config import FilterSettings
+from core.config import FilterSettings, Secrets, Settings
 from core.console import log
 from core.database import Clip, User, get_engine
 from modules.filter.predicates import (  # noqa: F401
@@ -62,6 +62,7 @@ __all__ = [
     "USER_EXCLUSION_FLAGS",
     "calculate_user_stats",
     "process_dataset",
+    "run",
     "select_clips",
 ]
 
@@ -119,3 +120,8 @@ def process_dataset(
 
         fp.mark_complete(session, STAGE, SCOPE, current)
         session.commit()
+
+
+def run(settings: Settings, secrets: Secrets) -> None:
+    """Filter dataset to eligible+selected clips."""
+    process_dataset(settings.filter)

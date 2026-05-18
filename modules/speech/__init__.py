@@ -17,7 +17,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from core import fingerprint as fp
-from core.config import SpeechSettings
+from core.config import Secrets, Settings, SpeechSettings
 from core.database import get_engine
 from modules.speech.classify import classify_speech, clean_speech
 from modules.speech.state import (
@@ -35,6 +35,7 @@ __all__ = [
     "clean_speech",
     "prepare_for_whisper",
     "process_speech",
+    "run",
     "translate_speech",
 ]
 
@@ -106,3 +107,12 @@ def process_speech(
     with Session(get_engine()) as session:
         fp.mark_complete(session, STAGE_SPEECH, SCOPE_SPEECH, current)
         session.commit()
+
+
+def run(settings: Settings, secrets: Secrets) -> None:
+    """Speech transcription + translation + post-clean."""
+    process_speech(
+        settings.speech,
+        video_dir=settings.paths.video_dir,
+        speech_audio_dir=settings.paths.speech_audio_dir,
+    )

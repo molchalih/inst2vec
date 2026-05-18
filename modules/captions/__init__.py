@@ -15,7 +15,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
 from core import fingerprint as fp
-from core.config import CaptionsSettings
+from core.config import CaptionsSettings, Secrets, Settings
 from core.database import get_engine
 from modules.captions.clean import clean_captions
 from modules.captions.detect import detect_caption_language
@@ -30,6 +30,7 @@ __all__ = [
     "clean_captions",
     "detect_caption_language",
     "process_captions",
+    "run",
     "translate_captions",
 ]
 
@@ -68,3 +69,8 @@ def process_captions(cfg: CaptionsSettings, *, engine: Engine | None = None) -> 
     with Session(eng) as session:
         fp.mark_complete(session, STAGE_CAPTIONS, SCOPE_CAPTIONS, current)
         session.commit()
+
+
+def run(settings: Settings, secrets: Secrets) -> None:
+    """Captions clean + detect language + translate."""
+    process_captions(settings.captions)
