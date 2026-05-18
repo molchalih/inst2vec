@@ -81,9 +81,7 @@ def test_download_files_retry_failed_picks_up_false_rows(
     assert s.query(Clip).filter_by(id=1).one().is_downloaded is True
 
 
-def test_download_files_default_skips_false_rows(
-    db_session, monkeypatch, tmp_path
-):
+def test_download_files_default_skips_false_rows(db_session, monkeypatch, tmp_path):
     """Default retry_failed=False must NOT re-attempt False rows."""
     s = db_session
     s.add(User(id=1, parse_status="success", is_selected=True))

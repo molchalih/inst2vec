@@ -310,12 +310,8 @@ def test_upload_fallback_tries_next_candidate_after_missing_video(
     s.add(
         Music(id=1, artist="a", track="t", spotify_id="sp-1", reccobeats_id=_NO_MATCH)
     )
-    s.add(
-        Clip(id=10, user_id=1, music_id=1, is_selected=True, is_downloaded=True)
-    )
-    s.add(
-        Clip(id=20, user_id=1, music_id=1, is_selected=True, is_downloaded=True)
-    )
+    s.add(Clip(id=10, user_id=1, music_id=1, is_selected=True, is_downloaded=True))
+    s.add(Clip(id=20, user_id=1, music_id=1, is_selected=True, is_downloaded=True))
     s.commit()
     # Only clip 20 has a video on disk; clip 10 is missing.
     (tmp_path / "20.mp4").write_bytes(b"fake")
@@ -328,9 +324,15 @@ def test_upload_fallback_tries_next_candidate_after_missing_video(
     )
     rb = MagicMock()
     rb.upload_features.return_value = {
-        "acousticness": 0.1, "danceability": 0.2, "energy": 0.3,
-        "instrumentalness": 0.4, "liveness": 0.6, "loudness": -7.0,
-        "speechiness": 0.05, "tempo": 120.0, "valence": 0.5,
+        "acousticness": 0.1,
+        "danceability": 0.2,
+        "energy": 0.3,
+        "instrumentalness": 0.4,
+        "liveness": 0.6,
+        "loudness": -7.0,
+        "speechiness": 0.05,
+        "tempo": 120.0,
+        "valence": 0.5,
     }
 
     _enrich_upload_fallback(s, rb, str(tmp_path), _music_settings())
