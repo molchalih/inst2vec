@@ -199,10 +199,10 @@ def dependency_rows_for_case(
         )
         return [tuple(r) for r in rows]
 
-    if case == "gemini_mm":
+    if case == "gemini":
         if settings is None:
             raise ValueError(
-                "dependency_rows_for_case(case='gemini_mm') requires settings "
+                "dependency_rows_for_case(case='gemini') requires settings "
                 "so the runner's paths (not a reread of config.toml) are hashed"
             )
         video_dir = settings.paths.video_dir

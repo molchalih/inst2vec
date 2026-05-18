@@ -146,7 +146,7 @@ def run_pipeline() -> None:
     """
     phase("User Embeddings")
     # Aggregate every case that downstream clustering will request, so
-    # gemini_mm (when embeddings.gemini_enabled=true) produces UserEmbedding
+    # gemini (when embeddings.gemini_enabled=true) produces UserEmbedding
     # rows and is not silently sealed as an empty matrix.
     embed_user_embeddings(settings, cases=list(default_cases(settings)))
 

@@ -101,7 +101,7 @@ def _quarto_cases() -> tuple[str, ...]:
     """
     cases = ("video", "sandwich", "audio")
     if _load_config_toml().get("embeddings", {}).get("gemini_enabled", False):
-        return (*cases, "gemini_mm")
+        return (*cases, "gemini")
     return cases
 
 

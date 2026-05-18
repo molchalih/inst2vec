@@ -30,7 +30,7 @@ from core.database import (
     UserEmbedding,
     get_session,
 )
-from modules.embeddings.cases import DEFAULT_CASES
+from modules.embeddings.cases import default_cases
 from modules.embeddings.state import (
     get_clip_embedding_rows_for_user_aggregation,
     get_stored_user_hashes,
@@ -121,7 +121,7 @@ def embed_user_embeddings(settings, cases: list[str] | None = None) -> None:
     candidate filter — preventing ineligible-user clip embeddings from
     flowing into clustering.
     """
-    case_names = list(cases) if cases is not None else list(DEFAULT_CASES)
+    case_names = list(cases) if cases is not None else list(default_cases(settings))
     exclude_disqualified = settings.embeddings.exclude_disqualified_users
     session = get_session()
     try:

@@ -5,13 +5,11 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from modules.clustering import (
-    DEFAULT_CASES,
     list_case_rows,
     summarize_case_rows,
 )
 
 __all__ = (
-    "DEFAULT_CASES",
     "summarize_all_to_markdown",
     "summarize_case_for_markdown",
     "summarize_to_markdown",
@@ -40,7 +38,7 @@ def summarize_to_markdown(eng, case: str) -> str:
 def summarize_all_to_markdown(
     eng,
     *,
-    cases: tuple[str, ...] = DEFAULT_CASES,
+    cases: tuple[str, ...],
 ) -> str:
     if not cases:
         raise ValueError("cases must contain at least one embedding case")

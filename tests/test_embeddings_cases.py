@@ -2,7 +2,6 @@ from types import SimpleNamespace
 
 from modules.embeddings.cases import (
     CASE_REGISTRY,
-    DEFAULT_CASES,
     VIDEO_CASE,
     EmbeddingCaseSpec,
     case_config_identity,
@@ -10,14 +9,19 @@ from modules.embeddings.cases import (
 
 
 def test_default_cases_exact_tuple():
-    assert DEFAULT_CASES == ("video", "sandwich", "audio")
+    assert tuple(name for name, spec in CASE_REGISTRY.items() if not spec.requires) == (
+        "video",
+        "sandwich",
+        "audio",
+    )
 
 
 def test_registry_contains_all_default_cases():
-    for name in DEFAULT_CASES:
-        assert name in CASE_REGISTRY
-        assert isinstance(CASE_REGISTRY[name], EmbeddingCaseSpec)
-        assert CASE_REGISTRY[name].name == name
+    for name, spec in CASE_REGISTRY.items():
+        if spec.requires:
+            continue
+        assert isinstance(spec, EmbeddingCaseSpec)
+        assert spec.name == name
 
 
 def test_video_case_shape():

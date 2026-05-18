@@ -28,7 +28,7 @@ from modules.embeddings.cases import CASE_REGISTRY
 from modules.embeddings.providers import LocalQwenProvider
 from modules.embeddings.sampling import is_token_mismatch_error
 
-# Cases the Qwen pod can actually serve. gemini_mm is in CASE_REGISTRY but
+# Cases the Qwen pod can actually serve. gemini is in CASE_REGISTRY but
 # its payload_builder requires audio_path, which the pod cannot resolve — so
 # accepting it here would surface as an unhandled 500 inside the handler.
 SERVED_CASES: frozenset[str] = frozenset({"video", "sandwich", "audio"})
@@ -137,8 +137,8 @@ def embed(req: EmbedRequest, _: None = Depends(_check_auth)) -> EmbedResponse:
             None,
             req.text,
             local_video_path,
-            # gemini_mm is not served by the Qwen pod, so no audio_path is
-            # threaded over the wire. If a gemini_mm request ever reaches
+            # gemini is not served by the Qwen pod, so no audio_path is
+            # threaded over the wire. If a gemini request ever reaches
             # this endpoint its payload_builder will raise.
             None,
             req.fps,

@@ -85,7 +85,7 @@ provider = "local"
 inflight = 1
 request_timeout_s = 120
 max_retries = 3
-# ── audio extraction (used by gemini_mm) ──
+# ── audio extraction (used by gemini) ──
 audio_bitrate_kbps       = 128
 audio_sample_rate_hz     = 44100
 audio_extract_timeout_s  = 60

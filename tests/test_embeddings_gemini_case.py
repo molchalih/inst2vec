@@ -243,7 +243,7 @@ def db_session():
     session.close()
 
 
-def test_dependency_rows_gemini_mm_includes_file_stats(db_session, tmp_path):
+def test_dependency_rows_gemini_includes_file_stats(db_session, tmp_path):
     import os
 
     from core.database import Clip, User
@@ -282,9 +282,7 @@ def test_dependency_rows_gemini_mm_includes_file_stats(db_session, tmp_path):
         )
     )
 
-    rows = dependency_rows_for_case(
-        db_session, "gemini_mm", [1], settings=fake_settings
-    )
+    rows = dependency_rows_for_case(db_session, "gemini", [1], settings=fake_settings)
     assert len(rows) == 1
     row = rows[0]
     assert (video_stat.st_size, video_stat.st_mtime_ns) in row
@@ -298,20 +296,20 @@ def _stub_settings(gemini_enabled: bool):
 
 
 def test_default_cases_excludes_gemini_when_disabled():
-    """default_cases should not include gemini_mm when gemini_enabled=False."""
-    assert "gemini_mm" not in default_cases(_stub_settings(gemini_enabled=False))
+    """default_cases should not include gemini when gemini_enabled=False."""
+    assert "gemini" not in default_cases(_stub_settings(gemini_enabled=False))
 
 
 def test_default_cases_includes_gemini_when_enabled():
-    """default_cases should include gemini_mm when gemini_enabled=True."""
-    assert "gemini_mm" in default_cases(_stub_settings(gemini_enabled=True))
+    """default_cases should include gemini when gemini_enabled=True."""
+    assert "gemini" in default_cases(_stub_settings(gemini_enabled=True))
 
 
 def test_explicit_gemini_request_raises_when_disabled():
-    """Requesting gemini_mm explicitly should raise when gemini_enabled=False."""
+    """Requesting gemini explicitly should raise when gemini_enabled=False."""
     settings = _stub_settings(gemini_enabled=False)
     with pytest.raises(RuntimeError, match="gemini_enabled"):
-        embed_clip_embeddings(settings, cases=["gemini_mm"])
+        embed_clip_embeddings(settings, cases=["gemini"])
 
 
 def _runner_settings(video_dir, audio_dir):
@@ -391,13 +389,13 @@ def test_runner_seals_when_all_clips_embed(
     monkeypatch.setattr(GeminiMultimodalProvider, "embed", _fake_embed)
 
     embed_clip_embeddings(
-        settings, EmbeddingSecrets(gemini_api_key="x"), cases=["gemini_mm"]
+        settings, EmbeddingSecrets(gemini_api_key="x"), cases=["gemini"]
     )
 
-    rows = db_session.query(ClipEmbedding).filter_by(embedding_case="gemini_mm").all()
+    rows = db_session.query(ClipEmbedding).filter_by(embedding_case="gemini").all()
     assert len(rows) == 1
     assert rows[0].clip_id == 1
-    state = db_session.get(StageState, ("clip_embeddings", "gemini_mm"))
+    state = db_session.get(StageState, ("clip_embeddings", "gemini"))
     assert state is not None
 
 
@@ -451,12 +449,12 @@ def test_runner_does_not_seal_on_failure(
     monkeypatch.setattr(GeminiMultimodalProvider, "embed", _fake_embed)
 
     embed_clip_embeddings(
-        settings, EmbeddingSecrets(gemini_api_key="x"), cases=["gemini_mm"]
+        settings, EmbeddingSecrets(gemini_api_key="x"), cases=["gemini"]
     )
 
-    rows = db_session.query(ClipEmbedding).filter_by(embedding_case="gemini_mm").all()
+    rows = db_session.query(ClipEmbedding).filter_by(embedding_case="gemini").all()
     assert {r.clip_id for r in rows} == {2}
-    assert db_session.get(StageState, ("clip_embeddings", "gemini_mm")) is None
+    assert db_session.get(StageState, ("clip_embeddings", "gemini")) is None
 
 
 def test_config_drift_wipes_case(
@@ -506,10 +504,10 @@ def test_config_drift_wipes_case(
 
     # Phase (a): baseline run with output_dim=3072.
     s1 = _runner_settings(vid_dir, aud_dir)
-    embed_clip_embeddings(s1, EmbeddingSecrets(gemini_api_key="x"), cases=["gemini_mm"])
+    embed_clip_embeddings(s1, EmbeddingSecrets(gemini_api_key="x"), cases=["gemini"])
     assert len(captured) == 1
     first_rows = (
-        db_session.query(ClipEmbedding).filter_by(embedding_case="gemini_mm").all()
+        db_session.query(ClipEmbedding).filter_by(embedding_case="gemini").all()
     )
     assert len(first_rows) == 1
     first_blob_size = len(first_rows[0].embedding)
@@ -518,12 +516,12 @@ def test_config_drift_wipes_case(
     # Phase (b): drift gemini_output_dim → config_hash changes → wipe + re-embed.
     s2 = _runner_settings(vid_dir, aud_dir)
     s2.embeddings.gemini_output_dim = 768
-    embed_clip_embeddings(s2, EmbeddingSecrets(gemini_api_key="x"), cases=["gemini_mm"])
+    embed_clip_embeddings(s2, EmbeddingSecrets(gemini_api_key="x"), cases=["gemini"])
     assert len(captured) == 1, f"expected exactly one re-embed, got {len(captured)}"
 
     # The runner uses its own session; expire ours so we see the wipe + insert.
     db_session.expire_all()
-    rows = db_session.query(ClipEmbedding).filter_by(embedding_case="gemini_mm").all()
+    rows = db_session.query(ClipEmbedding).filter_by(embedding_case="gemini").all()
     assert len(rows) == 1
     # Row was wiped and replaced — new blob size reflects the new dim.
     assert len(rows[0].embedding) != first_blob_size
@@ -582,7 +580,7 @@ def test_per_clip_diff_re_embeds_only_touched_clip(
 
     # Phase 1: both clips embedded.
     embed_clip_embeddings(
-        settings, EmbeddingSecrets(gemini_api_key="x"), cases=["gemini_mm"]
+        settings, EmbeddingSecrets(gemini_api_key="x"), cases=["gemini"]
     )
     assert len(seen) == 2
     seen.clear()
@@ -594,6 +592,6 @@ def test_per_clip_diff_re_embeds_only_touched_clip(
 
     # Phase 2: only clip 1 should be re-embedded; clip 2's hash is unchanged.
     embed_clip_embeddings(
-        settings, EmbeddingSecrets(gemini_api_key="x"), cases=["gemini_mm"]
+        settings, EmbeddingSecrets(gemini_api_key="x"), cases=["gemini"]
     )
     assert seen == [str(vid_dir / "1.mp4")]

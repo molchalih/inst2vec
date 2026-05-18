@@ -8,7 +8,6 @@ from sqlalchemy.orm import Session
 
 from core.database import ClusterRun
 from modules.clustering import (
-    DEFAULT_CASES,
     select_best_cluster_run,
 )
 from modules.embeddings.cases import CASE_REGISTRY
@@ -74,7 +73,7 @@ def best_runs_all_to_markdown(
     eng,
     *,
     threshold: float,
-    cases: tuple[str, ...] = DEFAULT_CASES,
+    cases: tuple[str, ...],
 ) -> str:
     if not cases:
         raise ValueError("cases must contain at least one embedding case")

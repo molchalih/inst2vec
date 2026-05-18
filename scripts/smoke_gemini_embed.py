@@ -18,7 +18,7 @@ import time
 
 from core.config import load_runtime_config
 from core.database import Clip, get_session, init_db
-from modules.embeddings.cases import EmbeddingSecrets, _gemini_mm_factory
+from modules.embeddings.cases import EmbeddingSecrets, _gemini_factory
 
 
 def main(argv: list[str]) -> int:
@@ -45,7 +45,7 @@ def main(argv: list[str]) -> int:
     audio_path = os.path.join(settings.paths.audio_dir, f"{clip.id}.mp3")
     text = f"smoke test for clip {clip.id}"
 
-    provider = _gemini_mm_factory(
+    provider = _gemini_factory(
         settings, EmbeddingSecrets(gemini_api_key=secrets.gemini_api_key)
     )
     t0 = time.time()

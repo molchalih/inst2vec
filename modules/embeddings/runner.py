@@ -105,9 +105,9 @@ def embed_clip_embeddings(
         secrets = EmbeddingSecrets()
     case_names = list(cases) if cases is not None else list(default_cases(settings))
     for name in case_names:
-        if name == "gemini_mm" and not settings.embeddings.gemini_enabled:
+        if name == "gemini" and not settings.embeddings.gemini_enabled:
             raise RuntimeError(
-                "gemini_mm case requested but embeddings.gemini_enabled=false"
+                "gemini case requested but embeddings.gemini_enabled=false"
             )
         spec = CASE_REGISTRY[name]
         _run_case(settings, secrets, spec)
@@ -236,9 +236,9 @@ def _embed_targets(
         music_map = get_music_map(session)
 
     video_dir = settings.paths.video_dir
-    # Only gemini_mm reads audio_path; keep this resolution next to video_dir
+    # Only gemini reads audio_path; keep this resolution next to video_dir
     # so the runner's settings.paths is the single source of truth for both.
-    audio_dir = settings.paths.audio_dir if spec.name == "gemini_mm" else None
+    audio_dir = settings.paths.audio_dir if spec.name == "gemini" else None
     jobs: list[tuple[Clip, str | None]] = []
     stale_skipped: list[int] = []  # had a row, can't rebuild → block sealing
     fresh_skipped = 0  # never had a row, can't build → fine to seal

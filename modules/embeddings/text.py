@@ -120,7 +120,7 @@ def build_sandwich_text(clip, music_map: dict) -> str | None:
 
 
 def build_gemini_text(clip, _music_map: dict) -> str | None:
-    """Caption + transcript for the gemini_mm case.
+    """Caption + transcript for the gemini case.
 
     Uses translation when source language is non-English and a non-empty
     translation exists; otherwise the cleaned/original text. Music is

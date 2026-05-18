@@ -128,7 +128,7 @@ def db_session():
 
 def test_runs_when_gemini_disabled(tmp_path, sample_mp4_with_audio, db_session):
     """Stage runs regardless of embeddings.gemini_enabled; the flag only gates
-    the downstream gemini_mm embedding case, not audio extraction itself."""
+    the downstream gemini embedding case, not audio extraction itself."""
     from modules.ingest.audio import extract_audio_stage
 
     vid_dir = tmp_path / "video"

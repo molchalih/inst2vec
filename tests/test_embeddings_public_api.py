@@ -2,9 +2,13 @@ import inspect
 
 
 def test_default_cases_tuple():
-    from modules.embeddings import DEFAULT_CASES
+    from modules.embeddings.cases import CASE_REGISTRY
 
-    assert DEFAULT_CASES == ("video", "sandwich", "audio")
+    assert tuple(name for name, spec in CASE_REGISTRY.items() if not spec.requires) == (
+        "video",
+        "sandwich",
+        "audio",
+    )
 
 
 def test_embed_clip_embeddings_signature():

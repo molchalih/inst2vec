@@ -18,7 +18,7 @@ class PathsSettings(BaseModel):
     thumbnail_dir: str
     speech_audio_dir: str
     # Default keeps pre-Gemini config.toml files loadable. extract_audio_stage
-    # short-circuits and gemini_mm is opt-in via embeddings.gemini_enabled, so
+    # short-circuits and gemini is opt-in via embeddings.gemini_enabled, so
     # the directory only gets created when the feature is actually used.
     audio_dir: str = "data/audio"
     data_csv_path: str
@@ -116,7 +116,7 @@ class EmbeddingsSettings(BaseModel):
     inflight: int = 1
     request_timeout_s: int = 120
     max_retries: int = 3
-    # ── audio extraction (used by gemini_mm; harmless if gemini disabled
+    # ── audio extraction (used by gemini; harmless if gemini disabled
     # but extract_audio_stage short-circuits before touching ffmpeg) ──
     audio_bitrate_kbps: int = 128
     audio_sample_rate_hz: int = 44100
