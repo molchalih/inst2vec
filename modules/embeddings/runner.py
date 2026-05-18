@@ -28,6 +28,7 @@ from core.database import (
     StageState,
     get_session,
 )
+from core.pipeline import Stage
 from modules.embeddings.cases import (
     CASE_REGISTRY,
     EmbeddingCaseSpec,
@@ -48,7 +49,7 @@ from modules.embeddings.state import (
 )
 from modules.embeddings.vectors import to_bytes
 
-STAGE = "clip_embeddings"
+STAGE = Stage.CLIP_EMBEDDINGS
 
 
 def _dispatch_embedding_jobs(

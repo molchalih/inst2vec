@@ -18,6 +18,7 @@ from core.database import (
     clip_used_in_analysis,
     get_session,
 )
+from core.pipeline import Stage
 from modules.clustering.core import (
     CLUSTER_PARAM_COLS,
     DEFAULT_HDBSCAN_METRIC,
@@ -26,7 +27,7 @@ from modules.clustering.core import (
 )
 from modules.embeddings.cases import default_cases
 
-STAGE = "cluster_search"
+STAGE = Stage.CLUSTER_SEARCH
 
 
 def _load_grid(settings, cases: Iterable[str]) -> list[dict]:
@@ -102,7 +103,7 @@ def _fingerprint(session, case: str, case_combos: list[dict]) -> fp.Fingerprint:
             default=str,
         )
     )
-    dependency = fp.stage_dependency_hash(session, "user_embeddings", case)
+    dependency = fp.stage_dependency_hash(session, Stage.USER_EMBEDDINGS, case)
     return fp.Fingerprint(data=data, config=config, dependency=dependency)
 
 

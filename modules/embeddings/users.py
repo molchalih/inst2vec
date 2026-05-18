@@ -30,6 +30,7 @@ from core.database import (
     UserEmbedding,
     get_session,
 )
+from core.pipeline import Stage
 from modules.embeddings.cases import default_cases
 from modules.embeddings.state import (
     get_clip_embedding_rows_for_user_aggregation,
@@ -38,7 +39,7 @@ from modules.embeddings.state import (
 )
 from modules.embeddings.vectors import bytes_to_array
 
-STAGE = "user_embeddings"
+STAGE = Stage.USER_EMBEDDINGS
 _CONFIG_IDENTITY = "agg=mean_pool|v=1"
 
 

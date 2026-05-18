@@ -7,12 +7,13 @@ import re
 from sqlalchemy.orm import Session
 
 from core.database import Clip
+from core.pipeline import Stage
 
 SCOPE_CLASSIFY: str = "classify_speech"
 SCOPE_TRANSLATE: str = "translate_speech"
 SCOPE_CLEAN: str = "clean_speech"
 
-STAGE_SPEECH: str = "speech"
+STAGE_SPEECH: Stage = Stage.SPEECH
 SCOPE_SPEECH: str = "all"
 
 # Substrings that indicate a hallucination / non-speech transcription.

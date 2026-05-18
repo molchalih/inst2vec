@@ -13,6 +13,7 @@ from core import fingerprint as fp
 from core.config import Settings
 from core.console import log, progress
 from core.database import ClusterRun, get_session
+from core.pipeline import Stage
 from modules.clustering.core import (
     CLUSTER_PARAM_COLS,
     DEFAULT_HDBSCAN_METRIC,
@@ -22,7 +23,7 @@ from modules.clustering.core import (
 )
 from modules.embeddings.cases import default_cases
 
-STAGE = "cluster_validation"
+STAGE = Stage.CLUSTER_VALIDATION
 
 _NUMERIC_PARAM_COLS = [
     "umap_n_components",
@@ -148,7 +149,7 @@ def _fingerprint(session, case: str, settings) -> fp.Fingerprint:
             sort_keys=True,
         )
     )
-    dependency = fp.stage_dependency_hash(session, "cluster_search", case)
+    dependency = fp.stage_dependency_hash(session, Stage.CLUSTER_SEARCH, case)
     return fp.Fingerprint(data=data, config=config, dependency=dependency)
 
 

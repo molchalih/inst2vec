@@ -3,8 +3,9 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from core.database import Clip, User, UserStats
+from core.pipeline import Stage
 
-STAGE = "filter"
+STAGE = Stage.FILTER
 SCOPE = "all"
 
 HARD_CLIP_EXCLUSION_FLAGS: tuple[str, ...] = (

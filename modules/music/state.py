@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from core.config import MusicSettings
 from core.database import Clip, Music
+from core.pipeline import Stage
 
 FEATURE_FIELDS: list[str] = [
     "acousticness",
@@ -27,8 +28,8 @@ UPLOAD_FIELDS: list[str] = [f for f in FEATURE_FIELDS if f not in ("key", "mode"
 SCOPE_CLASSIFY: str = "classify_music"
 SCOPE_FEATURES: str = "extract_features"
 
-STAGE_MUSIC_CLASSIFY: str = "music_classify"
-STAGE_MUSIC_FEATURES: str = "music_features"
+STAGE_MUSIC_CLASSIFY: Stage = Stage.MUSIC_CLASSIFY
+STAGE_MUSIC_FEATURES: Stage = Stage.MUSIC_FEATURES
 SCOPE_MUSIC: str = "all"
 
 # Fields whose values can change the *outputs* of each music stage.

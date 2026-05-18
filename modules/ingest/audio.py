@@ -10,8 +10,9 @@ from core import fingerprint as fp
 from core.console import log, progress
 from core.database import Clip, get_session
 from core.ffmpeg import run_ffmpeg
+from core.pipeline import Stage
 
-AUDIO_EXTRACT_STAGE = "audio_extract"
+AUDIO_EXTRACT_STAGE = Stage.AUDIO_EXTRACT
 AUDIO_EXTRACT_SCOPE = "default"
 
 

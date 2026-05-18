@@ -7,12 +7,13 @@ import re
 from sqlalchemy.orm import Session
 
 from core.database import Clip
+from core.pipeline import Stage
 
 SCOPE_CLEAN: str = "clean_captions"
 SCOPE_DETECT: str = "detect_caption_language"
 SCOPE_TRANSLATE: str = "translate_captions"
 
-STAGE_CAPTIONS: str = "captions"
+STAGE_CAPTIONS: Stage = Stage.CAPTIONS
 SCOPE_CAPTIONS: str = "all"
 
 _MENTION_RE = re.compile(r"@[\w.]+")

@@ -21,6 +21,7 @@ from core.database import (
     UserCluster,
     get_session,
 )
+from core.pipeline import Stage
 from modules.clustering.core import (
     CLUSTER_PARAM_COLS,
     compute_clusters,
@@ -29,7 +30,7 @@ from modules.clustering.core import (
 from modules.clustering.results import select_best_cluster_run
 from modules.embeddings.cases import default_cases
 
-STAGE = "cluster_assign"
+STAGE = Stage.CLUSTER_ASSIGN
 # Bump when assign-stage logic changes in a way the data/dependency
 # fingerprints would not detect (e.g., changing how labels are derived
 # from compute_clusters output).
@@ -62,7 +63,7 @@ def _fingerprint(session, case: str, settings: ValidationSettings) -> fp.Fingerp
     return fp.Fingerprint(
         data=fp.hash_rows(data_payload),
         config=fp.hash_text(config_payload),
-        dependency=fp.stage_dependency_hash(session, "cluster_validation", case),
+        dependency=fp.stage_dependency_hash(session, Stage.CLUSTER_VALIDATION, case),
     )
 
 
