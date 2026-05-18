@@ -3,19 +3,19 @@ from __future__ import annotations
 from typing import Any
 
 
-def _has_any_flag(obj: Any, flags: tuple[str, ...]) -> bool:
+def has_any_flag(obj: Any, flags: tuple[str, ...]) -> bool:
     return any(getattr(obj, flag, None) is True for flag in flags)
 
 
-def _preprocessed_clips(user: Any) -> list:
+def preprocessed_clips(user: Any) -> list:
     return [clip for clip in user.clips if clip.is_preprocessed is True]
 
 
-def _eligible_clips(user: Any) -> list:
+def eligible_clips(user: Any) -> list:
     return [clip for clip in user.clips if clip.is_eligible is True]
 
 
-def _selected_clips(user: Any) -> list:
+def selected_clips(user: Any) -> list:
     return [clip for clip in user.clips if clip.is_selected is True]
 
 

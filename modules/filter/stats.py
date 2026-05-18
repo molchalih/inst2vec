@@ -6,7 +6,7 @@ import statistics
 from sqlalchemy.orm import Session
 
 from core.database import User, UserStats
-from modules.filter.predicates import _preprocessed_clips
+from modules.filter.predicates import preprocessed_clips
 
 
 def _median_absolute_deviation(values: list[float]) -> float:
@@ -19,7 +19,7 @@ def calculate_user_stats(session: Session) -> None:
     session.flush()
 
     for user in session.query(User).all():
-        clips = _preprocessed_clips(user)
+        clips = preprocessed_clips(user)
         if not clips:
             continue
 

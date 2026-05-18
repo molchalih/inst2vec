@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from core.config import FilterSettings
 from core.database import Clip, User
-from modules.filter.predicates import _eligible_clips
+from modules.filter.predicates import eligible_clips
 
 
 def select_clips(session: Session, cfg: FilterSettings) -> None:
@@ -18,7 +18,7 @@ def select_clips(session: Session, cfg: FilterSettings) -> None:
 
     for user in session.query(User).all():
         eligible = sorted(
-            _eligible_clips(user),
+            eligible_clips(user),
             key=lambda c: c.play_count or 0,
             reverse=True,
         )

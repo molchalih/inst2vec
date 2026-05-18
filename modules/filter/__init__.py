@@ -16,29 +16,25 @@ from core import fingerprint as fp
 from core.config import FilterSettings, Secrets, Settings
 from core.console import log
 from core.database import Clip, User, get_engine
-from modules.filter.predicates import (  # noqa: F401
-    _eligible_clips,
-    _has_any_flag,
-    _is_garbage,
-    _is_too_long,
-    _is_too_old,
-    _is_too_short,
-    _preprocessed_clips,
-    _selected_clips,
+from modules.filter.predicates import (
+    eligible_clips,
+    has_any_flag,
+    preprocessed_clips,
+    selected_clips,
 )
-from modules.filter.preprocess import (  # noqa: F401
-    _compute_creator_robust_stats,
-    _derive_eligibility,
-    _derive_preprocessing_status,
-    _derive_user_eligibility,
-    _flag_basic_policy_clips,
-    _flag_garbage_clips,
-    _flag_global_percentile_clips,
-    _flag_low_median_creators,
-    _flag_users_without_enough_eligible_clips,
-    _flag_users_without_enough_preprocessed_clips,
+from modules.filter.preprocess import (
     _hard_preprocess,
     _soft_preprocess,
+    compute_creator_robust_stats,
+    derive_eligibility,
+    derive_preprocessing_status,
+    derive_user_eligibility,
+    flag_basic_policy_clips,
+    flag_garbage_clips,
+    flag_global_percentile_clips,
+    flag_low_median_creators,
+    flag_users_without_enough_eligible_clips,
+    flag_users_without_enough_preprocessed_clips,
 )
 from modules.filter.select import select_clips
 from modules.filter.state import (
@@ -50,10 +46,7 @@ from modules.filter.state import (
     USER_EXCLUSION_FLAGS,
     _reset_dataset_processing_state,
 )
-from modules.filter.stats import (  # noqa: F401
-    _median_absolute_deviation,
-    calculate_user_stats,
-)
+from modules.filter.stats import calculate_user_stats
 
 __all__ = [
     "CLIP_EXCLUSION_FLAGS",
@@ -61,9 +54,23 @@ __all__ = [
     "SOFT_CLIP_EXCLUSION_FLAGS",
     "USER_EXCLUSION_FLAGS",
     "calculate_user_stats",
+    "compute_creator_robust_stats",
+    "derive_eligibility",
+    "derive_preprocessing_status",
+    "derive_user_eligibility",
+    "eligible_clips",
+    "flag_basic_policy_clips",
+    "flag_garbage_clips",
+    "flag_global_percentile_clips",
+    "flag_low_median_creators",
+    "flag_users_without_enough_eligible_clips",
+    "flag_users_without_enough_preprocessed_clips",
+    "has_any_flag",
+    "preprocessed_clips",
     "process_dataset",
     "run",
     "select_clips",
+    "selected_clips",
 ]
 
 
