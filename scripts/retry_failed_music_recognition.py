@@ -1,8 +1,8 @@
 """Manual recovery: re-attempt clips marked is_music_recognized=False.
 
-Single-attempt ACR fingerprint per clip (no internal retries). Small jittered delay
-between clips. On match, flips is_music_recognized back to True and links Music row.
-Clean no-match leaves the clip at False.
+Flips is_music_recognized=False rows back to NULL, then calls public
+classify_music with api_max_attempts=1 / acr_max_attempts=1 so each clip
+gets a single fresh attempt with no internal retries.
 
 Usage:
     uv run python scripts/retry_failed_music_recognition.py
@@ -11,32 +11,22 @@ Usage:
 from __future__ import annotations
 
 import os
-import random
 import sys
-import time
-from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from acrcloud.recognizer import ACRCloudRecognizer
-
-from core.config import load_runtime_config
+from core.config import MusicSettings, PathsSettings, load_runtime_config
 from core.console import log
 from core.database import Clip, clip_used_in_analysis, get_session, init_db
-from modules.music.classify import _fingerprint, _get_or_create_music
-from modules.music.clients import TransientError
+from modules.music.classify import AcrSecrets, classify_music
 
 SCOPE = "retry-music"
-_DELAY_MIN = 0.3
-_DELAY_MAX = 1.5
 
 
 def retry_failed_music_recognition(
-    video_dir: str,
-    min_confidence: float,
-    arc_host: str,
-    arc_access_key: str,
-    arc_access_secret: str,
+    music: MusicSettings,
+    paths: PathsSettings,
+    secrets: AcrSecrets,
 ) -> None:
     session = get_session()
     try:
@@ -49,43 +39,23 @@ def retry_failed_music_recognition(
             log(SCOPE, "no failed clips to retry")
             return
 
-        log(SCOPE, f"retrying {len(failed)} failed clips")
-        acr = ACRCloudRecognizer(
-            {
-                "host": arc_host,
-                "access_key": arc_access_key,
-                "access_secret": arc_access_secret,
-                "timeout": 10,
-            }
-        )
-        recovered = 0
-        video_dir_path = Path(video_dir)
+        log(SCOPE, f"resetting {len(failed)} failed clips to retryable state")
         for clip in failed:
-            time.sleep(random.uniform(_DELAY_MIN, _DELAY_MAX))
-            path = video_dir_path / f"{clip.id}.mp4"
-            if not path.exists():
-                log(SCOPE, f"clip {clip.id}: video missing on disk", level="warn")
-                continue
-            try:
-                result = _fingerprint(acr, str(path), min_confidence, max_attempts=1)
-            except TransientError:
-                log(SCOPE, f"clip {clip.id} still transient", level="warn")
-                continue
-            if result:
-                artist, track, confidence = result
-                music_row = _get_or_create_music(session, artist, track)
-                clip.music_id = music_row.id
-                clip.music_confidence = confidence
-                clip.is_music_recognized = True
-                recovered += 1
-                session.commit()
-                log(SCOPE, f"clip {clip.id}: {artist} – {track} (recovered)")
-            else:
-                log(SCOPE, f"clip {clip.id}: still no match")
-
-        log(SCOPE, f"recovered {recovered}/{len(failed)}", level="ok")
+            clip.is_music_recognized = None
+        session.commit()
     finally:
         session.close()
+
+    retry_music = music.model_copy(
+        update={
+            "api_max_attempts": 1,
+            "acr_max_attempts": 1,
+            "api_retry_delay": 0.0,
+            "api_retry_jitter": 0.0,
+        }
+    )
+    log(SCOPE, "re-running classify_music with single-attempt config")
+    classify_music(music=retry_music, paths=paths, secrets=secrets)
 
 
 if __name__ == "__main__":
@@ -93,9 +63,11 @@ if __name__ == "__main__":
     init_db(secrets.database_url, secrets.identity_db_url)
     os.makedirs(settings.paths.video_dir, exist_ok=True)
     retry_failed_music_recognition(
-        video_dir=settings.paths.video_dir,
-        min_confidence=settings.music.audio_fingerprint_confidence,
-        arc_host=secrets.arc_host,
-        arc_access_key=secrets.arc_access_key,
-        arc_access_secret=secrets.arc_secret_key,
+        music=settings.music,
+        paths=settings.paths,
+        secrets=AcrSecrets(
+            host=secrets.arc_host,
+            access_key=secrets.arc_access_key,
+            access_secret=secrets.arc_secret_key,
+        ),
     )
