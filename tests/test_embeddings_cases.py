@@ -56,8 +56,16 @@ def _identity_settings() -> SimpleNamespace:
 def test_case_config_identity_uses_factory_dunder_name():
     identity = case_config_identity(VIDEO_CASE, _identity_settings())
 
-    assert "provider=_qwen_video_factory" in identity
-    assert "_local_qwen_video_factory" not in identity
+    assert "provider=qwen_provider_video" in identity
+    assert "_qwen_video_factory" not in identity
+
+
+def test_qwen_provider_is_single_function():
+    from modules.embeddings import cases as cm
+
+    assert hasattr(cm, "qwen_provider")
+    assert not hasattr(cm, "_qwen_video_factory")
+    assert not hasattr(cm, "_qwen_text_factory")
 
 
 def test_spec_has_no_instruction_or_requires_text_fields():

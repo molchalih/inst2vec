@@ -95,7 +95,7 @@ def _require_remote_config(settings, secrets) -> None:
         raise RuntimeError("embeddings.provider=remote requires: " + ", ".join(missing))
 
 
-def _qwen_provider(settings, secrets, *, with_frames: bool) -> Provider:
+def qwen_provider(settings, secrets, *, with_frames: bool) -> Provider:
     if settings.embeddings.provider == "remote":
         _require_remote_config(settings, secrets)
         return RemoteQwenProvider(
@@ -118,12 +118,16 @@ def _qwen_provider(settings, secrets, *, with_frames: bool) -> Provider:
     )
 
 
-def _qwen_video_factory(settings, secrets) -> Provider:
-    return _qwen_provider(settings, secrets, with_frames=True)
+def _make_qwen_factory(*, with_frames: bool, name: str):
+    def factory(settings, secrets):
+        return qwen_provider(settings, secrets, with_frames=with_frames)
+
+    factory.__name__ = name
+    return factory
 
 
-def _qwen_text_factory(settings, secrets) -> Provider:
-    return _qwen_provider(settings, secrets, with_frames=False)
+_QWEN_VIDEO = _make_qwen_factory(with_frames=True, name="qwen_provider_video")
+_QWEN_TEXT = _make_qwen_factory(with_frames=False, name="qwen_provider_text")
 
 
 # ── payload builders ─────────────────────────────────────────────────────────
@@ -153,7 +157,7 @@ VIDEO_CASE = EmbeddingCaseSpec(
     name="video",
     text_builder=None,
     requires_video=True,
-    provider_factory=_qwen_video_factory,
+    provider_factory=_QWEN_VIDEO,
     payload_builder=_video_payload,
     apply_video_token_fallback=True,
 )
@@ -162,7 +166,7 @@ SANDWICH_CASE = EmbeddingCaseSpec(
     name="sandwich",
     text_builder=build_sandwich_text,
     requires_video=True,
-    provider_factory=_qwen_video_factory,
+    provider_factory=_QWEN_VIDEO,
     payload_builder=_sandwich_payload,
     apply_video_token_fallback=True,
 )
@@ -171,7 +175,7 @@ AUDIO_CASE = EmbeddingCaseSpec(
     name="audio",
     text_builder=build_audio_text,
     requires_video=False,
-    provider_factory=_qwen_text_factory,
+    provider_factory=_QWEN_TEXT,
     payload_builder=_audio_payload,
     apply_video_token_fallback=False,
 )
