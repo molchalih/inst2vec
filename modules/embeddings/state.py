@@ -7,8 +7,8 @@ there are no DB status flags for embedding stages.
 from __future__ import annotations
 
 import hashlib
-import os
 from collections import defaultdict
+from pathlib import Path
 
 from sqlalchemy.orm import Session
 
@@ -21,6 +21,7 @@ from core.database import (
     UserEmbedding,
     clip_used_in_analysis,
 )
+from modules.embeddings.cases import CASE_REGISTRY
 
 
 def get_embedded_clip_ids(session: Session, case: str) -> set[int]:
@@ -114,131 +115,37 @@ def get_music_map(session: Session) -> dict[int, Music]:
 
 
 def dependency_rows_for_case(
-    session: Session,
-    case: str,
-    candidate_ids: list[int],
+    case_name: str,
+    clip: Clip,
     *,
-    settings=None,
-) -> list[tuple]:
-    """Return the per-candidate tuple of upstream output state for ``case``.
+    paths,
+) -> list[tuple[str, object]]:
+    """Return per-clip (column_name, value) pairs for ``case_name``.
 
-    The columns selected mirror what the case's payload_builder and
-    text_builder actually read; the result is sorted by clip_id so the
-    digest produced by ``fingerprint.hash_rows`` is deterministic.
+    Driven by ``CASE_REGISTRY[case_name].dependency_columns`` so adding a
+    new case never requires touching this function — the case declares the
+    columns it depends on and this dispatcher reads them off the Clip row
+    (or, for the synthetic ``_video_file_stat`` / ``_audio_file_stat``
+    sentinels, stats the corresponding file on disk).
 
-    video    : (id, is_downloaded)
-    sandwich : (id, is_downloaded, music_id, caption_*, speech_*,
-                Music.energy/valence/acousticness/instrumentalness/
-                danceability/speechiness/tempo/mode/key/track/artist)
-    audio    : (id,                music_id, speech_*,
-                Music.energy/...) — captions deliberately excluded
-                (build_audio_text does not read them).
+    The returned list preserves dependency_columns order so the digest
+    produced by ``fingerprint.hash_rows`` is deterministic per case.
     """
-    if not candidate_ids:
-        return []
-
-    if case == "video":
-        rows = (
-            session.query(Clip.id, Clip.is_downloaded)
-            .filter(Clip.id.in_(candidate_ids))
-            .order_by(Clip.id)
-            .all()
-        )
-        return [tuple(r) for r in rows]
-
-    music_cols = (
-        Music.energy,
-        Music.valence,
-        Music.acousticness,
-        Music.instrumentalness,
-        Music.danceability,
-        Music.speechiness,
-        Music.tempo,
-        Music.mode,
-        Music.key,
-        Music.track,
-        Music.artist,
-    )
-
-    if case == "sandwich":
-        rows = (
-            session.query(
-                Clip.id,
-                Clip.is_downloaded,
-                Clip.music_id,
-                Clip.caption_text,
-                Clip.caption_clean,
-                Clip.caption_language,
-                Clip.caption_translation,
-                Clip.speech_transcription,
-                Clip.speech_language,
-                Clip.speech_translation,
-                *music_cols,
+    case = CASE_REGISTRY[case_name]
+    rows: list[tuple[str, object]] = []
+    # TODO(D2): replace with paths.video_for(clip.id) / paths.audio_for(clip.id)
+    for col in case.dependency_columns:
+        if col == "_video_file_stat":
+            rows.append(
+                (col, fp.file_stat_for_hash(Path(paths.video_dir) / f"{clip.id}.mp4"))
             )
-            .outerjoin(Music, Clip.music_id == Music.id)
-            .filter(Clip.id.in_(candidate_ids))
-            .order_by(Clip.id)
-            .all()
-        )
-        return [tuple(r) for r in rows]
-
-    if case == "audio":
-        rows = (
-            session.query(
-                Clip.id,
-                Clip.music_id,
-                Clip.speech_transcription,
-                Clip.speech_language,
-                Clip.speech_translation,
-                *music_cols,
+        elif col == "_audio_file_stat":
+            rows.append(
+                (col, fp.file_stat_for_hash(Path(paths.audio_dir) / f"{clip.id}.mp3"))
             )
-            .outerjoin(Music, Clip.music_id == Music.id)
-            .filter(Clip.id.in_(candidate_ids))
-            .order_by(Clip.id)
-            .all()
-        )
-        return [tuple(r) for r in rows]
-
-    if case == "gemini":
-        if settings is None:
-            raise ValueError(
-                "dependency_rows_for_case(case='gemini') requires settings "
-                "so the runner's paths (not a reread of config.toml) are hashed"
-            )
-        video_dir = settings.paths.video_dir
-        audio_dir = settings.paths.audio_dir
-        rows = (
-            session.query(
-                Clip.id,
-                Clip.caption_text,
-                Clip.caption_clean,
-                Clip.caption_language,
-                Clip.caption_translation,
-                Clip.speech_transcription,
-                Clip.speech_language,
-                Clip.speech_translation,
-            )
-            .filter(Clip.id.in_(candidate_ids))
-            .order_by(Clip.id)
-            .all()
-        )
-        return [
-            (
-                r.id,
-                r.caption_text,
-                r.caption_clean,
-                r.caption_language,
-                r.caption_translation,
-                r.speech_transcription,
-                r.speech_language,
-                r.speech_translation,
-                fp.file_stat_for_hash(os.path.join(video_dir, f"{r.id}.mp4")),
-                fp.file_stat_for_hash(os.path.join(audio_dir, f"{r.id}.mp3")),
-            )
-            for r in rows
-        ]
-
-    raise ValueError(f"Unknown embedding case: {case!r}")
+        else:
+            rows.append((col, getattr(clip, col)))
+    return rows
 
 
 def per_clip_source_hashes_and_aggregate(
@@ -250,12 +157,29 @@ def per_clip_source_hashes_and_aggregate(
 ) -> tuple[dict[int, str], str]:
     """Return ({clip_id: per_clip_hash}, aggregate_hash) for ``case``.
 
-    Both values are derived from the same call to ``dependency_rows_for_case``
-    so the per-clip hashes and the stage-level aggregate stay byte-identical.
+    Iterates candidate clips deterministically (ordered by clip_id), calls
+    the per-clip ``dependency_rows_for_case``, and derives both the
+    per-clip hashes and the stage-level aggregate from the same row list
+    so they never drift.
     """
-    rows = dependency_rows_for_case(session, case, candidate_ids, settings=settings)
-    per_clip = {r[0]: fp.hash_rows([r]) for r in rows}
-    aggregate = fp.hash_rows(rows)
+    if not candidate_ids:
+        return {}, fp.hash_rows([])
+    if settings is None:
+        raise ValueError(
+            "per_clip_source_hashes_and_aggregate requires settings "
+            "so paths can be resolved without rereading config.toml"
+        )
+    paths = settings.paths
+    clips = (
+        session.query(Clip).filter(Clip.id.in_(candidate_ids)).order_by(Clip.id).all()
+    )
+    per_clip: dict[int, str] = {}
+    all_rows: list[tuple] = []
+    for clip in clips:
+        rows = dependency_rows_for_case(case, clip, paths=paths)
+        per_clip[clip.id] = fp.hash_rows(rows)
+        all_rows.extend(rows)
+    aggregate = fp.hash_rows(all_rows)
     return per_clip, aggregate
 
 

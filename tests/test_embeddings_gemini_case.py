@@ -275,19 +275,19 @@ def test_dependency_rows_gemini_includes_file_stats(db_session, tmp_path):
     video_stat = os.stat(video_path)
     audio_stat = os.stat(audio_path)
 
-    fake_settings = SimpleNamespace(
-        paths=SimpleNamespace(
-            video_dir=str(video_dir),
-            audio_dir=str(audio_dir),
-        )
+    fake_paths = SimpleNamespace(
+        video_dir=str(video_dir),
+        audio_dir=str(audio_dir),
     )
 
-    rows = dependency_rows_for_case(db_session, "gemini", [1], settings=fake_settings)
-    assert len(rows) == 1
-    row = rows[0]
-    assert (video_stat.st_size, video_stat.st_mtime_ns) in row
-    assert (audio_stat.st_size, audio_stat.st_mtime_ns) in row
-    assert row[0] == 1  # clip id is first
+    clip = db_session.query(Clip).filter_by(id=1).one()
+    rows = dependency_rows_for_case("gemini", clip, paths=fake_paths)
+    by_col = dict(rows)
+    assert set(by_col) == {"_video_file_stat", "_audio_file_stat"}, (
+        "gemini deps are exactly the two file-stat sentinels per spec"
+    )
+    assert by_col["_video_file_stat"] == (video_stat.st_size, video_stat.st_mtime_ns)
+    assert by_col["_audio_file_stat"] == (audio_stat.st_size, audio_stat.st_mtime_ns)
 
 
 def _stub_settings(gemini_enabled: bool):
@@ -585,10 +585,10 @@ def test_per_clip_diff_re_embeds_only_touched_clip(
     assert len(seen) == 2
     seen.clear()
 
-    # Mutate only clip 1's caption — its per-clip source hash changes.
-    clip1 = db_session.get(Clip, 1)
-    clip1.caption_text = "new caption"
-    db_session.commit()
+    # Mutate only clip 1's video file — its _video_file_stat hash changes.
+    # (Gemini's dependency_columns are the synthetic file-stat sentinels;
+    # caption fields no longer feed the per-clip hash.)
+    (vid_dir / "1.mp4").write_bytes(fixture_bytes + b"-touched")
 
     # Phase 2: only clip 1 should be re-embedded; clip 2's hash is unchanged.
     embed_clip_embeddings(

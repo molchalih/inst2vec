@@ -27,7 +27,11 @@ def _settings() -> SimpleNamespace:
     """Minimal settings stub that satisfies case_config_identity + the
     migration's candidate filter."""
     return SimpleNamespace(
-        paths=SimpleNamespace(model_path="/fake/Qwen3-VL-Embedding-8B"),
+        paths=SimpleNamespace(
+            model_path="/fake/Qwen3-VL-Embedding-8B",
+            video_dir="/nonexistent/videos",
+            audio_dir="/nonexistent/audios",
+        ),
         embeddings=SimpleNamespace(
             exclude_disqualified_users=False,
             embed_max_length=1024,
@@ -71,7 +75,9 @@ def _seed_matching_stage_state(eng, case: str, settings: SimpleNamespace) -> Non
     spec = CASE_REGISTRY[case]
     with Session(eng) as s:
         candidate_ids = [10, 11]
-        _, dep_agg = per_clip_source_hashes_and_aggregate(s, case, candidate_ids)
+        _, dep_agg = per_clip_source_hashes_and_aggregate(
+            s, case, candidate_ids, settings=settings
+        )
         current = fp.Fingerprint(
             data=fp.hash_rows((cid,) for cid in candidate_ids),
             config=fp.hash_text(case_config_identity(spec, settings)),
@@ -121,7 +127,9 @@ def test_migration_adds_column_and_backfills_when_stage_is_current(tmp_path):
     )
 
     with Session(eng) as session:
-        per_clip, _ = per_clip_source_hashes_and_aggregate(session, "video", [10, 11])
+        per_clip, _ = per_clip_source_hashes_and_aggregate(
+            session, "video", [10, 11], settings=settings
+        )
     by_id = dict(rows)
     assert by_id[10] == per_clip[10]
     assert by_id[11] == per_clip[11]

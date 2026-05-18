@@ -565,7 +565,9 @@ def test_stale_row_with_missing_video_drops_row_and_leaves_stage_stale(
     from modules.embeddings.state import per_clip_source_hashes_and_aggregate
 
     spec = cases_mod_local.CASE_REGISTRY["sandwich"]
-    _, dep_agg = per_clip_source_hashes_and_aggregate(db_session, "sandwich", [10])
+    _, dep_agg = per_clip_source_hashes_and_aggregate(
+        db_session, "sandwich", [10], settings=settings
+    )
     current = fp_mod.Fingerprint(
         data=fp_mod.hash_rows([(10,)]),
         config=fp_mod.hash_text(cases_mod_local.case_config_identity(spec, settings)),
