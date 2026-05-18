@@ -7,7 +7,7 @@ Plan: `docs/superpowers/plans/2026-05-18-audit-final-cleanup.md` (pending).
 
 ## Items
 
-- [ ] **1. Delete one-shot migrate scripts and tests**
+- [x] **1. Delete one-shot migrate scripts and tests**
   - Delete 11 `scripts/migrate_*.py` + matching `tests/test_migrate_*.py`.
   - Verify no live imports first.
   - Commit: `chore(scripts): drop one-shot migrate_* scripts and tests`
