@@ -49,9 +49,7 @@ def section_health(session):
     n_users = session.query(func.count(User.id)).scalar() or 0
     n_clips = session.query(func.count(Clip.id)).scalar() or 0
     n_kept = (
-        session.query(func.count(Clip.id))
-        .filter(*clip_used_in_analysis())
-        .scalar()
+        session.query(func.count(Clip.id)).filter(*clip_used_in_analysis()).scalar()
         or 0
     )
     n_disq = n_clips - n_kept

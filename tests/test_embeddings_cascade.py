@@ -173,12 +173,8 @@ def stub_providers(monkeypatch):
     from modules.embeddings import sampling as sampling_mod
 
     monkeypatch.setattr(runner_mod, "CASE_REGISTRY", new_registry)
-    monkeypatch.setattr(
-        sampling_mod, "adaptive_sampling", lambda *a, **kw: (1.0, 8)
-    )
-    monkeypatch.setattr(
-        runner_mod, "adaptive_sampling", lambda *a, **kw: (1.0, 8)
-    )
+    monkeypatch.setattr(sampling_mod, "adaptive_sampling", lambda *a, **kw: (1.0, 8))
+    monkeypatch.setattr(runner_mod, "adaptive_sampling", lambda *a, **kw: (1.0, 8))
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────

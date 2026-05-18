@@ -108,12 +108,8 @@ def stub_providers(monkeypatch, tmp_path):
     # module-level name also needs to be redirected.
     monkeypatch.setattr(runner_mod, "CASE_REGISTRY", new_registry)
 
-    monkeypatch.setattr(
-        sampling_mod, "adaptive_sampling", lambda *a, **kw: (1.0, 8)
-    )
-    monkeypatch.setattr(
-        runner_mod, "adaptive_sampling", lambda *a, **kw: (1.0, 8)
-    )
+    monkeypatch.setattr(sampling_mod, "adaptive_sampling", lambda *a, **kw: (1.0, 8))
+    monkeypatch.setattr(runner_mod, "adaptive_sampling", lambda *a, **kw: (1.0, 8))
     return tmp_path
 
 
