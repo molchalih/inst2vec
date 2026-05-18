@@ -116,9 +116,12 @@ def test_embed_returns_structured_token_mismatch():
 
 
 def test_embed_rejects_unknown_case(client):
+    """A case string outside CASE_REGISTRY must produce a 422 with a
+    clear validation message — not silent passthrough."""
     r = client.post(
         "/embed",
         headers={"Authorization": "Bearer tok"},
         json={"case": "telepathy", "clip_id": 1, "text": "x", "instruction": "i"},
     )
-    assert r.status_code in (400, 422)
+    assert r.status_code == 422, r.text
+    assert "unknown case" in r.text.lower()

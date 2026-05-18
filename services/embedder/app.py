@@ -19,11 +19,10 @@ import os
 import tempfile
 import time
 import urllib.request
-from typing import Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from modules.embeddings.cases import CASE_REGISTRY
 from modules.embeddings.providers import LocalQwenProvider
@@ -67,13 +66,22 @@ def _resolve_video_url(url: str) -> str:
 
 
 class EmbedRequest(BaseModel):
-    case: Literal["video", "sandwich", "audio"]
+    case: str
     clip_id: int
     video_url: str | None = None
     text: str | None = None
     instruction: str | None = None
     fps: float | None = None
     max_frames: int | None = None
+
+    @field_validator("case")
+    @classmethod
+    def _validate_case(cls, v: str) -> str:
+        if v not in CASE_REGISTRY:
+            raise ValueError(
+                f"unknown case: {v!r}; expected one of {sorted(CASE_REGISTRY)}"
+            )
+        return v
 
 
 class EmbedResponse(BaseModel):
