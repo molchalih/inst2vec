@@ -4,6 +4,16 @@ Owns the identity ORM models and CRUD helpers. Engine and session lifecycle
 live in core/database/engine.py — CRUD helpers below import
 get_identity_session lazily inside each function body to avoid an
 engine→identity→engine top-level cycle.
+
+Identity-first invariant
+------------------------
+Callers MUST create the identity row first, commit it, then create the
+matching main-DB row. If the main-DB insert fails, the identity row
+becomes an orphan; ``sweep_orphans()`` reclaims those rows.
+
+The sweep is single-threaded and idempotent. Run it between pipeline
+invocations, not concurrently with one — pipeline is single-process and
+serial by design.
 """
 
 from __future__ import annotations
@@ -124,3 +134,34 @@ def get_or_create_clip_identity(api_pk: int) -> int:
         else:
             cid = ci.id
     return cid
+
+
+def sweep_orphans() -> dict[str, int]:
+    """Delete identity rows with no matching main-DB row.
+
+    Returns ``{"users_swept": int, "clips_swept": int}``.
+    """
+    from core.database.engine import get_identity_session, get_session
+    from core.database.models import Clip, User
+
+    main = get_session()
+    try:
+        live_user_ids = {row.id for row in main.query(User.id).all()}
+        live_clip_ids = {row.id for row in main.query(Clip.id).all()}
+    finally:
+        main.close()
+
+    users_swept = 0
+    clips_swept = 0
+    with get_identity_session() as s:
+        for ui in s.query(UserIdentity).all():
+            if ui.id not in live_user_ids:
+                s.delete(ui)
+                users_swept += 1
+        for ci in s.query(ClipIdentity).all():
+            if ci.id not in live_clip_ids:
+                s.delete(ci)
+                clips_swept += 1
+        s.commit()
+
+    return {"users_swept": users_swept, "clips_swept": clips_swept}

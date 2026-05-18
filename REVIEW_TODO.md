@@ -18,7 +18,7 @@ Plan: `docs/superpowers/plans/2026-05-18-audit-final-cleanup.md` (pending).
   - Update filter stage writers/readers; no migration (throwaway DB).
   - Commit: `refactor(filter): extract scratch state into ClipFilterScratch table`
 
-- [ ] **3. Identity-DB boundary — identity-first + orphan sweep (audit 3.11)**
+- [x] **3. Identity-DB boundary — identity-first + orphan sweep (audit 3.11)**
   - Document identity-first invariant on `core/database/identity.py`.
   - Add `sweep_orphans()` helper.
   - Add `scripts/sweep_identity_orphans.py` CLI shell.
