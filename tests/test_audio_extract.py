@@ -88,6 +88,10 @@ class _PathsStub:
 @dataclass
 class _EmbeddingsStub:
     gemini_enabled: bool = False
+
+
+@dataclass
+class _AudioExtractionStub:
     audio_bitrate_kbps: int = 128
     audio_sample_rate_hz: int = 44100
     audio_extract_timeout_s: int = 60
@@ -102,6 +106,7 @@ class _DownloadStub:
 class _SettingsStub:
     paths: _PathsStub
     embeddings: _EmbeddingsStub
+    audio_extraction: _AudioExtractionStub
     download: _DownloadStub
 
 
@@ -111,6 +116,7 @@ def _make_settings(
     return _SettingsStub(
         paths=_PathsStub(video_dir=str(video_dir), audio_dir=str(audio_dir)),
         embeddings=_EmbeddingsStub(gemini_enabled=enabled),
+        audio_extraction=_AudioExtractionStub(),
         download=_DownloadStub(concurrency=concurrency),
     )
 

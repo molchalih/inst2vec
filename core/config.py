@@ -103,6 +103,12 @@ class CaptionsSettings(BaseModel):
     translate_max_new_tokens: int
 
 
+class AudioExtractionSettings(BaseModel):
+    audio_bitrate_kbps: int = 128
+    audio_sample_rate_hz: int = 44100
+    audio_extract_timeout_s: int = 60
+
+
 class EmbeddingsSettings(BaseModel):
     exclude_disqualified_users: bool
     embed_max_length: int
@@ -112,11 +118,6 @@ class EmbeddingsSettings(BaseModel):
     inflight: int = 1
     request_timeout_s: int = 120
     max_retries: int = 3
-    # ── audio extraction (used by gemini; harmless if gemini disabled
-    # but extract_audio_stage short-circuits before touching ffmpeg) ──
-    audio_bitrate_kbps: int = 128
-    audio_sample_rate_hz: int = 44100
-    audio_extract_timeout_s: int = 60
     # ── Gemini Embedding 2 case ──
     gemini_enabled: bool = False
     gemini_model: str = "gemini-embedding-2-preview"
@@ -177,6 +178,7 @@ class Settings(BaseModel):
     speech: SpeechSettings
     captions: CaptionsSettings
     embeddings: EmbeddingsSettings
+    audio_extraction: AudioExtractionSettings = Field(default_factory=AudioExtractionSettings)
     search: SearchSettings
     validation: ValidationSettings
     storage: StorageSettings = Field(default_factory=StorageSettings)
@@ -212,6 +214,7 @@ def load_runtime_config() -> tuple[Settings, Secrets]:
         speech=SpeechSettings(**raw["speech"]),
         captions=CaptionsSettings(**raw["captions"]),
         embeddings=EmbeddingsSettings(**raw["embeddings"]),
+        audio_extraction=AudioExtractionSettings(**raw.get("audio_extraction", {})),
         search=SearchSettings(**raw.get("search", {})),
         validation=ValidationSettings(**raw["validation"]),
         storage=StorageSettings(**raw.get("storage", {})),

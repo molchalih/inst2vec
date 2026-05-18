@@ -94,8 +94,8 @@ def extract_audio_stage(settings) -> None:
         current = fp.Fingerprint(
             data=fp.hash_rows((cid,) for cid in ids),
             config=fp.hash_text(
-                f"bitrate={settings.embeddings.audio_bitrate_kbps}"
-                f"|sr={settings.embeddings.audio_sample_rate_hz}"
+                f"bitrate={settings.audio_extraction.audio_bitrate_kbps}"
+                f"|sr={settings.audio_extraction.audio_sample_rate_hz}"
                 f"|codec=libmp3lame"
             ),
             dependency=fp.hash_rows(
@@ -124,9 +124,9 @@ def extract_audio_stage(settings) -> None:
             )
 
         failures = 0
-        bitrate = settings.embeddings.audio_bitrate_kbps
-        sr = settings.embeddings.audio_sample_rate_hz
-        timeout_s = settings.embeddings.audio_extract_timeout_s
+        bitrate = settings.audio_extraction.audio_bitrate_kbps
+        sr = settings.audio_extraction.audio_sample_rate_hz
+        timeout_s = settings.audio_extraction.audio_extract_timeout_s
         with (
             progress(len(clips), "Extracting audio") as advance,
             ThreadPoolExecutor(max_workers=settings.download.concurrency) as pool,

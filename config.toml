@@ -82,10 +82,6 @@ provider = "local"
 inflight = 1
 request_timeout_s = 120
 max_retries = 3
-# ── audio extraction (used by gemini) ──
-audio_bitrate_kbps       = 128
-audio_sample_rate_hz     = 44100
-audio_extract_timeout_s  = 60
 # ── Gemini Embedding 2 case ──
 gemini_enabled           = false
 gemini_model             = "gemini-embedding-2-preview"
@@ -94,6 +90,11 @@ gemini_max_video_seconds = 120
 gemini_max_audio_seconds = 80
 gemini_request_timeout_s = 60
 gemini_max_retries       = 5
+
+[audio_extraction]
+audio_bitrate_kbps       = 128
+audio_sample_rate_hz     = 44100
+audio_extract_timeout_s  = 60
 
 [search]
 umap_n_components = [15]

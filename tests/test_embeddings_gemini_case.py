@@ -328,14 +328,16 @@ def _runner_settings(video_dir, audio_dir):
             gemini_max_audio_seconds=80,
             gemini_request_timeout_s=10,
             gemini_max_retries=0,
-            audio_bitrate_kbps=128,
-            audio_sample_rate_hz=44100,
             embed_max_length=2048,
             adaptive_max_frames=64,
             adaptive_default_fps=2.0,
             exclude_disqualified_users=False,
             provider="local",
             inflight=1,
+        ),
+        audio_extraction=SimpleNamespace(
+            audio_bitrate_kbps=128,
+            audio_sample_rate_hz=44100,
         ),
     )
 
