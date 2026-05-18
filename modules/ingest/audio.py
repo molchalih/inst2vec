@@ -68,14 +68,6 @@ def extract_audio(
     return False
 
 
-def _video_stat(video_dir: str, clip_id: int) -> tuple[int, int]:
-    p = os.path.join(video_dir, f"{clip_id}.mp4")
-    if not os.path.exists(p):
-        return (-1, -1)
-    st = os.stat(p)
-    return (st.st_size, st.st_mtime_ns)
-
-
 def extract_audio_stage(settings) -> None:
     """Extract mp3 audio for every downloaded clip into ``paths.audio_dir``.
 
@@ -105,7 +97,10 @@ def extract_audio_stage(settings) -> None:
                 f"|sr={settings.embeddings.audio_sample_rate_hz}"
                 f"|codec=libmp3lame"
             ),
-            dependency=fp.hash_rows(_video_stat(video_dir, cid) for cid in ids),
+            dependency=fp.hash_rows(
+                fp.file_stat_for_hash(os.path.join(video_dir, f"{cid}.mp4"))
+                for cid in ids
+            ),
         )
         if not fp.is_stale(session, AUDIO_EXTRACT_STAGE, AUDIO_EXTRACT_SCOPE, current):
             # The fingerprint only hashes video stats, so deleting / truncating

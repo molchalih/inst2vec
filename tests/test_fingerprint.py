@@ -207,3 +207,18 @@ def test_row_diff_empty_desired_returns_empty():
     from core.fingerprint import row_diff
 
     assert row_diff({}, {10: "h10"}) == set()
+
+
+def test_file_stat_for_hash_missing_returns_sentinel(tmp_path):
+    from core.fingerprint import file_stat_for_hash
+
+    assert file_stat_for_hash(tmp_path / "nope.txt") == (-1, -1)
+
+
+def test_file_stat_for_hash_existing_returns_size_and_mtime(tmp_path):
+    from core.fingerprint import file_stat_for_hash
+
+    p = tmp_path / "f.bin"
+    p.write_bytes(b"hello")
+    s = p.stat()
+    assert file_stat_for_hash(str(p)) == (s.st_size, s.st_mtime_ns)

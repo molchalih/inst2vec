@@ -243,9 +243,9 @@ def db_session():
     session.close()
 
 
-def test_dependency_rows_gemini_mm_includes_file_stats(
-    db_session, monkeypatch, tmp_path
-):
+def test_dependency_rows_gemini_mm_includes_file_stats(db_session, tmp_path):
+    import os
+
     from core.database import Clip, User
     from modules.embeddings.state import dependency_rows_for_case
 
@@ -264,18 +264,22 @@ def test_dependency_rows_gemini_mm_includes_file_stats(
     )
     db_session.commit()
 
+    video_dir = tmp_path / "video"
+    audio_dir = tmp_path / "audio"
+    video_dir.mkdir()
+    audio_dir.mkdir()
+    video_path = video_dir / "1.mp4"
+    audio_path = audio_dir / "1.mp3"
+    video_path.write_bytes(b"x" * 1234)
+    audio_path.write_bytes(b"y" * 567)
+    video_stat = os.stat(video_path)
+    audio_stat = os.stat(audio_path)
+
     fake_settings = SimpleNamespace(
         paths=SimpleNamespace(
-            video_dir=str(tmp_path / "video"),
-            audio_dir=str(tmp_path / "audio"),
+            video_dir=str(video_dir),
+            audio_dir=str(audio_dir),
         )
-    )
-    # Patch the stat helpers so the test does not need real files.
-    monkeypatch.setattr(
-        "modules.embeddings.state._video_file_stat", lambda video_dir, cid: (1234, 1000)
-    )
-    monkeypatch.setattr(
-        "modules.embeddings.state._audio_file_stat", lambda audio_dir, cid: (567, 2000)
     )
 
     rows = dependency_rows_for_case(
@@ -283,8 +287,8 @@ def test_dependency_rows_gemini_mm_includes_file_stats(
     )
     assert len(rows) == 1
     row = rows[0]
-    assert (1234, 1000) in row
-    assert (567, 2000) in row
+    assert (video_stat.st_size, video_stat.st_mtime_ns) in row
+    assert (audio_stat.st_size, audio_stat.st_mtime_ns) in row
     assert row[0] == 1  # clip id is first
 
 

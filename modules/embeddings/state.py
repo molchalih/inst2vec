@@ -23,21 +23,6 @@ from core.database import (
 )
 
 
-def _stat_or_sentinel(path: str) -> tuple[int, int]:
-    if not os.path.exists(path):
-        return (-1, -1)
-    st = os.stat(path)
-    return (st.st_size, st.st_mtime_ns)
-
-
-def _video_file_stat(video_dir: str, clip_id: int) -> tuple[int, int]:
-    return _stat_or_sentinel(os.path.join(video_dir, f"{clip_id}.mp4"))
-
-
-def _audio_file_stat(audio_dir: str, clip_id: int) -> tuple[int, int]:
-    return _stat_or_sentinel(os.path.join(audio_dir, f"{clip_id}.mp3"))
-
-
 def get_embedded_clip_ids(session: Session, case: str) -> set[int]:
     """Clip ids that already have a ClipEmbedding row for ``case``."""
     rows = (
@@ -247,8 +232,8 @@ def dependency_rows_for_case(
                 r.speech_transcription,
                 r.speech_language,
                 r.speech_translation,
-                _video_file_stat(video_dir, r.id),
-                _audio_file_stat(audio_dir, r.id),
+                fp.file_stat_for_hash(os.path.join(video_dir, f"{r.id}.mp4")),
+                fp.file_stat_for_hash(os.path.join(audio_dir, f"{r.id}.mp3")),
             )
             for r in rows
         ]
