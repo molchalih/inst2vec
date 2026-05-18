@@ -114,11 +114,6 @@ max_noise_ratio = 0.3
 min_clusters = 3
 max_clusters = 20
 
-[overrides]
-video = ""
-sandwich = ""
-audio = ""
-
 [storage]
 backend = "s3"
 bucket = ""

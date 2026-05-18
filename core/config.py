@@ -155,12 +155,6 @@ class ValidationSettings(BaseModel):
     max_clusters: int
 
 
-class OverridesSettings(BaseModel):
-    video: str = ""
-    sandwich: str = ""
-    audio: str = ""
-
-
 class StorageSettings(BaseModel):
     backend: str = "s3"
     bucket: str = ""
@@ -185,7 +179,6 @@ class Settings(BaseModel):
     embeddings: EmbeddingsSettings
     search: SearchSettings
     validation: ValidationSettings
-    overrides: OverridesSettings
     storage: StorageSettings = Field(default_factory=StorageSettings)
 
 
@@ -221,7 +214,6 @@ def load_runtime_config() -> tuple[Settings, Secrets]:
         embeddings=EmbeddingsSettings(**raw["embeddings"]),
         search=SearchSettings(**raw.get("search", {})),
         validation=ValidationSettings(**raw["validation"]),
-        overrides=OverridesSettings(**raw["overrides"]),
         storage=StorageSettings(**raw.get("storage", {})),
     )
 

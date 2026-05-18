@@ -96,11 +96,6 @@ plateau_drop_threshold = 0.05
 max_noise_ratio = 0.3
 min_clusters = 3
 max_clusters = 20
-
-[overrides]
-video = ""
-sandwich = ""
-audio = ""
 """
 
 FAKE_SECRETS = {
@@ -150,7 +145,6 @@ def test_settings_sections_present(tmp_path):
         "embeddings",
         "search",
         "validation",
-        "overrides",
     ):
         assert hasattr(settings, section), f"settings.{section} missing"
 
