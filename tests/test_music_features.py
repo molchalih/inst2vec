@@ -263,9 +263,12 @@ def test_upload_fallback_writes_false_when_no_video_on_disk(
     assert s.query(Music).filter_by(id=1).one().is_audio_features_extracted is False
 
 
-def test_upload_fallback_writes_false_on_transient_error(
+def test_upload_fallback_leaves_null_on_transient_error(
     db_session, tmp_path, monkeypatch
 ):
+    """RB TransientError must leave is_audio_features_extracted as NULL so
+    the next run retries. Matches the convention established for the
+    Spotify Stage-1 TransientError fix (2.3)."""
     s = db_session
     s.add(User(id=1, parse_status="success", is_selected=True))
     s.add(
@@ -290,6 +293,69 @@ def test_upload_fallback_writes_false_on_transient_error(
     )
     rb = MagicMock()
     rb.upload_features.side_effect = TransientError("boom")
+
+    _enrich_upload_fallback(s, rb, str(tmp_path), _music_settings())
+    s.commit()
+
+    assert s.query(Music).filter_by(id=1).one().is_audio_features_extracted is None
+
+
+def test_upload_fallback_tries_next_candidate_after_missing_video(
+    db_session, tmp_path, monkeypatch
+):
+    """When the first candidate's video is missing, the second candidate
+    is tried; success on the second flips the row to True."""
+    s = db_session
+    s.add(User(id=1, parse_status="success", is_selected=True))
+    s.add(
+        Music(id=1, artist="a", track="t", spotify_id="sp-1", reccobeats_id=_NO_MATCH)
+    )
+    s.add(
+        Clip(id=10, user_id=1, music_id=1, is_selected=True, is_downloaded=True)
+    )
+    s.add(
+        Clip(id=20, user_id=1, music_id=1, is_selected=True, is_downloaded=True)
+    )
+    s.commit()
+    # Only clip 20 has a video on disk; clip 10 is missing.
+    (tmp_path / "20.mp4").write_bytes(b"fake")
+
+    fake_audio = tmp_path / "audio.wav"
+    fake_audio.write_bytes(b"audio")
+    monkeypatch.setattr(
+        "modules.music.features.extract_audio_sample",
+        lambda video, out, music: fake_audio,
+    )
+    rb = MagicMock()
+    rb.upload_features.return_value = {
+        "acousticness": 0.1, "danceability": 0.2, "energy": 0.3,
+        "instrumentalness": 0.4, "liveness": 0.6, "loudness": -7.0,
+        "speechiness": 0.05, "tempo": 120.0, "valence": 0.5,
+    }
+
+    _enrich_upload_fallback(s, rb, str(tmp_path), _music_settings())
+    s.commit()
+
+    row = s.query(Music).filter_by(id=1).one()
+    assert row.is_audio_features_extracted is True
+    assert row.tempo == 120.0
+
+
+def test_upload_fallback_marks_false_only_after_all_candidates_fail(
+    db_session, tmp_path, monkeypatch
+):
+    """Two candidates both missing video → row marked False (all failed
+    permanently). No transient errors → no NULL-leave behavior."""
+    s = db_session
+    s.add(User(id=1, parse_status="success", is_selected=True))
+    s.add(
+        Music(id=1, artist="a", track="t", spotify_id="sp-1", reccobeats_id=_NO_MATCH)
+    )
+    s.add(Clip(id=10, user_id=1, music_id=1, is_selected=True, is_downloaded=True))
+    s.add(Clip(id=20, user_id=1, music_id=1, is_selected=True, is_downloaded=True))
+    s.commit()
+    # Neither video on disk.
+    rb = MagicMock()
 
     _enrich_upload_fallback(s, rb, str(tmp_path), _music_settings())
     s.commit()
