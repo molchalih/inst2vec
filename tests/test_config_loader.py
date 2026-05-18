@@ -18,9 +18,6 @@ speech_audio_dir = "data/source/audio"
 audio_dir = "data/audio"
 data_csv_path = "data/data.csv"
 
-[parse]
-fetch_retry_delays_sec = [0, 30, 60, 90]
-
 [download]
 max_attempts = 3
 retry_delay = 15
@@ -145,7 +142,6 @@ def test_settings_sections_present(tmp_path):
     settings, _ = _load_with_fake_toml(tmp_path)
     for section in (
         "paths",
-        "parse",
         "download",
         "filter",
         "music",
@@ -167,7 +163,6 @@ def test_settings_values_correct(tmp_path):
     assert settings.download.concurrency == 5
     assert settings.music.commit_every == 50
     assert settings.filter.creator_low_z_threshold == -3.5
-    assert settings.parse.fetch_retry_delays_sec == [0, 30, 60, 90]
     assert settings.embeddings.exclude_disqualified_users is True
 
 

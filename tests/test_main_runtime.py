@@ -19,7 +19,6 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
             audio_dir="data/source/audio",
             data_csv_path="data/data.csv",
         ),
-        parse=SimpleNamespace(fetch_retry_delays_sec=[0, 30, 60, 90]),
         download=SimpleNamespace(
             max_attempts=3, retry_delay=2, retry_jitter=5, concurrency=5
         ),

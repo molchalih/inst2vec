@@ -24,10 +24,6 @@ class PathsSettings(BaseModel):
     data_csv_path: str
 
 
-class ParseSettings(BaseModel):
-    fetch_retry_delays_sec: list[int]
-
-
 class DownloadSettings(BaseModel):
     max_attempts: int
     retry_delay: int
@@ -181,7 +177,6 @@ class StorageSettings(BaseModel):
 
 class Settings(BaseModel):
     paths: PathsSettings
-    parse: ParseSettings
     download: DownloadSettings
     filter: FilterSettings
     music: MusicSettings
@@ -218,7 +213,6 @@ def load_runtime_config() -> tuple[Settings, Secrets]:
 
     settings = Settings(
         paths=PathsSettings(**raw["paths"]),
-        parse=ParseSettings(**raw["parse"]),
         download=DownloadSettings(**raw["download"]),
         filter=FilterSettings(**raw.get("filter", {})),
         music=MusicSettings(**raw["music"]),
