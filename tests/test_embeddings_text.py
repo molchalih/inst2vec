@@ -1,10 +1,32 @@
 from types import SimpleNamespace
 
+import pytest
+
 from modules.embeddings.text import (
+    _is_non_english,
     build_audio_text,
     build_sandwich_text,
     verbalize_music,
 )
+
+
+@pytest.mark.parametrize(
+    "lang,expected",
+    [
+        (None, False),
+        ("", False),
+        ("en", False),
+        ("EN", False),
+        ("eng", False),
+        ("en-US", False),
+        ("English", False),
+        ("ru", True),
+        ("fr", True),
+        ("DE", True),
+    ],
+)
+def test_is_non_english(lang, expected):
+    assert _is_non_english(lang) is expected
 
 
 def _music(**kwargs):
