@@ -95,7 +95,7 @@ def _require_remote_config(settings, secrets) -> None:
         raise RuntimeError("embeddings.provider=remote requires: " + ", ".join(missing))
 
 
-def _qwen_video_factory(settings, secrets) -> Provider:
+def _qwen_provider(settings, secrets, *, with_frames: bool) -> Provider:
     if settings.embeddings.provider == "remote":
         _require_remote_config(settings, secrets)
         return RemoteQwenProvider(
@@ -105,28 +105,25 @@ def _qwen_video_factory(settings, secrets) -> Provider:
             timeout_s=settings.embeddings.request_timeout_s,
             max_retries=settings.embeddings.max_retries,
         )
+    if with_frames:
+        return LocalQwenProvider(
+            model_path=settings.paths.model_path,
+            max_length=settings.embeddings.embed_max_length,
+            max_frames=settings.embeddings.adaptive_max_frames,
+            fps=settings.embeddings.adaptive_default_fps,
+        )
     return LocalQwenProvider(
         model_path=settings.paths.model_path,
         max_length=settings.embeddings.embed_max_length,
-        max_frames=settings.embeddings.adaptive_max_frames,
-        fps=settings.embeddings.adaptive_default_fps,
     )
+
+
+def _qwen_video_factory(settings, secrets) -> Provider:
+    return _qwen_provider(settings, secrets, with_frames=True)
 
 
 def _qwen_text_factory(settings, secrets) -> Provider:
-    if settings.embeddings.provider == "remote":
-        _require_remote_config(settings, secrets)
-        return RemoteQwenProvider(
-            url=secrets.embedder_remote_url,
-            token=secrets.embedder_token,
-            storage=get_object_store(settings, secrets),
-            timeout_s=settings.embeddings.request_timeout_s,
-            max_retries=settings.embeddings.max_retries,
-        )
-    return LocalQwenProvider(
-        model_path=settings.paths.model_path,
-        max_length=settings.embeddings.embed_max_length,
-    )
+    return _qwen_provider(settings, secrets, with_frames=False)
 
 
 # ── payload builders ─────────────────────────────────────────────────────────
