@@ -13,7 +13,6 @@ load_dotenv()
 
 from sqlalchemy import func  # noqa: E402
 
-from core.config import load_runtime_config  # noqa: E402
 from core.database import (  # noqa: E402
     Clip,
     Music,
@@ -335,8 +334,10 @@ def section_speech(session):
 
 
 def main():
-    _settings, secrets = load_runtime_config()
-    init_db(secrets.database_url, secrets.identity_db_url)
+    # Read-only analysis: only the DB URLs are needed. Avoid
+    # load_runtime_config() so the report runs in secretless environments
+    # (smoke test, fresh checkout) where ACR/Hiker/Spotify keys are absent.
+    init_db(os.environ["DATABASE_URL"], os.environ["IDENTITY_DB_URL"])
     session = get_session()
     try:
         print("=" * 52)

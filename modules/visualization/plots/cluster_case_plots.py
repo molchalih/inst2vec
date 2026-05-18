@@ -8,13 +8,13 @@ from matplotlib.figure import Figure
 from sqlalchemy.orm import Session
 
 from core.database import UserCluster
-from modules.clustering import DEFAULT_CASES
+from modules.embeddings.cases import CASE_REGISTRY
 
 __all__ = ("cluster_plot_figure_for_case",)
 
 
 def _validate_case(case: str) -> str:
-    if case not in DEFAULT_CASES:
+    if case not in CASE_REGISTRY:
         raise ValueError(f"unknown embedding case: {case}")
     return case
 

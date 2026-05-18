@@ -242,7 +242,9 @@ def test_upload_fallback_writes_false_when_no_video_on_disk(
 ):
     s = db_session
     s.add(User(id=1, parse_status="success", is_selected=True))
-    s.add(Music(id=1, artist="a", track="t", reccobeats_id=_NO_MATCH))
+    s.add(
+        Music(id=1, artist="a", track="t", spotify_id="spot1", reccobeats_id=_NO_MATCH)
+    )
     s.add(
         Clip(
             id=10,
@@ -266,7 +268,9 @@ def test_upload_fallback_writes_false_on_transient_error(
 ):
     s = db_session
     s.add(User(id=1, parse_status="success", is_selected=True))
-    s.add(Music(id=1, artist="a", track="t", reccobeats_id=_NO_MATCH))
+    s.add(
+        Music(id=1, artist="a", track="t", spotify_id="spot1", reccobeats_id=_NO_MATCH)
+    )
     s.add(
         Clip(
             id=10,
@@ -294,9 +298,14 @@ def test_upload_fallback_writes_false_on_transient_error(
 
 
 def test_upload_fallback_sweeps_remaining_null_to_false(db_session, tmp_path):
-    """4b sweep: rows with no downloadable clip after 4a → False."""
+    """4b sweep: rows with resolved spotify_id and no downloadable clip after
+    4a → False. Rows with NULL spotify_id (Stage-1 transient) stay NULL so
+    the next run retries them."""
     s = db_session
-    s.add(Music(id=1, artist="a", track="t", reccobeats_id=_NO_MATCH))
+    s.add(
+        Music(id=1, artist="a", track="t", spotify_id="spot1", reccobeats_id=_NO_MATCH)
+    )
+    s.add(Music(id=2, artist="b", track="t", spotify_id=None))
     s.commit()
     rb = MagicMock()
 
@@ -304,6 +313,7 @@ def test_upload_fallback_sweeps_remaining_null_to_false(db_session, tmp_path):
     s.commit()
 
     assert s.query(Music).filter_by(id=1).one().is_audio_features_extracted is False
+    assert s.query(Music).filter_by(id=2).one().is_audio_features_extracted is None
 
 
 def test_music_has_features_helper():

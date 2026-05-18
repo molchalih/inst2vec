@@ -11,6 +11,7 @@ from modules.clustering import (
     DEFAULT_CASES,
     select_best_cluster_run,
 )
+from modules.embeddings.cases import CASE_REGISTRY
 
 __all__ = ("best_run_to_markdown", "best_runs_all_to_markdown")
 
@@ -54,7 +55,7 @@ def _best_cells(best: ClusterRun | None) -> dict[str, str]:
 
 
 def best_run_to_markdown(eng, case: str, *, threshold: float) -> str:
-    if case not in DEFAULT_CASES:
+    if case not in CASE_REGISTRY:
         raise ValueError(f"unknown embedding case: {case}")
 
     with Session(eng) as session:

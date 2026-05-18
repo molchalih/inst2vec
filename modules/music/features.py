@@ -5,7 +5,9 @@ Four sub-stages, each idempotent:
     2. _resolve_reccobeats_ids — fill Music.reccobeats_id (batched)
     3. _enrich_catalog_features — fill audio feature columns (batched); writes True on success
     4. _enrich_upload_fallback  — ffmpeg + POST for rows Stage 3 missed; writes True/False;
-                                 sweeps remaining NULL → False at the end (invariant)
+                                 sweeps remaining NULL → False at the end (only for rows
+                                 with spotify_id resolved; transient Stage-1 failures
+                                 stay NULL so the next run retries them)
 """
 
 from __future__ import annotations
@@ -188,11 +190,16 @@ def _enrich_upload_fallback(
     video_dir: str,
     music: MusicSettings,
 ) -> None:
+    # Require spotify_id to be resolved (success or _NO_MATCH) — rows with
+    # spotify_id IS NULL are Stage 1 transient failures that must stay
+    # NULL so the next run retries them. Marking them is_audio_features_extracted
+    # would permanently block Stage 3 once Spotify eventually answers.
     rows = (
         session.query(Music, func.min(Clip.id).label("clip_id"))
         .join(Clip, Clip.music_id == Music.id)
         .filter(
             *clip_used_in_analysis(),
+            Music.spotify_id.is_not(None),
             Music.is_audio_features_extracted.is_(None),
         )
         .group_by(Music.id)
@@ -257,6 +264,7 @@ def _enrich_upload_fallback(
     swept = (
         session.query(Music)
         .filter(
+            Music.spotify_id.is_not(None),
             Music.is_audio_features_extracted.is_(None),
         )
         .update(

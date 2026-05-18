@@ -8,6 +8,7 @@ from modules.embeddings import (
     embed_clip_embeddings,
     embed_user_embeddings,
 )
+from modules.embeddings.cases import default_cases
 from modules.filter import process_dataset
 from modules.ingest import (
     download_files,
@@ -144,7 +145,10 @@ def run_pipeline() -> None:
     9. USER EMBEDDINGS: calculates the average embedding of the clips belonging to a user, generating a user-level representation.
     """
     phase("User Embeddings")
-    embed_user_embeddings(settings)
+    # Aggregate every case that downstream clustering will request, so
+    # gemini_mm (when embeddings.gemini_enabled=true) produces UserEmbedding
+    # rows and is not silently sealed as an empty matrix.
+    embed_user_embeddings(settings, cases=list(default_cases(settings)))
 
     workers = getattr(settings.search, "clustering_grid_workers", 1)
 

@@ -50,7 +50,6 @@ def _get_default_engine() -> Engine:
 def render_clustering_summary(*, eng=None) -> Markdown:
     _ensure_project_root_on_path()
 
-    from modules.clustering import DEFAULT_CASES
     from modules.visualization.tables.cluster_results_all import (
         summarize_all_to_markdown,
     )
@@ -61,7 +60,7 @@ def render_clustering_summary(*, eng=None) -> Markdown:
     return Markdown(
         summarize_all_to_markdown(
             eng,
-            cases=DEFAULT_CASES,
+            cases=_quarto_cases(),
         )
     )
 
@@ -77,24 +76,38 @@ def render_clustering_summary_by_case(case: str, *, eng=None) -> Markdown:
     return Markdown(summarize_to_markdown(eng, case))
 
 
+def _load_config_toml() -> dict:
+    import tomllib
+
+    config_path = _project_root() / "config.toml"
+    with open(config_path, "rb") as f:
+        return tomllib.load(f)
+
+
 def _load_plateau_drop_threshold() -> float:
     """Read validation.plateau_drop_threshold from config.toml.
 
     Avoids load_runtime_config() so docs/notebooks can render without
     requiring the full set of runtime secrets in the environment.
     """
-    import tomllib
+    return float(_load_config_toml()["validation"]["plateau_drop_threshold"])
 
-    config_path = _project_root() / "config.toml"
-    with open(config_path, "rb") as f:
-        raw = tomllib.load(f)
-    return float(raw["validation"]["plateau_drop_threshold"])
+
+def _quarto_cases() -> tuple[str, ...]:
+    """Embedding cases to render in Quarto, matching pipeline default_cases.
+
+    Mirrors modules.embeddings.cases.default_cases without importing it, to
+    keep this helper free of pipeline runtime imports during notebook render.
+    """
+    cases = ("video", "sandwich", "audio")
+    if _load_config_toml().get("embeddings", {}).get("gemini_enabled", False):
+        return (*cases, "gemini_mm")
+    return cases
 
 
 def render_best_cluster_run(*, eng=None) -> Markdown:
     _ensure_project_root_on_path()
 
-    from modules.clustering import DEFAULT_CASES
     from modules.visualization.tables.cluster_results_best import (
         best_runs_all_to_markdown,
     )
@@ -105,7 +118,7 @@ def render_best_cluster_run(*, eng=None) -> Markdown:
     threshold = _load_plateau_drop_threshold()
 
     return Markdown(
-        best_runs_all_to_markdown(eng, threshold=threshold, cases=DEFAULT_CASES)
+        best_runs_all_to_markdown(eng, threshold=threshold, cases=_quarto_cases())
     )
 
 
