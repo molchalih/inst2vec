@@ -259,7 +259,7 @@ def case_config_identity(spec: EmbeddingCaseSpec, settings) -> str:
     """
     parts = [
         f"case={spec.name}",
-        f"provider={_legacy_provider_name(spec.provider_factory)}",
+        f"provider={getattr(spec.provider_factory, '__name__', repr(spec.provider_factory))}",
         f"model={_os.path.basename(settings.paths.model_path)}",
         f"max_len={settings.embeddings.embed_max_length}",
         f"max_frames={settings.embeddings.adaptive_max_frames}",
@@ -280,18 +280,3 @@ def case_config_identity(spec: EmbeddingCaseSpec, settings) -> str:
         parts.append(f"max_video_s={settings.embeddings.gemini_max_video_seconds}")
         parts.append(f"max_audio_s={settings.embeddings.gemini_max_audio_seconds}")
     return "|".join(parts)
-
-
-def _legacy_provider_name(factory) -> str:
-    """Map the new (post-remote-switch) factory names back to their
-    pre-switch identities so existing clip embeddings stay valid.
-    The names changed from `_local_qwen_*_factory` to `_qwen_*_factory`
-    when the remote path was added, but the local-provider config that
-    each factory produces is bit-for-bit identical, so the config
-    fingerprint must not change.
-    """
-    name = getattr(factory, "__name__", repr(factory))
-    return {
-        "_qwen_video_factory": "_local_qwen_video_factory",
-        "_qwen_text_factory": "_local_qwen_text_factory",
-    }.get(name, name)

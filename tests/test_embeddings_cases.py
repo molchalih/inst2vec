@@ -1,7 +1,11 @@
+from types import SimpleNamespace
+
 from modules.embeddings.cases import (
     CASE_REGISTRY,
     DEFAULT_CASES,
+    VIDEO_CASE,
     EmbeddingCaseSpec,
+    case_config_identity,
 )
 
 
@@ -35,6 +39,25 @@ def test_audio_case_shape():
     assert spec.requires_video is False
     assert spec.apply_video_token_fallback is False
     assert spec.text_builder is not None
+
+
+def _identity_settings() -> SimpleNamespace:
+    """Minimal settings stub satisfying case_config_identity's reads."""
+    return SimpleNamespace(
+        paths=SimpleNamespace(model_path="/fake/Qwen3-VL-Embedding-8B"),
+        embeddings=SimpleNamespace(
+            embed_max_length=1024,
+            adaptive_max_frames=8,
+            adaptive_default_fps=1.0,
+        ),
+    )
+
+
+def test_case_config_identity_uses_factory_dunder_name():
+    identity = case_config_identity(VIDEO_CASE, _identity_settings())
+
+    assert "provider=_qwen_video_factory" in identity
+    assert "_local_qwen_video_factory" not in identity
 
 
 def test_spec_has_no_instruction_or_requires_text_fields():
