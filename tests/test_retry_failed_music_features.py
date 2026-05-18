@@ -1,4 +1,4 @@
-"""Tests for scripts/retry_failed_music_features.py"""
+"""Tests for modules/music/retry.py::retry_failed_features"""
 
 from unittest.mock import MagicMock
 
@@ -70,16 +70,14 @@ def test_retry_resets_failed_rows_to_pending(monkeypatch):
             }
         ]
     )
-    monkeypatch.setattr("scripts.retry_failed_music_features.get_session", lambda: s)
+    monkeypatch.setattr("modules.music.retry.get_session", lambda: s)
     fake_ext = MagicMock()
-    monkeypatch.setattr(
-        "scripts.retry_failed_music_features.extract_music_features", fake_ext
-    )
+    monkeypatch.setattr("modules.music.retry.extract_music_features", fake_ext)
 
-    from scripts.retry_failed_music_features import retry_failed_music_features
+    from modules.music.retry import retry_failed_features
 
     music, paths, secrets = _settings()
-    retry_failed_music_features(music, paths, secrets)
+    retry_failed_features(music, paths, secrets)
 
     row = s.query(Music).filter_by(id=1).one()
     assert row.is_audio_features_extracted is None
@@ -104,16 +102,16 @@ def test_retry_preserves_non_no_match_ids(monkeypatch):
             }
         ]
     )
-    monkeypatch.setattr("scripts.retry_failed_music_features.get_session", lambda: s)
+    monkeypatch.setattr("modules.music.retry.get_session", lambda: s)
     monkeypatch.setattr(
-        "scripts.retry_failed_music_features.extract_music_features",
+        "modules.music.retry.extract_music_features",
         MagicMock(),
     )
 
-    from scripts.retry_failed_music_features import retry_failed_music_features
+    from modules.music.retry import retry_failed_features
 
     music, paths, secrets = _settings()
-    retry_failed_music_features(music, paths, secrets)
+    retry_failed_features(music, paths, secrets)
 
     row = s.query(Music).filter_by(id=1).one()
     assert row.spotify_id == "real-spotify"
@@ -145,15 +143,13 @@ def test_retry_does_not_reset_unrelated_no_match_rows(monkeypatch):
             },
         ]
     )
-    monkeypatch.setattr("scripts.retry_failed_music_features.get_session", lambda: s)
-    monkeypatch.setattr(
-        "scripts.retry_failed_music_features.extract_music_features", MagicMock()
-    )
+    monkeypatch.setattr("modules.music.retry.get_session", lambda: s)
+    monkeypatch.setattr("modules.music.retry.extract_music_features", MagicMock())
 
-    from scripts.retry_failed_music_features import retry_failed_music_features
+    from modules.music.retry import retry_failed_features
 
     music, paths, secrets = _settings()
-    retry_failed_music_features(music, paths, secrets)
+    retry_failed_features(music, paths, secrets)
 
     assert s.query(Music).filter_by(id=1).one().recognition_status == "pending"
     assert s.query(Music).filter_by(id=2).one().recognition_status == "no_match"
@@ -163,15 +159,13 @@ def test_retry_skips_when_no_failed_rows(monkeypatch):
     eng = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(eng)
     s = Session(eng)
-    monkeypatch.setattr("scripts.retry_failed_music_features.get_session", lambda: s)
+    monkeypatch.setattr("modules.music.retry.get_session", lambda: s)
     fake_ext = MagicMock()
-    monkeypatch.setattr(
-        "scripts.retry_failed_music_features.extract_music_features", fake_ext
-    )
+    monkeypatch.setattr("modules.music.retry.extract_music_features", fake_ext)
 
-    from scripts.retry_failed_music_features import retry_failed_music_features
+    from modules.music.retry import retry_failed_features
 
     music, paths, secrets = _settings()
-    retry_failed_music_features(music, paths, secrets)
+    retry_failed_features(music, paths, secrets)
 
     fake_ext.assert_not_called()

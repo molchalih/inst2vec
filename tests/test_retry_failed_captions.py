@@ -1,4 +1,4 @@
-"""Test: retry_failed_captions delegates to process_captions."""
+"""Test: modules/captions/retry.py::retry_failed_captions delegates to process_captions."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ def _ensure_repo_on_path():
 
 
 def test_retry_calls_process_captions(monkeypatch):
-    from scripts import retry_failed_captions
+    from modules.captions import retry as captions_retry
 
     eng = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(eng)
@@ -39,7 +39,7 @@ def test_retry_calls_process_captions(monkeypatch):
         )
         s.commit()
 
-    monkeypatch.setattr(retry_failed_captions, "get_engine", lambda: eng)
+    monkeypatch.setattr(captions_retry, "get_engine", lambda: eng)
 
     called = {}
 
@@ -47,7 +47,7 @@ def test_retry_calls_process_captions(monkeypatch):
         called["cfg"] = cfg
         called["engine"] = engine
 
-    monkeypatch.setattr(retry_failed_captions, "process_captions", fake_process)
+    monkeypatch.setattr(captions_retry, "process_captions", fake_process)
 
     cfg = SimpleNamespace(
         commit_every=2,
@@ -56,7 +56,7 @@ def test_retry_calls_process_captions(monkeypatch):
         translation_max_chars=1000,
         translate_max_new_tokens=200,
     )
-    retry_failed_captions.retry_failed_captions(cfg)
+    captions_retry.retry_failed_captions(cfg)
 
     assert called["cfg"] is cfg
     assert called["engine"] is eng

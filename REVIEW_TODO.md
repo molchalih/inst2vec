@@ -29,7 +29,7 @@ Plan: `docs/superpowers/plans/2026-05-18-audit-final-cleanup.md` (pending).
   - Replace inline checks in `modules/embeddings/text.py`, captions/translate, speech/translate, `core/database/predicates.py`.
   - Commit: `refactor: centralize EN-detection helper in core.lang`
 
-- [ ] **5. Move retry bodies into stage modules (audit 3.9)**
+- [x] **5. Move retry bodies into stage modules (audit 3.9)**
   - New `modules/{music,speech,captions}/retry.py` with function bodies.
   - `scripts/retry_failed_*.py` become CLI shells.
   - Commit: `refactor(scripts): move retry bodies into modules/<stage>/retry.py`

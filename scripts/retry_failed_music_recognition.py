@@ -1,13 +1,4 @@
-"""Manual recovery: re-attempt clips marked is_music_recognized=False.
-
-Flips is_music_recognized=False rows back to NULL, then calls public
-classify_music with the configured MusicSettings so the classify seal
-is preserved (overriding retry knobs would change the config hash and
-trigger reset_music_classify, wiping every Music row).
-
-Usage:
-    uv run python scripts/retry_failed_music_recognition.py
-"""
+"""CLI wrapper. Real logic lives in modules/music/retry.py."""
 
 from __future__ import annotations
 
@@ -16,46 +7,17 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from core.config import MusicSettings, PathsSettings, load_runtime_config
-from core.console import log
-from core.database import Clip, clip_used_in_analysis, get_session, init_db
-from modules.music.classify import AcrSecrets, classify_music
-
-SCOPE = "retry-music"
+from core.config import load_runtime_config
+from core.database import init_db
+from modules.music.classify import AcrSecrets
+from modules.music.retry import retry_failed_recognition
 
 
-def retry_failed_music_recognition(
-    music: MusicSettings,
-    paths: PathsSettings,
-    secrets: AcrSecrets,
-) -> None:
-    session = get_session()
-    try:
-        failed = (
-            session.query(Clip)
-            .filter(Clip.is_music_recognized.is_(False), *clip_used_in_analysis())
-            .all()
-        )
-        if not failed:
-            log(SCOPE, "no failed clips to retry")
-            return
-
-        log(SCOPE, f"resetting {len(failed)} failed clips to retryable state")
-        for clip in failed:
-            clip.is_music_recognized = None
-        session.commit()
-    finally:
-        session.close()
-
-    log(SCOPE, "re-running classify_music with configured MusicSettings")
-    classify_music(music=music, paths=paths, secrets=secrets)
-
-
-if __name__ == "__main__":
+def main() -> None:
     settings, secrets = load_runtime_config()
     init_db(secrets.database_url, secrets.identity_db_url)
     os.makedirs(settings.paths.video_dir, exist_ok=True)
-    retry_failed_music_recognition(
+    retry_failed_recognition(
         music=settings.music,
         paths=settings.paths,
         secrets=AcrSecrets(
@@ -64,3 +26,7 @@ if __name__ == "__main__":
             access_secret=secrets.arc_secret_key,
         ),
     )
+
+
+if __name__ == "__main__":
+    main()
