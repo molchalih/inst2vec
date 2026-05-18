@@ -35,7 +35,8 @@ from modules.filter.preprocess import (  # noqa: F401
     _flag_garbage_clips,
     _flag_global_percentile_clips,
     _flag_low_median_creators,
-    _flag_users_without_enough_clips,
+    _flag_users_without_enough_eligible_clips,
+    _flag_users_without_enough_preprocessed_clips,
     _hard_preprocess,
     _soft_preprocess,
 )

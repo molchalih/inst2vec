@@ -59,14 +59,28 @@ def _flag_low_median_creators(session: Session, cfg: FilterSettings) -> None:
         )
 
 
-def _flag_users_without_enough_clips(session: Session, cfg: FilterSettings) -> None:
+def _flag_users_without_enough_preprocessed_clips(
+    session: Session, cfg: FilterSettings
+) -> None:
     for user in session.query(User).all():
         count = sum(
             1
             for clip in _preprocessed_clips(user)
             if not _has_any_flag(clip, SOFT_CLIP_EXCLUSION_FLAGS)
         )
-        user.is_not_enough_clips = count < cfg.min_eligible_clips_per_user
+        user.is_not_enough_preprocessed = count < cfg.min_eligible_clips_per_user
+
+
+def _flag_users_without_enough_eligible_clips(
+    session: Session, cfg: FilterSettings
+) -> None:
+    for user in session.query(User).all():
+        count = sum(
+            1
+            for clip in _preprocessed_clips(user)
+            if not _has_any_flag(clip, SOFT_CLIP_EXCLUSION_FLAGS)
+        )
+        user.is_not_enough_eligible = count < cfg.min_eligible_clips_per_user
 
 
 def _flag_global_percentile_clips(session: Session, cfg: FilterSettings) -> None:
@@ -147,12 +161,12 @@ def _hard_preprocess(session: Session, cfg: FilterSettings) -> None:
     _flag_basic_policy_clips(session, cfg)
     _derive_preprocessing_status(session)
     _flag_low_median_creators(session, cfg)
-    _flag_users_without_enough_clips(session, cfg)
+    _flag_users_without_enough_preprocessed_clips(session, cfg)
 
 
 def _soft_preprocess(session: Session, cfg: FilterSettings) -> None:
     _flag_global_percentile_clips(session, cfg)
     _compute_creator_robust_stats(session, cfg)
-    _flag_users_without_enough_clips(session, cfg)
+    _flag_users_without_enough_eligible_clips(session, cfg)
     _derive_eligibility(session)
     _derive_user_eligibility(session)

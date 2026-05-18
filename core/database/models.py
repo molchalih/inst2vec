@@ -38,7 +38,10 @@ class User(Base):
     follower_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     parse_status: Mapped[str | None] = mapped_column(String, nullable=True)
     is_low_plays_median: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
-    is_not_enough_clips: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    is_not_enough_preprocessed: Mapped[bool | None] = mapped_column(
+        Boolean, nullable=True
+    )
+    is_not_enough_eligible: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     is_eligible: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     is_selected: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 

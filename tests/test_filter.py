@@ -38,7 +38,8 @@ def test_user_has_filter_columns():
     user_cols = {c.key for c in User.__table__.columns}
     for col in [
         "is_low_plays_median",
-        "is_not_enough_clips",
+        "is_not_enough_preprocessed",
+        "is_not_enough_eligible",
         "is_eligible",
         "is_selected",
     ]:
@@ -74,7 +75,8 @@ def test_user_filter_columns_default_null():
         s.commit()
         user = s.get(User, 2)
         assert user.is_low_plays_median is None
-        assert user.is_not_enough_clips is None
+        assert user.is_not_enough_preprocessed is None
+        assert user.is_not_enough_eligible is None
         assert user.is_selected is None
 
 
@@ -245,7 +247,7 @@ def test_user_exclusion_flags_tuple_contents():
 
     assert USER_EXCLUSION_FLAGS == (
         "is_low_plays_median",
-        "is_not_enough_clips",
+        "is_not_enough_eligible",
     )
 
 
@@ -490,10 +492,10 @@ def test_flag_low_median_creators_excludes_garbage():
         assert u1.is_low_plays_median is True
 
 
-def test_flag_users_without_enough_clips():
+def test_flag_users_without_enough_preprocessed_clips():
     from core.config import FilterSettings
     from core.database import Clip, User
-    from modules.filter import _flag_users_without_enough_clips
+    from modules.filter import _flag_users_without_enough_preprocessed_clips
 
     eng = _make_db()
     cfg = FilterSettings(min_eligible_clips_per_user=3)
@@ -537,12 +539,12 @@ def test_flag_users_without_enough_clips():
                 )
             )
         s.commit()
-        _flag_users_without_enough_clips(s, cfg)
+        _flag_users_without_enough_preprocessed_clips(s, cfg)
         s.commit()
         u1 = s.get(User, 1)
         u2 = s.get(User, 2)
-        assert u1.is_not_enough_clips is True
-        assert u2.is_not_enough_clips is False
+        assert u1.is_not_enough_preprocessed is True
+        assert u2.is_not_enough_preprocessed is False
 
 
 def test_flag_global_percentile_clips():
@@ -553,7 +555,7 @@ def test_flag_global_percentile_clips():
     eng = _make_db()
     cfg = FilterSettings(global_low_percentile=20, global_high_percentile=80)
     with Session(eng) as s:
-        s.add(User(id=1, is_low_plays_median=False, is_not_enough_clips=False))
+        s.add(User(id=1, is_low_plays_median=False, is_not_enough_eligible=False))
         play_counts = [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]
         for i, plays in enumerate(play_counts, start=1):
             s.add(
@@ -592,7 +594,7 @@ def test_compute_creator_robust_stats():
     eng = _make_db()
     cfg = FilterSettings(creator_low_z_threshold=-3.5)
     with Session(eng) as s:
-        s.add(User(id=1, is_low_plays_median=False, is_not_enough_clips=False))
+        s.add(User(id=1, is_low_plays_median=False, is_not_enough_eligible=False))
         plays = [1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000]
         for i, p in enumerate(plays, start=1):
             s.add(
@@ -627,7 +629,7 @@ def test_compute_creator_robust_stats_mad_zero_no_crash():
     eng = _make_db()
     cfg = FilterSettings(creator_low_z_threshold=-3.5)
     with Session(eng) as s:
-        s.add(User(id=1, is_low_plays_median=False, is_not_enough_clips=False))
+        s.add(User(id=1, is_low_plays_median=False, is_not_enough_eligible=False))
         for i in range(1, 6):
             s.add(
                 Clip(
@@ -659,7 +661,7 @@ def test_compute_creator_robust_stats_outlier_flagged():
     eng = _make_db()
     cfg = FilterSettings(creator_low_z_threshold=-1.0)
     with Session(eng) as s:
-        s.add(User(id=1, is_low_plays_median=False, is_not_enough_clips=False))
+        s.add(User(id=1, is_low_plays_median=False, is_not_enough_eligible=False))
         plays = [10, 100, 1000, 10000, 100000]
         for i, p in enumerate(plays, start=1):
             s.add(
@@ -692,7 +694,7 @@ def test_compute_creator_robust_stats_does_not_write_to_user():
     eng = _make_db()
     cfg = FilterSettings(creator_low_z_threshold=-3.5)
     with Session(eng) as s:
-        s.add(User(id=1, is_low_plays_median=False, is_not_enough_clips=False))
+        s.add(User(id=1, is_low_plays_median=False, is_not_enough_eligible=False))
         for i, p in enumerate([1000, 2000, 3000], start=1):
             s.add(
                 Clip(
@@ -721,7 +723,7 @@ def test_compute_creator_robust_stats_skips_low_percentile_clips():
     eng = _make_db()
     cfg = FilterSettings(creator_low_z_threshold=-3.5)
     with Session(eng) as s:
-        s.add(User(id=1, is_low_plays_median=False, is_not_enough_clips=False))
+        s.add(User(id=1, is_low_plays_median=False, is_not_enough_eligible=False))
         # Eligible-so-far
         for i, p in enumerate([1000, 2000, 3000], start=1):
             s.add(
@@ -759,7 +761,7 @@ def test_derive_eligibility_sets_all_clips():
 
     eng = _make_db()
     with Session(eng) as s:
-        s.add(User(id=1, is_low_plays_median=False, is_not_enough_clips=False))
+        s.add(User(id=1, is_low_plays_median=False, is_not_enough_eligible=False))
         # eligible clip
         s.add(
             Clip(
@@ -789,7 +791,7 @@ def test_derive_eligibility_sets_all_clips():
             )
         )
         # disqualified: creator is_low_plays_median
-        s.add(User(id=2, is_low_plays_median=True, is_not_enough_clips=False))
+        s.add(User(id=2, is_low_plays_median=True, is_not_enough_eligible=False))
         s.add(
             Clip(
                 id=3,
@@ -820,7 +822,7 @@ def test_derive_eligibility_no_nulls_after_run():
 
     eng = _make_db()
     with Session(eng) as s:
-        s.add(User(id=1, is_low_plays_median=False, is_not_enough_clips=False))
+        s.add(User(id=1, is_low_plays_median=False, is_not_enough_eligible=False))
         s.add(
             Clip(
                 id=1,
@@ -879,7 +881,7 @@ def test_select_clips_basic():
         selection_random_seed=42,
     )
     with Session(eng) as s:
-        s.add(User(id=1, is_low_plays_median=False, is_not_enough_clips=False))
+        s.add(User(id=1, is_low_plays_median=False, is_not_enough_eligible=False))
         _seed_eligible_clips(s, user_id=1, play_counts=[100 * i for i in range(1, 11)])
         s.commit()
         select_clips(s, cfg)
@@ -902,7 +904,7 @@ def test_select_clips_stable_across_new_users():
         selection_random_seed=42,
     )
     with Session(eng) as s:
-        s.add(User(id=1, is_low_plays_median=False, is_not_enough_clips=False))
+        s.add(User(id=1, is_low_plays_median=False, is_not_enough_eligible=False))
         _seed_eligible_clips(s, user_id=1, play_counts=[1000, 2000, 3000, 4000, 5000])
         s.commit()
         select_clips(s, cfg)
@@ -911,8 +913,8 @@ def test_select_clips_stable_across_new_users():
 
     eng2 = _make_db()
     with Session(eng2) as s:
-        s.add(User(id=1, is_low_plays_median=False, is_not_enough_clips=False))
-        s.add(User(id=2, is_low_plays_median=False, is_not_enough_clips=False))
+        s.add(User(id=1, is_low_plays_median=False, is_not_enough_eligible=False))
+        s.add(User(id=2, is_low_plays_median=False, is_not_enough_eligible=False))
         _seed_eligible_clips(s, user_id=1, play_counts=[1000, 2000, 3000, 4000, 5000])
         _seed_eligible_clips(s, user_id=2, play_counts=[500, 600, 700], id_offset=100)
         s.commit()
@@ -937,7 +939,7 @@ def test_select_clips_user_with_no_eligible_clips_not_selected():
         selection_random_seed=42,
     )
     with Session(eng) as s:
-        s.add(User(id=1, is_low_plays_median=False, is_not_enough_clips=False))
+        s.add(User(id=1, is_low_plays_median=False, is_not_enough_eligible=False))
         s.add(
             Clip(
                 id=1,
@@ -959,7 +961,7 @@ def test_select_clips_user_with_no_eligible_clips_not_selected():
 
 
 def test_not_enough_clips_independent_of_low_plays_median():
-    """A user flagged as low_plays_median MUST still get is_not_enough_clips
+    """A user flagged as low_plays_median MUST still get is_not_enough_preprocessed
     computed from preprocessed-clip count, not short-circuited to False."""
     eng = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(eng)
@@ -968,20 +970,20 @@ def test_not_enough_clips_independent_of_low_plays_median():
         s.commit()
 
         from core.config import FilterSettings
-        from modules.filter import _flag_users_without_enough_clips
+        from modules.filter import _flag_users_without_enough_preprocessed_clips
 
         cfg = FilterSettings(min_eligible_clips_per_user=5)
-        _flag_users_without_enough_clips(s, cfg)
+        _flag_users_without_enough_preprocessed_clips(s, cfg)
 
         u = s.get(User, 1)
         # User has zero preprocessed clips → flagged True regardless of low_plays_median.
-        assert u.is_not_enough_clips is True
+        assert u.is_not_enough_preprocessed is True
 
 
-def test_flag_users_without_enough_clips_second_pass_counts_after_soft_exclusions():
+def test_flag_users_without_enough_eligible_clips_counts_after_soft_exclusions():
     from core.config import FilterSettings
     from core.database import Clip, User
-    from modules.filter import _flag_users_without_enough_clips
+    from modules.filter import _flag_users_without_enough_eligible_clips
 
     eng = _make_db()
     cfg = FilterSettings(min_eligible_clips_per_user=3)
@@ -995,9 +997,9 @@ def test_flag_users_without_enough_clips_second_pass_counts_after_soft_exclusion
         s.add(Clip(id=4, user_id=1, is_preprocessed=True, is_low_percentile=True))
         s.add(Clip(id=5, user_id=1, is_preprocessed=True, is_low_percentile=True))
         s.commit()
-        _flag_users_without_enough_clips(s, cfg)
+        _flag_users_without_enough_eligible_clips(s, cfg)
         s.commit()
-        assert s.get(User, 1).is_not_enough_clips is True
+        assert s.get(User, 1).is_not_enough_eligible is True
 
 
 def test_user_stats_table_columns():
@@ -1470,7 +1472,7 @@ def test_process_dataset_is_idempotent():
 
 
 def test_process_dataset_runs_not_enough_clips_after_robust_stats():
-    """Same intent as the old test: the second pass of _flag_users_without_enough_clips
+    """Same intent as the old test: the second pass (_flag_users_without_enough_eligible_clips)
     must run inside process_dataset so that users dropping below the threshold after
     soft exclusions are correctly flagged."""
     eng = create_engine("sqlite:///:memory:")
@@ -1523,7 +1525,7 @@ def test_process_dataset_runs_not_enough_clips_after_robust_stats():
                 [c.is_low_percentile, c.is_high_percentile, c.is_creator_low_outlier]
             )
         ]
-        assert u.is_not_enough_clips == (
+        assert u.is_not_enough_eligible == (
             len(surviving) < cfg.min_eligible_clips_per_user
         )
 
@@ -1585,7 +1587,8 @@ def test_reset_dataset_processing_state_clears_all_derived_fields():
                 assert getattr(c, col) is None, f"{col} not reset on clip {c.id}"
         for u in s.query(User).all():
             assert u.is_low_plays_median is None
-            assert u.is_not_enough_clips is None
+            assert u.is_not_enough_preprocessed is None
+            assert u.is_not_enough_eligible is None
             assert u.is_selected is None
         assert s.query(UserStats).count() == 0
 
@@ -1595,7 +1598,7 @@ def test_derive_user_eligibility_sets_true_when_no_flags():
 
     eng = _make_db()
     with Session(eng) as s:
-        s.add(User(id=1, is_low_plays_median=False, is_not_enough_clips=False))
+        s.add(User(id=1, is_low_plays_median=False, is_not_enough_eligible=False))
         s.commit()
         _derive_user_eligibility(s)
         s.commit()
@@ -1621,7 +1624,7 @@ def test_derive_user_eligibility_sets_false_when_not_enough_clips():
 
     eng = _make_db()
     with Session(eng) as s:
-        s.add(User(id=1, is_not_enough_clips=True))
+        s.add(User(id=1, is_not_enough_eligible=True))
         s.commit()
         _derive_user_eligibility(s)
         s.commit()

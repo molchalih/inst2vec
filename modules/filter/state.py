@@ -27,7 +27,7 @@ CLIP_EXCLUSION_FLAGS: tuple[str, ...] = (
 
 USER_EXCLUSION_FLAGS: tuple[str, ...] = (
     "is_low_plays_median",
-    "is_not_enough_clips",
+    "is_not_enough_eligible",
 )
 
 
@@ -47,7 +47,8 @@ def _reset_dataset_processing_state(session: Session) -> None:
         clip.is_selected = None
     for user in session.query(User).all():
         user.is_low_plays_median = None
-        user.is_not_enough_clips = None
+        user.is_not_enough_preprocessed = None
+        user.is_not_enough_eligible = None
         user.is_selected = None
         user.is_eligible = None
     session.query(UserStats).delete()
