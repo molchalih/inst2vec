@@ -288,7 +288,7 @@ def test_passes_validation_none_means_pending():
 
 def test_list_best_candidate_rows_filters_by_passes_validation():
     from core.database import ClusterRun, get_session
-    from modules.clustering import list_best_candidate_rows
+    from modules.clustering.results import list_best_candidate_rows
 
     session = get_session()
     try:

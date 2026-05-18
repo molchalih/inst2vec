@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
-from modules.clustering import (
+from modules.clustering.results import (
     list_case_rows,
     summarize_case_rows,
 )

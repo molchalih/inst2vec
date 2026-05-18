@@ -7,7 +7,7 @@ import math
 from sqlalchemy.orm import Session
 
 from core.database import ClusterRun
-from modules.clustering import (
+from modules.clustering.results import (
     select_best_cluster_run,
 )
 from modules.embeddings.cases import CASE_REGISTRY

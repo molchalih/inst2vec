@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 sys.path.insert(0, __file__[: __file__.rfind("/")] + "/..")
 
 from core.database import Base, ClusterRun
-from modules.clustering import ClusterResult
+from modules.clustering.core import ClusterResult
 from tests._clustering_helpers import (
     _make_minimal_search_settings,
     _mutate_one_embedding,

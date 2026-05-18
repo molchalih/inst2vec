@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from core.database import UserCluster
-from modules.clustering import (
+from modules.clustering.core import (
     DEFAULT_HDBSCAN_METRIC,
     ClusterResult,
     compute_clusters,
