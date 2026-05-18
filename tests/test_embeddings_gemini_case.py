@@ -278,6 +278,8 @@ def test_dependency_rows_gemini_includes_file_stats(db_session, tmp_path):
     fake_paths = SimpleNamespace(
         video_dir=str(video_dir),
         audio_dir=str(audio_dir),
+        video_for=lambda cid, vd=video_dir: vd / f"{cid}.mp4",
+        audio_for=lambda cid, ad=audio_dir: ad / f"{cid}.mp3",
     )
 
     clip = db_session.query(Clip).filter_by(id=1).one()
@@ -318,6 +320,8 @@ def _runner_settings(video_dir, audio_dir):
         paths=SimpleNamespace(
             video_dir=str(video_dir),
             audio_dir=str(audio_dir),
+            video_for=lambda cid, vd=video_dir: vd / f"{cid}.mp4",
+            audio_for=lambda cid, ad=audio_dir: ad / f"{cid}.mp3",
             model_path="/models/Qwen3-VL-Embedding-8B",
         ),
         embeddings=SimpleNamespace(

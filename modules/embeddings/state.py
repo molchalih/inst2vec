@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import hashlib
 from collections import defaultdict
-from pathlib import Path
 
 from sqlalchemy.orm import Session
 
@@ -133,16 +132,11 @@ def dependency_rows_for_case(
     """
     case = CASE_REGISTRY[case_name]
     rows: list[tuple[str, object]] = []
-    # TODO(D2): replace with paths.video_for(clip.id) / paths.audio_for(clip.id)
     for col in case.dependency_columns:
         if col == "_video_file_stat":
-            rows.append(
-                (col, fp.file_stat_for_hash(Path(paths.video_dir) / f"{clip.id}.mp4"))
-            )
+            rows.append((col, fp.file_stat_for_hash(paths.video_for(clip.id))))
         elif col == "_audio_file_stat":
-            rows.append(
-                (col, fp.file_stat_for_hash(Path(paths.audio_dir) / f"{clip.id}.mp3"))
-            )
+            rows.append((col, fp.file_stat_for_hash(paths.audio_for(clip.id))))
         else:
             rows.append((col, getattr(clip, col)))
     return rows

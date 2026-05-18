@@ -11,6 +11,8 @@ The migration must:
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from pathlib import Path
 from types import SimpleNamespace
 
 from sqlalchemy import create_engine, inspect, text
@@ -23,11 +25,24 @@ from modules.embeddings.state import per_clip_source_hashes_and_aggregate
 from scripts.migrate_clip_embeddings_source_hash import migrate_database
 
 
+@dataclass
+class _PathsStub:
+    model_path: str
+    video_dir: str
+    audio_dir: str
+
+    def video_for(self, clip_id):
+        return Path(self.video_dir) / f"{clip_id}.mp4"
+
+    def audio_for(self, clip_id):
+        return Path(self.audio_dir) / f"{clip_id}.mp3"
+
+
 def _settings() -> SimpleNamespace:
     """Minimal settings stub that satisfies case_config_identity + the
     migration's candidate filter."""
     return SimpleNamespace(
-        paths=SimpleNamespace(
+        paths=_PathsStub(
             model_path="/fake/Qwen3-VL-Embedding-8B",
             video_dir="/nonexistent/videos",
             audio_dir="/nonexistent/audios",

@@ -6,7 +6,6 @@ import json
 import random
 import time
 from dataclasses import dataclass
-from pathlib import Path
 
 from acrcloud.recognizer import ACRCloudRecognizer
 
@@ -110,7 +109,6 @@ def classify_music(
     Sets is_music_recognized=True (match) or False (clean no-match / terminal-failed).
     """
     session = get_session()
-    video_dir_path = Path(paths.video_dir)
 
     current = fp.Fingerprint(
         data=fp.hash_text(""),
@@ -155,7 +153,7 @@ def classify_music(
 
     with progress(len(clips), "Fingerprinting") as advance:
         for i, clip in enumerate(clips, 1):
-            path = video_dir_path / f"{clip.id}.mp4"
+            path = paths.video_for(clip.id)
             if not path.exists():
                 missing += 1
                 advance()

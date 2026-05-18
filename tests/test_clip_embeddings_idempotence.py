@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import dataclasses
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -120,6 +121,13 @@ def stub_providers(monkeypatch, tmp_path):
 class _PathsStub:
     video_dir: str
     model_path: str = "/fake/qwen"
+    audio_dir: str = "/fake/audio"
+
+    def video_for(self, clip_id):
+        return Path(self.video_dir) / f"{clip_id}.mp4"
+
+    def audio_for(self, clip_id):
+        return Path(self.audio_dir) / f"{clip_id}.mp3"
 
 
 @dataclass

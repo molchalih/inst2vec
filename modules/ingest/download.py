@@ -105,7 +105,7 @@ def download_files(
                 if not clip.is_selected:
                     continue
                 # Thumbnails use disk existence as resume signal — check for all selected clips.
-                thumb_path = os.path.join(thumbnail_dir, f"{clip.id}.jpg")
+                thumb_path = str(paths.thumbnail_for(clip.id))
                 if not os.path.exists(thumb_path) and clip.thumbnail_url:
                     thumbnail_jobs.append((clip.thumbnail_url, thumb_path))
                 # Video gated on is_downloaded=NULL; when retry_failed=True also
@@ -117,7 +117,7 @@ def download_files(
                 if clip.video_url is None:
                     clips_missing_url.append(clip.id)
                     continue
-                video_path = os.path.join(video_dir, f"{clip.id}.mp4")
+                video_path = str(paths.video_for(clip.id))
                 if not os.path.exists(video_path):
                     video_jobs.append((clip.id, clip.video_url, video_path))
                 else:

@@ -22,9 +22,13 @@ from modules.embeddings.state import (
 
 
 def _paths_stub(tmp_path):
+    video_dir = tmp_path / "videos"
+    audio_dir = tmp_path / "audios"
     return SimpleNamespace(
-        video_dir=str(tmp_path / "videos"),
-        audio_dir=str(tmp_path / "audios"),
+        video_dir=str(video_dir),
+        audio_dir=str(audio_dir),
+        video_for=lambda cid, vd=video_dir: vd / f"{cid}.mp4",
+        audio_for=lambda cid, ad=audio_dir: ad / f"{cid}.mp3",
     )
 
 

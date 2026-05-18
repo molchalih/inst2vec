@@ -84,6 +84,15 @@ class _PathsStub:
     video_dir: str
     audio_dir: str
 
+    def video_for(self, clip_id):
+        return Path(self.video_dir) / f"{clip_id}.mp4"
+
+    def audio_for(self, clip_id):
+        return Path(self.audio_dir) / f"{clip_id}.mp3"
+
+    def thumbnail_for(self, clip_id):
+        return Path(self.video_dir) / f"{clip_id}.jpg"
+
 
 @dataclass
 class _EmbeddingsStub:

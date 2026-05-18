@@ -87,9 +87,8 @@ def extract_audio_stage(settings) -> None:
             return
 
         ids = [c.id for c in clips]
-        video_dir = settings.paths.video_dir
-        audio_dir = settings.paths.audio_dir
-        os.makedirs(audio_dir, exist_ok=True)
+        paths = settings.paths
+        os.makedirs(paths.audio_dir, exist_ok=True)
 
         current = fp.Fingerprint(
             data=fp.hash_rows((cid,) for cid in ids),
@@ -99,8 +98,7 @@ def extract_audio_stage(settings) -> None:
                 f"|codec=libmp3lame"
             ),
             dependency=fp.hash_rows(
-                fp.file_stat_for_hash(os.path.join(video_dir, f"{cid}.mp4"))
-                for cid in ids
+                fp.file_stat_for_hash(paths.video_for(cid)) for cid in ids
             ),
         )
         if not fp.is_stale(session, AUDIO_EXTRACT_STAGE, AUDIO_EXTRACT_SCOPE, current):
@@ -108,11 +106,7 @@ def extract_audio_stage(settings) -> None:
             # an mp3 after a seal would not flip is_stale. Verify outputs exist
             # before trusting the seal; if anything is missing fall through and
             # re-extract (extract_audio is idempotent on intact outputs).
-            missing = [
-                c.id
-                for c in clips
-                if not os.path.exists(os.path.join(audio_dir, f"{c.id}.mp3"))
-            ]
+            missing = [c.id for c in clips if not paths.audio_for(c.id).exists()]
             if not missing:
                 log(AUDIO_EXTRACT_STAGE, "fingerprint match — skipping")
                 return
@@ -133,8 +127,8 @@ def extract_audio_stage(settings) -> None:
         ):
             future_to_id: dict = {}
             for clip in clips:
-                video_path = os.path.join(video_dir, f"{clip.id}.mp4")
-                audio_path = os.path.join(audio_dir, f"{clip.id}.mp3")
+                video_path = str(paths.video_for(clip.id))
+                audio_path = str(paths.audio_for(clip.id))
                 if not os.path.exists(video_path):
                     failures += 1
                     advance(detail=f"✗ {clip.id} (no video)")

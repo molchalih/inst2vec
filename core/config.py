@@ -23,6 +23,15 @@ class PathsSettings(BaseModel):
     audio_dir: str = "data/audio"
     data_csv_path: str
 
+    def video_for(self, clip_id: int) -> Path:
+        return Path(self.video_dir) / f"{clip_id}.mp4"
+
+    def audio_for(self, clip_id: int) -> Path:
+        return Path(self.audio_dir) / f"{clip_id}.mp3"
+
+    def thumbnail_for(self, clip_id: int) -> Path:
+        return Path(self.thumbnail_dir) / f"{clip_id}.jpg"
+
 
 class DownloadSettings(BaseModel):
     max_attempts: int

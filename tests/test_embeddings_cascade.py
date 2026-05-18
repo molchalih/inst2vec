@@ -46,6 +46,7 @@ from __future__ import annotations
 import dataclasses
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -111,6 +112,13 @@ def _fake_factory(_settings, _secrets):
 class _PathsStub:
     video_dir: str
     model_path: str = "/fake/qwen"
+    audio_dir: str = "/fake/audio"
+
+    def video_for(self, clip_id):
+        return Path(self.video_dir) / f"{clip_id}.mp4"
+
+    def audio_for(self, clip_id):
+        return Path(self.audio_dir) / f"{clip_id}.mp3"
 
 
 @dataclass
