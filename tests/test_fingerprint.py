@@ -222,3 +222,56 @@ def test_file_stat_for_hash_existing_returns_size_and_mtime(tmp_path):
     p.write_bytes(b"hello")
     s = p.stat()
     assert file_stat_for_hash(str(p)) == (s.st_size, s.st_mtime_ns)
+
+
+# ── gate ─────────────────────────────────────────────────────────────────────
+
+
+def test_gate_no_prior_state_skips_drift_and_logs(fresh_state, capsys):
+    from core.fingerprint import Fingerprint, gate, hash_text
+
+    called: list[str] = []
+    fp_obj = Fingerprint(data=hash_text(""), config=hash_text("v1"), dependency=hash_text(""))
+
+    gate(
+        fresh_state, "stage_x", "scope_y", fp_obj,
+        on_drift=lambda s: called.append("drift"),
+        log_scope="stage_x", drift_msg="resetting",
+    )
+
+    assert called == []
+
+
+def test_gate_drift_invokes_on_drift_callback(fresh_state):
+    from core.fingerprint import Fingerprint, gate, hash_text, mark_complete
+
+    fp_old = Fingerprint(data=hash_text(""), config=hash_text("v1"), dependency=hash_text(""))
+    mark_complete(fresh_state, "stage_x", "scope_y", fp_old)
+    fresh_state.commit()
+
+    fp_new = Fingerprint(data=hash_text(""), config=hash_text("v2"), dependency=hash_text(""))
+    called: list[str] = []
+    gate(
+        fresh_state, "stage_x", "scope_y", fp_new,
+        on_drift=lambda s: called.append("drift"),
+        log_scope="stage_x", drift_msg="resetting",
+    )
+
+    assert called == ["drift"]
+
+
+def test_gate_match_does_not_invoke_callback(fresh_state):
+    from core.fingerprint import Fingerprint, gate, hash_text, mark_complete
+
+    fp_obj = Fingerprint(data=hash_text(""), config=hash_text("v1"), dependency=hash_text(""))
+    mark_complete(fresh_state, "stage_x", "scope_y", fp_obj)
+    fresh_state.commit()
+
+    called: list[str] = []
+    gate(
+        fresh_state, "stage_x", "scope_y", fp_obj,
+        on_drift=lambda s: called.append("drift"),
+        log_scope="stage_x", drift_msg="resetting",
+    )
+
+    assert called == []

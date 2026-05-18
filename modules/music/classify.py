@@ -16,7 +16,6 @@ from core.console import log, progress
 from core.database import (
     Clip,
     Music,
-    StageState,
     clip_used_in_analysis,
     get_session,
 )
@@ -118,15 +117,15 @@ def classify_music(
         config=fp.hash_text(classify_config_payload(music)),
         dependency=fp.hash_text(""),
     )
-    stored = session.get(StageState, (STAGE_MUSIC_CLASSIFY, SCOPE_MUSIC))
-    if stored is not None and stored.config_hash != current.config:
-        diff = fp.describe_diff(session, STAGE_MUSIC_CLASSIFY, SCOPE_MUSIC, current)
-        log(SCOPE_CLASSIFY, f"config drift ({diff}) — resetting music classify outputs")
-        reset_music_classify(session)
-    elif stored is None:
-        log(SCOPE_CLASSIFY, "no prior state — sealing on completion")
-    else:
-        log(SCOPE_CLASSIFY, "fingerprint match — skipping reset")
+    fp.gate(
+        session,
+        STAGE_MUSIC_CLASSIFY,
+        SCOPE_MUSIC,
+        current,
+        reset_music_classify,
+        log_scope=SCOPE_CLASSIFY,
+        drift_msg="resetting music classify outputs",
+    )
 
     clips = (
         session.query(Clip)

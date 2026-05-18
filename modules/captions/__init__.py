@@ -16,8 +16,7 @@ from sqlalchemy.orm import Session
 
 from core import fingerprint as fp
 from core.config import CaptionsSettings
-from core.console import log
-from core.database import StageState, get_engine
+from core.database import get_engine
 from modules.captions.clean import clean_captions
 from modules.captions.detect import detect_caption_language
 from modules.captions.state import (
@@ -51,15 +50,16 @@ def process_captions(cfg: CaptionsSettings, *, engine: Engine | None = None) -> 
         dependency=fp.hash_text(""),
     )
     with Session(eng) as session:
-        stored = session.get(StageState, (STAGE_CAPTIONS, SCOPE_CAPTIONS))
-        if stored is not None and stored.config_hash != current.config:
-            diff = fp.describe_diff(session, STAGE_CAPTIONS, SCOPE_CAPTIONS, current)
-            log("captions", f"config drift ({diff}) — resetting caption outputs")
-            reset_caption_outputs(session)
-        elif stored is None:
-            log("captions", "no prior state — sealing on completion")
-        else:
-            log("captions", "fingerprint match — skipping reset")
+        fp.gate(
+            session,
+            STAGE_CAPTIONS,
+            SCOPE_CAPTIONS,
+            current,
+            reset_caption_outputs,
+            log_scope="captions",
+            drift_msg="resetting caption outputs",
+        )
+        session.commit()
 
     clean_captions(cfg, engine=eng)
     detect_caption_language(cfg, engine=eng)

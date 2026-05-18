@@ -18,8 +18,7 @@ from sqlalchemy.orm import Session
 
 from core import fingerprint as fp
 from core.config import SpeechSettings
-from core.console import log
-from core.database import StageState, get_engine
+from core.database import get_engine
 from modules.speech.classify import classify_speech, clean_speech
 from modules.speech.state import (
     SCOPE_SPEECH,
@@ -65,15 +64,16 @@ def process_speech(
     )
 
     with Session(get_engine()) as session:
-        stored = session.get(StageState, (STAGE_SPEECH, SCOPE_SPEECH))
-        if stored is None:
-            log("speech", "no prior state — sealing on completion")
-        elif fp.is_stale(session, STAGE_SPEECH, SCOPE_SPEECH, current):
-            diff = fp.describe_diff(session, STAGE_SPEECH, SCOPE_SPEECH, current)
-            log("speech", f"config drift ({diff}) — resetting outputs")
-            reset_speech_outputs(session)
-        else:
-            log("speech", "fingerprint match — skipping reset")
+        fp.gate(
+            session,
+            STAGE_SPEECH,
+            SCOPE_SPEECH,
+            current,
+            reset_speech_outputs,
+            log_scope="speech",
+            drift_msg="resetting outputs",
+        )
+        session.commit()
 
     classify_speech(
         video_dir=video_dir,

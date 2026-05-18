@@ -22,7 +22,7 @@ from sqlalchemy import func
 from core import fingerprint as fp
 from core.config import MusicSettings, PathsSettings
 from core.console import log, progress
-from core.database import Clip, Music, StageState, clip_used_in_analysis, get_session
+from core.database import Clip, Music, clip_used_in_analysis, get_session
 from modules.music.audio_sample import extract_audio_sample
 from modules.music.clients import ReccoBeatsClient, SpotifyClient, TransientError
 from modules.music.state import (
@@ -293,15 +293,15 @@ def extract_music_features(
             config=fp.hash_text(features_config_payload(music)),
             dependency=fp.hash_text(""),
         )
-        stored = session.get(StageState, (STAGE_MUSIC_FEATURES, SCOPE_MUSIC))
-        if stored is not None and stored.config_hash != current.config:
-            diff = fp.describe_diff(session, STAGE_MUSIC_FEATURES, SCOPE_MUSIC, current)
-            log(SCOPE_FEATURES, f"config drift ({diff}) — resetting feature columns")
-            reset_music_features(session)
-        elif stored is None:
-            log(SCOPE_FEATURES, "no prior state — sealing on completion")
-        else:
-            log(SCOPE_FEATURES, "fingerprint match — skipping reset")
+        fp.gate(
+            session,
+            STAGE_MUSIC_FEATURES,
+            SCOPE_MUSIC,
+            current,
+            reset_music_features,
+            log_scope=SCOPE_FEATURES,
+            drift_msg="resetting feature columns",
+        )
 
         with httpx.Client(timeout=music.http_timeout) as http:
             spotify = _make_spotify(http, music, secrets)
