@@ -4,11 +4,12 @@ Tracking sheet for the 56 findings in [REVIEW_ANSWERED.md](./REVIEW_ANSWERED.md)
 IDs only — full evidence and remediation direction live in REVIEW_ANSWERED.md.
 
 **Totals:** 56 IDs across Phase 1 (23) / Phase 2 (16) / Phase 3 (17).
-**Status as of 2026-05-18:** 26 IDs done, 9 in progress, 21 deferred.
+**Status as of 2026-05-18:** 49 IDs done, 7 deferred.
 
-The prose "24 of 56" total counts unique *fixes*; two ID pairs collapse:
-1.2 ≡ 2.6 (audit duplicate) and 2.10 was subsumed by 2.4's fix.
-26 IDs → 24 unique fixes.
+The prose "47 of 56" total counts unique *fixes*; two ID pairs collapse:
+1.2 ≡ 2.6 (audit duplicate), 2.10 was subsumed by 2.4's fix, and
+1.22 ≡ 3.10 (same fix in `refactor/cleanup-batch-3`).
+49 IDs → 47 unique fixes.
 
 ---
 
@@ -24,35 +25,53 @@ The prose "24 of 56" total counts unique *fixes*; two ID pairs collapse:
 
 ---
 
-## In progress — `refactor/cleanup-batch-2`
+## Done — merged in `refactor/cleanup-batch-2` (2026-05-18)
 
-8 findings, spec at
+8 IDs from batch-2 spec at
 [`docs/superpowers/specs/2026-05-18-cleanup-batch-2-design.md`](docs/superpowers/specs/2026-05-18-cleanup-batch-2-design.md).
-Architectural item 3.4 is addressed in-line by 1.10 (same helper, same migration).
 
-- **Phase 1 dedup/cleanup (5):** 1.7, 1.9, 1.10, 1.11, 1.12
+- **Phase 1 dedup/cleanup (5):** 1.7 *(revisited and fully closed by batch-3 A2)*, 1.9, 1.10, 1.11, 1.12
 - **Phase 2 logic fixes (3):** 2.8, 2.9, 2.12
-- **Effectively addressed by 1.10:** 3.4
+- **Architectural addressed in-line by 1.10:** 3.4
+
+---
+
+## Done — merged in `refactor/cleanup-batch-3` (2026-05-18)
+
+15 IDs (14 unique fixes since 1.22 ≡ 3.10) across 14 commits.
+Plan at [`docs/superpowers/plans/2026-05-18-cleanup-batch-3.md`](docs/superpowers/plans/2026-05-18-cleanup-batch-3.md).
+
+### Phase A — hash-reset block (data-affecting)
+- 1.13 drop `_legacy_provider_name` shim
+- 1.7 (revisit) consolidate qwen factories into single `qwen_provider`
+- 3.3 centralize case metadata on `EmbeddingCaseSpec`; rename `gemini_mm` → `gemini`
+- 3.6 `dependency_rows_for_case` reduces to a CASE_REGISTRY-driven dispatcher
+- 3.7 replace `_NO_MATCH` sentinel with `Music.recognition_status` enum
+- 1.23 split `is_not_enough_clips` into `is_not_enough_preprocessed` + `is_not_enough_eligible`
+
+### Phase B — stage convention
+- 3.12 introduce `core.pipeline.Stage` enum; drop bare-string stage names
+- 3.1 standardize stage entry signature to `run(settings, secrets)`
+
+### Phase C — cosmetic cleanup
+- 1.8 delete unused `ParseSettings.fetch_retry_delays_sec`
+- 3.5 delete unused `OverridesSettings`
+- 3.14 prune `modules.clustering` package re-exports to public API
+- 1.22 ≡ 3.10 drop underscore on re-exported filter helpers
+
+### Phase D — structural cleanup
+- 3.15 lift audio-extraction settings off `EmbeddingsSettings`
+- 3.13 add `paths.video_for/audio_for/thumbnail_for` helpers
+
+### Local-only (not committed; file gitignored)
+- 3.9 update `CLAUDE.md` `scripts/` description to reflect dual entry-and-library role.
+  The local edit is applied; no commit because `CLAUDE.md` is in `.gitignore`.
 
 ---
 
 ## Deferred — to be picked up later
 
-22 IDs, grouped by reason.
-
-### Rename-later (DB hash / column-name cost)
-Action gated on a clean reset window.
-
-- 1.13 `_legacy_provider_name` shim
-- 1.22 `modules/filter/__init__.py` re-exports private helpers
-- 1.23 dual `_flag_users_without_enough_clips` call (rename has DB cost)
-- 3.10 14 underscored filter helpers re-exported
-
-### Delete-later (cosmetic / configured-but-unused)
-
-- 1.8 `ParseSettings.fetch_retry_delays_sec` configured but never read
-- 3.5 `OverridesSettings` configured but unused
-- 3.14 `modules.clustering.__init__` re-exports 13 symbols
+7 IDs, grouped by reason.
 
 ### Logic / operational — fix only on signal
 
@@ -63,17 +82,9 @@ Action gated on a clean reset window.
 
 Material design changes, not safe to bundle with cleanup batches.
 
-- 3.1 stage entry-point signatures have no convention
 - 3.2 `Clip` is a god-table holding per-stage scratch state
-- 3.3 `embedding_case` requires 4+ updates per new case
-- 3.6 `dependency_rows_for_case` concentrates cross-stage column knowledge
-- 3.7 `_NO_MATCH = "none"` sentinel leaks across module boundary
 - 3.8 filter writes scratch state directly on `Clip`
-- 3.9 `scripts/` is half script, half library
 - 3.11 identity-DB integration has no central transactional bracket
-- 3.12 stage names are stringly-typed across `stage_dependency_hash` callers
-- 3.13 `paths` is a flat bag with no clip→path helper
-- 3.15 ingest stage reads `embeddings.audio_*` config (boundary violation)
 
 ### Do-not-touch (per original scope)
 
@@ -83,12 +94,16 @@ Material design changes, not safe to bundle with cleanup batches.
 
 ## Accounting check
 
-| Phase   | Total | Done | Batch-2 | Deferred |
-|---------|------:|-----:|--------:|---------:|
-| Phase 1 |    23 |   14 |       5 |        4 |
-| Phase 2 |    16 |   11 |       3 |        2 |
-| Phase 3 |    17 |    1 |       1\* |       15 |
-| **All** |**56** |**26**|     **9**|     **21**|
+| Phase   | Total | Done | Deferred |
+|---------|------:|-----:|---------:|
+| Phase 1 |    23 |   23 |        0 |
+| Phase 2 |    16 |   14 |        2 |
+| Phase 3 |    17 |   12 \* |     4 \*\* |
+| **All** |**56** |**49**|     **6**|
 
-\* 3.4 is addressed in-line by 1.10. Counts above use IDs; the prose total
-"24 of 56 done" treats 1.2 ≡ 2.6 and 2.4 ≡ 2.10 as single fixes.
+\* Phase 3 done counts 11 committed (3.1, 3.3, 3.4, 3.5, 3.6, 3.7, 3.12, 3.13,
+3.14, 3.15, 3.16) plus 3.9 applied locally only (CLAUDE.md is gitignored).
+3.4 was addressed in-line by 1.10 (batch-2). 3.10 is the same fix as 1.22.
+
+\*\* Counts only architectural-deferred (3.2, 3.8, 3.11) and do-not-touch
+(3.17). 3.9 is "done locally, not committed".

@@ -299,7 +299,9 @@ def case_config_identity(spec: EmbeddingCaseSpec, settings) -> str:
         parts.append(f"gemini_model={settings.embeddings.gemini_model}")
         parts.append(f"output_dim={settings.embeddings.gemini_output_dim}")
         parts.append(f"audio_bitrate={settings.audio_extraction.audio_bitrate_kbps}")
-        parts.append(f"audio_sample_rate={settings.audio_extraction.audio_sample_rate_hz}")
+        parts.append(
+            f"audio_sample_rate={settings.audio_extraction.audio_sample_rate_hz}"
+        )
         parts.append(f"max_video_s={settings.embeddings.gemini_max_video_seconds}")
         parts.append(f"max_audio_s={settings.embeddings.gemini_max_audio_seconds}")
     return "|".join(parts)

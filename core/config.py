@@ -187,7 +187,9 @@ class Settings(BaseModel):
     speech: SpeechSettings
     captions: CaptionsSettings
     embeddings: EmbeddingsSettings
-    audio_extraction: AudioExtractionSettings = Field(default_factory=AudioExtractionSettings)
+    audio_extraction: AudioExtractionSettings = Field(
+        default_factory=AudioExtractionSettings
+    )
     search: SearchSettings
     validation: ValidationSettings
     storage: StorageSettings = Field(default_factory=StorageSettings)
