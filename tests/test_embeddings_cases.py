@@ -1,19 +1,27 @@
+from types import SimpleNamespace
+
 from modules.embeddings.cases import (
     CASE_REGISTRY,
-    DEFAULT_CASES,
+    VIDEO_CASE,
     EmbeddingCaseSpec,
+    case_config_identity,
 )
 
 
 def test_default_cases_exact_tuple():
-    assert DEFAULT_CASES == ("video", "sandwich", "audio")
+    assert tuple(name for name, spec in CASE_REGISTRY.items() if not spec.requires) == (
+        "video",
+        "sandwich",
+        "audio",
+    )
 
 
 def test_registry_contains_all_default_cases():
-    for name in DEFAULT_CASES:
-        assert name in CASE_REGISTRY
-        assert isinstance(CASE_REGISTRY[name], EmbeddingCaseSpec)
-        assert CASE_REGISTRY[name].name == name
+    for name, spec in CASE_REGISTRY.items():
+        if spec.requires:
+            continue
+        assert isinstance(spec, EmbeddingCaseSpec)
+        assert spec.name == name
 
 
 def test_video_case_shape():
@@ -35,6 +43,33 @@ def test_audio_case_shape():
     assert spec.requires_video is False
     assert spec.apply_video_token_fallback is False
     assert spec.text_builder is not None
+
+
+def _identity_settings() -> SimpleNamespace:
+    """Minimal settings stub satisfying case_config_identity's reads."""
+    return SimpleNamespace(
+        paths=SimpleNamespace(model_path="/fake/Qwen3-VL-Embedding-8B"),
+        embeddings=SimpleNamespace(
+            embed_max_length=1024,
+            adaptive_max_frames=8,
+            adaptive_default_fps=1.0,
+        ),
+    )
+
+
+def test_case_config_identity_uses_factory_dunder_name():
+    identity = case_config_identity(VIDEO_CASE, _identity_settings())
+
+    assert "provider=qwen_provider_video" in identity
+    assert "_qwen_video_factory" not in identity
+
+
+def test_qwen_provider_is_single_function():
+    from modules.embeddings import cases as cm
+
+    assert hasattr(cm, "qwen_provider")
+    assert not hasattr(cm, "_qwen_video_factory")
+    assert not hasattr(cm, "_qwen_text_factory")
 
 
 def test_spec_has_no_instruction_or_requires_text_fields():

@@ -8,9 +8,6 @@ speech_audio_dir = "data/source/audio"
 audio_dir = "data/audio"
 data_csv_path = "data/data.csv"
 
-[parse]
-fetch_retry_delays_sec = [0, 30, 60, 90]
-
 [download]
 max_attempts = 3
 retry_delay = 15
@@ -67,6 +64,7 @@ vad_min_speech_ms = 250
 vad_min_silence_ms = 100
 vad_speech_pad_ms = 150
 vad_min_total_speech_s = 0.5
+vad_ffmpeg_timeout_s = 60
 
 [captions]
 commit_every = 50
@@ -84,10 +82,6 @@ provider = "local"
 inflight = 1
 request_timeout_s = 120
 max_retries = 3
-# ── audio extraction (used by gemini_mm) ──
-audio_bitrate_kbps       = 128
-audio_sample_rate_hz     = 44100
-audio_extract_timeout_s  = 60
 # ── Gemini Embedding 2 case ──
 gemini_enabled           = false
 gemini_model             = "gemini-embedding-2-preview"
@@ -96,6 +90,11 @@ gemini_max_video_seconds = 120
 gemini_max_audio_seconds = 80
 gemini_request_timeout_s = 60
 gemini_max_retries       = 5
+
+[audio_extraction]
+audio_bitrate_kbps       = 128
+audio_sample_rate_hz     = 44100
+audio_extract_timeout_s  = 60
 
 [search]
 umap_n_components = [15]
@@ -115,11 +114,6 @@ plateau_drop_threshold = 0.05
 max_noise_ratio = 0.3
 min_clusters = 3
 max_clusters = 20
-
-[overrides]
-video = ""
-sandwich = ""
-audio = ""
 
 [storage]
 backend = "s3"

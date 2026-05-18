@@ -19,15 +19,19 @@ import os
 import tempfile
 import time
 import urllib.request
-from typing import Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from modules.embeddings.cases import CASE_REGISTRY
 from modules.embeddings.providers import LocalQwenProvider
 from modules.embeddings.sampling import is_token_mismatch_error
+
+# Cases the Qwen pod can actually serve. gemini is in CASE_REGISTRY but
+# its payload_builder requires audio_path, which the pod cannot resolve — so
+# accepting it here would surface as an unhandled 500 inside the handler.
+SERVED_CASES: frozenset[str] = frozenset({"video", "sandwich", "audio"})
 
 # ── module-level state (constructed at startup, swappable in tests) ─────────
 
@@ -67,13 +71,26 @@ def _resolve_video_url(url: str) -> str:
 
 
 class EmbedRequest(BaseModel):
-    case: Literal["video", "sandwich", "audio"]
+    case: str
     clip_id: int
     video_url: str | None = None
     text: str | None = None
     instruction: str | None = None
     fps: float | None = None
     max_frames: int | None = None
+
+    @field_validator("case")
+    @classmethod
+    def _validate_case(cls, v: str) -> str:
+        if v not in CASE_REGISTRY:
+            raise ValueError(
+                f"unknown case: {v!r}; expected one of {sorted(CASE_REGISTRY)}"
+            )
+        if v not in SERVED_CASES:
+            raise ValueError(
+                f"unsupported case: {v!r}; this pod serves {sorted(SERVED_CASES)}"
+            )
+        return v
 
 
 class EmbedResponse(BaseModel):
@@ -120,8 +137,8 @@ def embed(req: EmbedRequest, _: None = Depends(_check_auth)) -> EmbedResponse:
             None,
             req.text,
             local_video_path,
-            # gemini_mm is not served by the Qwen pod, so no audio_path is
-            # threaded over the wire. If a gemini_mm request ever reaches
+            # gemini is not served by the Qwen pod, so no audio_path is
+            # threaded over the wire. If a gemini request ever reaches
             # this endpoint its payload_builder will raise.
             None,
             req.fps,

@@ -8,10 +8,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from core import fingerprint as fp
 from core.console import log, progress
-from core.database import Base, Clip, get_engine, get_session
+from core.database import Clip, get_session
 from core.ffmpeg import run_ffmpeg
+from core.pipeline import Stage
 
-AUDIO_EXTRACT_STAGE = "audio_extract"
+AUDIO_EXTRACT_STAGE = Stage.AUDIO_EXTRACT
 AUDIO_EXTRACT_SCOPE = "default"
 
 
@@ -68,20 +69,11 @@ def extract_audio(
     return False
 
 
-def _video_stat(video_dir: str, clip_id: int) -> tuple[int, int]:
-    p = os.path.join(video_dir, f"{clip_id}.mp4")
-    if not os.path.exists(p):
-        return (-1, -1)
-    st = os.stat(p)
-    return (st.st_size, st.st_mtime_ns)
-
-
 def extract_audio_stage(settings) -> None:
     """Extract mp3 audio for every downloaded clip into ``paths.audio_dir``.
 
     Always runs. Idempotent via fingerprint seal + per-file mtime check.
     """
-    Base.metadata.create_all(get_engine())
     session = get_session()
     try:
         clips = (
@@ -95,29 +87,26 @@ def extract_audio_stage(settings) -> None:
             return
 
         ids = [c.id for c in clips]
-        video_dir = settings.paths.video_dir
-        audio_dir = settings.paths.audio_dir
-        os.makedirs(audio_dir, exist_ok=True)
+        paths = settings.paths
+        os.makedirs(paths.audio_dir, exist_ok=True)
 
         current = fp.Fingerprint(
             data=fp.hash_rows((cid,) for cid in ids),
             config=fp.hash_text(
-                f"bitrate={settings.embeddings.audio_bitrate_kbps}"
-                f"|sr={settings.embeddings.audio_sample_rate_hz}"
+                f"bitrate={settings.audio_extraction.audio_bitrate_kbps}"
+                f"|sr={settings.audio_extraction.audio_sample_rate_hz}"
                 f"|codec=libmp3lame"
             ),
-            dependency=fp.hash_rows(_video_stat(video_dir, cid) for cid in ids),
+            dependency=fp.hash_rows(
+                fp.file_stat_for_hash(paths.video_for(cid)) for cid in ids
+            ),
         )
         if not fp.is_stale(session, AUDIO_EXTRACT_STAGE, AUDIO_EXTRACT_SCOPE, current):
             # The fingerprint only hashes video stats, so deleting / truncating
             # an mp3 after a seal would not flip is_stale. Verify outputs exist
             # before trusting the seal; if anything is missing fall through and
             # re-extract (extract_audio is idempotent on intact outputs).
-            missing = [
-                c.id
-                for c in clips
-                if not os.path.exists(os.path.join(audio_dir, f"{c.id}.mp3"))
-            ]
+            missing = [c.id for c in clips if not paths.audio_for(c.id).exists()]
             if not missing:
                 log(AUDIO_EXTRACT_STAGE, "fingerprint match — skipping")
                 return
@@ -129,17 +118,17 @@ def extract_audio_stage(settings) -> None:
             )
 
         failures = 0
-        bitrate = settings.embeddings.audio_bitrate_kbps
-        sr = settings.embeddings.audio_sample_rate_hz
-        timeout_s = settings.embeddings.audio_extract_timeout_s
+        bitrate = settings.audio_extraction.audio_bitrate_kbps
+        sr = settings.audio_extraction.audio_sample_rate_hz
+        timeout_s = settings.audio_extraction.audio_extract_timeout_s
         with (
             progress(len(clips), "Extracting audio") as advance,
             ThreadPoolExecutor(max_workers=settings.download.concurrency) as pool,
         ):
             future_to_id: dict = {}
             for clip in clips:
-                video_path = os.path.join(video_dir, f"{clip.id}.mp4")
-                audio_path = os.path.join(audio_dir, f"{clip.id}.mp3")
+                video_path = str(paths.video_for(clip.id))
+                audio_path = str(paths.audio_for(clip.id))
                 if not os.path.exists(video_path):
                     failures += 1
                     advance(detail=f"✗ {clip.id} (no video)")

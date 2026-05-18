@@ -17,9 +17,8 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from core import fingerprint as fp
-from core.config import SpeechSettings
-from core.console import log
-from core.database import StageState, get_engine
+from core.config import Secrets, Settings, SpeechSettings
+from core.database import get_engine
 from modules.speech.classify import classify_speech, clean_speech
 from modules.speech.state import (
     SCOPE_SPEECH,
@@ -36,6 +35,7 @@ __all__ = [
     "clean_speech",
     "prepare_for_whisper",
     "process_speech",
+    "run",
     "translate_speech",
 ]
 
@@ -65,15 +65,16 @@ def process_speech(
     )
 
     with Session(get_engine()) as session:
-        stored = session.get(StageState, (STAGE_SPEECH, SCOPE_SPEECH))
-        if stored is None:
-            log("speech", "no prior state — sealing on completion")
-        elif fp.is_stale(session, STAGE_SPEECH, SCOPE_SPEECH, current):
-            diff = fp.describe_diff(session, STAGE_SPEECH, SCOPE_SPEECH, current)
-            log("speech", f"config drift ({diff}) — resetting outputs")
-            reset_speech_outputs(session)
-        else:
-            log("speech", "fingerprint match — skipping reset")
+        fp.gate(
+            session,
+            STAGE_SPEECH,
+            SCOPE_SPEECH,
+            current,
+            reset_speech_outputs,
+            log_scope="speech",
+            drift_msg="resetting outputs",
+        )
+        session.commit()
 
     classify_speech(
         video_dir=video_dir,
@@ -91,6 +92,7 @@ def process_speech(
             min_silence_ms=cfg.vad_min_silence_ms,
             speech_pad_ms=cfg.vad_speech_pad_ms,
             min_total_speech_s=cfg.vad_min_total_speech_s,
+            ffmpeg_timeout_s=cfg.vad_ffmpeg_timeout_s,
         ),
     )
     translate_speech(
@@ -105,3 +107,12 @@ def process_speech(
     with Session(get_engine()) as session:
         fp.mark_complete(session, STAGE_SPEECH, SCOPE_SPEECH, current)
         session.commit()
+
+
+def run(settings: Settings, secrets: Secrets) -> None:
+    """Speech transcription + translation + post-clean."""
+    process_speech(
+        settings.speech,
+        video_dir=settings.paths.video_dir,
+        speech_audio_dir=settings.paths.speech_audio_dir,
+    )

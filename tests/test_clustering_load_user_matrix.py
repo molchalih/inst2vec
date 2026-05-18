@@ -42,7 +42,7 @@ def _clear_main_db():
 
 
 def test_load_user_matrix_filters_by_clip_used_in_analysis():
-    from modules.clustering import load_user_matrix
+    from modules.clustering.core import load_user_matrix
 
     _clear_main_db()
     session = get_session()
@@ -60,7 +60,7 @@ def test_load_user_matrix_filters_by_clip_used_in_analysis():
 
 
 def test_load_user_matrix_empty_when_no_analysis_users():
-    from modules.clustering import load_user_matrix
+    from modules.clustering.core import load_user_matrix
 
     _clear_main_db()
     session = get_session()
@@ -76,7 +76,7 @@ def test_load_user_matrix_empty_when_no_analysis_users():
 
 
 def test_load_user_matrix_ignores_other_embedding_cases():
-    from modules.clustering import load_user_matrix
+    from modules.clustering.core import load_user_matrix
 
     _clear_main_db()
     session = get_session()

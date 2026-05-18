@@ -46,6 +46,7 @@ from __future__ import annotations
 import dataclasses
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -111,6 +112,13 @@ def _fake_factory(_settings, _secrets):
 class _PathsStub:
     video_dir: str
     model_path: str = "/fake/qwen"
+    audio_dir: str = "/fake/audio"
+
+    def video_for(self, clip_id):
+        return Path(self.video_dir) / f"{clip_id}.mp4"
+
+    def audio_for(self, clip_id):
+        return Path(self.audio_dir) / f"{clip_id}.mp3"
 
 
 @dataclass
@@ -173,12 +181,8 @@ def stub_providers(monkeypatch):
     from modules.embeddings import sampling as sampling_mod
 
     monkeypatch.setattr(runner_mod, "CASE_REGISTRY", new_registry)
-    monkeypatch.setattr(
-        sampling_mod, "adaptive_sampling", lambda *a, **kw: (1.0, 8, None)
-    )
-    monkeypatch.setattr(
-        runner_mod, "adaptive_sampling", lambda *a, **kw: (1.0, 8, None)
-    )
+    monkeypatch.setattr(sampling_mod, "adaptive_sampling", lambda *a, **kw: (1.0, 8))
+    monkeypatch.setattr(runner_mod, "adaptive_sampling", lambda *a, **kw: (1.0, 8))
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────

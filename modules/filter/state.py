@@ -3,8 +3,9 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from core.database import Clip, User, UserStats
+from core.pipeline import Stage
 
-STAGE = "filter"
+STAGE = Stage.FILTER
 SCOPE = "all"
 
 HARD_CLIP_EXCLUSION_FLAGS: tuple[str, ...] = (
@@ -27,7 +28,7 @@ CLIP_EXCLUSION_FLAGS: tuple[str, ...] = (
 
 USER_EXCLUSION_FLAGS: tuple[str, ...] = (
     "is_low_plays_median",
-    "is_not_enough_clips",
+    "is_not_enough_eligible",
 )
 
 
@@ -47,7 +48,8 @@ def _reset_dataset_processing_state(session: Session) -> None:
         clip.is_selected = None
     for user in session.query(User).all():
         user.is_low_plays_median = None
-        user.is_not_enough_clips = None
+        user.is_not_enough_preprocessed = None
+        user.is_not_enough_eligible = None
         user.is_selected = None
         user.is_eligible = None
     session.query(UserStats).delete()

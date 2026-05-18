@@ -7,10 +7,10 @@ import math
 from sqlalchemy.orm import Session
 
 from core.database import ClusterRun
-from modules.clustering import (
-    DEFAULT_CASES,
+from modules.clustering.results import (
     select_best_cluster_run,
 )
+from modules.embeddings.cases import CASE_REGISTRY
 
 __all__ = ("best_run_to_markdown", "best_runs_all_to_markdown")
 
@@ -53,12 +53,12 @@ def _best_cells(best: ClusterRun | None) -> dict[str, str]:
     }
 
 
-def best_run_to_markdown(eng, case: str) -> str:
-    if case not in DEFAULT_CASES:
+def best_run_to_markdown(eng, case: str, *, threshold: float) -> str:
+    if case not in CASE_REGISTRY:
         raise ValueError(f"unknown embedding case: {case}")
 
     with Session(eng) as session:
-        best = select_best_cluster_run(session, case)
+        best = select_best_cluster_run(session, case, threshold=threshold)
     if best is None:
         return f"No eligible cluster runs found for `{case}`."
 
@@ -72,7 +72,8 @@ def best_run_to_markdown(eng, case: str) -> str:
 def best_runs_all_to_markdown(
     eng,
     *,
-    cases: tuple[str, ...] = DEFAULT_CASES,
+    threshold: float,
+    cases: tuple[str, ...],
 ) -> str:
     if not cases:
         raise ValueError("cases must contain at least one embedding case")
@@ -80,7 +81,7 @@ def best_runs_all_to_markdown(
     summaries: dict[str, dict[str, str]] = {}
     with Session(eng) as session:
         for case in cases:
-            best = select_best_cluster_run(session, case)
+            best = select_best_cluster_run(session, case, threshold=threshold)
             summaries[case] = _best_cells(best)
 
     col_header = " | ".join(cases)

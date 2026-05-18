@@ -206,7 +206,7 @@ def test_render_clustering_summary_returns_markdown_object():
     assert isinstance(rendered, Markdown)
     assert rendered.data == summarize_all_to_markdown(
         eng,
-        cases=("audio", "video", "sandwich"),
+        cases=("video", "sandwich", "audio"),
     )
 
 

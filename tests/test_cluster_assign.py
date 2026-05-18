@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import numpy as np
 
 from core.config import ValidationSettings
@@ -18,12 +20,27 @@ from core.database import (
 )
 from modules.clustering import assign_clusters
 
-DEFAULT_SETTINGS = ValidationSettings(
+
+def _wrap(validation: ValidationSettings, *, gemini_enabled: bool = False):
+    """Wrap a ValidationSettings into a full settings namespace.
+
+    assign_clusters now expects full settings so it can call
+    default_cases(settings); we still pin validation knobs via the
+    Pydantic model so per-field defaults stay realistic.
+    """
+    return SimpleNamespace(
+        validation=validation,
+        embeddings=SimpleNamespace(gemini_enabled=gemini_enabled),
+    )
+
+
+DEFAULT_VALIDATION = ValidationSettings(
     plateau_drop_threshold=0.05,
     max_noise_ratio=0.5,
     min_clusters=2,
     max_clusters=50,
 )
+DEFAULT_SETTINGS = _wrap(DEFAULT_VALIDATION)
 
 
 def _seed_case(session, case: str, n_users: int = 30, *, with_best_run: bool):
@@ -272,19 +289,23 @@ def test_assign_honors_configured_plateau_threshold():
     finally:
         session.close()
 
-    strict = ValidationSettings(
-        plateau_drop_threshold=0.05,
-        max_noise_ratio=0.5,
-        min_clusters=2,
-        max_clusters=50,
+    strict = _wrap(
+        ValidationSettings(
+            plateau_drop_threshold=0.05,
+            max_noise_ratio=0.5,
+            min_clusters=2,
+            max_clusters=50,
+        )
     )
     assign_clusters(settings=strict)
 
-    relaxed = ValidationSettings(
-        plateau_drop_threshold=0.5,
-        max_noise_ratio=0.5,
-        min_clusters=2,
-        max_clusters=50,
+    relaxed = _wrap(
+        ValidationSettings(
+            plateau_drop_threshold=0.5,
+            max_noise_ratio=0.5,
+            min_clusters=2,
+            max_clusters=50,
+        )
     )
     assign_clusters(settings=relaxed)
 

@@ -2,33 +2,35 @@
 
 import hashlib
 import json
+from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from itertools import product
 
 import numpy as np
 
 from core import fingerprint as fp
+from core.config import Settings
 from core.console import log, progress
 from core.database import (
-    Base,
     Clip,
     ClusterRun,
     UserEmbedding,
     clip_used_in_analysis,
-    get_engine,
     get_session,
 )
+from core.pipeline import Stage
 from modules.clustering.core import (
     CLUSTER_PARAM_COLS,
     DEFAULT_HDBSCAN_METRIC,
     compute_clusters,
     load_user_matrix,
 )
+from modules.embeddings.cases import default_cases
 
-STAGE = "cluster_search"
+STAGE = Stage.CLUSTER_SEARCH
 
 
-def _load_grid(settings) -> list[dict]:
+def _load_grid(settings, cases: Iterable[str]) -> list[dict]:
     """Build cartesian product of hyperparameter combos from settings.
 
     umap2d_n_neighbors and umap2d_min_dist are fixed scalars (not swept);
@@ -45,11 +47,11 @@ def _load_grid(settings) -> list[dict]:
     hdbscan_min_sizes = list(settings.hdbscan_min_cluster_size)
     hdbscan_selection = list(settings.hdbscan_selection)
     random_state = int(settings.random_state)
-    cases = ["video", "sandwich", "audio"]
+    cases_list = list(cases)
 
     combos = []
     for case, nc, nn, md, um, u2m, mcs, sel in product(
-        cases,
+        cases_list,
         umap_n_components,
         umap_n_neighbors,
         umap_min_dist,
@@ -101,7 +103,7 @@ def _fingerprint(session, case: str, case_combos: list[dict]) -> fp.Fingerprint:
             default=str,
         )
     )
-    dependency = fp.stage_dependency_hash(session, "user_embeddings", case)
+    dependency = fp.stage_dependency_hash(session, Stage.USER_EMBEDDINGS, case)
     return fp.Fingerprint(data=data, config=config, dependency=dependency)
 
 
@@ -117,15 +119,19 @@ def _combo_to_row(combo: dict, result) -> ClusterRun:
     )
 
 
-def run_cluster_search(settings, clustering_grid_workers: int = 1) -> None:
+def run_cluster_search(settings: Settings, clustering_grid_workers: int = 1) -> None:
     """Run grid search over hyperparameter combos per embedding case.
 
     Idempotent via modules.fingerprint: fingerprint per case, wipe scoped
     rows on stale, run full grid in memory, bulk-insert, mark_complete.
     Long compute runs outside the write transaction.
+
+    ``settings`` is the full runtime settings object (so we can read
+    ``settings.embeddings.gemini_enabled`` via ``default_cases``) and
+    grid hyperparameters from ``settings.search``.
     """
-    Base.metadata.create_all(get_engine())
-    combos = _load_grid(settings)
+    cases = default_cases(settings)
+    combos = _load_grid(settings.search, cases=cases)
     grid_workers = max(1, clustering_grid_workers)
 
     combos_by_case: dict[str, list[dict]] = {}

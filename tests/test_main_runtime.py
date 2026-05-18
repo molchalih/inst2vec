@@ -19,7 +19,6 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
             audio_dir="data/source/audio",
             data_csv_path="data/data.csv",
         ),
-        parse=SimpleNamespace(fetch_retry_delays_sec=[0, 30, 60, 90]),
         download=SimpleNamespace(
             max_attempts=3, retry_delay=2, retry_jitter=5, concurrency=5
         ),
@@ -68,6 +67,7 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
             vad_min_silence_ms=100,
             vad_speech_pad_ms=150,
             vad_min_total_speech_s=0.5,
+            vad_ffmpeg_timeout_s=60,
         ),
         captions=SimpleNamespace(
             commit_every=50,
@@ -116,59 +116,49 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
             f"init:{database_url}:{identity_db_url}"
         ),
     )
+
+    # Stage wrappers all share the run(settings, secrets) signature, so we
+    # stub them on the package modules imported by main.py.
     monkeypatch.setattr(
-        main,
-        "load_usernames_from_csv",
-        lambda **kwargs: calls.append("import:csv"),
+        main.ingest, "run_seed", lambda s, k: calls.append("import:csv")
     )
-    monkeypatch.setattr(main, "fetch_profiles", lambda **kwargs: calls.append("parse"))
+    monkeypatch.setattr(main.ingest, "run_profiles", lambda s, k: calls.append("parse"))
+    monkeypatch.setattr(main.filter, "run", lambda s, k: calls.append("filter"))
     monkeypatch.setattr(
-        main, "process_dataset", lambda *args, **kwargs: calls.append("filter")
+        main.ingest, "run_download", lambda s, k: calls.append("download")
     )
+    monkeypatch.setattr(main.upload, "run", lambda s, k: calls.append("upload"))
     monkeypatch.setattr(
-        main, "download_files", lambda *args, **kwargs: calls.append("download")
-    )
-    monkeypatch.setattr(
-        main, "upload_videos", lambda *args, **kwargs: calls.append("upload")
-    )
-    monkeypatch.setattr(
-        main,
-        "extract_audio_stage",
-        lambda *args, **kwargs: calls.append("audio:extract"),
+        main.ingest, "run_audio", lambda s, k: calls.append("audio:extract")
     )
     monkeypatch.setattr(
-        main, "classify_music", lambda **kwargs: calls.append("music:classify")
+        main.music, "run_classify", lambda s, k: calls.append("music:classify")
     )
     monkeypatch.setattr(
-        main, "extract_music_features", lambda **kwargs: calls.append("music:features")
+        main.music, "run_features", lambda s, k: calls.append("music:features")
+    )
+    monkeypatch.setattr(main.speech, "run", lambda s, k: calls.append("speech:process"))
+    monkeypatch.setattr(
+        main.captions, "run", lambda s, k: calls.append("captions:process")
     )
     monkeypatch.setattr(
-        main, "process_speech", lambda *args, **kwargs: calls.append("speech:process")
+        main.embeddings, "run_clip", lambda s, k: calls.append("embed:clip")
     )
     monkeypatch.setattr(
-        main,
-        "process_captions",
-        lambda *args, **kwargs: calls.append("captions:process"),
+        main.embeddings, "run_users", lambda s, k: calls.append("embed:user")
     )
     monkeypatch.setattr(
-        main,
-        "embed_clip_embeddings",
-        lambda settings, secrets=None, cases=None: calls.append("embed:clip"),
+        main.clustering, "run_search", lambda s, k: calls.append("cluster:search")
     )
     monkeypatch.setattr(
-        main,
-        "embed_user_embeddings",
-        lambda settings, cases=None: calls.append("embed:user"),
+        main.clustering,
+        "run_validation",
+        lambda s, k: calls.append("cluster:validate"),
     )
     monkeypatch.setattr(
-        main, "run_cluster_search", lambda **kwargs: calls.append("cluster:search")
+        main.clustering, "run_assign", lambda s, k: calls.append("cluster:assign")
     )
-    monkeypatch.setattr(
-        main,
-        "validate_clustering",
-        lambda **kwargs: {"video": None, "sandwich": None, "audio": None},
-    )
-    monkeypatch.setattr(main, "plot_clusters", lambda **kwargs: calls.append("viz"))
+    monkeypatch.setattr(main.plots, "run", lambda s, k: calls.append("viz"))
 
     main.run_pipeline()
 

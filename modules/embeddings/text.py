@@ -11,6 +11,16 @@ from __future__ import annotations
 _KEY_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
 
+def _is_non_english(lang: str | None) -> bool:
+    """True iff ``lang`` is present and not an English-family tag.
+
+    Canonical English check across the codebase. SQL equivalent:
+    ``func.lower(col).notlike("en%")``. Matches "en", "EN", "eng",
+    "en-US", "English" all as English.
+    """
+    return bool(lang) and not lang.lower().startswith("en")
+
+
 def verbalize_music(music) -> str:
     descriptors = []
 
@@ -85,7 +95,7 @@ def build_sandwich_text(clip, music_map: dict) -> str | None:
 
     cap = (
         clip.caption_translation
-        if clip.caption_language not in ("en", None)
+        if _is_non_english(clip.caption_language)
         and clip.caption_translation
         and clip.caption_translation.strip()
         else (clip.caption_clean or clip.caption_text or "")
@@ -95,7 +105,7 @@ def build_sandwich_text(clip, music_map: dict) -> str | None:
 
     speech = (
         clip.speech_translation
-        if clip.speech_language not in ("en", None)
+        if _is_non_english(clip.speech_language)
         and clip.speech_translation
         and clip.speech_translation.strip()
         else (clip.speech_transcription or "")
@@ -110,7 +120,7 @@ def build_sandwich_text(clip, music_map: dict) -> str | None:
 
 
 def build_gemini_text(clip, _music_map: dict) -> str | None:
-    """Caption + transcript for the gemini_mm case.
+    """Caption + transcript for the gemini case.
 
     Uses translation when source language is non-English and a non-empty
     translation exists; otherwise the cleaned/original text. Music is
@@ -119,14 +129,14 @@ def build_gemini_text(clip, _music_map: dict) -> str | None:
     """
     cap = (
         clip.caption_translation
-        if clip.caption_language not in ("en", None)
+        if _is_non_english(clip.caption_language)
         and clip.caption_translation
         and clip.caption_translation.strip()
         else (clip.caption_clean or clip.caption_text or "")
     )
     speech = (
         clip.speech_translation
-        if clip.speech_language not in ("en", None)
+        if _is_non_english(clip.speech_language)
         and clip.speech_translation
         and clip.speech_translation.strip()
         else (clip.speech_transcription or "")
@@ -149,7 +159,7 @@ def build_audio_text(clip, music_map: dict) -> str | None:
 
     speech = (
         clip.speech_translation
-        if clip.speech_language not in ("en", None)
+        if _is_non_english(clip.speech_language)
         and clip.speech_translation
         and clip.speech_translation.strip()
         else (clip.speech_transcription or "")

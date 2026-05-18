@@ -1,26 +1,17 @@
 from core.config import load_runtime_config
 from core.console import phase, startup
 from core.database import init_db
-from modules.captions import process_captions
-from modules.clustering import assign_clusters, run_cluster_search, validate_clustering
-from modules.embeddings import (
-    EmbeddingSecrets,
-    embed_clip_embeddings,
-    embed_user_embeddings,
+from modules import (
+    captions,
+    clustering,
+    embeddings,
+    filter,
+    ingest,
+    music,
+    speech,
+    upload,
 )
-from modules.filter import process_dataset
-from modules.ingest import (
-    download_files,
-    extract_audio_stage,
-    fetch_profiles,
-    load_usernames_from_csv,
-)
-from modules.music import classify_music, extract_music_features
-from modules.music.classify import AcrSecrets
-from modules.music.features import MusicSecrets
-from modules.speech import process_speech
-from modules.upload import upload_videos
-from modules.visualization.plots import plot_clusters
+from modules.visualization import plots
 
 
 def run_pipeline() -> None:
@@ -36,7 +27,7 @@ def run_pipeline() -> None:
     init_db(secrets.database_url, secrets.identity_db_url)
 
     phase("Importing")
-    load_usernames_from_csv(csv_path=settings.paths.data_csv_path)
+    ingest.run_seed(settings, secrets)
 
     """
     1. PARSING: fetches profiles and corresponding clips metadata via hiker api, populates the database.
@@ -44,9 +35,7 @@ def run_pipeline() -> None:
     b) fetch_clips: fetches clips metadata, populates the database.
     """
     phase("Profile Parsing")
-    fetch_profiles(
-        hiker_api_key=secrets.hiker_api_key,
-    )
+    ingest.run_profiles(settings, secrets)
 
     """
     2. PROCESSING: Filters low quality and unwanted clips, randomly selects appropriate ones. Generates statistics.
@@ -55,53 +44,39 @@ def run_pipeline() -> None:
     c) random: randomly selects clips from the remaining pool.
     """
     phase("Processing Dataset")
-    process_dataset(settings.filter)
+    filter.run(settings, secrets)
 
     """
     3. DOWNLOADING: downloads profile pics, videos and thumbnails of the filtered profiles.
     """
     phase("Download")
-    download_files(settings.download, settings.paths)
+    ingest.run_download(settings, secrets)
 
     """
     3.5 UPLOAD: pushes selected+downloaded videos to the object store so the
     remote embedder GPU pod can fetch them. No-op when storage.bucket is unset.
     """
     phase("Upload")
-    upload_videos(settings, secrets)
+    upload.run(settings, secrets)
 
     """
     3.6 AUDIO EXTRACTION: extracts and fingerprints mp3 audio from downloaded
     videos. Always runs; idempotent via fingerprint seal + per-file mtime.
     """
     phase("Audio extraction")
-    extract_audio_stage(settings)
+    ingest.run_audio(settings, secrets)
 
     """
     4.1 MUSIC: fingerprints the music in videos.
     """
     phase("Music fingerprinting")
-    classify_music(
-        music=settings.music,
-        paths=settings.paths,
-        secrets=AcrSecrets(
-            host=secrets.arc_host,
-            access_key=secrets.arc_access_key,
-            access_secret=secrets.arc_secret_key,
-        ),
-    )
+    music.run_classify(settings, secrets)
+
     """
     4.2. MUSIC: extracts the music features (its textual representation).
     """
     phase("Music feature extraction")
-    extract_music_features(
-        music=settings.music,
-        paths=settings.paths,
-        secrets=MusicSecrets(
-            spotify_client_id=secrets.spotify_client_id,
-            spotify_client_secret=secrets.spotify_client_secret,
-        ),
-    )
+    music.run_features(settings, secrets)
 
     """
     5. SPEECH: transcribes speech with Whisper (writes is_speech_detected),
@@ -109,17 +84,13 @@ def run_pipeline() -> None:
        hallucination-marker translations.
     """
     phase("Speech transcription")
-    process_speech(
-        settings.speech,
-        video_dir=settings.paths.video_dir,
-        speech_audio_dir=settings.paths.speech_audio_dir,
-    )
+    speech.run(settings, secrets)
 
     """
     6. CAPTIONS: translates applicable captions.
     """
     phase("Captions translation")
-    process_captions(settings.captions)
+    captions.run(settings, secrets)
 
     """
     8. EMBEDDINGS: embeds the features into a vector space (various modalities).
@@ -128,49 +99,40 @@ def run_pipeline() -> None:
     - audio: only audio
     """
     phase("Clip Embeddings")
-    embed_clip_embeddings(
-        settings,
-        EmbeddingSecrets(
-            gemini_api_key=secrets.gemini_api_key,
-            embedder_remote_url=secrets.embedder_remote_url,
-            embedder_token=secrets.embedder_token,
-            object_store_endpoint=secrets.object_store_endpoint,
-            object_store_access_key=secrets.object_store_access_key,
-            object_store_secret_key=secrets.object_store_secret_key,
-        ),
-    )
+    embeddings.run_clip(settings, secrets)
 
     """
     9. USER EMBEDDINGS: calculates the average embedding of the clips belonging to a user, generating a user-level representation.
     """
     phase("User Embeddings")
-    embed_user_embeddings(settings)
-
-    workers = getattr(settings.search, "clustering_grid_workers", 1)
+    # Aggregate every case that downstream clustering will request, so
+    # gemini (when embeddings.gemini_enabled=true) produces UserEmbedding
+    # rows and is not silently sealed as an empty matrix.
+    embeddings.run_users(settings, secrets)
 
     """
     10. CLUSTER SEARCH: ...
     """
     phase("Cluster Search")
-    run_cluster_search(settings=settings.search, clustering_grid_workers=workers)
+    clustering.run_search(settings, secrets)
 
     """
     11. CLUSTER VALIDATION: ...
     """
     phase("Cluster Validation")
-    validate_clustering(settings=settings.validation, clustering_grid_workers=workers)
+    clustering.run_validation(settings, secrets)
 
     """
     12. CLUSTERING: assign final cluster labels using the best run per case.
     """
     phase("Clustering")
-    assign_clusters(settings=settings.validation)
+    clustering.run_assign(settings, secrets)
 
     """
     13. VISUALIZATION: ...
     """
     phase("Visualization")
-    plot_clusters(plots_dir=settings.paths.plots_dir)
+    plots.run(settings, secrets)
 
 
 if __name__ == "__main__":

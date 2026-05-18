@@ -8,9 +8,11 @@ installs do not require the optional dependency to be present.
 from __future__ import annotations
 
 import os
-import subprocess
 import time
 from dataclasses import dataclass
+
+from core.console import log
+from modules.embeddings.sampling import probe_duration_seconds
 
 
 class GeminiClipTooLongError(Exception):
@@ -24,26 +26,6 @@ class GeminiOutputDimMismatch(Exception):
 @dataclass(frozen=True)
 class GeminiSecrets:
     api_key: str
-
-
-def _probe_duration_seconds(media_path: str) -> float:
-    """Return media duration via ffprobe. Raises on failure."""
-    result = subprocess.run(
-        [
-            "ffprobe",
-            "-v",
-            "error",
-            "-show_entries",
-            "format=duration",
-            "-of",
-            "default=noprint_wrappers=1:nokey=1",
-            media_path,
-        ],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    return float(result.stdout.strip())
 
 
 def _is_retriable(exc: Exception) -> bool:
@@ -105,12 +87,12 @@ class GeminiMultimodalProvider:
         audio_path = payload["audio_path"]
         text = payload["text"]
 
-        v_dur = _probe_duration_seconds(video_path)
+        v_dur = probe_duration_seconds(video_path, strict=True)
         if v_dur > self.max_video_seconds:
             raise GeminiClipTooLongError(
                 f"video {v_dur:.1f}s > cap {self.max_video_seconds}s"
             )
-        a_dur = _probe_duration_seconds(audio_path)
+        a_dur = probe_duration_seconds(audio_path, strict=True)
         if a_dur > self.max_audio_seconds:
             raise GeminiClipTooLongError(
                 f"audio {a_dur:.1f}s > cap {self.max_audio_seconds}s"
@@ -144,7 +126,7 @@ class GeminiMultimodalProvider:
         try:
             elapsed = time.time() - t0
             bytes_up = os.path.getsize(video_path) + os.path.getsize(audio_path)
-            print(f"[gemini] bytes_uploaded={bytes_up} embed_seconds={elapsed:.2f}")
+            log("gemini", f"bytes_uploaded={bytes_up} embed_seconds={elapsed:.2f}")
         except OSError:
             pass
 

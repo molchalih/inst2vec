@@ -18,14 +18,19 @@ class PathsSettings(BaseModel):
     thumbnail_dir: str
     speech_audio_dir: str
     # Default keeps pre-Gemini config.toml files loadable. extract_audio_stage
-    # short-circuits and gemini_mm is opt-in via embeddings.gemini_enabled, so
+    # short-circuits and gemini is opt-in via embeddings.gemini_enabled, so
     # the directory only gets created when the feature is actually used.
     audio_dir: str = "data/audio"
     data_csv_path: str
 
+    def video_for(self, clip_id: int) -> Path:
+        return Path(self.video_dir) / f"{clip_id}.mp4"
 
-class ParseSettings(BaseModel):
-    fetch_retry_delays_sec: list[int]
+    def audio_for(self, clip_id: int) -> Path:
+        return Path(self.audio_dir) / f"{clip_id}.mp3"
+
+    def thumbnail_for(self, clip_id: int) -> Path:
+        return Path(self.thumbnail_dir) / f"{clip_id}.jpg"
 
 
 class DownloadSettings(BaseModel):
@@ -96,6 +101,7 @@ class SpeechSettings(BaseModel):
     vad_min_silence_ms: int
     vad_speech_pad_ms: int
     vad_min_total_speech_s: float
+    vad_ffmpeg_timeout_s: int
 
 
 class CaptionsSettings(BaseModel):
@@ -104,6 +110,12 @@ class CaptionsSettings(BaseModel):
     translate_target_lang: str
     translation_max_chars: int
     translate_max_new_tokens: int
+
+
+class AudioExtractionSettings(BaseModel):
+    audio_bitrate_kbps: int = 128
+    audio_sample_rate_hz: int = 44100
+    audio_extract_timeout_s: int = 60
 
 
 class EmbeddingsSettings(BaseModel):
@@ -115,11 +127,6 @@ class EmbeddingsSettings(BaseModel):
     inflight: int = 1
     request_timeout_s: int = 120
     max_retries: int = 3
-    # ── audio extraction (used by gemini_mm; harmless if gemini disabled
-    # but extract_audio_stage short-circuits before touching ffmpeg) ──
-    audio_bitrate_kbps: int = 128
-    audio_sample_rate_hz: int = 44100
-    audio_extract_timeout_s: int = 60
     # ── Gemini Embedding 2 case ──
     gemini_enabled: bool = False
     gemini_model: str = "gemini-embedding-2-preview"
@@ -158,12 +165,6 @@ class ValidationSettings(BaseModel):
     max_clusters: int
 
 
-class OverridesSettings(BaseModel):
-    video: str = ""
-    sandwich: str = ""
-    audio: str = ""
-
-
 class StorageSettings(BaseModel):
     backend: str = "s3"
     bucket: str = ""
@@ -180,16 +181,17 @@ class StorageSettings(BaseModel):
 
 class Settings(BaseModel):
     paths: PathsSettings
-    parse: ParseSettings
     download: DownloadSettings
     filter: FilterSettings
     music: MusicSettings
     speech: SpeechSettings
     captions: CaptionsSettings
     embeddings: EmbeddingsSettings
+    audio_extraction: AudioExtractionSettings = Field(
+        default_factory=AudioExtractionSettings
+    )
     search: SearchSettings
     validation: ValidationSettings
-    overrides: OverridesSettings
     storage: StorageSettings = Field(default_factory=StorageSettings)
 
 
@@ -217,16 +219,15 @@ def load_runtime_config() -> tuple[Settings, Secrets]:
 
     settings = Settings(
         paths=PathsSettings(**raw["paths"]),
-        parse=ParseSettings(**raw["parse"]),
         download=DownloadSettings(**raw["download"]),
         filter=FilterSettings(**raw.get("filter", {})),
         music=MusicSettings(**raw["music"]),
         speech=SpeechSettings(**raw["speech"]),
         captions=CaptionsSettings(**raw["captions"]),
         embeddings=EmbeddingsSettings(**raw["embeddings"]),
+        audio_extraction=AudioExtractionSettings(**raw.get("audio_extraction", {})),
         search=SearchSettings(**raw.get("search", {})),
         validation=ValidationSettings(**raw["validation"]),
-        overrides=OverridesSettings(**raw["overrides"]),
         storage=StorageSettings(**raw.get("storage", {})),
     )
 

@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 sys.path.insert(0, __file__[: __file__.rfind("/")] + "/..")
 
 from core.database import Base, ClusterRun
-from modules.clustering import ClusterResult
+from modules.clustering.core import ClusterResult
 from tests._clustering_helpers import (
     _make_minimal_search_settings,
     _mutate_one_embedding,
@@ -17,8 +17,12 @@ from tests._clustering_helpers import (
 )
 
 
-def _make_search_settings(**overrides):
-    """Create a SimpleNamespace for search settings with defaults from config.toml."""
+def _make_search_settings(*, gemini_enabled: bool = False, **overrides):
+    """Create a full-shaped settings namespace for run_cluster_search tests.
+
+    Returns a namespace with `.search` (grid hyperparameters) and
+    `.embeddings.gemini_enabled` so `default_cases(settings)` works.
+    """
     defaults = {
         "umap_n_components": [5],
         "umap_n_neighbors": [5],
@@ -32,7 +36,10 @@ def _make_search_settings(**overrides):
         "random_state": 42,
     }
     defaults.update(overrides)
-    return SimpleNamespace(**defaults)
+    return SimpleNamespace(
+        search=SimpleNamespace(**defaults),
+        embeddings=SimpleNamespace(gemini_enabled=gemini_enabled),
+    )
 
 
 def test_cluster_run_tablename():
@@ -101,10 +108,35 @@ def test_load_grid_combo_count():
         hdbscan_selection=["eom"],
         random_state=42,
     )
-    combos = _load_grid(settings)
+    combos = _load_grid(settings, cases=("video", "sandwich", "audio"))
     # 3 cases × 2 umap_n_components × 1 nn × 1 md × 1 umap_metric
     # × 2 umap2d_metrics × 1 mcs × 1 selection = 12 (HDBSCAN metric fixed, not swept)
     assert len(combos) == 12
+
+
+def test_load_grid_iterates_gemini_when_enabled():
+    """Regression: when gemini is included in cases, _load_grid emits
+    combos for it. Previously the clustering loops hardcoded the three-case
+    literal so gemini embeddings were produced but never clustered."""
+    from types import SimpleNamespace
+
+    from modules.clustering.search import _load_grid
+
+    settings = SimpleNamespace(
+        umap_n_components=[10],
+        umap_n_neighbors=[10],
+        umap_min_dist=[0.0],
+        umap_metrics=["cosine"],
+        umap2d_n_neighbors=15,
+        umap2d_min_dist=0.1,
+        umap2d_metrics=["cosine"],
+        hdbscan_min_cluster_size=[10],
+        hdbscan_selection=["eom"],
+        random_state=42,
+    )
+    combos = _load_grid(settings, cases=("video", "sandwich", "audio", "gemini"))
+    case_set = {c["embedding_case"] for c in combos}
+    assert case_set == {"video", "sandwich", "audio", "gemini"}
 
 
 def test_load_grid_ignores_hdbscan_metric_env_dimension():
@@ -124,7 +156,7 @@ def test_load_grid_ignores_hdbscan_metric_env_dimension():
         hdbscan_selection=["eom"],
         random_state=42,
     )
-    combos = _load_grid(settings)
+    combos = _load_grid(settings, cases=("video", "sandwich", "audio"))
     assert len(combos) == 12
     assert {combo["hdbscan_metric"] for combo in combos} == {"euclidean"}
 
@@ -146,7 +178,7 @@ def test_load_grid_combo_keys():
         hdbscan_selection=["eom"],
         random_state=42,
     )
-    combos = _load_grid(settings)
+    combos = _load_grid(settings, cases=("video", "sandwich", "audio"))
     expected_keys = {
         "embedding_case",
         "umap_n_components",
@@ -182,7 +214,7 @@ def test_load_grid_umap2d_fixed_values():
         hdbscan_selection=["eom"],
         random_state=42,
     )
-    combos = _load_grid(settings)
+    combos = _load_grid(settings, cases=("video", "sandwich", "audio"))
     for combo in combos:
         assert combo["umap2d_n_neighbors"] == 20
         assert combo["umap2d_min_dist"] == 0.2

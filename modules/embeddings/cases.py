@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import os as _os
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from core.storage import get_object_store
 from modules.embeddings.providers import (
@@ -29,7 +29,7 @@ from modules.embeddings.text import (
     build_sandwich_text,
 )
 
-# audio_path is only consumed by the gemini_mm case; every other builder
+# audio_path is only consumed by the gemini case; every other builder
 # accepts it and ignores it so the runner can pass it uniformly without
 # branching by case name.
 
@@ -68,6 +68,17 @@ class EmbeddingCaseSpec:
         [object, str | None, str | None, str | None, float | None, int | None], dict
     ]
     apply_video_token_fallback: bool
+    # Names of Clip / Music columns (or synthetic ``_video_file_stat`` /
+    # ``_audio_file_stat`` sentinels) whose values feed the case's text +
+    # payload builders. Drives ``dependency_rows_for_case`` so adding a new
+    # case never needs to touch state.py.
+    dependency_columns: tuple[str, ...]
+    # Bump when the corresponding text/payload-builder logic changes
+    # semantics so existing rows are invalidated via case_config_identity.
+    recipe_version: str
+    # ``settings.embeddings`` bool attrs that all must be truthy for the
+    # case to appear in ``default_cases``. Empty tuple means always-on.
+    requires: tuple[str, ...] = field(default_factory=tuple)
 
 
 # ── provider factories ───────────────────────────────────────────────────────
@@ -95,7 +106,7 @@ def _require_remote_config(settings, secrets) -> None:
         raise RuntimeError("embeddings.provider=remote requires: " + ", ".join(missing))
 
 
-def _qwen_video_factory(settings, secrets) -> Provider:
+def qwen_provider(settings, secrets, *, with_frames: bool) -> Provider:
     if settings.embeddings.provider == "remote":
         _require_remote_config(settings, secrets)
         return RemoteQwenProvider(
@@ -105,28 +116,29 @@ def _qwen_video_factory(settings, secrets) -> Provider:
             timeout_s=settings.embeddings.request_timeout_s,
             max_retries=settings.embeddings.max_retries,
         )
-    return LocalQwenProvider(
-        model_path=settings.paths.model_path,
-        max_length=settings.embeddings.embed_max_length,
-        max_frames=settings.embeddings.adaptive_max_frames,
-        fps=settings.embeddings.adaptive_default_fps,
-    )
-
-
-def _qwen_text_factory(settings, secrets) -> Provider:
-    if settings.embeddings.provider == "remote":
-        _require_remote_config(settings, secrets)
-        return RemoteQwenProvider(
-            url=secrets.embedder_remote_url,
-            token=secrets.embedder_token,
-            storage=get_object_store(settings, secrets),
-            timeout_s=settings.embeddings.request_timeout_s,
-            max_retries=settings.embeddings.max_retries,
+    if with_frames:
+        return LocalQwenProvider(
+            model_path=settings.paths.model_path,
+            max_length=settings.embeddings.embed_max_length,
+            max_frames=settings.embeddings.adaptive_max_frames,
+            fps=settings.embeddings.adaptive_default_fps,
         )
     return LocalQwenProvider(
         model_path=settings.paths.model_path,
         max_length=settings.embeddings.embed_max_length,
     )
+
+
+def _make_qwen_factory(*, with_frames: bool, name: str):
+    def factory(settings, secrets):
+        return qwen_provider(settings, secrets, with_frames=with_frames)
+
+    factory.__name__ = name
+    return factory
+
+
+_QWEN_VIDEO = _make_qwen_factory(with_frames=True, name="qwen_provider_video")
+_QWEN_TEXT = _make_qwen_factory(with_frames=False, name="qwen_provider_text")
 
 
 # ── payload builders ─────────────────────────────────────────────────────────
@@ -156,36 +168,62 @@ VIDEO_CASE = EmbeddingCaseSpec(
     name="video",
     text_builder=None,
     requires_video=True,
-    provider_factory=_qwen_video_factory,
+    provider_factory=_QWEN_VIDEO,
     payload_builder=_video_payload,
     apply_video_token_fallback=True,
+    dependency_columns=("_video_file_stat",),
+    recipe_version="none",
 )
 
 SANDWICH_CASE = EmbeddingCaseSpec(
     name="sandwich",
     text_builder=build_sandwich_text,
     requires_video=True,
-    provider_factory=_qwen_video_factory,
+    provider_factory=_QWEN_VIDEO,
     payload_builder=_sandwich_payload,
     apply_video_token_fallback=True,
+    # _music_row captures both the FK identity (track/artist) and the
+    # feature columns verbalize_music reads, so the sandwich fingerprint
+    # also flips when Spotify/ReccoBeats backfill energy/tempo/valence
+    # for an existing music_id.
+    dependency_columns=(
+        "caption_clean",
+        "caption_language",
+        "caption_translation",
+        "speech_transcription",
+        "speech_language",
+        "speech_translation",
+        "_music_row",
+    ),
+    recipe_version="sandwich_v1",
 )
 
 AUDIO_CASE = EmbeddingCaseSpec(
     name="audio",
     text_builder=build_audio_text,
     requires_video=False,
-    provider_factory=_qwen_text_factory,
+    provider_factory=_QWEN_TEXT,
     payload_builder=_audio_payload,
     apply_video_token_fallback=False,
+    # _music_row is part of the audio text: a music match arriving after
+    # a sealed run (including for previously-skipped speechless clips)
+    # must flip the audio fingerprint so the clip is (re-)embedded.
+    dependency_columns=(
+        "speech_transcription",
+        "speech_language",
+        "speech_translation",
+        "_music_row",
+    ),
+    recipe_version="audio_v1",
 )
 
 
-def _gemini_mm_factory(settings, secrets) -> Provider:
+def _gemini_factory(settings, secrets) -> Provider:
     from modules.embeddings.gemini import GeminiMultimodalProvider
 
     if secrets is None or getattr(secrets, "gemini_api_key", None) is None:
         raise RuntimeError(
-            "gemini_mm provider requires secrets.gemini_api_key; "
+            "gemini provider requires secrets.gemini_api_key; "
             "set GEMINI_API_KEY and embeddings.gemini_enabled=true"
         )
     return GeminiMultimodalProvider(
@@ -199,22 +237,37 @@ def _gemini_mm_factory(settings, secrets) -> Provider:
     )
 
 
-def _gemini_mm_payload(clip, text, video_path, audio_path, fps, max_frames) -> dict:
+def _gemini_payload(clip, text, video_path, audio_path, fps, max_frames) -> dict:
     if audio_path is None:
         raise ValueError(
-            "gemini_mm payload requires audio_path; the runner must compute it "
+            "gemini payload requires audio_path; the runner must compute it "
             "from settings.paths.audio_dir, not reload config.toml"
         )
     return {"video_path": video_path, "audio_path": audio_path, "text": text}
 
 
-GEMINI_MM_CASE = EmbeddingCaseSpec(
-    name="gemini_mm",
+GEMINI_CASE = EmbeddingCaseSpec(
+    name="gemini",
     text_builder=build_gemini_text,
     requires_video=True,
-    provider_factory=_gemini_mm_factory,
-    payload_builder=_gemini_mm_payload,
+    provider_factory=_gemini_factory,
+    payload_builder=_gemini_payload,
     apply_video_token_fallback=False,
+    # build_gemini_text feeds caption + speech text into the payload; the
+    # file-stat sentinels alone don't notice translations / transcripts
+    # changing, so include the same Clip columns the builder reads.
+    dependency_columns=(
+        "_video_file_stat",
+        "_audio_file_stat",
+        "caption_clean",
+        "caption_language",
+        "caption_translation",
+        "speech_transcription",
+        "speech_language",
+        "speech_translation",
+    ),
+    recipe_version="gemini_v1",
+    requires=("gemini_enabled",),
 )
 
 
@@ -222,35 +275,22 @@ CASE_REGISTRY: dict[str, EmbeddingCaseSpec] = {
     "video": VIDEO_CASE,
     "sandwich": SANDWICH_CASE,
     "audio": AUDIO_CASE,
-    "gemini_mm": GEMINI_MM_CASE,
+    "gemini": GEMINI_CASE,
 }
-
-DEFAULT_CASES: tuple[str, ...] = ("video", "sandwich", "audio")
 
 
 def default_cases(settings) -> tuple[str, ...]:
-    """Return the default embedding cases, gated by settings.embeddings.gemini_enabled.
+    """Return the set of cases whose ``requires`` gates all evaluate truthy.
 
-    If gemini_enabled=True, includes gemini_mm in the defaults (if registered).
-    Otherwise, returns just (video, sandwich, audio).
+    A case with ``requires=()`` is always returned; a case with
+    ``requires=("gemini_enabled",)`` is returned only when
+    ``settings.embeddings.gemini_enabled`` is truthy.
     """
-    cases = list(DEFAULT_CASES)
-    if (
-        getattr(settings.embeddings, "gemini_enabled", False)
-        and "gemini_mm" in CASE_REGISTRY
-    ):
-        cases.append("gemini_mm")
+    cases: list[str] = []
+    for name, spec in CASE_REGISTRY.items():
+        if all(getattr(settings.embeddings, flag, False) for flag in spec.requires):
+            cases.append(name)
     return tuple(cases)
-
-
-# Recipe versions for text builders. Bump the value when the corresponding
-# build_*_text logic changes semantics so existing rows are invalidated.
-TEXT_RECIPE_VERSIONS: dict[str, str] = {
-    "video": "none",
-    "sandwich": "sandwich_v1",
-    "audio": "audio_v1",
-    "gemini_mm": "gemini_mm_v1",
-}
 
 
 def case_config_identity(spec: EmbeddingCaseSpec, settings) -> str:
@@ -262,39 +302,26 @@ def case_config_identity(spec: EmbeddingCaseSpec, settings) -> str:
     """
     parts = [
         f"case={spec.name}",
-        f"provider={_legacy_provider_name(spec.provider_factory)}",
+        f"provider={getattr(spec.provider_factory, '__name__', repr(spec.provider_factory))}",
         f"model={_os.path.basename(settings.paths.model_path)}",
         f"max_len={settings.embeddings.embed_max_length}",
         f"max_frames={settings.embeddings.adaptive_max_frames}",
         f"fps={settings.embeddings.adaptive_default_fps}",
         f"token_fallback={spec.apply_video_token_fallback}",
-        f"text_recipe={TEXT_RECIPE_VERSIONS.get(spec.name, 'unknown')}",
+        f"text_recipe={spec.recipe_version}",
     ]
     if spec.name == "audio":
         parts.append(f"instruction={AUDIO_INSTRUCTION}")
-    if spec.name == "gemini_mm":
+    if spec.name == "gemini":
         # The common ``model=`` field above is the Qwen path and does not
         # distinguish Gemini model versions; include the real Gemini model
         # so operators changing gemini_model invalidate the config hash.
         parts.append(f"gemini_model={settings.embeddings.gemini_model}")
         parts.append(f"output_dim={settings.embeddings.gemini_output_dim}")
-        parts.append(f"audio_bitrate={settings.embeddings.audio_bitrate_kbps}")
-        parts.append(f"audio_sample_rate={settings.embeddings.audio_sample_rate_hz}")
+        parts.append(f"audio_bitrate={settings.audio_extraction.audio_bitrate_kbps}")
+        parts.append(
+            f"audio_sample_rate={settings.audio_extraction.audio_sample_rate_hz}"
+        )
         parts.append(f"max_video_s={settings.embeddings.gemini_max_video_seconds}")
         parts.append(f"max_audio_s={settings.embeddings.gemini_max_audio_seconds}")
     return "|".join(parts)
-
-
-def _legacy_provider_name(factory) -> str:
-    """Map the new (post-remote-switch) factory names back to their
-    pre-switch identities so existing clip embeddings stay valid.
-    The names changed from `_local_qwen_*_factory` to `_qwen_*_factory`
-    when the remote path was added, but the local-provider config that
-    each factory produces is bit-for-bit identical, so the config
-    fingerprint must not change.
-    """
-    name = getattr(factory, "__name__", repr(factory))
-    return {
-        "_qwen_video_factory": "_local_qwen_video_factory",
-        "_qwen_text_factory": "_local_qwen_text_factory",
-    }.get(name, name)

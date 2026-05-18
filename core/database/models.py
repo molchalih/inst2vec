@@ -14,6 +14,9 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
+from sqlalchemy import (
+    Enum as SAEnum,
+)
 from sqlalchemy.orm import (
     DeclarativeBase,
     Mapped,
@@ -35,7 +38,10 @@ class User(Base):
     follower_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     parse_status: Mapped[str | None] = mapped_column(String, nullable=True)
     is_low_plays_median: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
-    is_not_enough_clips: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    is_not_enough_preprocessed: Mapped[bool | None] = mapped_column(
+        Boolean, nullable=True
+    )
+    is_not_enough_eligible: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     is_eligible: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     is_selected: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 
@@ -146,6 +152,18 @@ class Music(Base):
     track: Mapped[str] = mapped_column(String, nullable=False, default="")
     spotify_id: Mapped[str | None] = mapped_column(String, nullable=True)
     reccobeats_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    recognition_status: Mapped[str] = mapped_column(
+        SAEnum(
+            "pending",
+            "matched",
+            "no_match",
+            "failed",
+            name="music_recognition_status",
+        ),
+        nullable=False,
+        default="pending",
+        server_default="pending",
+    )
     is_audio_features_extracted: Mapped[bool | None] = mapped_column(
         Boolean, nullable=True
     )

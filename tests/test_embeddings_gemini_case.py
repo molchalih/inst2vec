@@ -19,8 +19,8 @@ def _make_provider(monkeypatch, video_seconds, audio_seconds):
     fake_client = MagicMock()
     durations = {"v.mp4": video_seconds, "a.mp3": audio_seconds}
     monkeypatch.setattr(
-        "modules.embeddings.gemini._probe_duration_seconds",
-        lambda path: durations[os.path.basename(path)],
+        "modules.embeddings.gemini.probe_duration_seconds",
+        lambda path, *, strict=False: durations[os.path.basename(path)],
     )
     return GeminiMultimodalProvider(
         api_key="x",
@@ -62,8 +62,8 @@ def test_embed_uploads_and_returns_vector(monkeypatch, tmp_path):
     a = tmp_path / "a.mp3"
     a.write_bytes(b"a")
     monkeypatch.setattr(
-        "modules.embeddings.gemini._probe_duration_seconds",
-        lambda p: 10.0,
+        "modules.embeddings.gemini.probe_duration_seconds",
+        lambda p, *, strict=False: 10.0,
     )
 
     fake_client = MagicMock()
@@ -107,8 +107,8 @@ def test_embed_raises_on_dim_mismatch(monkeypatch, tmp_path):
     a = tmp_path / "a.mp3"
     a.write_bytes(b"a")
     monkeypatch.setattr(
-        "modules.embeddings.gemini._probe_duration_seconds",
-        lambda p: 10.0,
+        "modules.embeddings.gemini.probe_duration_seconds",
+        lambda p, *, strict=False: 10.0,
     )
     fake_client = MagicMock()
     fake_client.files.upload.side_effect = [
@@ -146,8 +146,8 @@ def test_embed_retries_on_5xx(monkeypatch, tmp_path):
     a = tmp_path / "a.mp3"
     a.write_bytes(b"a")
     monkeypatch.setattr(
-        "modules.embeddings.gemini._probe_duration_seconds",
-        lambda p: 10.0,
+        "modules.embeddings.gemini.probe_duration_seconds",
+        lambda p, *, strict=False: 10.0,
     )
 
     fake_client = MagicMock()
@@ -243,9 +243,9 @@ def db_session():
     session.close()
 
 
-def test_dependency_rows_gemini_mm_includes_file_stats(
-    db_session, monkeypatch, tmp_path
-):
+def test_dependency_rows_gemini_includes_file_stats(db_session, tmp_path):
+    import os
+
     from core.database import Clip, User
     from modules.embeddings.state import dependency_rows_for_case
 
@@ -264,28 +264,43 @@ def test_dependency_rows_gemini_mm_includes_file_stats(
     )
     db_session.commit()
 
-    fake_settings = SimpleNamespace(
-        paths=SimpleNamespace(
-            video_dir=str(tmp_path / "video"),
-            audio_dir=str(tmp_path / "audio"),
-        )
-    )
-    # Patch the stat helpers so the test does not need real files.
-    monkeypatch.setattr(
-        "modules.embeddings.state._video_file_stat", lambda video_dir, cid: (1234, 1000)
-    )
-    monkeypatch.setattr(
-        "modules.embeddings.state._audio_file_stat", lambda audio_dir, cid: (567, 2000)
+    video_dir = tmp_path / "video"
+    audio_dir = tmp_path / "audio"
+    video_dir.mkdir()
+    audio_dir.mkdir()
+    video_path = video_dir / "1.mp4"
+    audio_path = audio_dir / "1.mp3"
+    video_path.write_bytes(b"x" * 1234)
+    audio_path.write_bytes(b"y" * 567)
+    video_stat = os.stat(video_path)
+    audio_stat = os.stat(audio_path)
+
+    fake_paths = SimpleNamespace(
+        video_dir=str(video_dir),
+        audio_dir=str(audio_dir),
+        video_for=lambda cid, vd=video_dir: vd / f"{cid}.mp4",
+        audio_for=lambda cid, ad=audio_dir: ad / f"{cid}.mp3",
     )
 
-    rows = dependency_rows_for_case(
-        db_session, "gemini_mm", [1], settings=fake_settings
-    )
-    assert len(rows) == 1
-    row = rows[0]
-    assert (1234, 1000) in row
-    assert (567, 2000) in row
-    assert row[0] == 1  # clip id is first
+    clip = db_session.query(Clip).filter_by(id=1).one()
+    rows = dependency_rows_for_case("gemini", clip, paths=fake_paths)
+    by_col = dict(rows)
+    # File-stat sentinels plus the caption/speech text columns the
+    # gemini payload actually sends to the model.
+    assert set(by_col) == {
+        "_video_file_stat",
+        "_audio_file_stat",
+        "caption_clean",
+        "caption_language",
+        "caption_translation",
+        "speech_transcription",
+        "speech_language",
+        "speech_translation",
+    }
+    assert by_col["_video_file_stat"] == (video_stat.st_size, video_stat.st_mtime_ns)
+    assert by_col["_audio_file_stat"] == (audio_stat.st_size, audio_stat.st_mtime_ns)
+    assert by_col["speech_transcription"] == "hi"
+    assert by_col["caption_language"] == "en"
 
 
 def _stub_settings(gemini_enabled: bool):
@@ -294,20 +309,20 @@ def _stub_settings(gemini_enabled: bool):
 
 
 def test_default_cases_excludes_gemini_when_disabled():
-    """default_cases should not include gemini_mm when gemini_enabled=False."""
-    assert "gemini_mm" not in default_cases(_stub_settings(gemini_enabled=False))
+    """default_cases should not include gemini when gemini_enabled=False."""
+    assert "gemini" not in default_cases(_stub_settings(gemini_enabled=False))
 
 
 def test_default_cases_includes_gemini_when_enabled():
-    """default_cases should include gemini_mm when gemini_enabled=True."""
-    assert "gemini_mm" in default_cases(_stub_settings(gemini_enabled=True))
+    """default_cases should include gemini when gemini_enabled=True."""
+    assert "gemini" in default_cases(_stub_settings(gemini_enabled=True))
 
 
 def test_explicit_gemini_request_raises_when_disabled():
-    """Requesting gemini_mm explicitly should raise when gemini_enabled=False."""
+    """Requesting gemini explicitly should raise when gemini_enabled=False."""
     settings = _stub_settings(gemini_enabled=False)
     with pytest.raises(RuntimeError, match="gemini_enabled"):
-        embed_clip_embeddings(settings, cases=["gemini_mm"])
+        embed_clip_embeddings(settings, cases=["gemini"])
 
 
 def _runner_settings(video_dir, audio_dir):
@@ -316,6 +331,8 @@ def _runner_settings(video_dir, audio_dir):
         paths=SimpleNamespace(
             video_dir=str(video_dir),
             audio_dir=str(audio_dir),
+            video_for=lambda cid, vd=video_dir: vd / f"{cid}.mp4",
+            audio_for=lambda cid, ad=audio_dir: ad / f"{cid}.mp3",
             model_path="/models/Qwen3-VL-Embedding-8B",
         ),
         embeddings=SimpleNamespace(
@@ -326,14 +343,16 @@ def _runner_settings(video_dir, audio_dir):
             gemini_max_audio_seconds=80,
             gemini_request_timeout_s=10,
             gemini_max_retries=0,
-            audio_bitrate_kbps=128,
-            audio_sample_rate_hz=44100,
             embed_max_length=2048,
             adaptive_max_frames=64,
             adaptive_default_fps=2.0,
             exclude_disqualified_users=False,
             provider="local",
             inflight=1,
+        ),
+        audio_extraction=SimpleNamespace(
+            audio_bitrate_kbps=128,
+            audio_sample_rate_hz=44100,
         ),
     )
 
@@ -387,13 +406,13 @@ def test_runner_seals_when_all_clips_embed(
     monkeypatch.setattr(GeminiMultimodalProvider, "embed", _fake_embed)
 
     embed_clip_embeddings(
-        settings, EmbeddingSecrets(gemini_api_key="x"), cases=["gemini_mm"]
+        settings, EmbeddingSecrets(gemini_api_key="x"), cases=["gemini"]
     )
 
-    rows = db_session.query(ClipEmbedding).filter_by(embedding_case="gemini_mm").all()
+    rows = db_session.query(ClipEmbedding).filter_by(embedding_case="gemini").all()
     assert len(rows) == 1
     assert rows[0].clip_id == 1
-    state = db_session.get(StageState, ("clip_embeddings", "gemini_mm"))
+    state = db_session.get(StageState, ("clip_embeddings", "gemini"))
     assert state is not None
 
 
@@ -447,12 +466,12 @@ def test_runner_does_not_seal_on_failure(
     monkeypatch.setattr(GeminiMultimodalProvider, "embed", _fake_embed)
 
     embed_clip_embeddings(
-        settings, EmbeddingSecrets(gemini_api_key="x"), cases=["gemini_mm"]
+        settings, EmbeddingSecrets(gemini_api_key="x"), cases=["gemini"]
     )
 
-    rows = db_session.query(ClipEmbedding).filter_by(embedding_case="gemini_mm").all()
+    rows = db_session.query(ClipEmbedding).filter_by(embedding_case="gemini").all()
     assert {r.clip_id for r in rows} == {2}
-    assert db_session.get(StageState, ("clip_embeddings", "gemini_mm")) is None
+    assert db_session.get(StageState, ("clip_embeddings", "gemini")) is None
 
 
 def test_config_drift_wipes_case(
@@ -502,10 +521,10 @@ def test_config_drift_wipes_case(
 
     # Phase (a): baseline run with output_dim=3072.
     s1 = _runner_settings(vid_dir, aud_dir)
-    embed_clip_embeddings(s1, EmbeddingSecrets(gemini_api_key="x"), cases=["gemini_mm"])
+    embed_clip_embeddings(s1, EmbeddingSecrets(gemini_api_key="x"), cases=["gemini"])
     assert len(captured) == 1
     first_rows = (
-        db_session.query(ClipEmbedding).filter_by(embedding_case="gemini_mm").all()
+        db_session.query(ClipEmbedding).filter_by(embedding_case="gemini").all()
     )
     assert len(first_rows) == 1
     first_blob_size = len(first_rows[0].embedding)
@@ -514,12 +533,12 @@ def test_config_drift_wipes_case(
     # Phase (b): drift gemini_output_dim → config_hash changes → wipe + re-embed.
     s2 = _runner_settings(vid_dir, aud_dir)
     s2.embeddings.gemini_output_dim = 768
-    embed_clip_embeddings(s2, EmbeddingSecrets(gemini_api_key="x"), cases=["gemini_mm"])
+    embed_clip_embeddings(s2, EmbeddingSecrets(gemini_api_key="x"), cases=["gemini"])
     assert len(captured) == 1, f"expected exactly one re-embed, got {len(captured)}"
 
     # The runner uses its own session; expire ours so we see the wipe + insert.
     db_session.expire_all()
-    rows = db_session.query(ClipEmbedding).filter_by(embedding_case="gemini_mm").all()
+    rows = db_session.query(ClipEmbedding).filter_by(embedding_case="gemini").all()
     assert len(rows) == 1
     # Row was wiped and replaced — new blob size reflects the new dim.
     assert len(rows[0].embedding) != first_blob_size
@@ -578,18 +597,18 @@ def test_per_clip_diff_re_embeds_only_touched_clip(
 
     # Phase 1: both clips embedded.
     embed_clip_embeddings(
-        settings, EmbeddingSecrets(gemini_api_key="x"), cases=["gemini_mm"]
+        settings, EmbeddingSecrets(gemini_api_key="x"), cases=["gemini"]
     )
     assert len(seen) == 2
     seen.clear()
 
-    # Mutate only clip 1's caption — its per-clip source hash changes.
-    clip1 = db_session.get(Clip, 1)
-    clip1.caption_text = "new caption"
-    db_session.commit()
+    # Mutate only clip 1's video file — its _video_file_stat hash changes.
+    # (Gemini's dependency_columns are the synthetic file-stat sentinels;
+    # caption fields no longer feed the per-clip hash.)
+    (vid_dir / "1.mp4").write_bytes(fixture_bytes + b"-touched")
 
     # Phase 2: only clip 1 should be re-embedded; clip 2's hash is unchanged.
     embed_clip_embeddings(
-        settings, EmbeddingSecrets(gemini_api_key="x"), cases=["gemini_mm"]
+        settings, EmbeddingSecrets(gemini_api_key="x"), cases=["gemini"]
     )
     assert seen == [str(vid_dir / "1.mp4")]

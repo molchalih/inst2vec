@@ -101,7 +101,7 @@ def fetch_profiles(
 
     log(SCOPE, f"{len(users)} users to process")
 
-    parsed = skipped = failed = 0
+    parsed = failed = 0
     total_users = len(users)
 
     with progress(total_users, "Fetching profiles") as advance:
@@ -127,9 +127,9 @@ def fetch_profiles(
 
     session.close()
 
-    total = parsed + skipped + failed
+    total = parsed + failed
     log(
         SCOPE,
-        f"done — total: {total}, parsed: {parsed}, skipped: {skipped}, failed: {failed}",
+        f"done — total: {total}, parsed: {parsed}, failed: {failed}",
         level="ok",
     )

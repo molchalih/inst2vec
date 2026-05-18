@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import dataclasses
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -108,12 +109,8 @@ def stub_providers(monkeypatch, tmp_path):
     # module-level name also needs to be redirected.
     monkeypatch.setattr(runner_mod, "CASE_REGISTRY", new_registry)
 
-    monkeypatch.setattr(
-        sampling_mod, "adaptive_sampling", lambda *a, **kw: (1.0, 8, None)
-    )
-    monkeypatch.setattr(
-        runner_mod, "adaptive_sampling", lambda *a, **kw: (1.0, 8, None)
-    )
+    monkeypatch.setattr(sampling_mod, "adaptive_sampling", lambda *a, **kw: (1.0, 8))
+    monkeypatch.setattr(runner_mod, "adaptive_sampling", lambda *a, **kw: (1.0, 8))
     return tmp_path
 
 
@@ -124,6 +121,13 @@ def stub_providers(monkeypatch, tmp_path):
 class _PathsStub:
     video_dir: str
     model_path: str = "/fake/qwen"
+    audio_dir: str = "/fake/audio"
+
+    def video_for(self, clip_id):
+        return Path(self.video_dir) / f"{clip_id}.mp4"
+
+    def audio_for(self, clip_id):
+        return Path(self.audio_dir) / f"{clip_id}.mp3"
 
 
 @dataclass
@@ -569,7 +573,9 @@ def test_stale_row_with_missing_video_drops_row_and_leaves_stage_stale(
     from modules.embeddings.state import per_clip_source_hashes_and_aggregate
 
     spec = cases_mod_local.CASE_REGISTRY["sandwich"]
-    _, dep_agg = per_clip_source_hashes_and_aggregate(db_session, "sandwich", [10])
+    _, dep_agg = per_clip_source_hashes_and_aggregate(
+        db_session, "sandwich", [10], settings=settings
+    )
     current = fp_mod.Fingerprint(
         data=fp_mod.hash_rows([(10,)]),
         config=fp_mod.hash_text(cases_mod_local.case_config_identity(spec, settings)),

@@ -18,9 +18,6 @@ speech_audio_dir = "data/source/audio"
 audio_dir = "data/audio"
 data_csv_path = "data/data.csv"
 
-[parse]
-fetch_retry_delays_sec = [0, 30, 60, 90]
-
 [download]
 max_attempts = 3
 retry_delay = 15
@@ -77,6 +74,7 @@ vad_min_speech_ms = 250
 vad_min_silence_ms = 100
 vad_speech_pad_ms = 150
 vad_min_total_speech_s = 0.5
+vad_ffmpeg_timeout_s = 60
 
 [captions]
 commit_every = 50
@@ -98,11 +96,6 @@ plateau_drop_threshold = 0.05
 max_noise_ratio = 0.3
 min_clusters = 3
 max_clusters = 20
-
-[overrides]
-video = ""
-sandwich = ""
-audio = ""
 """
 
 FAKE_SECRETS = {
@@ -144,7 +137,6 @@ def test_settings_sections_present(tmp_path):
     settings, _ = _load_with_fake_toml(tmp_path)
     for section in (
         "paths",
-        "parse",
         "download",
         "filter",
         "music",
@@ -153,7 +145,6 @@ def test_settings_sections_present(tmp_path):
         "embeddings",
         "search",
         "validation",
-        "overrides",
     ):
         assert hasattr(settings, section), f"settings.{section} missing"
 
@@ -166,7 +157,6 @@ def test_settings_values_correct(tmp_path):
     assert settings.download.concurrency == 5
     assert settings.music.commit_every == 50
     assert settings.filter.creator_low_z_threshold == -3.5
-    assert settings.parse.fetch_retry_delays_sec == [0, 30, 60, 90]
     assert settings.embeddings.exclude_disqualified_users is True
 
 
@@ -222,6 +212,7 @@ def test_speech_settings_has_vad_fields(tmp_path):
     assert settings.speech.vad_min_silence_ms == 100
     assert settings.speech.vad_speech_pad_ms == 150
     assert settings.speech.vad_min_total_speech_s == 0.5
+    assert settings.speech.vad_ffmpeg_timeout_s == 60
 
 
 def test_secrets_optional_when_gemini_disabled(tmp_path):

@@ -13,24 +13,24 @@ import hashlib
 import json
 
 from core import fingerprint as fp
-from core.config import ValidationSettings
+from core.config import Settings, ValidationSettings
 from core.console import log
 from core.database import (
-    Base,
     ClusterRun,
     StageState,
     UserCluster,
-    get_engine,
     get_session,
 )
+from core.pipeline import Stage
 from modules.clustering.core import (
     CLUSTER_PARAM_COLS,
     compute_clusters,
     load_user_matrix,
 )
-from modules.clustering.results import DEFAULT_CASES, select_best_cluster_run
+from modules.clustering.results import select_best_cluster_run
+from modules.embeddings.cases import default_cases
 
-STAGE = "cluster_assign"
+STAGE = Stage.CLUSTER_ASSIGN
 # Bump when assign-stage logic changes in a way the data/dependency
 # fingerprints would not detect (e.g., changing how labels are derived
 # from compute_clusters output).
@@ -63,7 +63,7 @@ def _fingerprint(session, case: str, settings: ValidationSettings) -> fp.Fingerp
     return fp.Fingerprint(
         data=fp.hash_rows(data_payload),
         config=fp.hash_text(config_payload),
-        dependency=fp.stage_dependency_hash(session, "cluster_validation", case),
+        dependency=fp.stage_dependency_hash(session, Stage.CLUSTER_VALIDATION, case),
     )
 
 
@@ -134,12 +134,14 @@ def _assign_case(case: str, settings: ValidationSettings) -> None:
     )
 
 
-def assign_clusters(settings: ValidationSettings) -> None:
+def assign_clusters(settings: Settings) -> None:
     """Per-case final clustering assignment, fingerprint-gated.
 
-    Takes ValidationSettings so the best-run selection uses the same
-    plateau_drop_threshold the validation stage was configured with.
+    ``settings`` is the full runtime settings object; best-run selection
+    uses ``settings.validation.plateau_drop_threshold`` (so it matches
+    the threshold the validation stage was configured with), and the
+    case set is gated via ``default_cases(settings)``.
     """
-    Base.metadata.create_all(get_engine())
-    for case in DEFAULT_CASES:
-        _assign_case(case, settings)
+    validation_settings = settings.validation
+    for case in default_cases(settings):
+        _assign_case(case, validation_settings)

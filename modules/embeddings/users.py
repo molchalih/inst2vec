@@ -26,13 +26,12 @@ import numpy as np
 from core import fingerprint as fp
 from core.console import log
 from core.database import (
-    Base,
     StageState,
     UserEmbedding,
-    get_engine,
     get_session,
 )
-from modules.embeddings.cases import DEFAULT_CASES
+from core.pipeline import Stage
+from modules.embeddings.cases import default_cases
 from modules.embeddings.state import (
     get_clip_embedding_rows_for_user_aggregation,
     get_stored_user_hashes,
@@ -40,7 +39,7 @@ from modules.embeddings.state import (
 )
 from modules.embeddings.vectors import bytes_to_array
 
-STAGE = "user_embeddings"
+STAGE = Stage.USER_EMBEDDINGS
 _CONFIG_IDENTITY = "agg=mean_pool|v=1"
 
 
@@ -123,9 +122,8 @@ def embed_user_embeddings(settings, cases: list[str] | None = None) -> None:
     candidate filter — preventing ineligible-user clip embeddings from
     flowing into clustering.
     """
-    case_names = list(cases) if cases is not None else list(DEFAULT_CASES)
+    case_names = list(cases) if cases is not None else list(default_cases(settings))
     exclude_disqualified = settings.embeddings.exclude_disqualified_users
-    Base.metadata.create_all(get_engine())
     session = get_session()
     try:
         for case in case_names:

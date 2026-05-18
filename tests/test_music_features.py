@@ -21,7 +21,7 @@ from modules.music.features import (
     _resolve_reccobeats_ids,
     _resolve_spotify_ids,
 )
-from modules.music.state import _NO_MATCH, music_has_features
+from modules.music.state import music_has_features
 
 
 def _music_settings(**overrides) -> MusicSettings:
@@ -66,7 +66,10 @@ def db_session():
         session.close()
 
 
-def test_resolve_spotify_ids_terminal_marks_on_transient(db_session):
+def test_spotify_transient_leaves_row_retryable(db_session):
+    """SpotifyClient.search_id raising TransientError must NOT terminate
+    the row. recognition_status must stay "pending" and spotify_id must
+    stay None so the next run retries."""
     s = db_session
     s.add(Music(id=1, artist="a", track="t"))
     s.commit()
@@ -77,7 +80,10 @@ def test_resolve_spotify_ids_terminal_marks_on_transient(db_session):
     s.commit()
 
     row = s.query(Music).filter_by(id=1).one()
-    assert row.spotify_id == _NO_MATCH
+    assert row.spotify_id is None, (
+        f"transient must not write spotify_id; got {row.spotify_id!r}"
+    )
+    assert row.recognition_status == "pending"
 
 
 def test_resolve_spotify_ids_writes_no_match_for_empty_response(db_session):
@@ -91,7 +97,7 @@ def test_resolve_spotify_ids_writes_no_match_for_empty_response(db_session):
     s.commit()
 
     row = s.query(Music).filter_by(id=1).one()
-    assert row.spotify_id == _NO_MATCH
+    assert row.spotify_id is None and row.recognition_status == "no_match"
 
 
 def test_resolve_spotify_ids_writes_real_id(db_session):
@@ -109,8 +115,24 @@ def test_resolve_spotify_ids_writes_real_id(db_session):
 
 def test_resolve_reccobeats_ids_collapses_missing_to_no_match(db_session):
     s = db_session
-    s.add(Music(id=1, artist="a", track="t", spotify_id="sp-1"))
-    s.add(Music(id=2, artist="b", track="u", spotify_id="sp-2"))
+    s.add(
+        Music(
+            id=1,
+            artist="a",
+            track="t",
+            spotify_id="sp-1",
+            recognition_status="matched",
+        )
+    )
+    s.add(
+        Music(
+            id=2,
+            artist="b",
+            track="u",
+            spotify_id="sp-2",
+            recognition_status="matched",
+        )
+    )
     s.commit()
     rb = MagicMock()
     rb.get_ids.return_value = {"sp-1": "rb-1"}
@@ -119,7 +141,7 @@ def test_resolve_reccobeats_ids_collapses_missing_to_no_match(db_session):
     s.commit()
 
     assert s.query(Music).filter_by(id=1).one().reccobeats_id == "rb-1"
-    assert s.query(Music).filter_by(id=2).one().reccobeats_id == _NO_MATCH
+    assert s.query(Music).filter_by(id=2).one().reccobeats_id is None
 
 
 def test_enrich_catalog_features_writes_true_on_complete_features(db_session):
@@ -190,7 +212,8 @@ def test_upload_fallback_writes_true_on_success(db_session, tmp_path, monkeypatc
             artist="a",
             track="t",
             spotify_id="sp-1",
-            reccobeats_id=_NO_MATCH,
+            reccobeats_id=None,
+            recognition_status="matched",
         )
     )
     s.add(
@@ -237,7 +260,16 @@ def test_upload_fallback_writes_false_when_no_video_on_disk(
 ):
     s = db_session
     s.add(User(id=1, parse_status="success", is_selected=True))
-    s.add(Music(id=1, artist="a", track="t", reccobeats_id=_NO_MATCH))
+    s.add(
+        Music(
+            id=1,
+            artist="a",
+            track="t",
+            spotify_id="spot1",
+            reccobeats_id=None,
+            recognition_status="matched",
+        )
+    )
     s.add(
         Clip(
             id=10,
@@ -256,12 +288,24 @@ def test_upload_fallback_writes_false_when_no_video_on_disk(
     assert s.query(Music).filter_by(id=1).one().is_audio_features_extracted is False
 
 
-def test_upload_fallback_writes_false_on_transient_error(
+def test_upload_fallback_leaves_null_on_transient_error(
     db_session, tmp_path, monkeypatch
 ):
+    """RB TransientError must leave is_audio_features_extracted as NULL so
+    the next run retries. Matches the convention established for the
+    Spotify Stage-1 TransientError fix (2.3)."""
     s = db_session
     s.add(User(id=1, parse_status="success", is_selected=True))
-    s.add(Music(id=1, artist="a", track="t", reccobeats_id=_NO_MATCH))
+    s.add(
+        Music(
+            id=1,
+            artist="a",
+            track="t",
+            spotify_id="spot1",
+            reccobeats_id=None,
+            recognition_status="matched",
+        )
+    )
     s.add(
         Clip(
             id=10,
@@ -285,13 +329,112 @@ def test_upload_fallback_writes_false_on_transient_error(
     _enrich_upload_fallback(s, rb, str(tmp_path), _music_settings())
     s.commit()
 
+    assert s.query(Music).filter_by(id=1).one().is_audio_features_extracted is None
+
+
+def test_upload_fallback_tries_next_candidate_after_missing_video(
+    db_session, tmp_path, monkeypatch
+):
+    """When the first candidate's video is missing, the second candidate
+    is tried; success on the second flips the row to True."""
+    s = db_session
+    s.add(User(id=1, parse_status="success", is_selected=True))
+    s.add(
+        Music(
+            id=1,
+            artist="a",
+            track="t",
+            spotify_id="sp-1",
+            reccobeats_id=None,
+            recognition_status="matched",
+        )
+    )
+    s.add(Clip(id=10, user_id=1, music_id=1, is_selected=True, is_downloaded=True))
+    s.add(Clip(id=20, user_id=1, music_id=1, is_selected=True, is_downloaded=True))
+    s.commit()
+    # Only clip 20 has a video on disk; clip 10 is missing.
+    (tmp_path / "20.mp4").write_bytes(b"fake")
+
+    fake_audio = tmp_path / "audio.wav"
+    fake_audio.write_bytes(b"audio")
+    monkeypatch.setattr(
+        "modules.music.features.extract_audio_sample",
+        lambda video, out, music: fake_audio,
+    )
+    rb = MagicMock()
+    rb.upload_features.return_value = {
+        "acousticness": 0.1,
+        "danceability": 0.2,
+        "energy": 0.3,
+        "instrumentalness": 0.4,
+        "liveness": 0.6,
+        "loudness": -7.0,
+        "speechiness": 0.05,
+        "tempo": 120.0,
+        "valence": 0.5,
+    }
+
+    _enrich_upload_fallback(s, rb, str(tmp_path), _music_settings())
+    s.commit()
+
+    row = s.query(Music).filter_by(id=1).one()
+    assert row.is_audio_features_extracted is True
+    assert row.tempo == 120.0
+
+
+def test_upload_fallback_marks_false_only_after_all_candidates_fail(
+    db_session, tmp_path, monkeypatch
+):
+    """Two candidates both missing video → row marked False (all failed
+    permanently). No transient errors → no NULL-leave behavior."""
+    s = db_session
+    s.add(User(id=1, parse_status="success", is_selected=True))
+    s.add(
+        Music(
+            id=1,
+            artist="a",
+            track="t",
+            spotify_id="sp-1",
+            reccobeats_id=None,
+            recognition_status="matched",
+        )
+    )
+    s.add(Clip(id=10, user_id=1, music_id=1, is_selected=True, is_downloaded=True))
+    s.add(Clip(id=20, user_id=1, music_id=1, is_selected=True, is_downloaded=True))
+    s.commit()
+    # Neither video on disk.
+    rb = MagicMock()
+
+    _enrich_upload_fallback(s, rb, str(tmp_path), _music_settings())
+    s.commit()
+
     assert s.query(Music).filter_by(id=1).one().is_audio_features_extracted is False
 
 
 def test_upload_fallback_sweeps_remaining_null_to_false(db_session, tmp_path):
-    """4b sweep: rows with no downloadable clip after 4a → False."""
+    """4b sweep: rows with Stage-1 terminated (matched/no_match) and no
+    downloadable clip after 4a → False. Rows still "pending"
+    (Stage-1 transient) stay NULL so the next run retries them."""
     s = db_session
-    s.add(Music(id=1, artist="a", track="t", reccobeats_id=_NO_MATCH))
+    s.add(
+        Music(
+            id=1,
+            artist="a",
+            track="t",
+            spotify_id="spot1",
+            reccobeats_id=None,
+            recognition_status="matched",
+        )
+    )
+    s.add(
+        Music(
+            id=2,
+            artist="b",
+            track="t",
+            spotify_id=None,
+            recognition_status="pending",
+        )
+    )
     s.commit()
     rb = MagicMock()
 
@@ -299,6 +442,7 @@ def test_upload_fallback_sweeps_remaining_null_to_false(db_session, tmp_path):
     s.commit()
 
     assert s.query(Music).filter_by(id=1).one().is_audio_features_extracted is False
+    assert s.query(Music).filter_by(id=2).one().is_audio_features_extracted is None
 
 
 def test_music_has_features_helper():

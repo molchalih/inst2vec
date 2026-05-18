@@ -23,13 +23,12 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from core import fingerprint as fp
 from core.console import log, progress
 from core.database import (
-    Base,
     Clip,
     ClipEmbedding,
     StageState,
-    get_engine,
     get_session,
 )
+from core.pipeline import Stage
 from modules.embeddings.cases import (
     CASE_REGISTRY,
     EmbeddingCaseSpec,
@@ -50,7 +49,7 @@ from modules.embeddings.state import (
 )
 from modules.embeddings.vectors import to_bytes
 
-STAGE = "clip_embeddings"
+STAGE = Stage.CLIP_EMBEDDINGS
 
 
 def _dispatch_embedding_jobs(
@@ -66,14 +65,18 @@ def _dispatch_embedding_jobs(
 
     Exceptions inside ``embed_fn`` are caught and converted to
     ``(clip_id, None)`` so the runner's main-thread loop can advance
-    progress and account for failures uniformly.
+    progress and account for failures uniformly. The exception is
+    logged at warn level so operators see the failure cause; the loop
+    continues.
     """
     if inflight <= 1:
         for job in jobs:
             try:
                 yield embed_fn(job)
-            except Exception:
-                yield (job.get("clip_id", -1), None)
+            except Exception as exc:
+                clip_id = job.get("clip_id", -1)
+                log("embed", f"clip {clip_id} failed: {exc!r}", level="warn")
+                yield (clip_id, None)
         return
 
     with ThreadPoolExecutor(max_workers=inflight) as pool:
@@ -82,8 +85,10 @@ def _dispatch_embedding_jobs(
             job = futures[fut]
             try:
                 yield fut.result()
-            except Exception:
-                yield (job.get("clip_id", -1), None)
+            except Exception as exc:
+                clip_id = job.get("clip_id", -1)
+                log("embed", f"clip {clip_id} failed: {exc!r}", level="warn")
+                yield (clip_id, None)
 
 
 def embed_clip_embeddings(
@@ -101,9 +106,9 @@ def embed_clip_embeddings(
         secrets = EmbeddingSecrets()
     case_names = list(cases) if cases is not None else list(default_cases(settings))
     for name in case_names:
-        if name == "gemini_mm" and not settings.embeddings.gemini_enabled:
+        if name == "gemini" and not settings.embeddings.gemini_enabled:
             raise RuntimeError(
-                "gemini_mm case requested but embeddings.gemini_enabled=false"
+                "gemini case requested but embeddings.gemini_enabled=false"
             )
         spec = CASE_REGISTRY[name]
         _run_case(settings, secrets, spec)
@@ -140,7 +145,6 @@ def _wipe_case(session, case: str) -> None:
 
 def _run_case(settings, secrets, spec: EmbeddingCaseSpec) -> None:
     log_tag = f"embed:{spec.name}"
-    Base.metadata.create_all(get_engine())
     session = get_session()
     try:
         candidates = get_clip_embedding_candidates(
@@ -233,9 +237,9 @@ def _embed_targets(
         music_map = get_music_map(session)
 
     video_dir = settings.paths.video_dir
-    # Only gemini_mm reads audio_path; keep this resolution next to video_dir
+    # Only gemini reads audio_path; keep this resolution next to video_dir
     # so the runner's settings.paths is the single source of truth for both.
-    audio_dir = settings.paths.audio_dir if spec.name == "gemini_mm" else None
+    audio_dir = settings.paths.audio_dir if spec.name == "gemini" else None
     jobs: list[tuple[Clip, str | None]] = []
     stale_skipped: list[int] = []  # had a row, can't rebuild → block sealing
     fresh_skipped = 0  # never had a row, can't build → fine to seal
@@ -304,7 +308,7 @@ def _embed_targets(
         clip_by_id[clip.id] = clip
         if spec.requires_video:
             path = _video_path(clip.id, video_dir)
-            fps_, max_frames, _ = adaptive_sampling(
+            fps_, max_frames = adaptive_sampling(
                 path,
                 settings.embeddings.adaptive_max_frames,
                 settings.embeddings.adaptive_default_fps,

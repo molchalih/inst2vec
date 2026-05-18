@@ -6,7 +6,6 @@ import json
 import random
 import time
 from dataclasses import dataclass
-from pathlib import Path
 
 from acrcloud.recognizer import ACRCloudRecognizer
 
@@ -16,7 +15,6 @@ from core.console import log, progress
 from core.database import (
     Clip,
     Music,
-    StageState,
     clip_used_in_analysis,
     get_session,
 )
@@ -111,22 +109,21 @@ def classify_music(
     Sets is_music_recognized=True (match) or False (clean no-match / terminal-failed).
     """
     session = get_session()
-    video_dir_path = Path(paths.video_dir)
 
     current = fp.Fingerprint(
         data=fp.hash_text(""),
         config=fp.hash_text(classify_config_payload(music)),
         dependency=fp.hash_text(""),
     )
-    stored = session.get(StageState, (STAGE_MUSIC_CLASSIFY, SCOPE_MUSIC))
-    if stored is not None and stored.config_hash != current.config:
-        diff = fp.describe_diff(session, STAGE_MUSIC_CLASSIFY, SCOPE_MUSIC, current)
-        log(SCOPE_CLASSIFY, f"config drift ({diff}) — resetting music classify outputs")
-        reset_music_classify(session)
-    elif stored is None:
-        log(SCOPE_CLASSIFY, "no prior state — sealing on completion")
-    else:
-        log(SCOPE_CLASSIFY, "fingerprint match — skipping reset")
+    fp.gate(
+        session,
+        STAGE_MUSIC_CLASSIFY,
+        SCOPE_MUSIC,
+        current,
+        reset_music_classify,
+        log_scope=SCOPE_CLASSIFY,
+        drift_msg="resetting music classify outputs",
+    )
 
     clips = (
         session.query(Clip)
@@ -156,14 +153,12 @@ def classify_music(
 
     with progress(len(clips), "Fingerprinting") as advance:
         for i, clip in enumerate(clips, 1):
-            path = video_dir_path / f"{clip.id}.mp4"
+            path = paths.video_for(clip.id)
             if not path.exists():
                 missing += 1
                 advance()
                 continue
 
-            clip.music_id = None
-            clip.music_confidence = None
             try:
                 result = _fingerprint(
                     acr,
@@ -174,9 +169,11 @@ def classify_music(
                     retry_jitter=music.api_retry_jitter,
                 )
             except TransientError:
-                clip.is_music_recognized = False
-                no_match += 1
-                advance(detail=f"{clip.id}: ACR transient (terminal-marked)")
+                # Leave is_music_recognized=None so the next run retries.
+                # Counter is bumped under the "missing/transient" label so the
+                # summary doesn't conflate transient errors with clean no-match.
+                missing += 1
+                advance(detail=f"{clip.id}: ACR transient (left retryable)")
                 if i % music.commit_every == 0:
                     session.commit()
                 continue
@@ -203,5 +200,5 @@ def classify_music(
     session.close()
     parts = [f"{matched} matched", f"{no_match} no match"]
     if missing:
-        parts.append(f"{missing} skipped (video not downloaded yet)")
+        parts.append(f"{missing} skipped (video missing or ACR transient)")
     log(SCOPE_CLASSIFY, f"done — {', '.join(parts)}", level="ok")

@@ -1,11 +1,16 @@
 """Spotify → ReccoBeats → audio features pipeline.
 
 Four sub-stages, each idempotent:
-    1. _resolve_spotify_ids   — fill Music.spotify_id (None on no match; _NO_MATCH on terminal-fail)
+    1. _resolve_spotify_ids   — fill Music.spotify_id and Music.recognition_status
+                                 ("matched" with id, "no_match" without; transient
+                                 failures leave both NULL/"pending" for retry)
     2. _resolve_reccobeats_ids — fill Music.reccobeats_id (batched)
     3. _enrich_catalog_features — fill audio feature columns (batched); writes True on success
     4. _enrich_upload_fallback  — ffmpeg + POST for rows Stage 3 missed; writes True/False;
-                                 sweeps remaining NULL → False at the end (invariant)
+                                 sweeps remaining NULL → False at the end (only for rows
+                                 with Stage 1 terminated, i.e. recognition_status != "pending";
+                                 transient Stage-1 failures stay NULL so the next run retries
+                                 them)
 """
 
 from __future__ import annotations
@@ -15,16 +20,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import httpx
-from sqlalchemy import func
 
 from core import fingerprint as fp
 from core.config import MusicSettings, PathsSettings
 from core.console import log, progress
-from core.database import Clip, Music, StageState, clip_used_in_analysis, get_session
+from core.database import Clip, Music, clip_used_in_analysis, get_session
 from modules.music.audio_sample import extract_audio_sample
 from modules.music.clients import ReccoBeatsClient, SpotifyClient, TransientError
 from modules.music.state import (
-    _NO_MATCH,
     FEATURE_FIELDS,
     SCOPE_FEATURES,
     SCOPE_MUSIC,
@@ -82,7 +85,7 @@ def _log_batch(stage: str):
 
 
 def _resolve_spotify_ids(session, spotify: SpotifyClient, music: MusicSettings) -> None:
-    rows = session.query(Music).filter(Music.spotify_id.is_(None)).all()
+    rows = session.query(Music).filter(Music.recognition_status == "pending").all()
     if not rows:
         return
 
@@ -94,14 +97,18 @@ def _resolve_spotify_ids(session, spotify: SpotifyClient, music: MusicSettings) 
             try:
                 sid = spotify.search_id(row.artist, row.track)
             except TransientError:
-                row.spotify_id = _NO_MATCH
-                advance(detail=f"{row.artist} – {row.track} (transient)")
+                # Leave spotify_id=None so the next run retries the lookup.
+                advance(detail=f"{row.artist} – {row.track} (transient, retryable)")
                 if i % music.commit_every == 0:
                     session.commit()
                 continue
-            row.spotify_id = sid or _NO_MATCH
             if sid:
+                row.spotify_id = sid
+                row.recognition_status = "matched"
                 found += 1
+            else:
+                row.recognition_status = "no_match"
+                # spotify_id stays None
             advance(detail=f"{row.artist} – {row.track}")
             if i % music.commit_every == 0:
                 session.commit()
@@ -120,8 +127,7 @@ def _resolve_reccobeats_ids(session, rb: ReccoBeatsClient) -> None:
     rows = (
         session.query(Music)
         .filter(
-            Music.spotify_id.is_not(None),
-            Music.spotify_id != _NO_MATCH,
+            Music.recognition_status == "matched",
             Music.reccobeats_id.is_(None),
         )
         .all()
@@ -135,9 +141,9 @@ def _resolve_reccobeats_ids(session, rb: ReccoBeatsClient) -> None:
         on_batch=_log_batch("reccobeats_id"),
     )
     for row in rows:
-        row.reccobeats_id = rb_id_map.get(row.spotify_id, _NO_MATCH)
+        row.reccobeats_id = rb_id_map.get(row.spotify_id)
     session.commit()
-    matched = sum(1 for r in rows if r.reccobeats_id != _NO_MATCH)
+    matched = sum(1 for r in rows if r.reccobeats_id is not None)
     log(
         SCOPE_FEATURES,
         f"reccobeats_id: done — {matched} matched, {len(rows) - matched} no match",
@@ -152,7 +158,6 @@ def _enrich_catalog_features(session, rb: ReccoBeatsClient) -> None:
         session.query(Music)
         .filter(
             Music.reccobeats_id.is_not(None),
-            Music.reccobeats_id != _NO_MATCH,
             Music.is_audio_features_extracted.is_(None),
         )
         .all()
@@ -188,62 +193,47 @@ def _enrich_upload_fallback(
     video_dir: str,
     music: MusicSettings,
 ) -> None:
-    rows = (
-        session.query(Music, func.min(Clip.id).label("clip_id"))
+    # Require Stage 1 to have terminated for the row (matched or no_match) —
+    # rows still at recognition_status="pending" are Stage 1 transient
+    # failures that must stay pending so the next run retries them.
+    pairs = (
+        session.query(Music.id.label("music_id"), Clip.id.label("clip_id"))
         .join(Clip, Clip.music_id == Music.id)
         .filter(
             *clip_used_in_analysis(),
+            Music.recognition_status != "pending",
             Music.is_audio_features_extracted.is_(None),
         )
-        .group_by(Music.id)
-        .order_by(Music.id)
+        .order_by(Music.id, Clip.id)
         .all()
     )
 
-    total = len(rows)
+    candidates_by_music: dict[int, list[int]] = {}
+    for music_id, clip_id in pairs:
+        candidates_by_music.setdefault(music_id, []).append(clip_id)
+
+    transient_music_ids: set[int] = set()
+    total = len(candidates_by_music)
+
     if total:
         log(SCOPE_FEATURES, f"upload fallback: {total} tracks without catalog coverage")
         enriched = 0
         video_dir_path = Path(video_dir)
         with progress(total, "Upload fallback") as advance:
-            for i, (row, clip_id) in enumerate(rows, 1):
-                video = video_dir_path / f"{clip_id}.mp4"
-                if not video.exists():
-                    row.is_audio_features_extracted = False
-                    advance(
-                        detail=f"{row.artist} – {row.track} (video missing on disk)"
-                    )
-                    if i % music.commit_every == 0:
-                        session.commit()
-                    continue
-
-                with tempfile.TemporaryDirectory(prefix="rb-audio-") as tmp:
-                    audio = extract_audio_sample(video, Path(tmp), music)
-                    if not audio:
-                        row.is_audio_features_extracted = False
-                        advance(detail=f"{row.artist} – {row.track} (ffmpeg failed)")
-                        if i % music.commit_every == 0:
-                            session.commit()
-                        continue
-                    try:
-                        feats = rb.upload_features(audio)
-                    except TransientError:
-                        row.is_audio_features_extracted = False
-                        advance(detail=f"{row.artist} – {row.track} (RB transient)")
-                        if i % music.commit_every == 0:
-                            session.commit()
-                        continue
-
-                if feats and any(f in feats for f in UPLOAD_FIELDS):
-                    for f in UPLOAD_FIELDS:
-                        if f in feats:
-                            setattr(row, f, feats[f])
-                    row.is_audio_features_extracted = True
+            for i, (music_id, clip_ids) in enumerate(candidates_by_music.items(), 1):
+                row = session.get(Music, music_id)
+                label = f"{row.artist} – {row.track}"
+                outcome = _try_candidates_for_music(
+                    rb, row, clip_ids, video_dir_path, music
+                )
+                if outcome == "ok":
                     enriched += 1
-                    advance(detail=f"{row.artist} – {row.track} (ok)")
+                    advance(detail=f"{label} (ok)")
+                elif outcome == "transient":
+                    transient_music_ids.add(music_id)
+                    advance(detail=f"{label} (RB transient — left retryable)")
                 else:
-                    row.is_audio_features_extracted = False
-                    advance(detail=f"{row.artist} – {row.track} (no features)")
+                    advance(detail=f"{label} ({outcome})")
 
                 if i % music.commit_every == 0:
                     session.commit()
@@ -254,19 +244,59 @@ def _enrich_upload_fallback(
             level="ok",
         )
 
-    swept = (
-        session.query(Music)
-        .filter(
-            Music.is_audio_features_extracted.is_(None),
-        )
-        .update(
-            {Music.is_audio_features_extracted: False},
-            synchronize_session=False,
-        )
+    sweep_q = session.query(Music).filter(
+        Music.recognition_status != "pending",
+        Music.is_audio_features_extracted.is_(None),
+    )
+    if transient_music_ids:
+        sweep_q = sweep_q.filter(~Music.id.in_(transient_music_ids))
+    swept = sweep_q.update(
+        {Music.is_audio_features_extracted: False},
+        synchronize_session=False,
     )
     if swept:
         session.commit()
         log(SCOPE_FEATURES, f"sweep: {swept} rows terminal-marked as False")
+
+
+def _try_candidates_for_music(
+    rb: ReccoBeatsClient,
+    row: Music,
+    clip_ids: list[int],
+    video_dir_path: Path,
+    music: MusicSettings,
+) -> str:
+    """Try clip candidates in order; return one of:
+    "ok"             — features written, row marked True
+    "no video"       — all candidates lacked a video on disk
+    "ffmpeg failed"  — all candidates failed ffmpeg
+    "no features"    — RB returned an empty payload for every candidate
+    "transient"      — RB raised TransientError; row left at NULL
+    """
+    last_perm_reason = "no video"
+    for clip_id in clip_ids:
+        video = video_dir_path / f"{clip_id}.mp4"
+        if not video.exists():
+            last_perm_reason = "no video"
+            continue
+        with tempfile.TemporaryDirectory(prefix="rb-audio-") as tmp:
+            audio = extract_audio_sample(video, Path(tmp), music)
+            if not audio:
+                last_perm_reason = "ffmpeg failed"
+                continue
+            try:
+                feats = rb.upload_features(audio)
+            except TransientError:
+                return "transient"
+        if feats and any(f in feats for f in UPLOAD_FIELDS):
+            for f in UPLOAD_FIELDS:
+                if f in feats:
+                    setattr(row, f, feats[f])
+            row.is_audio_features_extracted = True
+            return "ok"
+        last_perm_reason = "no features"
+    row.is_audio_features_extracted = False
+    return last_perm_reason
 
 
 # ── Public entry ───────────────────────────────────────────────────────────────
@@ -285,15 +315,15 @@ def extract_music_features(
             config=fp.hash_text(features_config_payload(music)),
             dependency=fp.hash_text(""),
         )
-        stored = session.get(StageState, (STAGE_MUSIC_FEATURES, SCOPE_MUSIC))
-        if stored is not None and stored.config_hash != current.config:
-            diff = fp.describe_diff(session, STAGE_MUSIC_FEATURES, SCOPE_MUSIC, current)
-            log(SCOPE_FEATURES, f"config drift ({diff}) — resetting feature columns")
-            reset_music_features(session)
-        elif stored is None:
-            log(SCOPE_FEATURES, "no prior state — sealing on completion")
-        else:
-            log(SCOPE_FEATURES, "fingerprint match — skipping reset")
+        fp.gate(
+            session,
+            STAGE_MUSIC_FEATURES,
+            SCOPE_MUSIC,
+            current,
+            reset_music_features,
+            log_scope=SCOPE_FEATURES,
+            drift_msg="resetting feature columns",
+        )
 
         with httpx.Client(timeout=music.http_timeout) as http:
             spotify = _make_spotify(http, music, secrets)

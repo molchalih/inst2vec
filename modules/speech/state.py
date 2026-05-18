@@ -7,12 +7,13 @@ import re
 from sqlalchemy.orm import Session
 
 from core.database import Clip
+from core.pipeline import Stage
 
 SCOPE_CLASSIFY: str = "classify_speech"
 SCOPE_TRANSLATE: str = "translate_speech"
 SCOPE_CLEAN: str = "clean_speech"
 
-STAGE_SPEECH: str = "speech"
+STAGE_SPEECH: Stage = Stage.SPEECH
 SCOPE_SPEECH: str = "all"
 
 # Substrings that indicate a hallucination / non-speech transcription.
@@ -61,8 +62,12 @@ def is_repeated_output(text: str | None) -> bool:
 
 
 def reset_speech_outputs(session: Session) -> None:
-    """NULL the four speech output columns on every clip.
+    """NULL all seven speech output columns on every clip.
 
+    Resets the four content columns (is_speech_detected,
+    speech_transcription, speech_language, speech_translation) and
+    the three Whisper metric columns (speech_confidence,
+    speech_avg_logprob, speech_compression_ratio) atomically.
     Called from process_speech() when the speech config fingerprint
     drifts. Resets all clips (not just currently-eligible ones) so
     clips that re-enter the selection pool on a later run can't carry
@@ -76,6 +81,9 @@ def reset_speech_outputs(session: Session) -> None:
             Clip.speech_transcription: None,
             Clip.speech_language: None,
             Clip.speech_translation: None,
+            Clip.speech_confidence: None,
+            Clip.speech_avg_logprob: None,
+            Clip.speech_compression_ratio: None,
         },
         synchronize_session=False,
     )

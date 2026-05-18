@@ -51,15 +51,37 @@ def _run_row(
     )
 
 
-def test_get_plateau_drop_threshold_uses_default(monkeypatch):
-    monkeypatch.delenv("VALIDATION_PLATEAU_DROP_THRESHOLD", raising=False)
+def test_get_plateau_drop_threshold_reads_from_settings():
+    """Helper reads the plateau threshold from a settings-like object."""
+    from types import SimpleNamespace
+
     from modules.clustering.results import get_plateau_drop_threshold
 
-    assert get_plateau_drop_threshold() == 0.05
+    settings = SimpleNamespace(plateau_drop_threshold=0.123)
+    assert get_plateau_drop_threshold(settings) == 0.123
 
 
-def test_pick_best_cluster_run_rejects_sharp_peak(monkeypatch):
-    monkeypatch.setenv("VALIDATION_PLATEAU_DROP_THRESHOLD", "0.05")
+def test_pick_best_cluster_run_requires_threshold_or_settings():
+    """pick_best_cluster_run raises when neither threshold nor settings is given."""
+    import pytest
+
+    from modules.clustering.results import pick_best_cluster_run
+
+    rows = [
+        _run_row(
+            embedding_case="video",
+            dbcv=0.9,
+            silhouette=0.1,
+            n_clusters=5,
+            noise_ratio=0.1,
+            param_plateau_score=0.85,
+        )
+    ]
+    with pytest.raises(ValueError, match="threshold or settings"):
+        pick_best_cluster_run(rows)
+
+
+def test_pick_best_cluster_run_rejects_sharp_peak():
     from modules.clustering.results import pick_best_cluster_run
 
     best = pick_best_cluster_run(
@@ -80,7 +102,8 @@ def test_pick_best_cluster_run_rejects_sharp_peak(monkeypatch):
                 noise_ratio=0.10,
                 param_plateau_score=0.79,
             ),
-        ]
+        ],
+        threshold=0.05,
     )
 
     assert best is not None
@@ -133,8 +156,7 @@ def test_list_best_candidate_rows_excludes_failed_and_pending():
     assert rows[0].dbcv == 0.7
 
 
-def test_pick_best_falls_back_when_all_sharp_peaks(monkeypatch):
-    monkeypatch.setenv("VALIDATION_PLATEAU_DROP_THRESHOLD", "0.05")
+def test_pick_best_falls_back_when_all_sharp_peaks():
     from modules.clustering.results import pick_best_cluster_run
 
     r1 = _run_row(
@@ -153,7 +175,7 @@ def test_pick_best_falls_back_when_all_sharp_peaks(monkeypatch):
         noise_ratio=0.1,
         param_plateau_score=0.2,
     )
-    best = pick_best_cluster_run([r1, r2])
+    best = pick_best_cluster_run([r1, r2], threshold=0.05)
     assert best is not None
     assert best.dbcv == 0.9
 
@@ -197,8 +219,7 @@ def test_summarize_case_rows_counts_and_means():
     assert out["noise_pct_mean"] == "10.000"
 
 
-def test_select_best_cluster_run_matches_pick_best(monkeypatch):
-    monkeypatch.setenv("VALIDATION_PLATEAU_DROP_THRESHOLD", "0.05")
+def test_select_best_cluster_run_matches_pick_best():
     eng = _make_engine()
     with Session(eng) as s:
         s.add(
@@ -231,8 +252,10 @@ def test_select_best_cluster_run_matches_pick_best(monkeypatch):
             select_best_cluster_run,
         )
 
-        by_rows = pick_best_cluster_run(list_best_candidate_rows(s, "video"))
-        by_query = select_best_cluster_run(s, "video")
+        by_rows = pick_best_cluster_run(
+            list_best_candidate_rows(s, "video"), threshold=0.05
+        )
+        by_query = select_best_cluster_run(s, "video", threshold=0.05)
 
     assert by_rows is not None
     assert by_query is not None

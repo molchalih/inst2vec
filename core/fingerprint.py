@@ -10,12 +10,14 @@ its own transaction; ``mark_complete`` only merges.
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Iterable
+import os
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy.orm import Session
 
+from core.console import log
 from core.database import StageState
 
 
@@ -45,6 +47,18 @@ def hash_rows(rows: Iterable[tuple[Any, ...]]) -> str:
 
 def hash_text(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
+
+
+def file_stat_for_hash(path: str | os.PathLike[str]) -> tuple[int, int]:
+    """(size_bytes, mtime_ns) tuple, or (-1, -1) when the file is missing.
+
+    Stable per-file input for ``hash_rows``: a missing file produces a
+    sentinel hash so the dependent stage re-runs when the file appears.
+    """
+    if not os.path.exists(path):
+        return (-1, -1)
+    st = os.stat(path)
+    return (st.st_size, st.st_mtime_ns)
 
 
 def row_diff(desired: dict[int, str], stored: dict[int, str | None]) -> set[int]:
@@ -84,6 +98,32 @@ def mark_complete(
             dependency_hash=current.dependency,
         )
     )
+
+
+def gate(
+    session: Session,
+    stage: str,
+    scope: str,
+    current: Fingerprint,
+    on_drift: Callable[[Session], None],
+    *,
+    log_scope: str,
+    drift_msg: str,
+) -> None:
+    """Reset stage outputs on config drift; emit the standard 3-state log line.
+
+    Replaces the per-stage ``stored = session.get(...)`` / compare /
+    log-and-reset boilerplate. Caller commits.
+    """
+    stored = session.get(StageState, (stage, scope))
+    if stored is None:
+        log(log_scope, "no prior state — sealing on completion")
+    elif stored.config_hash != current.config:
+        diff = describe_diff(session, stage, scope, current)
+        log(log_scope, f"config drift ({diff}) — {drift_msg}")
+        on_drift(session)
+    else:
+        log(log_scope, "fingerprint match — skipping reset")
 
 
 def describe_diff(

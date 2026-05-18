@@ -84,10 +84,23 @@ class _PathsStub:
     video_dir: str
     audio_dir: str
 
+    def video_for(self, clip_id):
+        return Path(self.video_dir) / f"{clip_id}.mp4"
+
+    def audio_for(self, clip_id):
+        return Path(self.audio_dir) / f"{clip_id}.mp3"
+
+    def thumbnail_for(self, clip_id):
+        return Path(self.video_dir) / f"{clip_id}.jpg"
+
 
 @dataclass
 class _EmbeddingsStub:
     gemini_enabled: bool = False
+
+
+@dataclass
+class _AudioExtractionStub:
     audio_bitrate_kbps: int = 128
     audio_sample_rate_hz: int = 44100
     audio_extract_timeout_s: int = 60
@@ -102,6 +115,7 @@ class _DownloadStub:
 class _SettingsStub:
     paths: _PathsStub
     embeddings: _EmbeddingsStub
+    audio_extraction: _AudioExtractionStub
     download: _DownloadStub
 
 
@@ -111,6 +125,7 @@ def _make_settings(
     return _SettingsStub(
         paths=_PathsStub(video_dir=str(video_dir), audio_dir=str(audio_dir)),
         embeddings=_EmbeddingsStub(gemini_enabled=enabled),
+        audio_extraction=_AudioExtractionStub(),
         download=_DownloadStub(concurrency=concurrency),
     )
 
@@ -128,7 +143,7 @@ def db_session():
 
 def test_runs_when_gemini_disabled(tmp_path, sample_mp4_with_audio, db_session):
     """Stage runs regardless of embeddings.gemini_enabled; the flag only gates
-    the downstream gemini_mm embedding case, not audio extraction itself."""
+    the downstream gemini embedding case, not audio extraction itself."""
     from modules.ingest.audio import extract_audio_stage
 
     vid_dir = tmp_path / "video"

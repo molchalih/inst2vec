@@ -1,7 +1,7 @@
 """Identity DB: PII + Instagram API PKs.
 
 Owns the identity ORM models and CRUD helpers. Engine and session lifecycle
-live in modules/database/engine.py — CRUD helpers below import
+live in core/database/engine.py — CRUD helpers below import
 get_identity_session lazily inside each function body to avoid an
 engine→identity→engine top-level cycle.
 """
