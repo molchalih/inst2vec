@@ -14,6 +14,9 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
+from sqlalchemy import (
+    Enum as SAEnum,
+)
 from sqlalchemy.orm import (
     DeclarativeBase,
     Mapped,
@@ -146,6 +149,18 @@ class Music(Base):
     track: Mapped[str] = mapped_column(String, nullable=False, default="")
     spotify_id: Mapped[str | None] = mapped_column(String, nullable=True)
     reccobeats_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    recognition_status: Mapped[str] = mapped_column(
+        SAEnum(
+            "pending",
+            "matched",
+            "no_match",
+            "failed",
+            name="music_recognition_status",
+        ),
+        nullable=False,
+        default="pending",
+        server_default="pending",
+    )
     is_audio_features_extracted: Mapped[bool | None] = mapped_column(
         Boolean, nullable=True
     )

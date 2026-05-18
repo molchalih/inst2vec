@@ -23,7 +23,6 @@ FEATURE_FIELDS: list[str] = [
     "valence",
 ]
 UPLOAD_FIELDS: list[str] = [f for f in FEATURE_FIELDS if f not in ("key", "mode")]
-_NO_MATCH: str = "none"
 
 SCOPE_CLASSIFY: str = "classify_music"
 SCOPE_FEATURES: str = "extract_features"
@@ -118,6 +117,7 @@ def reset_music_features(session: Session) -> None:
         Music.spotify_id: None,
         Music.reccobeats_id: None,
         Music.is_audio_features_extracted: None,
+        Music.recognition_status: "pending",
     }
     for f in FEATURE_FIELDS:
         fields[getattr(Music, f)] = None

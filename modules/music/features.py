@@ -1,13 +1,16 @@
 """Spotify → ReccoBeats → audio features pipeline.
 
 Four sub-stages, each idempotent:
-    1. _resolve_spotify_ids   — fill Music.spotify_id (None on no match; _NO_MATCH on terminal-fail)
+    1. _resolve_spotify_ids   — fill Music.spotify_id and Music.recognition_status
+                                 ("matched" with id, "no_match" without; transient
+                                 failures leave both NULL/"pending" for retry)
     2. _resolve_reccobeats_ids — fill Music.reccobeats_id (batched)
     3. _enrich_catalog_features — fill audio feature columns (batched); writes True on success
     4. _enrich_upload_fallback  — ffmpeg + POST for rows Stage 3 missed; writes True/False;
                                  sweeps remaining NULL → False at the end (only for rows
-                                 with spotify_id resolved; transient Stage-1 failures
-                                 stay NULL so the next run retries them)
+                                 with Stage 1 terminated, i.e. recognition_status != "pending";
+                                 transient Stage-1 failures stay NULL so the next run retries
+                                 them)
 """
 
 from __future__ import annotations
@@ -25,7 +28,6 @@ from core.database import Clip, Music, clip_used_in_analysis, get_session
 from modules.music.audio_sample import extract_audio_sample
 from modules.music.clients import ReccoBeatsClient, SpotifyClient, TransientError
 from modules.music.state import (
-    _NO_MATCH,
     FEATURE_FIELDS,
     SCOPE_FEATURES,
     SCOPE_MUSIC,
@@ -83,7 +85,7 @@ def _log_batch(stage: str):
 
 
 def _resolve_spotify_ids(session, spotify: SpotifyClient, music: MusicSettings) -> None:
-    rows = session.query(Music).filter(Music.spotify_id.is_(None)).all()
+    rows = session.query(Music).filter(Music.recognition_status == "pending").all()
     if not rows:
         return
 
@@ -100,9 +102,13 @@ def _resolve_spotify_ids(session, spotify: SpotifyClient, music: MusicSettings) 
                 if i % music.commit_every == 0:
                     session.commit()
                 continue
-            row.spotify_id = sid or _NO_MATCH
             if sid:
+                row.spotify_id = sid
+                row.recognition_status = "matched"
                 found += 1
+            else:
+                row.recognition_status = "no_match"
+                # spotify_id stays None
             advance(detail=f"{row.artist} – {row.track}")
             if i % music.commit_every == 0:
                 session.commit()
@@ -121,8 +127,7 @@ def _resolve_reccobeats_ids(session, rb: ReccoBeatsClient) -> None:
     rows = (
         session.query(Music)
         .filter(
-            Music.spotify_id.is_not(None),
-            Music.spotify_id != _NO_MATCH,
+            Music.recognition_status == "matched",
             Music.reccobeats_id.is_(None),
         )
         .all()
@@ -136,9 +141,9 @@ def _resolve_reccobeats_ids(session, rb: ReccoBeatsClient) -> None:
         on_batch=_log_batch("reccobeats_id"),
     )
     for row in rows:
-        row.reccobeats_id = rb_id_map.get(row.spotify_id, _NO_MATCH)
+        row.reccobeats_id = rb_id_map.get(row.spotify_id)
     session.commit()
-    matched = sum(1 for r in rows if r.reccobeats_id != _NO_MATCH)
+    matched = sum(1 for r in rows if r.reccobeats_id is not None)
     log(
         SCOPE_FEATURES,
         f"reccobeats_id: done — {matched} matched, {len(rows) - matched} no match",
@@ -153,7 +158,6 @@ def _enrich_catalog_features(session, rb: ReccoBeatsClient) -> None:
         session.query(Music)
         .filter(
             Music.reccobeats_id.is_not(None),
-            Music.reccobeats_id != _NO_MATCH,
             Music.is_audio_features_extracted.is_(None),
         )
         .all()
@@ -189,15 +193,15 @@ def _enrich_upload_fallback(
     video_dir: str,
     music: MusicSettings,
 ) -> None:
-    # Require spotify_id to be resolved (success or _NO_MATCH) — rows with
-    # spotify_id IS NULL are Stage 1 transient failures that must stay
-    # NULL so the next run retries them.
+    # Require Stage 1 to have terminated for the row (matched or no_match) —
+    # rows still at recognition_status="pending" are Stage 1 transient
+    # failures that must stay pending so the next run retries them.
     pairs = (
         session.query(Music.id.label("music_id"), Clip.id.label("clip_id"))
         .join(Clip, Clip.music_id == Music.id)
         .filter(
             *clip_used_in_analysis(),
-            Music.spotify_id.is_not(None),
+            Music.recognition_status != "pending",
             Music.is_audio_features_extracted.is_(None),
         )
         .order_by(Music.id, Clip.id)
@@ -241,7 +245,7 @@ def _enrich_upload_fallback(
         )
 
     sweep_q = session.query(Music).filter(
-        Music.spotify_id.is_not(None),
+        Music.recognition_status != "pending",
         Music.is_audio_features_extracted.is_(None),
     )
     if transient_music_ids:

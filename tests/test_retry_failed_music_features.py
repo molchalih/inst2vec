@@ -6,7 +6,6 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from core.database import Base, Music
-from modules.music.state import _NO_MATCH
 
 
 def _make_db_with_failed_music(rows):
@@ -64,8 +63,9 @@ def test_retry_resets_failed_rows_to_pending(monkeypatch):
                 "id": 1,
                 "artist": "a",
                 "track": "t",
-                "spotify_id": _NO_MATCH,
-                "reccobeats_id": _NO_MATCH,
+                "spotify_id": None,
+                "recognition_status": "no_match",
+                "reccobeats_id": None,
                 "is_audio_features_extracted": False,
             }
         ]
@@ -85,6 +85,7 @@ def test_retry_resets_failed_rows_to_pending(monkeypatch):
     assert row.is_audio_features_extracted is None
     assert row.spotify_id is None
     assert row.reccobeats_id is None
+    assert row.recognition_status == "pending"
     fake_ext.assert_called_once()
     music_arg = fake_ext.call_args.kwargs["music"]
     assert music_arg.api_max_attempts == 1
