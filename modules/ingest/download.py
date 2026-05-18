@@ -67,7 +67,12 @@ def fetch_file(
     return False
 
 
-def download_files(download: DownloadSettings, paths: PathsSettings) -> None:
+def download_files(
+    download: DownloadSettings,
+    paths: PathsSettings,
+    *,
+    retry_failed: bool = False,
+) -> None:
     max_attempts = download.max_attempts
     retry_delay = download.retry_delay
     retry_jitter = download.retry_jitter
@@ -103,8 +108,11 @@ def download_files(download: DownloadSettings, paths: PathsSettings) -> None:
                 thumb_path = os.path.join(thumbnail_dir, f"{clip.id}.jpg")
                 if not os.path.exists(thumb_path) and clip.thumbnail_url:
                     thumbnail_jobs.append((clip.thumbnail_url, thumb_path))
-                # Video gated on is_downloaded=NULL only.
-                if clip.is_downloaded is not None:
+                # Video gated on is_downloaded=NULL; when retry_failed=True also
+                # pick up False rows so the next run re-attempts them.
+                if clip.is_downloaded is True:
+                    continue
+                if clip.is_downloaded is False and not retry_failed:
                     continue
                 if clip.video_url is None:
                     clips_missing_url.append(clip.id)
