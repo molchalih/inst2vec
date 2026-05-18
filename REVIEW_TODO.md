@@ -24,7 +24,7 @@ Plan: `docs/superpowers/plans/2026-05-18-audit-final-cleanup.md` (pending).
   - Add `scripts/sweep_identity_orphans.py` CLI shell.
   - Commit: `refactor(database): identity-first contract + orphan sweep`
 
-- [ ] **4. Centralize EN-detection helper (audit 2.9)**
+- [x] **4. Centralize EN-detection helper (audit 2.9)**
   - Create `core/lang.py` with `is_english` + `sql_is_english`.
   - Replace inline checks in `modules/embeddings/text.py`, captions/translate, speech/translate, `core/database/predicates.py`.
   - Commit: `refactor: centralize EN-detection helper in core.lang`

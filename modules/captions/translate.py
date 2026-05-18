@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from core.config import CaptionsSettings
 from core.console import log, progress
 from core.database import Clip, get_engine, needs_caption_translation
+from core.lang import is_english
 from core.vendor.gemma_translate import GemmaTranslator
 from modules.captions.state import SCOPE_TRANSLATE
 
@@ -40,11 +41,7 @@ def translate_captions(cfg: CaptionsSettings, *, engine: Engine | None = None) -
             for i, clip in enumerate(clips, 1):
                 source = (clip.caption_clean or "").strip()[: cfg.translation_max_chars]
                 source_lang = (clip.caption_language or "").strip().replace("_", "-")
-                if (
-                    not source
-                    or not source_lang
-                    or source_lang.lower().startswith("en")
-                ):
+                if not source or not source_lang or is_english(source_lang):
                     advance()
                     continue
 

@@ -7,6 +7,7 @@ Each helper returns a tuple of SQLAlchemy clause elements consumed by
 from sqlalchemy.sql import func
 
 from core.database.models import Clip
+from core.lang import sql_is_english
 
 
 def clip_used_in_analysis():
@@ -44,7 +45,7 @@ def clip_needs_speech_translation():
         Clip.speech_transcription != "",
         Clip.speech_language.is_not(None),
         Clip.speech_language != "",
-        func.lower(Clip.speech_language).notlike("en%"),
+        ~sql_is_english(Clip.speech_language),
         (Clip.speech_translation.is_(None)) | (Clip.speech_translation == ""),
     )
 
@@ -93,6 +94,6 @@ def needs_caption_translation():
         func.trim(Clip.caption_clean) != "",
         Clip.caption_language.is_not(None),
         Clip.caption_language != "",
-        func.lower(Clip.caption_language).notlike("en%"),
+        ~sql_is_english(Clip.caption_language),
         (Clip.caption_translation.is_(None)) | (Clip.caption_translation == ""),
     )
