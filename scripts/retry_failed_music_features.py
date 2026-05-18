@@ -44,10 +44,8 @@ def retry_failed_music_features(
         log(SCOPE, f"resetting {len(failed)} failed music rows")
         for row in failed:
             row.is_audio_features_extracted = None
-
-        rows = session.query(Music).filter(Music.recognition_status == "no_match").all()
-        for row in rows:
-            row.recognition_status = "pending"
+            if row.recognition_status == "no_match":
+                row.recognition_status = "pending"
         session.commit()
     finally:
         session.close()

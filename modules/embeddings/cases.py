@@ -182,6 +182,10 @@ SANDWICH_CASE = EmbeddingCaseSpec(
     provider_factory=_QWEN_VIDEO,
     payload_builder=_sandwich_payload,
     apply_video_token_fallback=True,
+    # _music_row captures both the FK identity (track/artist) and the
+    # feature columns verbalize_music reads, so the sandwich fingerprint
+    # also flips when Spotify/ReccoBeats backfill energy/tempo/valence
+    # for an existing music_id.
     dependency_columns=(
         "caption_clean",
         "caption_language",
@@ -189,7 +193,7 @@ SANDWICH_CASE = EmbeddingCaseSpec(
         "speech_transcription",
         "speech_language",
         "speech_translation",
-        "music_id",
+        "_music_row",
     ),
     recipe_version="sandwich_v1",
 )
@@ -201,10 +205,14 @@ AUDIO_CASE = EmbeddingCaseSpec(
     provider_factory=_QWEN_TEXT,
     payload_builder=_audio_payload,
     apply_video_token_fallback=False,
+    # _music_row is part of the audio text: a music match arriving after
+    # a sealed run (including for previously-skipped speechless clips)
+    # must flip the audio fingerprint so the clip is (re-)embedded.
     dependency_columns=(
         "speech_transcription",
         "speech_language",
         "speech_translation",
+        "_music_row",
     ),
     recipe_version="audio_v1",
 )
@@ -245,7 +253,19 @@ GEMINI_CASE = EmbeddingCaseSpec(
     provider_factory=_gemini_factory,
     payload_builder=_gemini_payload,
     apply_video_token_fallback=False,
-    dependency_columns=("_video_file_stat", "_audio_file_stat"),
+    # build_gemini_text feeds caption + speech text into the payload; the
+    # file-stat sentinels alone don't notice translations / transcripts
+    # changing, so include the same Clip columns the builder reads.
+    dependency_columns=(
+        "_video_file_stat",
+        "_audio_file_stat",
+        "caption_clean",
+        "caption_language",
+        "caption_translation",
+        "speech_transcription",
+        "speech_language",
+        "speech_translation",
+    ),
     recipe_version="gemini_v1",
     requires=("gemini_enabled",),
 )

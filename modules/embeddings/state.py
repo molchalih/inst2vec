@@ -113,19 +113,50 @@ def get_music_map(session: Session) -> dict[int, Music]:
     return {m.id: m for m in session.query(Music).all()}
 
 
+def _music_row_signature(music: Music | None) -> tuple | None:
+    """Deterministic tuple of every Music field consumed by verbalize_music.
+
+    Returned value backs the ``_music_row`` dependency sentinel: it flips
+    when the clip's linked Music row gains a track/artist or has its
+    Spotify/ReccoBeats features filled or corrected, so a stale audio /
+    sandwich embedding is detected and re-built.
+    """
+    if music is None:
+        return None
+    return (
+        music.track,
+        music.artist,
+        music.energy,
+        music.valence,
+        music.acousticness,
+        music.instrumentalness,
+        music.danceability,
+        music.speechiness,
+        music.tempo,
+        music.mode,
+        music.key,
+    )
+
+
 def dependency_rows_for_case(
     case_name: str,
     clip: Clip,
     *,
     paths,
+    music_map: dict[int, Music] | None = None,
 ) -> list[tuple[str, object]]:
     """Return per-clip (column_name, value) pairs for ``case_name``.
 
     Driven by ``CASE_REGISTRY[case_name].dependency_columns`` so adding a
     new case never requires touching this function — the case declares the
     columns it depends on and this dispatcher reads them off the Clip row
-    (or, for the synthetic ``_video_file_stat`` / ``_audio_file_stat``
-    sentinels, stats the corresponding file on disk).
+    (or, for the synthetic ``_video_file_stat`` / ``_audio_file_stat`` /
+    ``_music_row`` sentinels, stats the corresponding file on disk or
+    materializes the linked Music row's verbalize_music fields).
+
+    ``music_map`` must be supplied whenever a case declares ``_music_row``
+    in its dependency_columns; ``per_clip_source_hashes_and_aggregate``
+    fetches it once per stage run and threads it through.
 
     The returned list preserves dependency_columns order so the digest
     produced by ``fingerprint.hash_rows`` is deterministic per case.
@@ -137,6 +168,14 @@ def dependency_rows_for_case(
             rows.append((col, fp.file_stat_for_hash(paths.video_for(clip.id))))
         elif col == "_audio_file_stat":
             rows.append((col, fp.file_stat_for_hash(paths.audio_for(clip.id))))
+        elif col == "_music_row":
+            if music_map is None:
+                raise ValueError(
+                    f"case {case_name!r} declares _music_row but no music_map "
+                    "was provided to dependency_rows_for_case"
+                )
+            music = music_map.get(clip.music_id) if clip.music_id is not None else None
+            rows.append((col, _music_row_signature(music)))
         else:
             rows.append((col, getattr(clip, col)))
     return rows
@@ -164,13 +203,16 @@ def per_clip_source_hashes_and_aggregate(
             "so paths can be resolved without rereading config.toml"
         )
     paths = settings.paths
+    music_map: dict[int, Music] | None = None
+    if "_music_row" in CASE_REGISTRY[case].dependency_columns:
+        music_map = get_music_map(session)
     clips = (
         session.query(Clip).filter(Clip.id.in_(candidate_ids)).order_by(Clip.id).all()
     )
     per_clip: dict[int, str] = {}
     all_rows: list[tuple] = []
     for clip in clips:
-        rows = dependency_rows_for_case(case, clip, paths=paths)
+        rows = dependency_rows_for_case(case, clip, paths=paths, music_map=music_map)
         per_clip[clip.id] = fp.hash_rows(rows)
         all_rows.extend(rows)
     aggregate = fp.hash_rows(all_rows)

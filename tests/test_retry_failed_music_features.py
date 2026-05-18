@@ -120,6 +120,45 @@ def test_retry_preserves_non_no_match_ids(monkeypatch):
     assert row.reccobeats_id == "real-rb"
 
 
+def test_retry_does_not_reset_unrelated_no_match_rows(monkeypatch):
+    """A no_match row with is_audio_features_extracted ∉ {False} must not
+    be flipped to pending by the recovery script."""
+    s = _make_db_with_failed_music(
+        [
+            {
+                "id": 1,
+                "artist": "a",
+                "track": "t",
+                "spotify_id": None,
+                "recognition_status": "no_match",
+                "reccobeats_id": None,
+                "is_audio_features_extracted": False,
+            },
+            {
+                "id": 2,
+                "artist": "b",
+                "track": "u",
+                "spotify_id": None,
+                "recognition_status": "no_match",
+                "reccobeats_id": None,
+                "is_audio_features_extracted": None,
+            },
+        ]
+    )
+    monkeypatch.setattr("scripts.retry_failed_music_features.get_session", lambda: s)
+    monkeypatch.setattr(
+        "scripts.retry_failed_music_features.extract_music_features", MagicMock()
+    )
+
+    from scripts.retry_failed_music_features import retry_failed_music_features
+
+    music, paths, secrets = _settings()
+    retry_failed_music_features(music, paths, secrets)
+
+    assert s.query(Music).filter_by(id=1).one().recognition_status == "pending"
+    assert s.query(Music).filter_by(id=2).one().recognition_status == "no_match"
+
+
 def test_retry_skips_when_no_failed_rows(monkeypatch):
     eng = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(eng)

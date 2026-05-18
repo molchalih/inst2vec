@@ -285,11 +285,22 @@ def test_dependency_rows_gemini_includes_file_stats(db_session, tmp_path):
     clip = db_session.query(Clip).filter_by(id=1).one()
     rows = dependency_rows_for_case("gemini", clip, paths=fake_paths)
     by_col = dict(rows)
-    assert set(by_col) == {"_video_file_stat", "_audio_file_stat"}, (
-        "gemini deps are exactly the two file-stat sentinels per spec"
-    )
+    # File-stat sentinels plus the caption/speech text columns the
+    # gemini payload actually sends to the model.
+    assert set(by_col) == {
+        "_video_file_stat",
+        "_audio_file_stat",
+        "caption_clean",
+        "caption_language",
+        "caption_translation",
+        "speech_transcription",
+        "speech_language",
+        "speech_translation",
+    }
     assert by_col["_video_file_stat"] == (video_stat.st_size, video_stat.st_mtime_ns)
     assert by_col["_audio_file_stat"] == (audio_stat.st_size, audio_stat.st_mtime_ns)
+    assert by_col["speech_transcription"] == "hi"
+    assert by_col["caption_language"] == "en"
 
 
 def _stub_settings(gemini_enabled: bool):
