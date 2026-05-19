@@ -18,7 +18,7 @@ min_video_duration = 3
 max_video_duration = 80
 min_taken_at = 1640995200
 creator_min_median_views = 10000
-min_eligible_clips_per_user = 10
+min_eligible_clips_per_user = 30
 global_low_percentile = 5
 global_high_percentile = 99
 creator_low_z_threshold = -3.5
@@ -96,14 +96,26 @@ audio_sample_rate_hz     = 44100
 audio_extract_timeout_s  = 60
 
 [search]
-umap_n_components = [15]
-umap_n_neighbors = [15]
+# Production grid tuned 2026-05-19 from analyze_cluster_params + analyze_cluster_lab.
+# Centered on the empirically-best 14-cluster eom region for the sandwich case.
+# Champion config: n_components=20, n_neighbors=10, min_dist=0.0, cosine,
+#                  min_cluster_size=15, eom -> 14 clusters, quality=0.591.
+# Dropped values (empirical failure rates):
+#   umap_metric=euclidean (73% fail), umap_min_dist=0.05 (uniformly worse),
+#   umap_n_neighbors in {15, 30} (lower quality, wrong cluster count),
+#   hdbscan_min_cluster_size in {25, 35+} (77% fail at 25),
+#   hdbscan_cluster_selection_method=leaf (produces 25+ clusters).
+# New axis hdbscan_min_samples surfaced as the cleanest cluster-count + noise dial.
+# Grid size: 5 * 3 * 1 * 2 * 4 * 3 * 1 = 360 configs per case.
+umap_n_components = [15, 20, 25, 30, 35]
+umap_n_neighbors = [8, 10, 12]
 umap_min_dist = [0.0]
-umap_metrics = ["cosine"]
+umap_metrics = ["cosine", "correlation"]
 umap2d_n_neighbors = 15
 umap2d_min_dist = 0.1
 umap2d_metrics = ["cosine"]
-hdbscan_min_cluster_size = [15]
+hdbscan_min_cluster_size = [13, 15, 17, 20]
+hdbscan_min_samples = [5, 10, 15]
 hdbscan_selection = ["eom"]
 random_state = 42
 clustering_grid_workers = 1

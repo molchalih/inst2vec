@@ -884,6 +884,104 @@ def test_select_clips_basic():
         assert u.is_selected is True
 
 
+def test_select_clips_thin_creator_locks_to_k_deterministically():
+    """Eligible == K → select exactly K, the top-K by play_count, deterministic."""
+    from core.config import FilterSettings
+    from core.database import Clip, User
+    from modules.filter import select_clips
+
+    eng = _make_db()
+    cfg = FilterSettings(
+        selection_pool_percent=0.20,
+        selected_clips_per_user=10,
+        selection_random_seed=42,
+    )
+    with Session(eng) as s:
+        s.add(User(id=1, is_low_plays_median=False, is_not_enough_eligible=False))
+        # 30 eligible clips with strictly-increasing play_count; top-10 are
+        # clips with play_count 2100..3000 → ids 21..30 under the offset
+        # convention of __seed_eligible_clips.
+        __seed_eligible_clips(
+            s,
+            user_id=1,
+            play_counts=[100 * i for i in range(1, 31)],
+        )
+        s.commit()
+        select_clips(s, cfg)
+        s.commit()
+        selected_ids = {
+            c.id for c in s.query(Clip).filter(Clip.user_id == 1).all() if c.is_selected
+        }
+        # __seed_eligible_clips assigns id = id_offset + i + 1 where i is the
+        # 0-based index in play_counts. With id_offset=0 and 30 clips, ids run
+        # 1..30 in ascending play_count order. Top-10 by play_count = ids 21..30.
+        assert selected_ids == set(range(21, 31))
+
+
+def test_select_clips_thick_creator_samples_from_top_percentile():
+    """Eligible == 100 with p=0.20 → pool=20, sample exactly K from top-20."""
+    from core.config import FilterSettings
+    from core.database import Clip, User
+    from modules.filter import select_clips
+
+    eng = _make_db()
+    cfg = FilterSettings(
+        selection_pool_percent=0.20,
+        selected_clips_per_user=10,
+        selection_random_seed=42,
+    )
+    with Session(eng) as s:
+        s.add(User(id=1, is_low_plays_median=False, is_not_enough_eligible=False))
+        # 100 eligible clips with strictly-increasing play_count. Top-20 by
+        # play_count = ids 81..100 (see id assignment in __seed_eligible_clips).
+        __seed_eligible_clips(
+            s,
+            user_id=1,
+            play_counts=[100 * i for i in range(1, 101)],
+        )
+        s.commit()
+        select_clips(s, cfg)
+        s.commit()
+        selected_ids = {
+            c.id for c in s.query(Clip).filter(Clip.user_id == 1).all() if c.is_selected
+        }
+        assert len(selected_ids) == 10
+        assert selected_ids.issubset(set(range(81, 101)))
+
+
+def test_select_clips_thin_creator_two_runs_identical():
+    """Locked-K selection is deterministic across repeated runs with same seed."""
+    from core.config import FilterSettings
+    from core.database import Clip, User
+    from modules.filter import select_clips
+
+    cfg = FilterSettings(
+        selection_pool_percent=0.20,
+        selected_clips_per_user=10,
+        selection_random_seed=42,
+    )
+
+    def _seed_and_select():
+        eng = _make_db()
+        with Session(eng) as s:
+            s.add(User(id=1, is_low_plays_median=False, is_not_enough_eligible=False))
+            __seed_eligible_clips(
+                s,
+                user_id=1,
+                play_counts=[100 * i for i in range(1, 31)],
+            )
+            s.commit()
+            select_clips(s, cfg)
+            s.commit()
+            return {
+                c.id
+                for c in s.query(Clip).filter(Clip.user_id == 1).all()
+                if c.is_selected
+            }
+
+    assert _seed_and_select() == _seed_and_select()
+
+
 def test_select_clips_stable_across_new_users():
     from core.config import FilterSettings
     from core.database import Clip, User

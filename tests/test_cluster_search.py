@@ -32,6 +32,7 @@ def _make_search_settings(*, gemini_enabled: bool = False, **overrides):
         "umap2d_min_dist": 0.1,
         "umap2d_metrics": ["cosine"],
         "hdbscan_min_cluster_size": [10],
+        "hdbscan_min_samples": [],
         "hdbscan_selection": ["eom"],
         "random_state": 42,
     }
@@ -105,6 +106,7 @@ def test_load_grid_combo_count():
         umap2d_min_dist=0.1,
         umap2d_metrics=["cosine", "euclidean"],
         hdbscan_min_cluster_size=[10],
+        hdbscan_min_samples=[],
         hdbscan_selection=["eom"],
         random_state=42,
     )
@@ -131,6 +133,7 @@ def test_load_grid_iterates_gemini_when_enabled():
         umap2d_min_dist=0.1,
         umap2d_metrics=["cosine"],
         hdbscan_min_cluster_size=[10],
+        hdbscan_min_samples=[],
         hdbscan_selection=["eom"],
         random_state=42,
     )
@@ -153,6 +156,7 @@ def test_load_grid_ignores_hdbscan_metric_env_dimension():
         umap2d_min_dist=0.1,
         umap2d_metrics=["cosine", "euclidean"],
         hdbscan_min_cluster_size=[10],
+        hdbscan_min_samples=[],
         hdbscan_selection=["eom"],
         random_state=42,
     )
@@ -175,6 +179,7 @@ def test_load_grid_combo_keys():
         umap2d_min_dist=0.1,
         umap2d_metrics=["cosine"],
         hdbscan_min_cluster_size=[10],
+        hdbscan_min_samples=[],
         hdbscan_selection=["eom"],
         random_state=42,
     )
@@ -211,6 +216,7 @@ def test_load_grid_umap2d_fixed_values():
         umap2d_min_dist=0.2,
         umap2d_metrics=["cosine"],
         hdbscan_min_cluster_size=[10],
+        hdbscan_min_samples=[],
         hdbscan_selection=["eom"],
         random_state=42,
     )

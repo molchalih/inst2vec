@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import importlib.util
+import math
 import shutil
 import sys
 from pathlib import Path
 
-import numpy as np
-import pandas as pd
 import pytest
+
+np = pytest.importorskip("numpy")
+pd = pytest.importorskip("pandas")
 
 _SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "analyze_cluster_params.py"
 _SPEC = importlib.util.spec_from_file_location("analyze_cluster_params", _SCRIPT)
@@ -155,6 +157,143 @@ def test_quality_score_includes_component_columns():
         assert col in out.columns
 
 
+def test_detect_uninformative_axes_finds_zero_effect_column():
+    # `noise_axis` doubles every config but never changes quality_score —
+    # exactly the umap2d_metric case.
+    rows = []
+    for nc in [10, 15, 20]:
+        for noise_v in ["a", "b"]:
+            rows.append({
+                "umap_n_components": nc,
+                "noise_axis": noise_v,
+                "quality_score": 0.5 if nc == 20 else 0.2,
+            })
+    df = pd.DataFrame(rows)
+    uninformative = acp.detect_uninformative_axes(
+        df, ["umap_n_components", "noise_axis"]
+    )
+    assert uninformative == ["noise_axis"]
+
+
+def test_detect_uninformative_axes_keeps_real_axis():
+    rows = [
+        {"a": 1, "b": "x", "quality_score": 0.1},
+        {"a": 1, "b": "y", "quality_score": 0.3},
+        {"a": 2, "b": "x", "quality_score": 0.4},
+        {"a": 2, "b": "y", "quality_score": 0.6},
+    ]
+    df = pd.DataFrame(rows)
+    assert acp.detect_uninformative_axes(df, ["a", "b"]) == []
+
+
+def test_dedupe_on_axes_collapses_redundant_rows():
+    rows = [
+        {"a": 1, "b": "x", "quality_score": 0.5, "dbcv": 0.5},
+        {"a": 1, "b": "x", "quality_score": 0.5, "dbcv": 0.5},  # duplicate
+        {"a": 2, "b": "x", "quality_score": 0.6, "dbcv": 0.6},
+    ]
+    df = pd.DataFrame(rows)
+    deduped = acp.dedupe_on_axes(df, ["a", "b"])
+    assert len(deduped) == 2
+
+
+def test_fit_classifier_learns_viability_signal():
+    rng = np.random.RandomState(0)
+    n = 300
+    df = pd.DataFrame({
+        "umap_metric": rng.choice(["cosine", "euclidean"], n),
+        "hdbscan_min_cluster_size": rng.choice([10, 15, 25], n),
+    })
+    # leaf-like: euclidean almost always fails
+    fail_prob = np.where(df["umap_metric"] == "euclidean", 0.95, 0.1)
+    is_failed = rng.uniform(size=n) < fail_prob
+    df["dbcv"] = np.where(is_failed, np.nan, rng.uniform(0.3, 0.7, n))
+
+    _model, info = acp.fit_classifier(
+        df, feature_cols=["umap_metric", "hdbscan_min_cluster_size"]
+    )
+    assert info["cv_auc_mean"] > 0.75
+
+
+def test_fit_classifier_handles_single_class_target():
+    df = pd.DataFrame({"a": [1, 2, 3, 4], "dbcv": [0.5, 0.6, 0.7, 0.8]})
+    model, info = acp.fit_classifier(df, feature_cols=["a"])
+    assert model is None
+    assert "single-class" in info.get("note", "")
+
+
+def test_fit_classifier_skips_auc_when_minority_below_two():
+    # 1 viable vs 19 failed — too few minority samples for stratified CV.
+    df = pd.DataFrame({
+        "a": list(range(20)),
+        "dbcv": [0.5] + [float("nan")] * 19,
+    })
+    model, info = acp.fit_classifier(df, feature_cols=["a"])
+    # Model is still fit so callers that want feature importance don't break,
+    # but the AUC must be NaN rather than a misleading fold-averaged value.
+    assert model is not None
+    assert math.isnan(info["cv_auc_mean"])
+    assert math.isnan(info["cv_auc_std"])
+    assert "too few minority" in info.get("note", "")
+
+
+def test_fit_classifier_reduces_folds_when_minority_small():
+    # 3 viable vs 17 failed — must drop to 3 folds, not run 5.
+    rng = np.random.RandomState(0)
+    n = 20
+    df = pd.DataFrame({"a": rng.uniform(size=n)})
+    dbcv = [float("nan")] * n
+    dbcv[2] = 0.4
+    dbcv[7] = 0.5
+    dbcv[13] = 0.6
+    df["dbcv"] = dbcv
+    _model, info = acp.fit_classifier(df, feature_cols=["a"])
+    assert info["cv_n_splits"] == 3
+    assert not math.isnan(info["cv_auc_mean"])
+
+
+def test_interaction_strength_zero_for_additive_grid():
+    # Cell mean = row_main + col_main + grand — no interaction.
+    rows = []
+    for a, ra in zip([1, 2, 3], [0.0, 0.1, 0.2], strict=True):
+        for b, rb in zip(["x", "y"], [0.0, 0.05], strict=True):
+            rows.append({"a": a, "b": b, "quality_score": 0.5 + ra + rb})
+    df = pd.DataFrame(rows)
+    rms, pivot = acp.interaction_strength(df, "a", "b")
+    assert rms < 1e-9
+    assert pivot.shape == (3, 2)
+
+
+def test_interaction_strength_positive_when_nonadditive():
+    # cell value flips on the (a=2, b=y) corner — strongly non-additive
+    rows = [
+        {"a": 1, "b": "x", "quality_score": 0.1},
+        {"a": 1, "b": "y", "quality_score": 0.1},
+        {"a": 2, "b": "x", "quality_score": 0.1},
+        {"a": 2, "b": "y", "quality_score": 0.9},
+    ]
+    df = pd.DataFrame(rows)
+    rms, _ = acp.interaction_strength(df, "a", "b")
+    assert rms > 0.1
+
+
+def test_interaction_ranked_orders_pairs_by_strength():
+    rows = []
+    for a in [1, 2]:
+        for b in ["x", "y"]:
+            for c in ["p", "q"]:
+                # (a, b) is the interactive pair; c is purely additive
+                q = 0.9 if (a == 2 and b == "y") else 0.1
+                q += 0.05 if c == "q" else 0.0
+                rows.append({"a": a, "b": b, "c": c, "quality_score": q})
+    df = pd.DataFrame(rows)
+    ranked = acp.interaction_ranked(df, ["a", "b", "c"])
+    assert len(ranked) == 3
+    top = ranked.iloc[0]
+    pair = tuple(sorted([top["axis_a"], top["axis_b"]]))
+    assert pair == ("a", "b")
+
+
 def test_detect_varying_axes_ignores_constants():
     df = pd.DataFrame({
         "umap_n_components": [10, 15, 20],
@@ -204,3 +343,108 @@ def test_kruskal_dunn_returns_pvalue_and_effect_size():
     assert result["kw_pvalue"] < 0.01
     assert 0.0 <= result["eta_squared"] <= 1.0
     assert isinstance(result["dunn_pvalues"], pd.DataFrame)
+
+
+def test_surrogate_model_fits_and_predicts():
+    rng = np.random.RandomState(0)
+    n = 200
+    df = pd.DataFrame({
+        "umap_n_components": rng.choice([10, 15, 20, 30], n),
+        "umap_metric": rng.choice(["cosine", "euclidean"], n),
+        "hdbscan_min_cluster_size": rng.choice([10, 15, 25], n),
+    })
+    df["quality_score"] = (
+        (df["umap_metric"] == "cosine").astype(float) * 0.5
+        + (df["umap_n_components"] / 60.0)
+        + rng.normal(0, 0.05, n)
+    ).clip(0, 1)
+
+    _model, info = acp.fit_surrogate(
+        df,
+        feature_cols=["umap_n_components", "umap_metric", "hdbscan_min_cluster_size"],
+    )
+    # Should learn the signal — non-degenerate R²
+    assert info["cv_r2"] > 0.3
+    preds = info["predict"](df.head(5))
+    assert all(0.0 <= p <= 1.5 for p in preds)
+
+
+def test_detect_edge_optima_flags_top_edge():
+    df = pd.DataFrame({
+        "umap_n_components": [10, 15, 20, 30] * 5,
+        "quality_score": [0.1, 0.2, 0.4, 0.8] * 5,
+    })
+    flagged = acp.detect_edge_optima(df, ["umap_n_components"])
+    assert len(flagged) == 1
+    assert flagged[0]["axis"] == "umap_n_components"
+    assert flagged[0]["direction"] == "above"
+
+
+def test_detect_edge_optima_flags_bottom_edge():
+    df = pd.DataFrame({
+        "umap_n_components": [10, 15, 20, 30] * 5,
+        "quality_score": [0.8, 0.4, 0.2, 0.1] * 5,
+    })
+    flagged = acp.detect_edge_optima(df, ["umap_n_components"])
+    assert flagged[0]["direction"] == "below"
+
+
+def test_detect_edge_optima_skips_interior_optimum():
+    df = pd.DataFrame({
+        "umap_n_components": [10, 15, 20, 30] * 5,
+        "quality_score": [0.2, 0.8, 0.7, 0.1] * 5,
+    })
+    flagged = acp.detect_edge_optima(df, ["umap_n_components"])
+    assert flagged == []
+
+
+def test_dominance_finds_clearly_dominated_value():
+    # umap_metric=cosine always beats umap_metric=correlation, holding other axes fixed.
+    rows = []
+    for nc in [10, 15, 20]:
+        for mcs in [10, 15]:
+            rows.append({"umap_metric": "cosine", "umap_n_components": nc,
+                         "hdbscan_min_cluster_size": mcs, "quality_score": 0.7})
+            rows.append({"umap_metric": "correlation", "umap_n_components": nc,
+                         "hdbscan_min_cluster_size": mcs, "quality_score": 0.2})
+    df = pd.DataFrame(rows)
+    dropped = acp.dominance_analysis(
+        df,
+        axes=["umap_metric", "umap_n_components", "hdbscan_min_cluster_size"],
+    )
+    assert "umap_metric" in dropped
+    assert "correlation" in dropped["umap_metric"]
+
+
+def test_dominance_keeps_value_that_wins_somewhere():
+    rows = [
+        {"umap_metric": "cosine", "umap_n_components": 10, "quality_score": 0.7},
+        {"umap_metric": "cosine", "umap_n_components": 20, "quality_score": 0.3},
+        {"umap_metric": "euclidean", "umap_n_components": 10, "quality_score": 0.3},
+        {"umap_metric": "euclidean", "umap_n_components": 20, "quality_score": 0.7},
+    ]
+    df = pd.DataFrame(rows)
+    dropped = acp.dominance_analysis(
+        df, axes=["umap_metric", "umap_n_components"]
+    )
+    # Neither metric is dominated — each wins at some n_components
+    assert dropped.get("umap_metric", []) == []
+
+
+def test_build_suggested_grid_assembles_sections():
+    df = pd.DataFrame({
+        "umap_metric": ["cosine", "correlation"] * 6,
+        "umap_n_components": [10, 10, 15, 15, 20, 20, 30, 30, 35, 35, 40, 40],
+        "quality_score": [0.7, 0.2, 0.6, 0.1, 0.6, 0.1, 0.7, 0.2, 0.8, 0.1, 0.9, 0.1],
+    })
+    out = acp.build_suggested_grid(
+        df,
+        varying_axes=["umap_metric", "umap_n_components"],
+        ordinal_axes=["umap_n_components"],
+        top_pair=("umap_metric", "umap_n_components"),
+    )
+    assert "drop" in out and "keep" in out and "extend" in out and "focus_regions" in out
+    # correlation should be flagged as dominated
+    assert "correlation" in out["drop"].get("umap_metric", [])
+    # n_components optimum is at 40 (top edge) → "above"
+    assert out["extend"]["umap_n_components"]["direction"] == "above"

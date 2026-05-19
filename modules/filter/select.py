@@ -25,12 +25,14 @@ def select_clips(session: Session, cfg: FilterSettings) -> None:
         if not eligible:
             continue
 
-        pool_size = max(1, math.ceil(len(eligible) * cfg.selection_pool_percent))
+        pool_size = max(
+            cfg.selected_clips_per_user,
+            math.ceil(len(eligible) * cfg.selection_pool_percent),
+        )
         pool = eligible[:pool_size]
 
-        n = min(cfg.selected_clips_per_user, len(pool))
         rng = random.Random(f"{cfg.selection_random_seed}:{user.id}")
-        chosen = rng.sample(pool, n)
+        chosen = rng.sample(pool, cfg.selected_clips_per_user)
 
         for clip in chosen:
             clip.is_selected = True

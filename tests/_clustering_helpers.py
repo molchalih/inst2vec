@@ -95,6 +95,7 @@ def _make_minimal_search_settings(
             umap2d_min_dist=0.1,
             umap2d_metrics=["cosine"],
             hdbscan_min_cluster_size=[5],
+            hdbscan_min_samples=[],
             hdbscan_selection=["eom"],
             random_state=42,
         ),

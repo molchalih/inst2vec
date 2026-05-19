@@ -44,7 +44,7 @@ class FilterSettings(BaseModel):
     max_video_duration: int = 80
     min_taken_at: int = 1640995200
     creator_min_median_views: int = 10000
-    min_eligible_clips_per_user: int = 10
+    min_eligible_clips_per_user: int = 30
     global_low_percentile: float = 5
     global_high_percentile: float = 99
     creator_low_z_threshold: float = -3.5
@@ -152,6 +152,7 @@ class SearchSettings(BaseModel):
     umap2d_min_dist: float = 0.1
     umap2d_metrics: list[str] = []
     hdbscan_min_cluster_size: list[int] = []
+    hdbscan_min_samples: list[int] = []
     hdbscan_selection: list[str] = []
     random_state: int = 42
     clustering_grid_workers: int = 1

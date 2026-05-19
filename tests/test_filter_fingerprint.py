@@ -34,11 +34,12 @@ def _isolate_db():
 
 
 def _seed_dataset(*, n_users: int = 3, n_clips_per_user: int = 12) -> None:
-    """Seed users + clips that pass all hard policies under default FilterSettings.
+    """Seed users + clips sized for the fingerprint tests' _default_cfg.
 
-    With default cfg (min_video_duration=3, max_video_duration=80, min_taken_at=1640995200,
-    creator_min_median_views=10000, min_eligible_clips_per_user=10),
-    these clips are eligible and select_clips will pick selected_clips_per_user of them.
+    _default_cfg pins min_eligible_clips_per_user=10, so 12 clips per user
+    comfortably clears the floor. Other hard policies (min_video_duration=3,
+    max_video_duration=80, min_taken_at=1640995200, creator_min_median_views=10000)
+    are also satisfied; select_clips picks selected_clips_per_user of them.
     """
     session = get_session()
     try:
@@ -64,7 +65,11 @@ def _seed_dataset(*, n_users: int = 3, n_clips_per_user: int = 12) -> None:
 
 
 def _default_cfg() -> FilterSettings:
-    return FilterSettings()
+    # Pin min_eligible_clips_per_user to the original value (10) that this
+    # file's _seed_dataset fixture was sized for (12 clips per user). The
+    # production default was bumped to 30; tests here exercise fingerprint
+    # behavior, not the eligibility floor, so pinning isolates the concern.
+    return FilterSettings(min_eligible_clips_per_user=10)
 
 
 def test_creates_stage_state_row_on_first_run():

@@ -63,6 +63,9 @@ __pycache__/
 /.quarto/
 **/*.quarto_ipynb*
 
+# Script outputs
+scripts/output/
+
 # session state
 .claude/
 .remember/

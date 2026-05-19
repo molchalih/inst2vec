@@ -36,6 +36,8 @@ def _load_grid(settings, cases: Iterable[str]) -> list[dict]:
     umap2d_n_neighbors and umap2d_min_dist are fixed scalars (not swept);
     umap2d_metric is swept independently as a list.
     HDBSCAN distance on pass-1 UMAP space is fixed (euclidean); not swept.
+    hdbscan_min_samples=None (HDBSCAN's default = min_cluster_size) is
+    used when the configured list is empty, preserving prior behavior.
     """
     umap_n_components = list(settings.umap_n_components)
     umap_n_neighbors = list(settings.umap_n_neighbors)
@@ -45,12 +47,15 @@ def _load_grid(settings, cases: Iterable[str]) -> list[dict]:
     umap2d_min_dist = float(settings.umap2d_min_dist)
     umap2d_metrics = list(settings.umap2d_metrics)
     hdbscan_min_sizes = list(settings.hdbscan_min_cluster_size)
+    hdbscan_min_samples_list: list[int | None] = (
+        list(settings.hdbscan_min_samples) if settings.hdbscan_min_samples else [None]
+    )
     hdbscan_selection = list(settings.hdbscan_selection)
     random_state = int(settings.random_state)
     cases_list = list(cases)
 
     combos = []
-    for case, nc, nn, md, um, u2m, mcs, sel in product(
+    for case, nc, nn, md, um, u2m, mcs, ms, sel in product(
         cases_list,
         umap_n_components,
         umap_n_neighbors,
@@ -58,6 +63,7 @@ def _load_grid(settings, cases: Iterable[str]) -> list[dict]:
         umap_metrics,
         umap2d_metrics,
         hdbscan_min_sizes,
+        hdbscan_min_samples_list,
         hdbscan_selection,
     ):
         combos.append(
@@ -71,7 +77,7 @@ def _load_grid(settings, cases: Iterable[str]) -> list[dict]:
                 umap2d_min_dist=umap2d_min_dist,
                 umap2d_metric=u2m,
                 hdbscan_min_cluster_size=mcs,
-                hdbscan_min_samples=None,
+                hdbscan_min_samples=ms,
                 hdbscan_cluster_selection_method=sel,
                 hdbscan_metric=DEFAULT_HDBSCAN_METRIC,
                 random_state=random_state,

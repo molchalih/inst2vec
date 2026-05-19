@@ -55,6 +55,7 @@ analysis = [
     "scipy>=1.13",
     "scikit-posthocs>=0.10",
     "seaborn>=0.13",
+    "tabulate>=0.9",
 ]
 
 [tool.uv]
