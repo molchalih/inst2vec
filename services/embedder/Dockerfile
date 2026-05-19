@@ -31,7 +31,10 @@ COPY services/embedder/ ./services/embedder/
 # Install only what the embedder needs: the GPU build group plus the
 # embedder group. We deliberately skip the project's CPU-side deps
 # (sqlalchemy, hikerapi, spotify…) — they aren't imported by the service.
-RUN uv sync --group gpu --group embedder --no-dev
+# --no-install-project: don't build the inst2vec wheel here; the service
+# imports core/ and modules/ from /app via PYTHONPATH (WORKDIR), so we don't
+# need to ship README.md, scripts/, and other build-time inputs.
+RUN uv sync --group gpu --group embedder --no-dev --no-install-project
 
 ENV HF_HOME=/workspace/hf-cache \
     MODEL_PATH=/workspace/models/Qwen3-VL-Embedding-8B \

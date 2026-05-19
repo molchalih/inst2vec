@@ -16,6 +16,7 @@ import json
 import math
 import sqlite3
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -72,7 +73,7 @@ def load_runs(db_path: str, case: str) -> pd.DataFrame:
         df = pd.read_sql_query(
             f"SELECT {col_sql} FROM cluster_runs WHERE embedding_case = ?",
             conn,
-            params=(case,),
+            params=[case],
         )
     return df
 
@@ -80,9 +81,7 @@ def load_runs(db_path: str, case: str) -> pd.DataFrame:
 # ── penalty curves ────────────────────────────────────────────────────────────
 
 
-def _logistic_window(
-    x: float, low: float, high: float, edge_softness: float
-) -> float:
+def _logistic_window(x: float, low: float, high: float, edge_softness: float) -> float:
     """Returns ~1.0 when x in [low, high], smoothly decays to 0 outside.
 
     edge_softness controls how steep the sigmoid is at each edge (larger = softer).
@@ -104,9 +103,7 @@ def compute_noise_penalty(noise_ratio: float) -> float:
 
     Penalizes both 'no noise' (degenerate tight clustering) and 'mostly noise'.
     """
-    return _logistic_window(
-        float(noise_ratio), low=0.02, high=0.55, edge_softness=0.01
-    )
+    return _logistic_window(float(noise_ratio), low=0.02, high=0.55, edge_softness=0.01)
 
 
 def compute_shape_penalty(min_size: int, median_size: int, max_size: int) -> float:
@@ -232,8 +229,14 @@ def dedupe_on_axes(df: pd.DataFrame, axes: list[str]) -> pd.DataFrame:
     appears once.
     """
     metric_cols = [
-        "dbcv", "silhouette", "n_clusters", "noise_ratio",
-        "min_size", "median_size", "max_size", "quality_score",
+        "dbcv",
+        "silhouette",
+        "n_clusters",
+        "noise_ratio",
+        "min_size",
+        "median_size",
+        "max_size",
+        "quality_score",
     ]
     subset = [c for c in (*axes, *metric_cols) if c in df.columns]
     return df.drop_duplicates(subset=subset).reset_index(drop=True)
@@ -369,9 +372,7 @@ def _build_design_matrix(
     return X, out_cols
 
 
-def fit_surrogate(
-    df: pd.DataFrame, feature_cols: list[str]
-) -> tuple[object, dict]:
+def fit_surrogate(df: pd.DataFrame, feature_cols: list[str]) -> tuple[object, dict]:
     """Fit HistGradientBoostingRegressor on params → quality_score.
 
     Returns (model, info) where info has cv_r2, feature_names, source_cols,
@@ -411,9 +412,7 @@ def fit_surrogate(
     return model, info
 
 
-def fit_classifier(
-    df: pd.DataFrame, feature_cols: list[str]
-) -> tuple[object, dict]:
+def fit_classifier(df: pd.DataFrame, feature_cols: list[str]) -> tuple[object, dict]:
     """Fit HistGradientBoostingClassifier predicting P(viable | params).
 
     "Viable" means the pipeline produced a DBCV score (not pre-filtered).
@@ -439,13 +438,17 @@ def fit_classifier(
         return None, info
 
     model = HistGradientBoostingClassifier(
-        max_iter=300, learning_rate=0.05, max_depth=6, random_state=0,
+        max_iter=300,
+        learning_rate=0.05,
+        max_depth=6,
+        random_state=0,
     )
     # Need at least one minority sample per fold for ROC-AUC to be defined;
     # otherwise sklearn returns NaN for that fold and the reported mean is
     # silently misleading. Cap folds at the minority count (min 2) and skip
     # CV entirely if even 2-fold can't be stratified.
     from sklearn.model_selection import StratifiedKFold
+
     minority = int(min(y.sum(), len(y) - y.sum()))
     if minority < 2:
         info["cv_auc_mean"] = float("nan")
@@ -460,7 +463,9 @@ def fit_classifier(
         return model, info
     n_splits = min(5, minority)
     cv = cross_val_score(
-        model, X, y,
+        model,
+        X,
+        y,
         cv=StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=0),
         scoring="roc_auc",
     )
@@ -480,11 +485,13 @@ def permutation_importance_report(model: object, info: dict) -> pd.DataFrame:
     result = permutation_importance(
         model, info["X"], info["y"], n_repeats=15, random_state=0, n_jobs=-1
     )
-    raw_imp = pd.DataFrame({
-        "feature": info["feature_names"],
-        "importance_mean": result.importances_mean,
-        "importance_std": result.importances_std,
-    })
+    raw_imp = pd.DataFrame(
+        {
+            "feature": info["feature_names"],
+            "importance_mean": result.importances_mean,
+            "importance_std": result.importances_std,
+        }
+    )
 
     def base_of(name: str) -> str:
         for col in info.get("source_cols", []):
@@ -576,7 +583,11 @@ def plot_interaction_heatmap(
     )
     fig, ax = plt.subplots(figsize=(8, 6), dpi=150)
     sns.heatmap(
-        pivot, annot=True, fmt=".2f", cmap="viridis", ax=ax,
+        pivot,
+        annot=True,
+        fmt=".2f",
+        cmap="viridis",
+        ax=ax,
         cbar_kws={"label": "mean quality_score"},
     )
     ax.set_title(f"Interaction: {param_a} × {param_b}")
@@ -607,7 +618,7 @@ def interaction_strength(
     col_dev = pivot.mean(axis=0).to_numpy() - grand
     additive = grand + row_dev[:, None] + col_dev[None, :]
     residual = pivot.to_numpy() - additive
-    rms = float(np.sqrt(np.nanmean(residual ** 2)))
+    rms = float(np.sqrt(np.nanmean(residual**2)))
     return rms, pivot
 
 
@@ -620,14 +631,16 @@ def interaction_ranked(
     """
     rows = []
     for i, a in enumerate(axes):
-        for b in axes[i + 1:]:
+        for b in axes[i + 1 :]:
             rms, pivot = interaction_strength(df, a, b, target=target)
-            rows.append({
-                "axis_a": a,
-                "axis_b": b,
-                "interaction_rms": rms,
-                "n_cells": int(pivot.size) if not pivot.empty else 0,
-            })
+            rows.append(
+                {
+                    "axis_a": a,
+                    "axis_b": b,
+                    "interaction_rms": rms,
+                    "n_cells": int(pivot.size) if not pivot.empty else 0,
+                }
+            )
     out = pd.DataFrame(rows)
     if out.empty:
         return out
@@ -660,9 +673,7 @@ def detect_edge_optima(df: pd.DataFrame, ordinal_axes: list[str]) -> list[dict]:
 # ── dominance pruning ─────────────────────────────────────────────────────────
 
 
-def dominance_analysis(
-    df: pd.DataFrame, axes: list[str]
-) -> dict[str, list]:
+def dominance_analysis(df: pd.DataFrame, axes: list[str]) -> dict[str, list]:
     """Find Pareto-dominated values per axis.
 
     A value X of axis A is dominated if there exists another value Y of A
@@ -678,15 +689,9 @@ def dominance_analysis(
             continue
         # Aggregate score per (axis_value, other_combo). Take mean across
         # any remaining duplicates (e.g. random_state replicates).
-        agg = (
-            df.groupby([*other, axis])["quality_score"]
-            .mean()
-            .reset_index()
-        )
+        agg = df.groupby([*other, axis])["quality_score"].mean().reset_index()
         # Pivot: rows = other-combo, cols = axis value
-        pivot = agg.pivot_table(
-            index=other, columns=axis, values="quality_score"
-        )
+        pivot = agg.pivot_table(index=other, columns=axis, values="quality_score")
         values = list(pivot.columns)
         flagged = []
         for x in values:
@@ -909,10 +914,12 @@ def write_markdown_report(
     r2_std = surrogate_metrics.get("regressor_cv_r2_std")
     clf_n_splits = surrogate_metrics.get("classifier_cv_n_splits")
     stage2_ran = bool(surrogate_metrics.get("regressor_ran", False))
-    lines.append("Two-stage model: a classifier predicts whether the pipeline "
-                 "will produce a DBCV at all; a regressor then explains "
-                 "quality_score on viable rows only. This decoupling avoids "
-                 "the bimodal target that kept the single-stage R² low.")
+    lines.append(
+        "Two-stage model: a classifier predicts whether the pipeline "
+        "will produce a DBCV at all; a regressor then explains "
+        "quality_score on viable rows only. This decoupling avoids "
+        "the bimodal target that kept the single-stage R² low."
+    )
     lines.append("")
     if auc_mean is None:
         lines.append(
@@ -1044,9 +1051,15 @@ ORDINAL_AXES = (
 
 
 INTERACTION_TOP_K = 6
-STALE_ROOT_GLOBS = ("boxplot_*.png", "failure_rate_*.png", "pdp_*.png",
-                    "ice_*.png", "interaction_*.png", "feature_importance.png",
-                    "quality_distribution.png")
+STALE_ROOT_GLOBS = (
+    "boxplot_*.png",
+    "failure_rate_*.png",
+    "pdp_*.png",
+    "ice_*.png",
+    "interaction_*.png",
+    "feature_importance.png",
+    "quality_distribution.png",
+)
 
 
 def _clean_stale_outputs(out_dir: Path) -> None:
@@ -1065,20 +1078,25 @@ def _clean_stale_outputs(out_dir: Path) -> None:
 def _save_axes_classification(
     path: Path, varying: list[str], fixed: dict, uninformative: list[str]
 ) -> None:
-    path.write_text(json.dumps(
-        {
-            "varying": list(varying),
-            "fixed": {k: _jsonify(v) for k, v in fixed.items()},
-            "uninformative": list(uninformative),
-        },
-        indent=2, sort_keys=True,
-    ))
+    path.write_text(
+        json.dumps(
+            {
+                "varying": list(varying),
+                "fixed": {k: _jsonify(v) for k, v in fixed.items()},
+                "uninformative": list(uninformative),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db", default=DEFAULT_DB, help="Path to legacy SQLite DB")
-    parser.add_argument("--case", default=DEFAULT_CASE, help="embedding_case to analyze")
+    parser.add_argument(
+        "--case", default=DEFAULT_CASE, help="embedding_case to analyze"
+    )
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--top-n", type=int, default=DEFAULT_TOP_N)
     args = parser.parse_args()
@@ -1124,14 +1142,19 @@ def main() -> None:
 
         test = kruskal_dunn(df, axis)
         uni_tests[axis] = test
-        if isinstance(test["dunn_pvalues"], pd.DataFrame) and not test["dunn_pvalues"].empty:
+        if (
+            isinstance(test["dunn_pvalues"], pd.DataFrame)
+            and not test["dunn_pvalues"].empty
+        ):
             test["dunn_pvalues"].to_csv(data_dir / f"dunn_{axis}.csv")
-        kw_rows.append({
-            "axis": axis,
-            "kw_statistic": test["kw_statistic"],
-            "kw_pvalue": test["kw_pvalue"],
-            "eta_squared": test["eta_squared"],
-        })
+        kw_rows.append(
+            {
+                "axis": axis,
+                "kw_statistic": test["kw_statistic"],
+                "kw_pvalue": test["kw_pvalue"],
+                "eta_squared": test["eta_squared"],
+            }
+        )
         plot_boxplot(df, axis, plots_dir / f"boxplot_{axis}.png")
         plot_failure_rate(df, axis, plots_dir / f"failure_rate_{axis}.png")
     pd.DataFrame(kw_rows).to_csv(data_dir / "kruskal_summary.csv", index=False)
@@ -1139,8 +1162,10 @@ def main() -> None:
     print("Stage 1: viability classifier (all rows) …")
     _clf, clf_info = fit_classifier(df, varying)
     if not math.isnan(clf_info["cv_auc_mean"]):
-        print(f"  CV ROC-AUC = {clf_info['cv_auc_mean']:.3f} "
-              f"(± {clf_info['cv_auc_std']:.3f})")
+        print(
+            f"  CV ROC-AUC = {clf_info['cv_auc_mean']:.3f} "
+            f"(± {clf_info['cv_auc_std']:.3f})"
+        )
 
     importance = pd.DataFrame()
     reg_info: dict = {"cv_r2": float("nan"), "cv_r2_std": float("nan")}
@@ -1150,8 +1175,10 @@ def main() -> None:
         print("Stage 2: quality regressor (viable rows only) …")
         reg, reg_info = fit_surrogate(viable, varying)
         stage2_ran = True
-        print(f"  CV R² (viable) = {reg_info['cv_r2']:.3f} "
-              f"(± {reg_info['cv_r2_std']:.3f})")
+        print(
+            f"  CV R² (viable) = {reg_info['cv_r2']:.3f} "
+            f"(± {reg_info['cv_r2_std']:.3f})"
+        )
 
         importance = permutation_importance_report(reg, reg_info)
         importance.to_csv(data_dir / "feature_importance.csv", index=False)
@@ -1169,11 +1196,15 @@ def main() -> None:
                 copy[axis] = v
                 preds = reg_info["predict"](copy)
                 means.append(float(preds.mean()))
-            pd.DataFrame({
-                "value": values,
-                "mean_predicted_quality": means,
-            }).to_csv(data_dir / f"pdp_{axis}.csv", index=False)
-            plot_partial_dependence(reg_info, viable, axis, plots_dir / f"pdp_{axis}.png")
+            pd.DataFrame(
+                {
+                    "value": values,
+                    "mean_predicted_quality": means,
+                }
+            ).to_csv(data_dir / f"pdp_{axis}.csv", index=False)
+            plot_partial_dependence(
+                reg_info, viable, axis, plots_dir / f"pdp_{axis}.png"
+            )
 
         top3 = (
             importance.groupby("base_param")["importance_mean"]
@@ -1208,7 +1239,9 @@ def main() -> None:
         "classifier_note": clf_info.get("note"),
         "regressor_ran": stage2_ran,
         "regressor_cv_r2_mean": _json_safe(reg_info["cv_r2"]) if stage2_ran else None,
-        "regressor_cv_r2_std": _json_safe(reg_info["cv_r2_std"]) if stage2_ran else None,
+        "regressor_cv_r2_std": _json_safe(reg_info["cv_r2_std"])
+        if stage2_ran
+        else None,
         "n_total_rows": len(df),
         "n_viable_rows": len(viable),
         "n_raw_rows_before_dedup": int(n_raw),
@@ -1243,8 +1276,7 @@ def main() -> None:
     # masking real signal.
     dominated = dominance_analysis(viable, varying) if len(viable) else {}
     dom_rows = [
-        {"axis": k, "dominated_value": v}
-        for k, vs in dominated.items() for v in vs
+        {"axis": k, "dominated_value": v} for k, vs in dominated.items() for v in vs
     ]
     if dom_rows:
         pd.DataFrame(dom_rows).to_csv(data_dir / "dominance.csv", index=False)
@@ -1264,6 +1296,7 @@ def main() -> None:
 
     # Quality distribution plot + CSV
     import matplotlib.pyplot as plt
+
     fig, ax = plt.subplots(figsize=(8, 4), dpi=150)
     counts, bin_edges, _ = ax.hist(
         df["quality_score"], bins=40, color="#6aa6ff", edgecolor="white"
@@ -1274,11 +1307,13 @@ def main() -> None:
     fig.tight_layout()
     fig.savefig(plots_dir / "quality_distribution.png", dpi=300)
     plt.close(fig)
-    pd.DataFrame({
-        "bin_left": bin_edges[:-1],
-        "bin_right": bin_edges[1:],
-        "count": counts.astype(int),
-    }).to_csv(data_dir / "quality_distribution.csv", index=False)
+    pd.DataFrame(
+        {
+            "bin_left": bin_edges[:-1],
+            "bin_right": bin_edges[1:],
+            "count": cast(np.ndarray, counts).astype(int),
+        }
+    ).to_csv(data_dir / "quality_distribution.csv", index=False)
 
     write_markdown_report(
         df=df,
@@ -1304,7 +1339,11 @@ def main() -> None:
     print("=" * 60)
     print(f"Top {min(5, args.top_n)} runs:")
     top5 = df.sort_values("quality_score", ascending=False).head(5)
-    print(top5[[*varying, "quality_score", "dbcv", "n_clusters", "noise_ratio"]].to_string(index=False))
+    print(
+        top5[
+            [*varying, "quality_score", "dbcv", "n_clusters", "noise_ratio"]
+        ].to_string(index=False)
+    )
     print()
     if grid["drop"]:
         print("Recommended drops:", grid["drop"])

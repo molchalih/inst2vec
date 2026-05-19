@@ -12,6 +12,7 @@ import math
 import sqlite3
 import sys
 from pathlib import Path
+from typing import Any, cast
 
 import pandas as pd
 
@@ -113,8 +114,7 @@ def plot_algo_violin(df: pd.DataFrame, out_path: Path) -> None:
     sub = df.dropna(subset=["silhouette"]).copy()
     sub["bucket"] = sub["algorithm"] + "/" + sub["reducer"]
     order = (
-        sub.groupby("bucket")["silhouette"]
-        .median()
+        cast(pd.Series, sub.groupby("bucket")["silhouette"].median())
         .sort_values(ascending=False)
         .index.tolist()
     )
@@ -351,7 +351,8 @@ def build_report(
     # 4. Per-algorithm top-5
     lines.append("## 4. Per-algorithm / per-reducer top-5")
     lines.append("")
-    for (algo, reducer), group in df.groupby(["algorithm", "reducer"]):
+    for key, group in df.groupby(["algorithm", "reducer"]):
+        algo, reducer = cast(tuple[Any, Any], key)
         sub = (
             group[group["silhouette"].notna()]
             .sort_values("silhouette", ascending=False)

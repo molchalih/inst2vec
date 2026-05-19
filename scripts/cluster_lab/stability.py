@@ -269,7 +269,7 @@ def compute_seed_stability(
     matrix_shape = matrix.shape
     matrix_dtype = str(matrix.dtype)
     ctx = mp.get_context("fork" if os.name != "nt" else "spawn")
-    labels_by_idx: dict[int, np.ndarray] = {}
+    labels_by_idx: dict[int, np.ndarray | None] = {}
     with ProcessPoolExecutor(
         max_workers=max_workers,
         mp_context=ctx,
@@ -365,7 +365,7 @@ def compute_cross_method_ari(
     labelled_configs: list[tuple[str, str, str, dict]],
     db_path: str,
     max_workers: int = 5,
-) -> np.ndarray:
+) -> tuple[np.ndarray, np.ndarray, list[np.ndarray | None]]:
     """`labelled_configs` is a list of (label, algorithm, reducer, cfg).
 
     Returns the N×N ARI matrix; also persists into the cross_method table.

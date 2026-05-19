@@ -256,4 +256,8 @@ def load_runtime_config() -> tuple[Settings, Secrets]:
         gemini_api_key=gemini_api_key if gemini_enabled else None,
     )
 
+    # huggingface_hub reads HF_TOKEN, not HUGGINGFACE_TOKEN — propagate so gated
+    # models (e.g. google/translategemma-4b-it) load without an interactive login.
+    os.environ["HF_TOKEN"] = secrets.huggingface_token
+
     return settings, secrets

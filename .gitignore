@@ -10,31 +10,22 @@ models/
 checkpoints/
 *.safetensors
 
-# Docs folder
-docs/*
+# Generated / transient bits inside docs/ (the source tree itself stays tracked)
+docs/.quarto/
+docs/__pycache__/
+docs/index_files/
+docs/index.quarto_ipynb*
+docs/refs/
+docs/DataCollectionNotice_FGW-9358_2026.pdf
 
-# published docs
-!docs/index.qmd
-!docs/index.html
-!docs/index.pdf
-!docs/references.bib
-
-# others
-!docs/quarto_helpers.py
-!docs/assets/
-!docs/__init__.py
-!docs/reporting/
-!docs/reporting/__init__.py
-!docs/reporting/**/__init__.py
-!docs/reporting/_engine.py
-!docs/reporting/_format.py
-!docs/reporting/_markdown.py
-!docs/reporting/tables/users.py
-!docs/reporting/tables/clips.py
-!docs/reporting/tables/spotify.py
-!docs/reporting/tables/clustering_all.py
-!docs/reporting/tables/clustering_best.py
-!docs/reporting/plots/clusters.py
+# Paper sources & renders — kept locally only, never tracked
+docs/index.qmd
+docs/index.pdf
+docs/index.html
+docs/references.bib
+docs/chicago-author-date.csl
+docs/_freeze/
+docs/_site/
 
 # uv
 uv.lock.bak
@@ -52,6 +43,7 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+.uv-cache/
 
 # IDEs & OS
 .vscode/
@@ -66,11 +58,14 @@ __pycache__/
 # Script outputs
 scripts/output/
 
-# session state
+# Local-only state
 .claude/
 .remember/
 CLAUDE.md
+AGENT.md
 AGENTS.md
 TODO.md
 REVIEW.md
 REVIEW_ANSWERED.md
+REVIEW_TODO.md
+docs/superpowers/
