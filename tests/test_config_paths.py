@@ -6,7 +6,6 @@ from core.config import PathsSettings
 def _paths() -> PathsSettings:
     return PathsSettings(
         video_dir="data/videos",
-        plots_dir="data/plots",
         model_path="/m",
         profile_pic_dir="data/pp",
         thumbnail_dir="data/thumbs",

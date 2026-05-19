@@ -8,14 +8,18 @@ from modules.clustering.validation import validate_clustering
 
 def run_search(settings: Settings, secrets: Secrets) -> None:
     """UMAP + HDBSCAN grid search over embedding cases."""
-    workers = getattr(settings.search, "clustering_grid_workers", 1)
-    run_cluster_search(settings=settings, clustering_grid_workers=workers)
+    run_cluster_search(
+        settings=settings,
+        clustering_grid_workers=settings.search.clustering_grid_workers,
+    )
 
 
 def run_validation(settings: Settings, secrets: Secrets) -> None:
     """DBCV + silhouette validation with plateau detection."""
-    workers = getattr(settings.search, "clustering_grid_workers", 1)
-    validate_clustering(settings=settings, clustering_grid_workers=workers)
+    validate_clustering(
+        settings=settings,
+        clustering_grid_workers=settings.search.clustering_grid_workers,
+    )
 
 
 def run_assign(settings: Settings, secrets: Secrets) -> None:

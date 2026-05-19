@@ -10,7 +10,6 @@ from core.config import Secrets, Settings
 MINIMAL_TOML = b"""
 [paths]
 video_dir = "data/source/videos"
-plots_dir = "data/plots"
 model_path = "./models/Qwen3-VL-Embedding-8B"
 profile_pic_dir = "data/source/profile_pics"
 thumbnail_dir = "data/source/thumbnails"

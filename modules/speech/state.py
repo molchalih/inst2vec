@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import re
 
 from sqlalchemy.orm import Session
 
+from core.config import SpeechSettings
 from core.database import Clip
 from core.pipeline import Stage
 
@@ -88,3 +90,31 @@ def reset_speech_outputs(session: Session) -> None:
         synchronize_session=False,
     )
     session.commit()
+
+
+# Fields whose values can change speech outputs. Purely-operational
+# knobs (commit_every, vad_ffmpeg_timeout_s) are intentionally excluded
+# so a value change does not invalidate the stored fingerprint.
+_SPEECH_CONFIG_FIELDS: tuple[str, ...] = (
+    "whisper_model",
+    "translate_model",
+    "translate_target_lang",
+    "translation_max_chars",
+    "translate_max_new_tokens",
+    "logprob_threshold",
+    "compression_threshold",
+    "min_meaningful_chars",
+    "vad_enabled",
+    "vad_sampling_rate",
+    "vad_threshold",
+    "vad_min_speech_ms",
+    "vad_min_silence_ms",
+    "vad_speech_pad_ms",
+    "vad_min_total_speech_s",
+)
+
+
+def speech_config_payload(cfg: SpeechSettings) -> str:
+    """Stable JSON of the SpeechSettings fields that affect speech outputs."""
+    payload = {f: getattr(cfg, f) for f in _SPEECH_CONFIG_FIELDS}
+    return json.dumps(payload, sort_keys=True, default=str)

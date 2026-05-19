@@ -123,7 +123,10 @@ def _resolve_spotify_ids(session, spotify: SpotifyClient, music: MusicSettings) 
 # ── Stage 2 ────────────────────────────────────────────────────────────────────
 
 
-def _resolve_reccobeats_ids(session, rb: ReccoBeatsClient) -> None:
+def _resolve_reccobeats_ids(session, rb: ReccoBeatsClient) -> set[int]:
+    """Returns the set of music_ids whose RB id lookup landed in a batch
+    that exhausted transient retries — those rows must stay retryable
+    (excluded from the upload-fallback sweep)."""
     rows = (
         session.query(Music)
         .filter(
@@ -133,27 +136,37 @@ def _resolve_reccobeats_ids(session, rb: ReccoBeatsClient) -> None:
         .all()
     )
     if not rows:
-        return
+        return set()
 
     log(SCOPE_FEATURES, f"reccobeats_id: {len(rows)} tracks to resolve")
-    rb_id_map = rb.get_ids(
+    rb_id_map, exhausted_spotify_ids = rb.get_ids(
         [r.spotify_id for r in rows if r.spotify_id],
         on_batch=_log_batch("reccobeats_id"),
     )
+    transient: set[int] = set()
     for row in rows:
+        if row.spotify_id in exhausted_spotify_ids:
+            transient.add(row.id)
+            continue
         row.reccobeats_id = rb_id_map.get(row.spotify_id)
     session.commit()
     matched = sum(1 for r in rows if r.reccobeats_id is not None)
     log(
         SCOPE_FEATURES,
-        f"reccobeats_id: done — {matched} matched, {len(rows) - matched} no match",
+        f"reccobeats_id: done — {matched} matched, "
+        f"{len(rows) - matched - len(transient)} no match, "
+        f"{len(transient)} transient (left retryable)",
     )
+    return transient
 
 
 # ── Stage 3 ────────────────────────────────────────────────────────────────────
 
 
-def _enrich_catalog_features(session, rb: ReccoBeatsClient) -> None:
+def _enrich_catalog_features(session, rb: ReccoBeatsClient) -> set[int]:
+    """Returns the set of music_ids whose catalog-features lookup landed
+    in a batch that exhausted transient retries — those rows must stay
+    retryable (excluded from the upload-fallback sweep)."""
     rows = (
         session.query(Music)
         .filter(
@@ -163,15 +176,19 @@ def _enrich_catalog_features(session, rb: ReccoBeatsClient) -> None:
         .all()
     )
     if not rows:
-        return
+        return set()
 
     log(SCOPE_FEATURES, f"catalog features: {len(rows)} tracks to enrich")
-    feat_map = rb.get_features(
+    feat_map, exhausted_rb_ids = rb.get_features(
         [r.reccobeats_id for r in rows if r.reccobeats_id],
         on_batch=_log_batch("catalog features"),
     )
+    transient: set[int] = set()
     enriched = 0
     for row in rows:
+        if row.reccobeats_id in exhausted_rb_ids:
+            transient.add(row.id)
+            continue
         feats = feat_map.get(row.reccobeats_id)
         if feats:
             for f in FEATURE_FIELDS:
@@ -181,7 +198,12 @@ def _enrich_catalog_features(session, rb: ReccoBeatsClient) -> None:
                 row.is_audio_features_extracted = True
                 enriched += 1
     session.commit()
-    log(SCOPE_FEATURES, f"catalog features: done — {enriched} enriched")
+    log(
+        SCOPE_FEATURES,
+        f"catalog features: done — {enriched} enriched, "
+        f"{len(transient)} transient (left retryable)",
+    )
+    return transient
 
 
 # ── Stage 4 ────────────────────────────────────────────────────────────────────
@@ -192,10 +214,17 @@ def _enrich_upload_fallback(
     rb: ReccoBeatsClient,
     video_dir: str,
     music: MusicSettings,
+    transient_music_ids: set[int] | None = None,
 ) -> None:
     # Require Stage 1 to have terminated for the row (matched or no_match) —
     # rows still at recognition_status="pending" are Stage 1 transient
     # failures that must stay pending so the next run retries them.
+    # ``transient_music_ids`` carries music_ids whose Stage-2 or Stage-3 RB
+    # batch exhausted transient retries; those rows are skipped both as
+    # upload-fallback candidates and by the final sweep.
+    external_transient: set[int] = (
+        set(transient_music_ids) if transient_music_ids else set()
+    )
     pairs = (
         session.query(Music.id.label("music_id"), Clip.id.label("clip_id"))
         .join(Clip, Clip.music_id == Music.id)
@@ -210,9 +239,11 @@ def _enrich_upload_fallback(
 
     candidates_by_music: dict[int, list[int]] = {}
     for music_id, clip_id in pairs:
+        if music_id in external_transient:
+            continue
         candidates_by_music.setdefault(music_id, []).append(clip_id)
 
-    transient_music_ids: set[int] = set()
+    transient_music_ids_local: set[int] = set(external_transient)
     total = len(candidates_by_music)
 
     if total:
@@ -230,7 +261,7 @@ def _enrich_upload_fallback(
                     enriched += 1
                     advance(detail=f"{label} (ok)")
                 elif outcome == "transient":
-                    transient_music_ids.add(music_id)
+                    transient_music_ids_local.add(music_id)
                     advance(detail=f"{label} (RB transient — left retryable)")
                 else:
                     advance(detail=f"{label} ({outcome})")
@@ -248,8 +279,8 @@ def _enrich_upload_fallback(
         Music.recognition_status != "pending",
         Music.is_audio_features_extracted.is_(None),
     )
-    if transient_music_ids:
-        sweep_q = sweep_q.filter(~Music.id.in_(transient_music_ids))
+    if transient_music_ids_local:
+        sweep_q = sweep_q.filter(~Music.id.in_(transient_music_ids_local))
     swept = sweep_q.update(
         {Music.is_audio_features_extracted: False},
         synchronize_session=False,
@@ -329,9 +360,15 @@ def extract_music_features(
             spotify = _make_spotify(http, music, secrets)
             rb = _make_reccobeats(http, music)
             _resolve_spotify_ids(session, spotify, music)
-            _resolve_reccobeats_ids(session, rb)
-            _enrich_catalog_features(session, rb)
-            _enrich_upload_fallback(session, rb, paths.video_dir, music)
+            transient = _resolve_reccobeats_ids(session, rb)
+            transient |= _enrich_catalog_features(session, rb)
+            _enrich_upload_fallback(
+                session,
+                rb,
+                paths.video_dir,
+                music,
+                transient_music_ids=transient,
+            )
 
         fp.mark_complete(session, STAGE_MUSIC_FEATURES, SCOPE_MUSIC, current)
         session.commit()

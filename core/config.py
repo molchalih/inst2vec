@@ -12,7 +12,6 @@ _CONFIG_PATH = Path(__file__).parent.parent / "config.toml"
 
 class PathsSettings(BaseModel):
     video_dir: str
-    plots_dir: str
     model_path: str
     profile_pic_dir: str
     thumbnail_dir: str

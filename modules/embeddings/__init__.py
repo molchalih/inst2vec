@@ -1,6 +1,11 @@
 """Embeddings package — modular embeddings pipeline.
 
-Public API:
+Public API (pipeline entrypoints):
+
+    run_clip(settings, secrets)
+    run_users(settings, secrets)
+
+Direct (non-pipeline) callers:
 
     embed_clip_embeddings(settings, secrets=None, cases=None)
     embed_user_embeddings(settings, cases=None)

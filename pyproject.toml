@@ -49,6 +49,13 @@ gpu = [
 gemini = [
     "google-genai>=1.0",
 ]
+analysis = [
+    "pandas>=2.2",
+    "scikit-learn>=1.5",
+    "scipy>=1.13",
+    "scikit-posthocs>=0.10",
+    "seaborn>=0.13",
+]
 
 [tool.uv]
 no-build-isolation-package = ["flash-attn"]
@@ -81,7 +88,7 @@ ignore = [
 
 [tool.ty.src]
 include = ["core", "modules", "scripts"]
-exclude = ["core/vendor"]
+exclude = ["core/vendor", "modules/embeddings/gemini.py"]
 
 [tool.ty.analysis]
 replace-imports-with-any = ["sqlalchemy.*", "sqlalchemy.orm.*"]

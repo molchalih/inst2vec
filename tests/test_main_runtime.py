@@ -11,7 +11,6 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
     settings = SimpleNamespace(
         paths=SimpleNamespace(
             video_dir="data/source/videos",
-            plots_dir="data/plots",
             model_path="./models/Qwen3-VL-Embedding-8B",
             profile_pic_dir="data/source/profile_pics",
             thumbnail_dir="data/source/thumbnails",
@@ -158,7 +157,6 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
     monkeypatch.setattr(
         main.clustering, "run_assign", lambda s, k: calls.append("cluster:assign")
     )
-    monkeypatch.setattr(main.plots, "run", lambda s, k: calls.append("viz"))
 
     main.run_pipeline()
 
@@ -169,4 +167,4 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
     assert "download" in calls
     assert "audio:extract" in calls
     assert "cluster:search" in calls
-    assert calls[-1] == "viz"
+    assert calls[-1] == "cluster:assign"

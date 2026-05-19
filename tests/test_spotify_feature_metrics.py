@@ -7,7 +7,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 
 def test_spotify_feature_metrics_to_markdown_renders_expected_rows():
-    from modules.visualization.tables.spotify_feature_metrics import (
+    from docs.reporting.tables.spotify import (
         spotify_feature_metrics_to_markdown,
     )
 
@@ -29,7 +29,7 @@ def test_spotify_feature_metrics_to_markdown_renders_expected_rows():
 
 def test_render_spotify_feature_metrics_returns_markdown_object():
     from docs.quarto_helpers import render_spotify_feature_metrics
-    from modules.visualization.tables.spotify_feature_metrics import (
+    from docs.reporting.tables.spotify import (
         spotify_feature_metrics_to_markdown,
     )
 

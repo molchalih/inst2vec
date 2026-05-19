@@ -81,7 +81,7 @@ def test_best_run_to_markdown_uses_validation_pick_for_case():
         )
         s.commit()
 
-    from modules.visualization.tables.cluster_results_best import best_run_to_markdown
+    from docs.reporting.tables.clustering_best import best_run_to_markdown
 
     out = best_run_to_markdown(eng, "audio", threshold=0.05)
 
@@ -140,7 +140,7 @@ def test_best_runs_all_to_markdown_unified_table():
         )
         s.commit()
 
-    from modules.visualization.tables.cluster_results_best import (
+    from docs.reporting.tables.clustering_best import (
         best_runs_all_to_markdown,
     )
 
@@ -170,15 +170,15 @@ def test_render_best_cluster_run_returns_markdown_object():
         s.commit()
 
     from docs.quarto_helpers import (
-        _load_plateau_drop_threshold,
+        _plateau_drop_threshold,
         render_best_cluster_run,
     )
-    from modules.visualization.tables.cluster_results_best import (
+    from docs.reporting.tables.clustering_best import (
         best_runs_all_to_markdown,
     )
 
     rendered = render_best_cluster_run(eng=eng)
-    threshold = _load_plateau_drop_threshold()
+    threshold = _plateau_drop_threshold()
 
     assert isinstance(rendered, Markdown)
     assert rendered.data == best_runs_all_to_markdown(
@@ -208,11 +208,11 @@ def test_best_run_to_markdown_delegates_selection(monkeypatch):
         return session.get(ClusterRun, row_id)
 
     monkeypatch.setattr(
-        "modules.visualization.tables.cluster_results_best.select_best_cluster_run",
+        "docs.reporting.tables.clustering_best.select_best_cluster_run",
         fake_select,
     )
 
-    from modules.visualization.tables.cluster_results_best import best_run_to_markdown
+    from docs.reporting.tables.clustering_best import best_run_to_markdown
 
     out = best_run_to_markdown(eng, "audio", threshold=0.05)
 

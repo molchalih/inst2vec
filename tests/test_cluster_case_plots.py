@@ -78,7 +78,7 @@ def test_cluster_plot_figure_for_case_returns_matplotlib_figure():
     eng = _make_engine()
     _seed_clusters(eng)
 
-    from modules.visualization.plots.cluster_case_plots import (
+    from docs.reporting.plots.clusters import (
         cluster_plot_figure_for_case,
     )
 
@@ -93,7 +93,7 @@ def test_cluster_plot_figure_for_case_hides_cluster_legend():
     eng = _make_engine()
     _seed_clusters(eng)
 
-    from modules.visualization.plots.cluster_case_plots import (
+    from docs.reporting.plots.clusters import (
         cluster_plot_figure_for_case,
     )
 
@@ -106,7 +106,7 @@ def test_cluster_plot_figure_for_case_hides_cluster_legend():
 def test_cluster_plot_figure_for_case_rejects_unknown_case():
     eng = _make_engine()
 
-    from modules.visualization.plots.cluster_case_plots import (
+    from docs.reporting.plots.clusters import (
         cluster_plot_figure_for_case,
     )
 

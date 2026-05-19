@@ -76,7 +76,7 @@ def test_clips_summary_to_markdown_renders_curated_metrics():
         )
         s.commit()
 
-    from modules.visualization.tables.dataset_summary_clips import (
+    from docs.reporting.tables.clips import (
         clips_summary_to_markdown,
     )
 
@@ -111,7 +111,7 @@ def test_clips_summary_to_markdown_uses_dash_for_missing_numeric_values():
         s.add(Clip(id=11, user_id=1, is_selected=True, is_downloaded=True))
         s.commit()
 
-    from modules.visualization.tables.dataset_summary_clips import (
+    from docs.reporting.tables.clips import (
         clips_summary_to_markdown,
     )
 
@@ -128,7 +128,7 @@ def test_render_clips_summary_returns_markdown_object():
         s.commit()
 
     from docs.quarto_helpers import render_clips_summary
-    from modules.visualization.tables.dataset_summary_clips import (
+    from docs.reporting.tables.clips import (
         clips_summary_to_markdown,
     )
 

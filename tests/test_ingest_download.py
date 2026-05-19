@@ -34,7 +34,6 @@ def db_session():
 def _paths(tmp_path) -> PathsSettings:
     return PathsSettings(
         video_dir=str(tmp_path / "v"),
-        plots_dir=str(tmp_path),
         model_path=str(tmp_path),
         profile_pic_dir=str(tmp_path / "p"),
         thumbnail_dir=str(tmp_path / "t"),

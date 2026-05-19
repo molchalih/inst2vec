@@ -86,7 +86,7 @@ def test_users_summary_to_markdown_renders_curated_metrics():
         )
         s.commit()
 
-    from modules.visualization.tables.dataset_summary_users import (
+    from docs.reporting.tables.users import (
         users_summary_to_markdown,
     )
 
@@ -135,7 +135,7 @@ def test_users_summary_to_markdown_scopes_users_to_kept_rows():
         )
         s.commit()
 
-    from modules.visualization.tables.dataset_summary_users import (
+    from docs.reporting.tables.users import (
         users_summary_to_markdown,
     )
 
@@ -155,7 +155,7 @@ def test_users_summary_to_markdown_uses_dash_for_missing_numeric_values():
         s.add(User(id=1, is_eligible=True))
         s.commit()
 
-    from modules.visualization.tables.dataset_summary_users import (
+    from docs.reporting.tables.users import (
         users_summary_to_markdown,
     )
 
@@ -175,7 +175,7 @@ def test_render_users_summary_returns_markdown_object():
         s.commit()
 
     from docs.quarto_helpers import render_users_summary
-    from modules.visualization.tables.dataset_summary_users import (
+    from docs.reporting.tables.users import (
         users_summary_to_markdown,
     )
 

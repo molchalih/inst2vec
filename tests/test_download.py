@@ -29,7 +29,6 @@ def _dl(tmp_path, max_attempts=1, retry_delay=0, retry_jitter=0, concurrency=2):
             video_dir=str(tmp_path / "vids"),
             speech_audio_dir=str(tmp_path / "audio"),
             audio_dir=str(tmp_path / "audio"),
-            plots_dir="",
             model_path="",
             data_csv_path="",
         ),

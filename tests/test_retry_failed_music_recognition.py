@@ -39,7 +39,6 @@ def _music_settings(**overrides) -> MusicSettings:
 def _paths(tmp_path: Path) -> PathsSettings:
     return PathsSettings(
         video_dir=str(tmp_path),
-        plots_dir=str(tmp_path),
         model_path=str(tmp_path),
         profile_pic_dir=str(tmp_path),
         thumbnail_dir=str(tmp_path),

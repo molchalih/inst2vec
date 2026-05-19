@@ -241,3 +241,22 @@ def test_process_captions_unchanged_config_does_not_reset(monkeypatch, db_sessio
     assert c.caption_clean == "cleaned", "unchanged config must not reset"
     assert c.caption_language == "en"
     assert c.caption_translation == "translated"
+
+
+def test_captions_config_payload_ignores_operational_knobs():
+    """commit_every must not invalidate the captions fingerprint."""
+    from modules.captions.state import captions_config_payload
+
+    base = _cfg()
+    bumped_commit = base.model_copy(update={"commit_every": base.commit_every + 5})
+    assert captions_config_payload(base) == captions_config_payload(bumped_commit)
+
+
+def test_captions_config_payload_flips_on_output_affecting_knob():
+    from modules.captions.state import captions_config_payload
+
+    base = _cfg()
+    bumped_model = base.model_copy(update={"translate_model": "other-model"})
+    bumped_lang = base.model_copy(update={"translate_target_lang": "fr"})
+    assert captions_config_payload(base) != captions_config_payload(bumped_model)
+    assert captions_config_payload(base) != captions_config_payload(bumped_lang)

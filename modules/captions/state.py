@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import re
 
 from sqlalchemy.orm import Session
 
+from core.config import CaptionsSettings
 from core.database import Clip
 from core.pipeline import Stage
 
@@ -51,3 +53,20 @@ def reset_caption_outputs(session: Session) -> None:
         synchronize_session=False,
     )
     session.commit()
+
+
+# Fields whose values can change caption outputs. commit_every is
+# purely operational and intentionally excluded so changing it does
+# not invalidate the stored fingerprint.
+_CAPTIONS_CONFIG_FIELDS: tuple[str, ...] = (
+    "translate_model",
+    "translate_target_lang",
+    "translation_max_chars",
+    "translate_max_new_tokens",
+)
+
+
+def captions_config_payload(cfg: CaptionsSettings) -> str:
+    """Stable JSON of the CaptionsSettings fields that affect caption outputs."""
+    payload = {f: getattr(cfg, f) for f in _CAPTIONS_CONFIG_FIELDS}
+    return json.dumps(payload, sort_keys=True, default=str)

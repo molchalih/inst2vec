@@ -159,3 +159,25 @@ def test_config_change_resets_speech_columns(monkeypatch, db_session):
     assert clip.speech_transcription is None
     assert clip.speech_language is None
     assert clip.speech_translation is None
+
+
+def test_speech_config_payload_ignores_operational_knobs():
+    """commit_every and vad_ffmpeg_timeout_s must not invalidate the
+    speech fingerprint — they're purely operational."""
+    from modules.speech.state import speech_config_payload
+
+    base = _SpeechCfg()
+    bumped_commit = _SpeechCfg(commit_every=base.commit_every + 5)
+    bumped_vad_to = _SpeechCfg(vad_ffmpeg_timeout_s=base.vad_ffmpeg_timeout_s + 30)
+    assert speech_config_payload(base) == speech_config_payload(bumped_commit)
+    assert speech_config_payload(base) == speech_config_payload(bumped_vad_to)
+
+
+def test_speech_config_payload_flips_on_output_affecting_knob():
+    from modules.speech.state import speech_config_payload
+
+    base = _SpeechCfg()
+    bumped_model = _SpeechCfg(whisper_model="small")
+    bumped_vad_on = _SpeechCfg(vad_enabled=True)
+    assert speech_config_payload(base) != speech_config_payload(bumped_model)
+    assert speech_config_payload(base) != speech_config_payload(bumped_vad_on)

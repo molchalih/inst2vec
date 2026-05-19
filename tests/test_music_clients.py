@@ -151,8 +151,9 @@ def test_rb_get_ids_returns_matched_dict():
             ),
         ]
     )
-    out = _rb(http, batch=10).get_ids(["aaa", "bbb"])
-    assert out == {"aaa": "rb-aaa", "bbb": "rb-bbb"}
+    matched, exhausted = _rb(http, batch=10).get_ids(["aaa", "bbb"])
+    assert matched == {"aaa": "rb-aaa", "bbb": "rb-bbb"}
+    assert exhausted == set()
 
 
 def test_rb_get_ids_omits_missing_ids():
@@ -161,8 +162,9 @@ def test_rb_get_ids_omits_missing_ids():
             (200, {"content": [{"href": "/track/aaa", "id": "rb-aaa"}]}),
         ]
     )
-    out = _rb(http, batch=10).get_ids(["aaa", "bbb"])
-    assert out == {"aaa": "rb-aaa"}
+    matched, exhausted = _rb(http, batch=10).get_ids(["aaa", "bbb"])
+    assert matched == {"aaa": "rb-aaa"}
+    assert exhausted == set()
 
 
 def test_rb_get_ids_retries_batch_on_5xx():
@@ -172,8 +174,9 @@ def test_rb_get_ids_retries_batch_on_5xx():
             (200, {"content": [{"href": "/track/aaa", "id": "rb-aaa"}]}),
         ]
     )
-    out = _rb(http, batch=10).get_ids(["aaa"])
-    assert out == {"aaa": "rb-aaa"}
+    matched, exhausted = _rb(http, batch=10).get_ids(["aaa"])
+    assert matched == {"aaa": "rb-aaa"}
+    assert exhausted == set()
 
 
 def test_rb_get_ids_drops_batch_after_exhausted_retries():
@@ -185,8 +188,49 @@ def test_rb_get_ids_drops_batch_after_exhausted_retries():
             (200, {"content": [{"href": "/track/bbb", "id": "rb-bbb"}]}),
         ]
     )
-    out = _rb(http, max_attempts=3, batch=1).get_ids(["aaa", "bbb"])
-    assert out == {"bbb": "rb-bbb"}  # first batch exhausted, second succeeded
+    matched, _ = _rb(http, max_attempts=3, batch=1).get_ids(["aaa", "bbb"])
+    assert matched == {"bbb": "rb-bbb"}  # first batch exhausted, second succeeded
+
+
+def test_rb_get_ids_returns_exhausted_input_ids():
+    """Inputs whose batch exhausted transient retries are returned in
+    the exhausted set so callers can distinguish transient loss from
+    clean no-match."""
+    http = _StubHttp(
+        [
+            (503, {}),
+            (503, {}),
+            (503, {}),
+            (200, {"content": [{"href": "/track/bbb", "id": "rb-bbb"}]}),
+        ]
+    )
+    matched, exhausted = _rb(http, max_attempts=3, batch=1).get_ids(["aaa", "bbb"])
+    assert matched == {"bbb": "rb-bbb"}
+    assert exhausted == {"aaa"}
+
+
+def test_rb_get_ids_exhausted_empty_on_clean_no_match():
+    """4xx non-429 is a clean no-match, NOT exhaustion — exhausted set stays empty."""
+    http = _StubHttp([(404, {})])
+    matched, exhausted = _rb(http, batch=10).get_ids(["aaa"])
+    assert matched == {}
+    assert exhausted == set()
+
+
+def test_rb_get_features_returns_exhausted_input_ids():
+    http = _StubHttp(
+        [
+            (503, {}),
+            (503, {}),
+            (503, {}),
+            (200, {"content": [{"id": "rb-bbb", "tempo": 120.0}]}),
+        ]
+    )
+    matched, exhausted = _rb(http, max_attempts=3, batch=1).get_features(
+        ["rb-aaa", "rb-bbb"]
+    )
+    assert matched == {"rb-bbb": {"id": "rb-bbb", "tempo": 120.0}}
+    assert exhausted == {"rb-aaa"}
 
 
 def test_rb_upload_features_returns_dict_on_success(tmp_path):

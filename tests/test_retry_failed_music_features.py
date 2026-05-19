@@ -24,7 +24,6 @@ def _settings():
 
     paths = PathsSettings(
         video_dir="/tmp",
-        plots_dir="/tmp",
         model_path="/tmp",
         profile_pic_dir="/tmp",
         thumbnail_dir="/tmp",

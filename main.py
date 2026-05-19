@@ -11,7 +11,6 @@ from modules import (
     speech,
     upload,
 )
-from modules.visualization import plots
 
 
 def run_pipeline() -> None:
@@ -93,7 +92,7 @@ def run_pipeline() -> None:
     captions.run(settings, secrets)
 
     """
-    8. EMBEDDINGS: embeds the features into a vector space (various modalities).
+    7. EMBEDDINGS: embeds the features into a vector space (various modalities).
     - video: only video
     - sandwich: video + music features
     - audio: only audio
@@ -102,7 +101,7 @@ def run_pipeline() -> None:
     embeddings.run_clip(settings, secrets)
 
     """
-    9. USER EMBEDDINGS: calculates the average embedding of the clips belonging to a user, generating a user-level representation.
+    8. USER EMBEDDINGS: calculates the average embedding of the clips belonging to a user, generating a user-level representation.
     """
     phase("User Embeddings")
     # Aggregate every case that downstream clustering will request, so
@@ -111,28 +110,22 @@ def run_pipeline() -> None:
     embeddings.run_users(settings, secrets)
 
     """
-    10. CLUSTER SEARCH: ...
+    9. CLUSTER SEARCH: UMAP + HDBSCAN grid search over hyperparameters.
     """
     phase("Cluster Search")
     clustering.run_search(settings, secrets)
 
     """
-    11. CLUSTER VALIDATION: ...
+    10. CLUSTER VALIDATION: DBCV + silhouette scoring with plateau detection.
     """
     phase("Cluster Validation")
     clustering.run_validation(settings, secrets)
 
     """
-    12. CLUSTERING: assign final cluster labels using the best run per case.
+    11. CLUSTERING: assign final cluster labels using the best run per case.
     """
     phase("Clustering")
     clustering.run_assign(settings, secrets)
-
-    """
-    13. VISUALIZATION: ...
-    """
-    phase("Visualization")
-    plots.run(settings, secrets)
 
 
 if __name__ == "__main__":

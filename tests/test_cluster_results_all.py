@@ -89,7 +89,7 @@ def test_summarize_all_to_markdown_unified_table():
         )
         s.commit()
 
-    from modules.visualization.tables.cluster_results_all import (
+    from docs.reporting.tables.clustering_all import (
         summarize_all_to_markdown,
     )
 
@@ -143,7 +143,7 @@ def test_summarize_all_to_markdown_reports_total_and_filtered_counts():
         )
         s.commit()
 
-    from modules.visualization.tables.cluster_results_all import (
+    from docs.reporting.tables.clustering_all import (
         summarize_all_to_markdown,
     )
 
@@ -197,7 +197,7 @@ def test_render_clustering_summary_returns_markdown_object():
         s.commit()
 
     from docs.quarto_helpers import render_clustering_summary
-    from modules.visualization.tables.cluster_results_all import (
+    from docs.reporting.tables.clustering_all import (
         summarize_all_to_markdown,
     )
 
@@ -213,7 +213,7 @@ def test_render_clustering_summary_returns_markdown_object():
 def test_summarize_all_to_markdown_raises_on_empty_cases():
     eng = _make_engine()
 
-    from modules.visualization.tables.cluster_results_all import (
+    from docs.reporting.tables.clustering_all import (
         summarize_all_to_markdown,
     )
 
@@ -238,11 +238,11 @@ def test_summarize_all_to_markdown_delegates_summary(monkeypatch):
         }
 
     monkeypatch.setattr(
-        "modules.visualization.tables.cluster_results_all.summarize_case_for_markdown",
+        "docs.reporting.tables.clustering_all.summarize_case_for_markdown",
         fake_summary,
     )
 
-    from modules.visualization.tables.cluster_results_all import (
+    from docs.reporting.tables.clustering_all import (
         summarize_all_to_markdown,
     )
 

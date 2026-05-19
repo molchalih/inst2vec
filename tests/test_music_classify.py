@@ -45,7 +45,6 @@ def _music_settings(**overrides) -> MusicSettings:
 def _paths(video_dir: str) -> PathsSettings:
     return PathsSettings(
         video_dir=video_dir,
-        plots_dir="/tmp",
         model_path="/tmp",
         profile_pic_dir="/tmp",
         thumbnail_dir="/tmp",
@@ -414,7 +413,6 @@ def test_classify_music_config_change_triggers_reset(monkeypatch, db_session):
     )
     paths = PathsSettings(
         video_dir="/tmp",
-        plots_dir="/tmp",
         model_path="/tmp",
         profile_pic_dir="/tmp",
         thumbnail_dir="/tmp",
@@ -484,7 +482,6 @@ def test_classify_music_unchanged_config_does_not_reset(monkeypatch, db_session)
     )
     paths = PathsSettings(
         video_dir="/tmp",
-        plots_dir="/tmp",
         model_path="/tmp",
         profile_pic_dir="/tmp",
         thumbnail_dir="/tmp",
@@ -501,3 +498,38 @@ def test_classify_music_unchanged_config_does_not_reset(monkeypatch, db_session)
 
     clip = db_session.query(Clip).filter_by(id=10).one()
     assert clip.music_id == 1, "unchanged config must not reset clip links"
+
+
+def test_classify_config_payload_ignores_retry_knobs():
+    """Retry attempts/delay/jitter influence reliability, not the
+    classification outcome — must not invalidate the seal."""
+    from core.config import MusicSettings
+    from modules.music.state import classify_config_payload
+
+    base = MusicSettings(
+        audio_fingerprint_confidence=0.5,
+        commit_every=50,
+        http_timeout=20.0,
+        spotify_search_limit=5,
+        spotify_token_skew_seconds=30,
+        spotify_request_timeout=8.0,
+        reccobeats_batch_size=20,
+        reccobeats_delay_min=0.0,
+        reccobeats_delay_max=0.0,
+        manual_features_max_seconds=20,
+        manual_features_sample_rate=44100,
+        manual_features_max_mb=5.0,
+        manual_features_mp3_bitrate="128k",
+        api_max_attempts=3,
+        api_retry_delay=0.0,
+        api_retry_jitter=0.0,
+        acr_max_attempts=2,
+        ffmpeg_timeout_seconds=60,
+    )
+    for upd in (
+        {"acr_max_attempts": base.acr_max_attempts + 3},
+        {"api_retry_delay": base.api_retry_delay + 1.0},
+        {"api_retry_jitter": base.api_retry_jitter + 1.0},
+    ):
+        bumped = base.model_copy(update=upd)
+        assert classify_config_payload(base) == classify_config_payload(bumped), upd

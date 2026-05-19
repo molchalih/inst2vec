@@ -10,10 +10,6 @@ partial work from a previous run.
 
 from __future__ import annotations
 
-import json
-from dataclasses import asdict, is_dataclass
-from typing import Any
-
 from sqlalchemy.orm import Session
 
 from core import fingerprint as fp
@@ -24,6 +20,7 @@ from modules.speech.state import (
     SCOPE_SPEECH,
     STAGE_SPEECH,
     reset_speech_outputs,
+    speech_config_payload,
 )
 from modules.speech.translate import translate_speech
 from modules.speech.vad import VadConfig, VadResult, prepare_for_whisper
@@ -40,17 +37,6 @@ __all__ = [
 ]
 
 
-def _config_payload(cfg: Any) -> str:
-    """Stable JSON of the speech settings used in the config hash."""
-    if hasattr(cfg, "model_dump"):
-        payload = cfg.model_dump()
-    elif is_dataclass(cfg):
-        payload = asdict(cfg)
-    else:
-        payload = dict(cfg.__dict__)
-    return json.dumps(payload, sort_keys=True, default=str)
-
-
 def process_speech(
     cfg: SpeechSettings,
     *,
@@ -60,7 +46,7 @@ def process_speech(
     """Fingerprint-gated entry point for the speech pipeline."""
     current = fp.Fingerprint(
         data=fp.hash_text(""),
-        config=fp.hash_text(_config_payload(cfg)),
+        config=fp.hash_text(speech_config_payload(cfg)),
         dependency=fp.hash_text(""),
     )
 

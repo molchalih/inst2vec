@@ -22,6 +22,19 @@ docs/*
 # others
 !docs/quarto_helpers.py
 !docs/assets/
+!docs/__init__.py
+!docs/reporting/
+!docs/reporting/__init__.py
+!docs/reporting/**/__init__.py
+!docs/reporting/_engine.py
+!docs/reporting/_format.py
+!docs/reporting/_markdown.py
+!docs/reporting/tables/users.py
+!docs/reporting/tables/clips.py
+!docs/reporting/tables/spotify.py
+!docs/reporting/tables/clustering_all.py
+!docs/reporting/tables/clustering_best.py
+!docs/reporting/plots/clusters.py
 
 # uv
 uv.lock.bak

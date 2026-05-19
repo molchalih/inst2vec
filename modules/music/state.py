@@ -33,14 +33,10 @@ STAGE_MUSIC_FEATURES: Stage = Stage.MUSIC_FEATURES
 SCOPE_MUSIC: str = "all"
 
 # Fields whose values can change the *outputs* of each music stage.
-# Purely-operational knobs (commit_every) are intentionally excluded so a
-# value change does not invalidate the stored fingerprint.
-_CLASSIFY_CONFIG_FIELDS: tuple[str, ...] = (
-    "audio_fingerprint_confidence",
-    "acr_max_attempts",
-    "api_retry_delay",
-    "api_retry_jitter",
-)
+# Purely-operational knobs (commit_every, retry attempts/delays/jitter)
+# are intentionally excluded so a value change does not invalidate the
+# stored fingerprint.
+_CLASSIFY_CONFIG_FIELDS: tuple[str, ...] = ("audio_fingerprint_confidence",)
 _FEATURES_CONFIG_FIELDS: tuple[str, ...] = (
     "http_timeout",
     "spotify_search_limit",
@@ -53,9 +49,6 @@ _FEATURES_CONFIG_FIELDS: tuple[str, ...] = (
     "manual_features_sample_rate",
     "manual_features_max_mb",
     "manual_features_mp3_bitrate",
-    "api_max_attempts",
-    "api_retry_delay",
-    "api_retry_jitter",
     "ffmpeg_timeout_seconds",
 )
 

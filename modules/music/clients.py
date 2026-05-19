@@ -186,33 +186,42 @@ class ReccoBeatsClient:
         """Issue a single HTTP request, raise httpx errors directly."""
         return self._http.request(method, url, timeout=self._timeout, **kwargs)
 
-    def _retry_batch(self, fetch):
-        """Call fetch() up to max_attempts times. Return its result or None on exhaustion.
+    def _retry_batch(self, fetch) -> tuple[dict | None, bool]:
+        """Call fetch() up to max_attempts times.
 
-        fetch must return the parsed JSON dict on success or raise httpx errors.
-        4xx (non-429) returns None immediately (clean no-match for the batch).
+        Returns ``(payload, exhausted)``:
+        - ``(payload, False)`` on success
+        - ``(None, False)`` on 4xx (non-429) — clean batch no-match
+        - ``(None, True)`` when transient retries are exhausted
         """
         for attempt in range(self._max_attempts):
             try:
-                return fetch()
+                return fetch(), False
             except httpx.HTTPStatusError as exc:
                 if _is_transient_http(exc):
                     if attempt < self._max_attempts - 1:
                         self._sleep_retry()
                     continue
-                return None  # 4xx non-429 → clean batch no-match
+                return None, False  # 4xx non-429 → clean batch no-match
             except Exception as exc:
                 if _is_transient_http(exc):
                     if attempt < self._max_attempts - 1:
                         self._sleep_retry()
                     continue
-                return None
-        return None  # exhausted
+                return None, False
+        return None, True  # exhausted
 
     def get_ids(
         self, spotify_ids: list[str], on_batch: OnBatch | None = None
-    ) -> dict[str, str]:
+    ) -> tuple[dict[str, str], set[str]]:
+        """Resolve Spotify IDs to ReccoBeats IDs.
+
+        Returns ``(matched, exhausted_inputs)`` where ``exhausted_inputs``
+        holds the input Spotify IDs whose batch exhausted transient
+        retries (distinct from clean batch no-match).
+        """
         out: dict[str, str] = {}
+        exhausted_inputs: set[str] = set()
         batches = list(self._chunked(spotify_ids, self._batch))
         for i, batch in enumerate(batches, 1):
 
@@ -223,9 +232,11 @@ class ReccoBeatsClient:
                 r.raise_for_status()
                 return r.json()
 
-            payload = self._retry_batch(fetch)
+            payload, exhausted = self._retry_batch(fetch)
             matched = 0
-            if payload is not None:
+            if exhausted:
+                exhausted_inputs.update(batch)
+            elif payload is not None:
                 for item in payload.get("content", []):
                     sid = _spotify_id_from_href(item.get("href"))
                     rid = item.get("id")
@@ -235,12 +246,17 @@ class ReccoBeatsClient:
             if on_batch:
                 on_batch(i, len(batches), matched)
             self._sleep_pacing()
-        return out
+        return out, exhausted_inputs
 
     def get_features(
         self, rb_ids: list[str], on_batch: OnBatch | None = None
-    ) -> dict[str, dict]:
+    ) -> tuple[dict[str, dict], set[str]]:
+        """Fetch features for ReccoBeats IDs.
+
+        Returns ``(matched, exhausted_inputs)`` — see ``get_ids``.
+        """
         out: dict[str, dict] = {}
+        exhausted_inputs: set[str] = set()
         batches = list(self._chunked(rb_ids, self._batch))
         for i, batch in enumerate(batches, 1):
 
@@ -251,9 +267,11 @@ class ReccoBeatsClient:
                 r.raise_for_status()
                 return r.json()
 
-            payload = self._retry_batch(fetch)
+            payload, exhausted = self._retry_batch(fetch)
             matched = 0
-            if payload is not None:
+            if exhausted:
+                exhausted_inputs.update(batch)
+            elif payload is not None:
                 for item in payload.get("content", []):
                     rid = item.get("id")
                     if rid:
@@ -262,7 +280,7 @@ class ReccoBeatsClient:
             if on_batch:
                 on_batch(i, len(batches), matched)
             self._sleep_pacing()
-        return out
+        return out, exhausted_inputs
 
     def upload_features(self, audio) -> dict | None:
         """POST audio file; return feature dict, None on clean no-match, or raise TransientError."""

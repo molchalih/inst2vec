@@ -9,8 +9,6 @@ any partial work.
 
 from __future__ import annotations
 
-import json
-
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
@@ -22,6 +20,7 @@ from modules.captions.detect import detect_caption_language
 from modules.captions.state import (
     SCOPE_CAPTIONS,
     STAGE_CAPTIONS,
+    captions_config_payload,
     reset_caption_outputs,
 )
 from modules.captions.translate import translate_captions
@@ -47,7 +46,7 @@ def process_captions(cfg: CaptionsSettings, *, engine: Engine | None = None) -> 
 
     current = fp.Fingerprint(
         data=fp.hash_text(""),
-        config=fp.hash_text(json.dumps(cfg.model_dump(), sort_keys=True, default=str)),
+        config=fp.hash_text(captions_config_payload(cfg)),
         dependency=fp.hash_text(""),
     )
     with Session(eng) as session:

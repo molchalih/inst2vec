@@ -135,13 +135,98 @@ def test_resolve_reccobeats_ids_collapses_missing_to_no_match(db_session):
     )
     s.commit()
     rb = MagicMock()
-    rb.get_ids.return_value = {"sp-1": "rb-1"}
+    rb.get_ids.return_value = ({"sp-1": "rb-1"}, set())
 
-    _resolve_reccobeats_ids(s, rb)
+    transient = _resolve_reccobeats_ids(s, rb)
     s.commit()
 
     assert s.query(Music).filter_by(id=1).one().reccobeats_id == "rb-1"
     assert s.query(Music).filter_by(id=2).one().reccobeats_id is None
+    assert transient == set()
+
+
+def test_resolve_reccobeats_ids_returns_transient_music_ids(db_session):
+    """RB.get_ids() reporting exhausted spotify_ids must surface those
+    rows as transient (returned music_id set) so the upload-fallback
+    sweep skips them."""
+    s = db_session
+    s.add(
+        Music(
+            id=1,
+            artist="a",
+            track="t",
+            spotify_id="sp-1",
+            recognition_status="matched",
+        )
+    )
+    s.add(
+        Music(
+            id=2,
+            artist="b",
+            track="u",
+            spotify_id="sp-2",
+            recognition_status="matched",
+        )
+    )
+    s.commit()
+    rb = MagicMock()
+    rb.get_ids.return_value = ({"sp-2": "rb-2"}, {"sp-1"})
+
+    transient = _resolve_reccobeats_ids(s, rb)
+    s.commit()
+
+    assert s.query(Music).filter_by(id=1).one().reccobeats_id is None
+    assert s.query(Music).filter_by(id=2).one().reccobeats_id == "rb-2"
+    assert transient == {1}
+
+
+def test_enrich_catalog_features_returns_transient_music_ids(db_session):
+    """RB.get_features() reporting exhausted rb_ids must surface those
+    rows as transient so the upload-fallback sweep skips them."""
+    s = db_session
+    s.add(
+        Music(
+            id=1,
+            artist="a",
+            track="t",
+            spotify_id="sp-1",
+            reccobeats_id="rb-1",
+        )
+    )
+    s.commit()
+    rb = MagicMock()
+    rb.get_features.return_value = ({}, {"rb-1"})
+
+    transient = _enrich_catalog_features(s, rb)
+    s.commit()
+
+    assert s.query(Music).filter_by(id=1).one().is_audio_features_extracted is None
+    assert transient == {1}
+
+
+def test_upload_fallback_excludes_external_transient_music_ids(db_session, tmp_path):
+    """Music IDs flagged transient by earlier stages must be excluded
+    from the sweep — they stay NULL so the next run retries them."""
+    s = db_session
+    s.add(
+        Music(
+            id=1,
+            artist="a",
+            track="t",
+            spotify_id="sp-1",
+            reccobeats_id=None,
+            recognition_status="matched",
+        )
+    )
+    s.commit()
+    rb = MagicMock()
+
+    _enrich_upload_fallback(
+        s, rb, str(tmp_path), _music_settings(), transient_music_ids={1}
+    )
+    s.commit()
+
+    assert s.query(Music).filter_by(id=1).one().is_audio_features_extracted is None
 
 
 def test_enrich_catalog_features_writes_true_on_complete_features(db_session):
@@ -157,21 +242,24 @@ def test_enrich_catalog_features_writes_true_on_complete_features(db_session):
     )
     s.commit()
     rb = MagicMock()
-    rb.get_features.return_value = {
-        "rb-1": {
-            "acousticness": 0.1,
-            "danceability": 0.2,
-            "energy": 0.3,
-            "instrumentalness": 0.4,
-            "key": 5,
-            "liveness": 0.6,
-            "loudness": -7.0,
-            "mode": 1,
-            "speechiness": 0.05,
-            "tempo": 120.0,
-            "valence": 0.5,
-        }
-    }
+    rb.get_features.return_value = (
+        {
+            "rb-1": {
+                "acousticness": 0.1,
+                "danceability": 0.2,
+                "energy": 0.3,
+                "instrumentalness": 0.4,
+                "key": 5,
+                "liveness": 0.6,
+                "loudness": -7.0,
+                "mode": 1,
+                "speechiness": 0.05,
+                "tempo": 120.0,
+                "valence": 0.5,
+            }
+        },
+        set(),
+    )
 
     _enrich_catalog_features(s, rb)
     s.commit()
@@ -194,7 +282,7 @@ def test_enrich_catalog_features_leaves_null_when_incomplete(db_session):
     )
     s.commit()
     rb = MagicMock()
-    rb.get_features.return_value = {"rb-1": {"tempo": 120.0}}
+    rb.get_features.return_value = ({"rb-1": {"tempo": 120.0}}, set())
 
     _enrich_catalog_features(s, rb)
     s.commit()
@@ -545,8 +633,10 @@ def test_extract_music_features_config_change_triggers_reset(monkeypatch, db_ses
 
     # No-op every sub-stage so we exercise only the gate.
     monkeypatch.setattr(features_mod, "_resolve_spotify_ids", lambda *a, **kw: None)
-    monkeypatch.setattr(features_mod, "_resolve_reccobeats_ids", lambda *a, **kw: None)
-    monkeypatch.setattr(features_mod, "_enrich_catalog_features", lambda *a, **kw: None)
+    monkeypatch.setattr(features_mod, "_resolve_reccobeats_ids", lambda *a, **kw: set())
+    monkeypatch.setattr(
+        features_mod, "_enrich_catalog_features", lambda *a, **kw: set()
+    )
     monkeypatch.setattr(features_mod, "_enrich_upload_fallback", lambda *a, **kw: None)
 
     db_session.merge(
@@ -594,7 +684,6 @@ def test_extract_music_features_config_change_triggers_reset(monkeypatch, db_ses
     )
     paths = PathsSettings(
         video_dir="/tmp",
-        plots_dir="/tmp",
         model_path="/tmp",
         profile_pic_dir="/tmp",
         thumbnail_dir="/tmp",
@@ -626,8 +715,10 @@ def test_extract_music_features_unchanged_config_does_not_reset(
     from modules.music.features import MusicSecrets, extract_music_features
 
     monkeypatch.setattr(features_mod, "_resolve_spotify_ids", lambda *a, **kw: None)
-    monkeypatch.setattr(features_mod, "_resolve_reccobeats_ids", lambda *a, **kw: None)
-    monkeypatch.setattr(features_mod, "_enrich_catalog_features", lambda *a, **kw: None)
+    monkeypatch.setattr(features_mod, "_resolve_reccobeats_ids", lambda *a, **kw: set())
+    monkeypatch.setattr(
+        features_mod, "_enrich_catalog_features", lambda *a, **kw: set()
+    )
     monkeypatch.setattr(features_mod, "_enrich_upload_fallback", lambda *a, **kw: None)
 
     db_session.merge(
@@ -675,7 +766,6 @@ def test_extract_music_features_unchanged_config_does_not_reset(
     )
     paths = PathsSettings(
         video_dir="/tmp",
-        plots_dir="/tmp",
         model_path="/tmp",
         profile_pic_dir="/tmp",
         thumbnail_dir="/tmp",
@@ -691,3 +781,38 @@ def test_extract_music_features_unchanged_config_does_not_reset(
     m = db_session.query(Music).filter_by(id=1).one()
     assert m.spotify_id == "sp1"
     assert m.tempo == 120.0
+
+
+def test_features_config_payload_ignores_retry_knobs():
+    """Retry attempts/delay/jitter influence reliability, not which
+    feature values Spotify/ReccoBeats return."""
+    from core.config import MusicSettings
+    from modules.music.state import features_config_payload
+
+    base = MusicSettings(
+        audio_fingerprint_confidence=0.5,
+        commit_every=50,
+        http_timeout=20.0,
+        spotify_search_limit=5,
+        spotify_token_skew_seconds=30,
+        spotify_request_timeout=8.0,
+        reccobeats_batch_size=20,
+        reccobeats_delay_min=0.0,
+        reccobeats_delay_max=0.0,
+        manual_features_max_seconds=20,
+        manual_features_sample_rate=44100,
+        manual_features_max_mb=5.0,
+        manual_features_mp3_bitrate="128k",
+        api_max_attempts=3,
+        api_retry_delay=0.0,
+        api_retry_jitter=0.0,
+        acr_max_attempts=2,
+        ffmpeg_timeout_seconds=60,
+    )
+    for upd in (
+        {"api_max_attempts": base.api_max_attempts + 5},
+        {"api_retry_delay": base.api_retry_delay + 1.0},
+        {"api_retry_jitter": base.api_retry_jitter + 1.0},
+    ):
+        bumped = base.model_copy(update=upd)
+        assert features_config_payload(base) == features_config_payload(bumped), upd
