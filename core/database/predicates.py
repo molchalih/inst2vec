@@ -87,13 +87,18 @@ def needs_caption_language_detection():
 
 
 def needs_caption_translation():
-    """Selected, downloaded clips with detected non-English clean caption and no translation."""
+    """Selected, downloaded clips with detected non-English clean caption and no translation.
+
+    Rows sealed as ``"und"`` (Lingua returned no language) are terminally
+    classified and excluded — there's no source language to translate from.
+    """
     return (
         *clip_used_in_analysis(),
         Clip.caption_clean.is_not(None),
         func.trim(Clip.caption_clean) != "",
         Clip.caption_language.is_not(None),
         Clip.caption_language != "",
+        Clip.caption_language != "und",
         ~sql_is_english(Clip.caption_language),
         (Clip.caption_translation.is_(None)) | (Clip.caption_translation == ""),
     )

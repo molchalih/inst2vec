@@ -113,7 +113,9 @@ def test_resolve_spotify_ids_writes_real_id(db_session):
     assert s.query(Music).filter_by(id=1).one().spotify_id == "spotify-xyz"
 
 
-def test_resolve_reccobeats_ids_collapses_missing_to_no_match(db_session):
+def test_resolve_reccobeats_ids_marks_missing_terminal(db_session):
+    """A non-transient RB miss must mark the row terminal so it is not
+    retried on subsequent runs."""
     s = db_session
     s.add(
         Music(
@@ -140,8 +142,12 @@ def test_resolve_reccobeats_ids_collapses_missing_to_no_match(db_session):
     transient = _resolve_reccobeats_ids(s, rb)
     s.commit()
 
-    assert s.query(Music).filter_by(id=1).one().reccobeats_id == "rb-1"
-    assert s.query(Music).filter_by(id=2).one().reccobeats_id is None
+    row1 = s.query(Music).filter_by(id=1).one()
+    row2 = s.query(Music).filter_by(id=2).one()
+    assert row1.reccobeats_id == "rb-1"
+    assert row1.is_reccobeats_resolved is True
+    assert row2.reccobeats_id is None
+    assert row2.is_reccobeats_resolved is False
     assert transient == set()
 
 
@@ -175,8 +181,12 @@ def test_resolve_reccobeats_ids_returns_transient_music_ids(db_session):
     transient = _resolve_reccobeats_ids(s, rb)
     s.commit()
 
-    assert s.query(Music).filter_by(id=1).one().reccobeats_id is None
-    assert s.query(Music).filter_by(id=2).one().reccobeats_id == "rb-2"
+    row1 = s.query(Music).filter_by(id=1).one()
+    row2 = s.query(Music).filter_by(id=2).one()
+    assert row1.reccobeats_id is None
+    assert row1.is_reccobeats_resolved is None  # transient: stays retryable
+    assert row2.reccobeats_id == "rb-2"
+    assert row2.is_reccobeats_resolved is True
     assert transient == {1}
 
 
@@ -816,3 +826,27 @@ def test_features_config_payload_ignores_retry_knobs():
     ):
         bumped = base.model_copy(update=upd)
         assert features_config_payload(base) == features_config_payload(bumped), upd
+
+
+def test_reset_music_features_clears_reccobeats_resolved(db_session):
+    from modules.music.state import reset_music_features
+
+    s = db_session
+    s.add(
+        Music(
+            id=1,
+            artist="a",
+            track="t",
+            spotify_id="sp-1",
+            reccobeats_id="rb-1",
+            recognition_status="matched",
+            is_reccobeats_resolved=True,
+            is_audio_features_extracted=True,
+        )
+    )
+    s.commit()
+
+    reset_music_features(s)
+
+    row = s.query(Music).filter_by(id=1).one()
+    assert row.is_reccobeats_resolved is None

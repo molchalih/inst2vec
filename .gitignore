@@ -70,9 +70,9 @@ scripts/cluster_analysis/LESSONS.md
 # Local-only state
 .claude/
 .remember/
-CLAUDE.md
-AGENT.md
-AGENTS.md
+**CLAUDE.md
+**AGENT.md
+**AGENTS.md
 TODO.md
 REVIEW.md
 REVIEW_ANSWERED.md

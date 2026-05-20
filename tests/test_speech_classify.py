@@ -47,6 +47,15 @@ def _vad_passthrough(monkeypatch):
     monkeypatch.setattr("modules.speech.classify.prepare_for_whisper", fake)
 
 
+@pytest.fixture(autouse=True)
+def _probe_audio_stream_true(monkeypatch):
+    """Default: treat every video file as having an audio stream so existing
+    tests are not affected by the new pre-gate."""
+    monkeypatch.setattr(
+        "modules.speech.classify.probe_audio_stream", lambda _path: True
+    )
+
+
 def _kwargs(video_dir: Path):
     return dict(
         video_dir=str(video_dir),
@@ -382,6 +391,65 @@ def test_vad_speech_path_is_passed_to_whisper(db_session, monkeypatch):
     assert model.transcribe.call_args.args[0] == str(speech_wav)
     clip = s.query(Clip).filter_by(id=10).one()
     assert clip.is_speech_detected is True
+
+
+def test_classify_speech_marks_no_audio_stream_terminal(db_session, monkeypatch):
+    """A video present on disk with no audio stream must be marked
+    is_speech_detected=False without invoking VAD/ffmpeg, so the row is
+    not retried on the next pipeline run."""
+    from modules.speech import classify as classify_mod
+
+    s, tmp_path = db_session
+
+    monkeypatch.setattr(classify_mod, "probe_audio_stream", lambda _path: False)
+
+    def _vad_must_not_run(*_args, **_kwargs):
+        raise AssertionError("VAD must not run when audio stream is missing")
+
+    monkeypatch.setattr(classify_mod, "prepare_for_whisper", _vad_must_not_run)
+
+    classify_speech(
+        video_dir=str(tmp_path),
+        speech_audio_dir=str(tmp_path / "audio"),
+        whisper_model="tiny",
+        commit_every=1,
+        logprob_threshold=-1.0,
+        compression_threshold=2.4,
+        min_meaningful_chars=1,
+        vad_config=VadConfig(enabled=True),
+    )
+
+    clip = s.query(Clip).filter_by(id=10).one()
+    assert clip.is_speech_detected is False
+
+
+def test_classify_speech_leaves_probe_failure_retryable(db_session, monkeypatch):
+    """An ffprobe failure (None) must NOT be sealed as is_speech_detected=False;
+    the row stays NULL so the next run can retry once ffprobe recovers."""
+    from modules.speech import classify as classify_mod
+
+    s, tmp_path = db_session
+
+    monkeypatch.setattr(classify_mod, "probe_audio_stream", lambda _path: None)
+
+    def _vad_must_not_run(*_args, **_kwargs):
+        raise AssertionError("VAD must not run when ffprobe fails")
+
+    monkeypatch.setattr(classify_mod, "prepare_for_whisper", _vad_must_not_run)
+
+    classify_speech(
+        video_dir=str(tmp_path),
+        speech_audio_dir=str(tmp_path / "audio"),
+        whisper_model="tiny",
+        commit_every=1,
+        logprob_threshold=-1.0,
+        compression_threshold=2.4,
+        min_meaningful_chars=1,
+        vad_config=VadConfig(enabled=True),
+    )
+
+    clip = s.query(Clip).filter_by(id=10).one()
+    assert clip.is_speech_detected is None
 
 
 def test_reset_speech_outputs_nulls_all_seven_columns(db_session):

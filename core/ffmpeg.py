@@ -25,13 +25,14 @@ def run_ffmpeg(cmd: list[str], *, timeout: int) -> bool:
     return result.returncode == 0
 
 
-def has_audio_stream(path: str, *, timeout: int = 10) -> bool:
-    """Return True iff ``path`` contains at least one audio stream.
+def probe_audio_stream(path: str, *, timeout: int = 10) -> bool | None:
+    """Tri-state audio-stream probe.
 
-    Uses ``ffprobe -select_streams a`` to list audio-stream indexes; any
-    non-empty stdout means an audio stream is present. Returns False on
-    missing file, ffprobe failure, timeout, or no audio streams. Never
-    raises — callers treat False as "skip audio work for this clip."
+    Returns True if ``path`` has at least one audio stream, False if the
+    probe succeeded and confirmed no audio streams, and None if ffprobe
+    itself failed (missing binary, timeout, non-zero exit). The None case
+    is transient and callers MUST treat it as retryable — never as a
+    definitive "no audio" verdict.
     """
     try:
         result = subprocess.run(
@@ -53,7 +54,19 @@ def has_audio_stream(path: str, *, timeout: int = 10) -> bool:
             check=False,
         )
     except (subprocess.TimeoutExpired, OSError):
-        return False
+        return None
     if result.returncode != 0:
-        return False
+        return None
     return bool((result.stdout or "").strip())
+
+
+def has_audio_stream(path: str, *, timeout: int = 10) -> bool:
+    """Return True iff ``path`` is confirmed to contain an audio stream.
+
+    Thin wrapper over :func:`probe_audio_stream` that collapses the
+    tri-state result to a boolean: probe failures (None) and confirmed
+    no-audio (False) both return False. Use this only at call sites
+    where the false branch is non-terminal (i.e. retried on next run);
+    otherwise call :func:`probe_audio_stream` directly.
+    """
+    return probe_audio_stream(path, timeout=timeout) is True

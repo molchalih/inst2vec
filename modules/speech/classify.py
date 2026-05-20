@@ -15,6 +15,7 @@ from core.database import (
     clip_needs_speech_detection,
     get_session,
 )
+from core.ffmpeg import probe_audio_stream
 from modules.speech.state import (
     HALLUCINATION_MARKERS,
     has_hallucination_marker,
@@ -68,11 +69,13 @@ def classify_speech(
     """Transcribe all unresolved clips with Whisper, gated by Silero VAD.
 
     Per-clip flow:
+        No audio stream        → is_speech_detected = False (terminal)
         VAD enabled, no speech → is_speech_detected = False (Whisper skipped)
         VAD enabled, speech    → transcribe speech-only WAV
         VAD disabled           → transcribe the raw video as before
         Hallucinated/empty     → is_speech_detected = False
         Missing file           → leave NULL (retryable)
+        ffprobe failure        → leave NULL (retryable)
         VAD/Whisper exception  → leave NULL (retryable)
     """
     session = get_session()
@@ -107,6 +110,33 @@ def classify_speech(
                     stats={"err": "video not downloaded yet"},
                 )
                 advance()
+                continue
+
+            probe = probe_audio_stream(str(video_path))
+            if probe is None:
+                errored += 1
+                log(
+                    SCOPE,
+                    "ASR",
+                    f"clip_{clip.id}",
+                    "ERR",
+                    stats={"err": "ffprobe failed"},
+                )
+                advance(detail=f"{clip.id}: ffprobe failed (left unresolved)")
+                continue
+            if probe is False:
+                clip.is_speech_detected = False
+                no_speech_vad += 1
+                log(
+                    SCOPE,
+                    "ASR",
+                    f"clip_{clip.id}",
+                    "none",
+                    stats={"reason": "no audio stream"},
+                )
+                advance(detail=f"{clip.id}: no audio stream")
+                if i % commit_every == 0:
+                    session.commit()
                 continue
 
             t0 = time.perf_counter()

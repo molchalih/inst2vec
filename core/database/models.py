@@ -160,6 +160,7 @@ class Music(Base):
     track: Mapped[str] = mapped_column(String, nullable=False, default="")
     spotify_id: Mapped[str | None] = mapped_column(String, nullable=True)
     reccobeats_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    is_reccobeats_resolved: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     recognition_status: Mapped[str] = mapped_column(
         SAEnum(
             "pending",

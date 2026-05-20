@@ -120,9 +120,15 @@ def section_health(session):
         .filter(Clip.caption_text.is_not(None), Clip.caption_text != "")
         .scalar()
     )
+    # "und" = Lingua returned no language; sealed so the stage doesn't retry,
+    # but excluded from detected-language counts (it's the opposite of detected).
     n_lang_detected = (
         session.query(func.count(Clip.id))
-        .filter(Clip.caption_language.is_not(None), Clip.caption_language != "")
+        .filter(
+            Clip.caption_language.is_not(None),
+            Clip.caption_language != "",
+            Clip.caption_language != "und",
+        )
         .scalar()
     )
     n_non_en = (
@@ -130,6 +136,7 @@ def section_health(session):
         .filter(
             Clip.caption_language.is_not(None),
             Clip.caption_language != "",
+            Clip.caption_language != "und",
             func.lower(Clip.caption_language).notlike("en%"),
         )
         .scalar()
@@ -138,6 +145,7 @@ def section_health(session):
         session.query(func.count(Clip.id))
         .filter(
             Clip.caption_language.is_not(None),
+            Clip.caption_language != "und",
             func.lower(Clip.caption_language).notlike("en%"),
             Clip.caption_translation.is_not(None),
             Clip.caption_translation != "",
@@ -214,7 +222,11 @@ def section_captions(session):
 
     lang_rows = (
         session.query(Clip.caption_language, func.count(Clip.id))
-        .filter(Clip.caption_language.is_not(None), Clip.caption_language != "")
+        .filter(
+            Clip.caption_language.is_not(None),
+            Clip.caption_language != "",
+            Clip.caption_language != "und",
+        )
         .group_by(Clip.caption_language)
         .order_by(func.count(Clip.id).desc())
         .limit(10)

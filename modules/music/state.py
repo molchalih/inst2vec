@@ -107,6 +107,7 @@ def reset_music_features(session: Session) -> None:
     fields: dict = {
         Music.spotify_id: None,
         Music.reccobeats_id: None,
+        Music.is_reccobeats_resolved: None,
         Music.is_audio_features_extracted: None,
         Music.recognition_status: "pending",
     }

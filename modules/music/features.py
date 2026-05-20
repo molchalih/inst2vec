@@ -161,7 +161,7 @@ def _resolve_reccobeats_ids(session, rb: ReccoBeatsClient) -> set[int]:
         session.query(Music)
         .filter(
             Music.recognition_status == "matched",
-            Music.reccobeats_id.is_(None),
+            Music.is_reccobeats_resolved.is_(None),
         )
         .all()
     )
@@ -179,7 +179,12 @@ def _resolve_reccobeats_ids(session, rb: ReccoBeatsClient) -> set[int]:
         if row.spotify_id in exhausted_spotify_ids:
             transient.add(row.id)
             continue
-        row.reccobeats_id = rb_id_map.get(row.spotify_id)
+        rb_id = rb_id_map.get(row.spotify_id)
+        if rb_id is not None:
+            row.reccobeats_id = rb_id
+            row.is_reccobeats_resolved = True
+        else:
+            row.is_reccobeats_resolved = False
     session.commit()
     matched = sum(1 for r in rows if r.reccobeats_id is not None)
     log(

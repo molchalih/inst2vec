@@ -87,6 +87,31 @@ def test_has_raw_and_clean_caption_filters():
         assert _ids(s.query(Clip).filter(*has_clean_caption()).all()) == [2, 3, 4]
 
 
+def test_translation_predicate_skips_undetermined_language():
+    """Rows sealed as 'und' (Lingua-undetected) are terminally classified
+    and must not be selected for translation."""
+    eng = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(eng)
+    with Session(eng) as s:
+        _seed(s)
+        s.add(
+            Clip(
+                id=11,
+                user_id=1,
+                is_selected=True,
+                is_downloaded=True,
+                caption_text="🔥🔥🔥",
+                caption_clean="🔥🔥🔥",
+                caption_language="und",
+            )
+        )
+        s.commit()
+        assert 11 not in _ids(s.query(Clip).filter(*needs_caption_translation()).all())
+        assert 11 not in _ids(
+            s.query(Clip).filter(*needs_caption_language_detection()).all()
+        )
+
+
 def test_translation_predicate_skips_english_prefix_variants():
     eng = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(eng)

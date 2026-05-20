@@ -45,14 +45,17 @@ def detect_caption_language(
                 lang = detector.detect_language_of(text)
                 iso = getattr(lang, "iso_code_639_1", None) if lang else None
                 if iso is None:
+                    clip.caption_language = "und"
                     log(
                         "captions:detect",
                         "ID",
                         f"cap_{clip.id}",
-                        "none",
+                        "und",
                         stats={"time": time.perf_counter() - t0},
                     )
-                    advance()
+                    advance(detail=f"{clip.id}: undetermined")
+                    if i % cfg.commit_every == 0:
+                        session.commit()
                     continue
                 clip.caption_language = iso.name.lower()
                 detected += 1

@@ -86,6 +86,27 @@ def test_detect_skips_clip_with_existing_language(session, monkeypatch):
     assert row.caption_language == "pl"
 
 
+def test_detect_seals_undetermined_when_lingua_returns_none(session, monkeypatch):
+    """Lingua returns no language → caption_language is sealed to 'und' so
+    the row is terminally classified and not re-detected on every rerun."""
+    eng, s = session
+    _add_clip(s, 1, "🔥🔥🔥")
+    _stub_detector(monkeypatch, {"🔥🔥🔥": None})
+    detect_caption_language(_cfg(), engine=eng)
+    row = s.query(Clip).filter_by(id=1).one()
+    assert row.caption_language == "und"
+
+
+def test_detect_skips_clip_already_sealed_undetermined(session, monkeypatch):
+    """A row previously sealed as 'und' must not be re-detected."""
+    eng, s = session
+    _add_clip(s, 1, "🔥🔥🔥", caption_language="und")
+    _stub_detector(monkeypatch, {"🔥🔥🔥": "es"})
+    detect_caption_language(_cfg(), engine=eng)
+    row = s.query(Clip).filter_by(id=1).one()
+    assert row.caption_language == "und"
+
+
 def test_detect_skips_clip_without_caption_clean(session, monkeypatch):
     eng, s = session
     s.add(
