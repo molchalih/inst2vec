@@ -28,6 +28,7 @@ def _settings(**overrides) -> MusicSettings:
         api_retry_jitter=0.0,
         acr_max_attempts=2,
         ffmpeg_timeout_seconds=60,
+        reccobeats_upstream_fail_threshold=3,
     )
     base.update(overrides)
     return MusicSettings(**base)

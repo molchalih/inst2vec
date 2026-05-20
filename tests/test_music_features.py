@@ -14,7 +14,7 @@ from core.database import (
     get_engine,
     get_session,
 )
-from modules.music.clients import TransientError
+from modules.music.clients import TransientError, UpstreamAnalysisError
 from modules.music.features import (
     _enrich_catalog_features,
     _enrich_upload_fallback,
@@ -44,6 +44,7 @@ def _music_settings(**overrides) -> MusicSettings:
         api_retry_jitter=0.0,
         acr_max_attempts=2,
         ffmpeg_timeout_seconds=60,
+        reccobeats_upstream_fail_threshold=3,
     )
     base.update(overrides)
     return MusicSettings(**base)
@@ -430,6 +431,45 @@ def test_upload_fallback_leaves_null_on_transient_error(
     assert s.query(Music).filter_by(id=1).one().is_audio_features_extracted is None
 
 
+def test_upload_fallback_leaves_null_on_upstream_analysis_error(
+    db_session, tmp_path, monkeypatch
+):
+    """UpstreamAnalysisError must leave is_audio_features_extracted as
+    NULL (same as TransientError) so the row retries when the analyzer
+    recovers — distinct from a clean 'no features' outcome which writes
+    False terminally."""
+    s = db_session
+    s.add(User(id=1, parse_status="success", is_selected=True))
+    s.add(
+        Music(
+            id=1,
+            artist="a",
+            track="t",
+            spotify_id="sp-1",
+            reccobeats_id=None,
+            recognition_status="matched",
+        )
+    )
+    s.add(Clip(id=10, user_id=1, music_id=1, is_selected=True, is_downloaded=True))
+    s.commit()
+    (tmp_path / "10.mp4").write_bytes(b"fake")
+    fake_audio = tmp_path / "10.wav"
+    fake_audio.write_bytes(b"audio")
+    monkeypatch.setattr(
+        "modules.music.features.extract_audio_sample",
+        lambda video, out, music: fake_audio,
+    )
+    rb = MagicMock()
+    rb.upload_features.side_effect = UpstreamAnalysisError(
+        400, "Get audio features fail"
+    )
+
+    _enrich_upload_fallback(s, rb, str(tmp_path), _music_settings())
+    s.commit()
+
+    assert s.query(Music).filter_by(id=1).one().is_audio_features_extracted is None
+
+
 def test_upload_fallback_tries_next_candidate_after_missing_video(
     db_session, tmp_path, monkeypatch
 ):
@@ -588,6 +628,7 @@ def test_features_config_payload_ignores_classify_only_knobs():
         api_retry_jitter=0.0,
         acr_max_attempts=2,
         ffmpeg_timeout_seconds=60,
+        reccobeats_upstream_fail_threshold=3,
     )
     bumped_classify = base.model_copy(update={"audio_fingerprint_confidence": 0.95})
     assert features_config_payload(base) == features_config_payload(bumped_classify)
@@ -691,6 +732,7 @@ def test_extract_music_features_config_change_triggers_reset(monkeypatch, db_ses
         api_retry_jitter=0.0,
         acr_max_attempts=1,
         ffmpeg_timeout_seconds=5,
+        reccobeats_upstream_fail_threshold=3,
     )
     paths = PathsSettings(
         video_dir="/tmp",
@@ -773,6 +815,7 @@ def test_extract_music_features_unchanged_config_does_not_reset(
         api_retry_jitter=0.0,
         acr_max_attempts=1,
         ffmpeg_timeout_seconds=5,
+        reccobeats_upstream_fail_threshold=3,
     )
     paths = PathsSettings(
         video_dir="/tmp",
@@ -791,6 +834,53 @@ def test_extract_music_features_unchanged_config_does_not_reset(
     m = db_session.query(Music).filter_by(id=1).one()
     assert m.spotify_id == "sp1"
     assert m.tempo == 120.0
+
+
+def test_extract_music_features_silent_when_idle(monkeypatch, db_session):
+    """When every sub-stage is a no-op (no candidate rows), the wrapper
+    must not emit a 'SEAL features' line — matches the quiet idle-rerun
+    behavior of speech/captions/etc."""
+    import modules.music.features as features_mod
+    from core.config import PathsSettings
+    from modules.music.features import MusicSecrets, extract_music_features
+
+    monkeypatch.setattr(features_mod, "_resolve_spotify_ids", lambda *a, **kw: None)
+    monkeypatch.setattr(features_mod, "_resolve_reccobeats_ids", lambda *a, **kw: set())
+    monkeypatch.setattr(
+        features_mod, "_enrich_catalog_features", lambda *a, **kw: set()
+    )
+    monkeypatch.setattr(features_mod, "_enrich_upload_fallback", lambda *a, **kw: None)
+
+    captured: list[tuple[str, str, str, str]] = []
+
+    def _capture(scope, verb, target, result="ok", *, stats=None):
+        captured.append((scope, verb, target, result))
+
+    monkeypatch.setattr(features_mod, "log", _capture)
+
+    music = _music_settings()
+    paths = PathsSettings(
+        video_dir="/tmp",
+        model_path="/tmp",
+        profile_pic_dir="/tmp",
+        thumbnail_dir="/tmp",
+        speech_audio_dir="/tmp",
+        audio_dir="/tmp",
+        data_csv_path="/tmp/x.csv",
+    )
+    secrets = MusicSecrets(spotify_client_id="x", spotify_client_secret="y")
+
+    # First call: fingerprint absent, gate logs "SCAN fingerprint none",
+    # stage seals. We don't assert on that one.
+    extract_music_features(music, paths, secrets)
+    captured.clear()
+
+    # Second call: fingerprint matches, no work in any sub-stage. The
+    # wrapper must produce no SEAL line.
+    extract_music_features(music, paths, secrets)
+
+    seal_lines = [c for c in captured if c[1] == "SEAL"]
+    assert seal_lines == [], f"idle rerun must not emit SEAL; got: {seal_lines}"
 
 
 def test_features_config_payload_ignores_retry_knobs():
@@ -818,6 +908,7 @@ def test_features_config_payload_ignores_retry_knobs():
         api_retry_jitter=0.0,
         acr_max_attempts=2,
         ffmpeg_timeout_seconds=60,
+        reccobeats_upstream_fail_threshold=3,
     )
     for upd in (
         {"api_max_attempts": base.api_max_attempts + 5},
@@ -850,3 +941,151 @@ def test_reset_music_features_clears_reccobeats_resolved(db_session):
 
     row = s.query(Music).filter_by(id=1).one()
     assert row.is_reccobeats_resolved is None
+
+
+def test_upload_fallback_circuit_breaks_after_consecutive_upstream_errors(
+    db_session, tmp_path, monkeypatch
+):
+    """After N consecutive UpstreamAnalysisError outcomes the stage must
+    abort the remaining candidates — leaving them at NULL — instead of
+    burning ffmpeg + upload cycles per row when the analyzer is down."""
+    from modules.music.clients import UpstreamAnalysisError
+
+    s = db_session
+    s.add(User(id=1, parse_status="success", is_selected=True))
+    for mid in (1, 2, 3, 4, 5):
+        s.add(
+            Music(
+                id=mid,
+                artist=f"a{mid}",
+                track=f"t{mid}",
+                spotify_id=f"sp-{mid}",
+                reccobeats_id=None,
+                recognition_status="matched",
+            )
+        )
+        s.add(
+            Clip(
+                id=10 * mid,
+                user_id=1,
+                music_id=mid,
+                is_selected=True,
+                is_downloaded=True,
+            )
+        )
+        (tmp_path / f"{10 * mid}.mp4").write_bytes(b"fake")
+    s.commit()
+    fake_audio = tmp_path / "a.wav"
+    fake_audio.write_bytes(b"audio")
+    monkeypatch.setattr(
+        "modules.music.features.extract_audio_sample",
+        lambda video, out, music: fake_audio,
+    )
+    rb = MagicMock()
+    rb.upload_features.side_effect = UpstreamAnalysisError(
+        400, "Get audio features fail"
+    )
+
+    import modules.music.features as features_mod
+
+    captured: list[tuple[str, str, str, str]] = []
+
+    def _capture(scope, verb, target, result="ok", *, stats=None):
+        captured.append((scope, verb, target, result))
+
+    monkeypatch.setattr(features_mod, "log", _capture)
+
+    _enrich_upload_fallback(
+        s,
+        rb,
+        str(tmp_path),
+        _music_settings(reccobeats_upstream_fail_threshold=2),
+    )
+    s.commit()
+
+    # All rows must remain NULL (retryable). With 5 rows and threshold=2
+    # the loop must abort after the 2nd consecutive upstream error,
+    # i.e. upload_features must be called at most 2 times.
+    assert rb.upload_features.call_count == 2
+    for mid in (1, 2, 3, 4, 5):
+        row = s.query(Music).filter_by(id=mid).one()
+        assert row.is_audio_features_extracted is None
+
+    # The aborted stage must seal as ERR only — no contradictory "ok"
+    # seal allowed after the circuit-breaker tripped.
+    seals = [c for c in captured if c[1] == "SEAL" and c[2] == "upload_fb"]
+    assert seals == [("features:upload_fb", "SEAL", "upload_fb", "ERR")], (
+        f"aborted upload-fallback must seal as ERR only; got: {seals}"
+    )
+
+
+def test_upload_fallback_resets_consecutive_counter_on_success(
+    db_session, tmp_path, monkeypatch
+):
+    """An interleaved sequence (upstream, ok, upstream, ok, upstream)
+    must NOT trip the breaker with threshold=2 because the counter
+    resets after every successful (or non-upstream) outcome. All 5
+    candidates must be visited."""
+    from modules.music.clients import UpstreamAnalysisError
+
+    s = db_session
+    s.add(User(id=1, parse_status="success", is_selected=True))
+    for mid in (1, 2, 3, 4, 5):
+        s.add(
+            Music(
+                id=mid,
+                artist=f"a{mid}",
+                track=f"t{mid}",
+                spotify_id=f"sp-{mid}",
+                reccobeats_id=None,
+                recognition_status="matched",
+            )
+        )
+        s.add(
+            Clip(
+                id=10 * mid,
+                user_id=1,
+                music_id=mid,
+                is_selected=True,
+                is_downloaded=True,
+            )
+        )
+        (tmp_path / f"{10 * mid}.mp4").write_bytes(b"fake")
+    s.commit()
+    fake_audio = tmp_path / "a.wav"
+    fake_audio.write_bytes(b"audio")
+    monkeypatch.setattr(
+        "modules.music.features.extract_audio_sample",
+        lambda video, out, music: fake_audio,
+    )
+    ok_payload = {
+        "acousticness": 0.1,
+        "danceability": 0.2,
+        "energy": 0.3,
+        "instrumentalness": 0.4,
+        "key": 5,
+        "liveness": 0.6,
+        "loudness": -7.0,
+        "mode": 1,
+        "speechiness": 0.05,
+        "tempo": 120.0,
+        "valence": 0.5,
+    }
+    rb = MagicMock()
+    rb.upload_features.side_effect = [
+        UpstreamAnalysisError(400, "x"),
+        ok_payload,
+        UpstreamAnalysisError(400, "x"),
+        ok_payload,
+        UpstreamAnalysisError(400, "x"),
+    ]
+
+    _enrich_upload_fallback(
+        s,
+        rb,
+        str(tmp_path),
+        _music_settings(reccobeats_upstream_fail_threshold=2),
+    )
+    s.commit()
+
+    assert rb.upload_features.call_count == 5

@@ -37,6 +37,7 @@ def _music_settings(**overrides) -> MusicSettings:
         api_retry_jitter=0.0,
         acr_max_attempts=2,
         ffmpeg_timeout_seconds=60,
+        reccobeats_upstream_fail_threshold=3,
     )
     base.update(overrides)
     return MusicSettings(**base)
@@ -410,6 +411,7 @@ def test_classify_music_config_change_triggers_reset(monkeypatch, db_session):
         api_retry_jitter=0.0,
         acr_max_attempts=1,
         ffmpeg_timeout_seconds=5,
+        reccobeats_upstream_fail_threshold=3,
     )
     paths = PathsSettings(
         video_dir="/tmp",
@@ -479,6 +481,7 @@ def test_classify_music_unchanged_config_does_not_reset(monkeypatch, db_session)
         api_retry_jitter=0.0,
         acr_max_attempts=1,
         ffmpeg_timeout_seconds=5,
+        reccobeats_upstream_fail_threshold=3,
     )
     paths = PathsSettings(
         video_dir="/tmp",
@@ -525,6 +528,7 @@ def test_classify_config_payload_ignores_retry_knobs():
         api_retry_jitter=0.0,
         acr_max_attempts=2,
         ffmpeg_timeout_seconds=60,
+        reccobeats_upstream_fail_threshold=3,
     )
     for upd in (
         {"acr_max_attempts": base.acr_max_attempts + 3},

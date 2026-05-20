@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import random
 import time
 from collections.abc import Callable
@@ -14,6 +15,25 @@ import httpx
 
 class TransientError(Exception):
     """Raised when a service-client method exhausts its retry budget on transient errors."""
+
+
+class UpstreamAnalysisError(Exception):
+    """Raised when ReccoBeats `/v1/analysis/audio-features` returns a
+    non-2xx/non-429 response. Distinct from TransientError because:
+        - TransientError = local retries exhausted on 429/5xx/network.
+        - UpstreamAnalysisError = analyzer responded definitively with
+          a 4xx (per-file rejection OR server-side analysis failure).
+    Both leave the row at NULL so a later run retries; the circuit
+    breaker in _enrich_upload_fallback reacts specifically to
+    UpstreamAnalysisError because that signal indicates the analyzer
+    is consistently failing (vs a single slow connection)."""
+
+    def __init__(self, status_code: int, error: str | None = None):
+        super().__init__(
+            f"upstream analysis failed: HTTP {status_code} ({error or '<no body>'})"
+        )
+        self.status_code = status_code
+        self.error = error
 
 
 def _is_transient_http(exc: Exception) -> bool:
@@ -283,7 +303,11 @@ class ReccoBeatsClient:
         return out, exhausted_inputs
 
     def upload_features(self, audio) -> dict | None:
-        """POST audio file; return feature dict, None on clean no-match, or raise TransientError."""
+        """POST audio file; return feature dict on 200, None on 200 with
+        non-dict body, raise TransientError on 429/5xx exhaustion, raise
+        UpstreamAnalysisError on any other non-2xx response. Non-transient
+        non-HTTP exceptions (e.g. malformed JSON, file-open errors)
+        propagate to the caller."""
         mime = "audio/wav" if audio.suffix.lower() == ".wav" else "audio/mpeg"
         last_exc: Exception | None = None
         for attempt in range(self._max_attempts):
@@ -302,14 +326,20 @@ class ReccoBeatsClient:
                     if attempt < self._max_attempts - 1:
                         self._sleep_retry()
                     continue
-                return None
+                # Non-transient 4xx (incl. 4002 analyzer-fault and 415
+                # unsupported-format): surface as upstream so the row
+                # stays retryable across runs.
+                err = None
+                with contextlib.suppress(Exception):
+                    err = exc.response.json().get("error")
+                raise UpstreamAnalysisError(exc.response.status_code, err) from exc
             except Exception as exc:
                 if _is_transient_http(exc):
                     last_exc = exc
                     if attempt < self._max_attempts - 1:
                         self._sleep_retry()
                     continue
-                return None
+                raise
             return p if isinstance(p, dict) else None
 
         raise TransientError(f"reccobeats upload exhausted: {last_exc!r}")

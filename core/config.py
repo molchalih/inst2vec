@@ -71,9 +71,14 @@ class MusicSettings(BaseModel):
     api_retry_jitter: float
     acr_max_attempts: int
     ffmpeg_timeout_seconds: int
+    reccobeats_upstream_fail_threshold: int
 
     @field_validator(
-        "commit_every", "api_max_attempts", "acr_max_attempts", "ffmpeg_timeout_seconds"
+        "commit_every",
+        "api_max_attempts",
+        "acr_max_attempts",
+        "ffmpeg_timeout_seconds",
+        "reccobeats_upstream_fail_threshold",
     )
     @classmethod
     def _positive(cls, v: int) -> int:

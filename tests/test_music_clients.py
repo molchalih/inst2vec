@@ -5,7 +5,12 @@ import inspect
 import httpx
 import pytest
 
-from modules.music.clients import ReccoBeatsClient, SpotifyClient, TransientError
+from modules.music.clients import (
+    ReccoBeatsClient,
+    SpotifyClient,
+    TransientError,
+    UpstreamAnalysisError,
+)
 
 
 def test_spotify_client_takes_credentials():
@@ -249,9 +254,9 @@ def test_rb_upload_features_raises_transient_after_exhaustion(tmp_path):
         _rb(http, max_attempts=3).upload_features(audio)
 
 
-def test_rb_upload_features_returns_none_on_4xx_non_429(tmp_path):
+def test_rb_upload_features_raises_upstream_on_4xx_non_429(tmp_path):
     audio = tmp_path / "x.wav"
     audio.write_bytes(b"RIFF")
-    http = _StubHttp([(400, {})])
-    out = _rb(http).upload_features(audio)
-    assert out is None
+    http = _StubHttp([(404, {"error": "Not found"})])
+    with pytest.raises(UpstreamAnalysisError):
+        _rb(http).upload_features(audio)

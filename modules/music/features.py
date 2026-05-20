@@ -27,7 +27,12 @@ from core.config import MusicSettings, PathsSettings
 from core.console import log, progress
 from core.database import Clip, Music, clip_used_in_analysis, get_session
 from modules.music.audio_sample import extract_audio_sample
-from modules.music.clients import ReccoBeatsClient, SpotifyClient, TransientError
+from modules.music.clients import (
+    ReccoBeatsClient,
+    SpotifyClient,
+    TransientError,
+    UpstreamAnalysisError,
+)
 from modules.music.state import (
     FEATURE_FIELDS,
     SCOPE_MUSIC,
@@ -293,7 +298,10 @@ def _enrich_upload_fallback(
         candidates_by_music.setdefault(music_id, []).append(clip_id)
 
     transient_music_ids_local: set[int] = set(external_transient)
+    consecutive_upstream = 0
+    upstream_threshold = music.reccobeats_upstream_fail_threshold
     total = len(candidates_by_music)
+    ordered_music_ids = list(candidates_by_music.keys())
 
     if total:
         log("features:upload_fb", "SCAN", "tracks", "ok", stats={"todo": total})
@@ -309,6 +317,7 @@ def _enrich_upload_fallback(
                     rb, row, clip_ids, video_dir_path, music
                 )
                 if outcome == "ok":
+                    consecutive_upstream = 0
                     enriched += 1
                     log(
                         "features:upload_fb",
@@ -319,6 +328,7 @@ def _enrich_upload_fallback(
                     )
                     advance(detail=f"{label} (ok)")
                 elif outcome == "transient":
+                    consecutive_upstream = 0
                     transient_music_ids_local.add(music_id)
                     log(
                         "features:upload_fb",
@@ -331,7 +341,27 @@ def _enrich_upload_fallback(
                         },
                     )
                     advance(detail=f"{label} (RB transient — left retryable)")
+                elif outcome == "upstream":
+                    transient_music_ids_local.add(music_id)
+                    consecutive_upstream += 1
+                    advance(detail=f"{label} (RB analyzer 4xx — left retryable)")
+                    if consecutive_upstream >= upstream_threshold:
+                        # Leave the remaining unprocessed candidates retryable
+                        # too — they would have hit the same analyzer outage.
+                        transient_music_ids_local.update(ordered_music_ids[i:])
+                        log(
+                            "features:upload_fb",
+                            "SEAL",
+                            "upload_fb",
+                            "ERR",
+                            stats={
+                                "err": "analyzer offline; aborting upload-fallback",
+                                "consecutive": consecutive_upstream,
+                            },
+                        )
+                        break
                 else:
+                    consecutive_upstream = 0
                     log(
                         "features:upload_fb",
                         "PUT",
@@ -346,18 +376,23 @@ def _enrich_upload_fallback(
 
                 if i % music.commit_every == 0:
                     session.commit()
+            else:
+                # for/else: only runs when the loop wasn't broken out of —
+                # i.e. the circuit-breaker didn't trip. The ERR seal handles
+                # the abort case.
+                session.commit()
+                log(
+                    "features:upload_fb",
+                    "SEAL",
+                    "upload_fb",
+                    "ok",
+                    stats={
+                        "enriched": enriched,
+                        "of": total,
+                        "time": time.perf_counter() - t_pass,
+                    },
+                )
         session.commit()
-        log(
-            "features:upload_fb",
-            "SEAL",
-            "upload_fb",
-            "ok",
-            stats={
-                "enriched": enriched,
-                "of": total,
-                "time": time.perf_counter() - t_pass,
-            },
-        )
 
     sweep_q = session.query(Music).filter(
         Music.recognition_status != "pending",
@@ -387,6 +422,8 @@ def _try_candidates_for_music(
     "ffmpeg failed"  — all candidates failed ffmpeg
     "no features"    — RB returned an empty payload for every candidate
     "transient"      — RB raised TransientError; row left at NULL
+    "upstream"       — RB raised UpstreamAnalysisError (analyzer 4xx);
+                       row left at NULL so the next run retries
     """
     last_perm_reason = "no video"
     for clip_id in clip_ids:
@@ -403,6 +440,18 @@ def _try_candidates_for_music(
                 feats = rb.upload_features(audio)
             except TransientError:
                 return "transient"
+            except UpstreamAnalysisError as exc:
+                log(
+                    "features:upload_fb",
+                    "PUT",
+                    f"music_{row.id}",
+                    "ERR",
+                    stats={
+                        "http": exc.status_code,
+                        "rb_err": exc.error,
+                    },
+                )
+                return "upstream"
         if feats and any(f in feats for f in UPLOAD_FIELDS):
             for f in UPLOAD_FIELDS:
                 if f in feats:
@@ -424,7 +473,6 @@ def extract_music_features(
 ) -> None:
     """Fill Spotify IDs, ReccoBeats IDs, and audio features for all linked Music rows."""
     session = get_session()
-    t_stage = time.perf_counter()
     try:
         current = fp.Fingerprint(
             data=fp.hash_text(""),
@@ -457,12 +505,5 @@ def extract_music_features(
 
         fp.mark_complete(session, STAGE_MUSIC_FEATURES, SCOPE_MUSIC, current)
         session.commit()
-        log(
-            "features",
-            "SEAL",
-            "features",
-            "ok",
-            stats={"time": time.perf_counter() - t_stage},
-        )
     finally:
         session.close()
