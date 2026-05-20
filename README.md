@@ -1,3 +1,5 @@
+# Aesthetic Clustering & Visibility Analysis
+
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/colored/logo-light.svg">
@@ -11,17 +13,18 @@
 
 <p align="center">
   <a href="https://github.com/molchalih/inst2vec/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/molchalih/inst2vec/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/molchalih/inst2vec/actions/workflows/quarto.yml"><img alt="Quarto" src="https://github.com/molchalih/inst2vec/actions/workflows/quarto.yml/badge.svg"></a>
   <a href="https://www.python.org/downloads/release/python-3120/"><img alt="Python" src="https://img.shields.io/badge/python-3.12+-blue.svg"></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-green.svg"></a>
   <a href="https://github.com/astral-sh/uv"><img alt="uv" src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json"></a>
-  <a href="https://huggingface.co/Qwen/Qwen3-VL-Embedding-8B"><img alt="Qwen3-VL" src="https://img.shields.io/badge/embeddings-Qwen3--VL--8B-purple"></a>
+  <a href="https://huggingface.co/Qwen/Qwen3-VL-Embedding-8B"><img alt="Qwen3-VL" src="https://img.shields.io/badge/Qwen3--VL--8B-purple"></a>
 </p>
-
----
 
 ## Overview
 
 `inst2vec` is a modular pipeline for clustering *Instagram creators* based on their *Reels* content-similarity. It parses profiles, embeds videos, music and speech; averages each user's clip vectors, and clusters the creators. While each stage provides it's own output, the final results is a flat user-to-cluster table.
+
+**Key concepts:** `Semantic map`, `Latent Representations`, `Unsupervised Clustering`, `Platform Vernaculars`.
 
 ## Pipeline
 

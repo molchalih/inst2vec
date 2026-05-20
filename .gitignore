@@ -58,6 +58,9 @@ __pycache__/
 # Script outputs
 scripts/output/
 
+# Local-only working journal for the cluster-analysis maintainer
+scripts/cluster_analysis/LESSONS.md
+
 # Local-only state
 .claude/
 .remember/
