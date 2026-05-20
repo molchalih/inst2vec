@@ -32,7 +32,9 @@ def select_clips(session: Session, cfg: FilterSettings) -> None:
         pool = eligible[:pool_size]
 
         rng = random.Random(f"{cfg.selection_random_seed}:{user.id}")
-        chosen = rng.sample(pool, cfg.selected_clips_per_user)
+        # Clamp: when eligible < selected_clips_per_user we still select all
+        # eligible clips rather than raising ValueError from rng.sample.
+        chosen = rng.sample(pool, min(cfg.selected_clips_per_user, len(pool)))
 
         for clip in chosen:
             clip.is_selected = True

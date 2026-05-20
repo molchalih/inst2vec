@@ -21,17 +21,13 @@ from core.database import (
 from modules.clustering import assign_clusters
 
 
-def _wrap(validation: ValidationSettings, *, gemini_enabled: bool = False):
-    """Wrap a ValidationSettings into a full settings namespace.
+def _wrap(validation: ValidationSettings):
+    """Wrap a ValidationSettings into a settings namespace.
 
-    assign_clusters now expects full settings so it can call
-    default_cases(settings); we still pin validation knobs via the
-    Pydantic model so per-field defaults stay realistic.
+    We still pin validation knobs via the Pydantic model so per-field
+    defaults stay realistic.
     """
-    return SimpleNamespace(
-        validation=validation,
-        embeddings=SimpleNamespace(gemini_enabled=gemini_enabled),
-    )
+    return SimpleNamespace(validation=validation)
 
 
 DEFAULT_VALIDATION = ValidationSettings(
@@ -41,6 +37,7 @@ DEFAULT_VALIDATION = ValidationSettings(
     max_clusters=50,
 )
 DEFAULT_SETTINGS = _wrap(DEFAULT_VALIDATION)
+DEFAULT_CASES = ("video",)
 
 
 def _seed_case(session, case: str, n_users: int = 30, *, with_best_run: bool):
@@ -109,7 +106,7 @@ def test_assign_without_validation_state_does_not_seal():
     finally:
         session.close()
     # NOTE: no StageState("cluster_validation", "video") written
-    assign_clusters(settings=DEFAULT_SETTINGS)
+    assign_clusters(settings=DEFAULT_SETTINGS, cases=DEFAULT_CASES)
     session = get_session()
     try:
         assert session.get(StageState, ("cluster_assign", "video")) is None
@@ -136,7 +133,7 @@ def test_assign_seals_empty_clusters_when_no_best_run():
     finally:
         session.close()
 
-    assign_clusters(settings=DEFAULT_SETTINGS)
+    assign_clusters(settings=DEFAULT_SETTINGS, cases=DEFAULT_CASES)
     session = get_session()
     try:
         assert session.get(StageState, ("cluster_assign", "video")) is not None
@@ -163,7 +160,7 @@ def test_assign_creates_user_clusters_for_best_run():
     finally:
         session.close()
 
-    assign_clusters(settings=DEFAULT_SETTINGS)
+    assign_clusters(settings=DEFAULT_SETTINGS, cases=DEFAULT_CASES)
     session = get_session()
     try:
         n = session.query(UserCluster).filter_by(embedding_case="video").count()
@@ -190,7 +187,7 @@ def test_unchanged_fingerprint_skips_assign():
     finally:
         session.close()
 
-    assign_clusters(settings=DEFAULT_SETTINGS)
+    assign_clusters(settings=DEFAULT_SETTINGS, cases=DEFAULT_CASES)
     session = get_session()
     try:
         first = {
@@ -200,7 +197,7 @@ def test_unchanged_fingerprint_skips_assign():
     finally:
         session.close()
 
-    assign_clusters(settings=DEFAULT_SETTINGS)
+    assign_clusters(settings=DEFAULT_SETTINGS, cases=DEFAULT_CASES)
     session = get_session()
     try:
         second = {
@@ -297,7 +294,7 @@ def test_assign_honors_configured_plateau_threshold():
             max_clusters=50,
         )
     )
-    assign_clusters(settings=strict)
+    assign_clusters(settings=strict, cases=(case,))
 
     relaxed = _wrap(
         ValidationSettings(
@@ -307,7 +304,7 @@ def test_assign_honors_configured_plateau_threshold():
             max_clusters=50,
         )
     )
-    assign_clusters(settings=relaxed)
+    assign_clusters(settings=relaxed, cases=(case,))
 
     # Sanity: distinct ids so the assertions below mean something.
     assert run_a != run_b
@@ -324,7 +321,7 @@ def test_assign_honors_configured_plateau_threshold():
         session.close()
 
     # Re-run with strict settings and confirm the config hash flips back.
-    assign_clusters(settings=strict)
+    assign_clusters(settings=strict, cases=(case,))
     session = get_session()
     try:
         state = session.get(StageState, ("cluster_assign", case))

@@ -11,7 +11,11 @@ from core.database import (
     get_engine,
     get_session,
 )
-from modules.ingest.download import download_files
+from modules.ingest.download import FetchResult, download_files
+
+
+def _ok_result() -> FetchResult:
+    return FetchResult(ok=True, status=200, size=0, duration=0.0, err=None)
 
 
 @pytest.fixture
@@ -70,7 +74,7 @@ def test_download_files_retry_failed_picks_up_false_rows(
 
     def fake_fetch(url, path, *_, **__):
         called.append((url, path))
-        return True
+        return _ok_result()
 
     monkeypatch.setattr("modules.ingest.download.fetch_file", fake_fetch)
 
@@ -98,7 +102,7 @@ def test_download_files_default_skips_false_rows(db_session, monkeypatch, tmp_pa
     called: list[tuple] = []
     monkeypatch.setattr(
         "modules.ingest.download.fetch_file",
-        lambda *a, **k: called.append(a[:2]) or True,
+        lambda *a, **k: called.append(a[:2]) or _ok_result(),
     )
 
     download_files(_download_settings(), _paths(tmp_path))

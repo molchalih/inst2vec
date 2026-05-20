@@ -3,8 +3,6 @@ import torch
 import torch.nn.functional as F
 import unicodedata
 import numpy as np
-import logging
-
 from PIL import Image
 from urllib.parse import urlparse
 from dataclasses import dataclass
@@ -14,11 +12,13 @@ from transformers.models.qwen3_vl.processing_qwen3_vl import Qwen3VLProcessor
 from transformers.modeling_outputs import ModelOutput
 from transformers.processing_utils import Unpack
 from transformers.utils import TransformersKwargs
+from transformers.utils.logging import disable_progress_bar
 from transformers.cache_utils import Cache
 from transformers.utils.generic import check_model_inputs
 from qwen_vl_utils.vision_process import process_vision_info
 
-logger = logging.getLogger(__name__)
+# Silence the transformers "Loading weights" tqdm bar (added in transformers v5).
+disable_progress_bar()
 
 # Constants for configuration
 MAX_LENGTH = 8192
@@ -331,20 +331,10 @@ class Qwen3VLEmbedder():
             conversations, add_generation_prompt=True, tokenize=False
         )
 
-        try:
-            images, video_inputs, video_kwargs = process_vision_info(
-                conversations, image_patch_size=16,
-                return_video_metadata=True, return_video_kwargs=True
-            )
-        except Exception as e:
-            logger.error(f"Error in processing vision info: {e}")
-            images = None
-            video_inputs = None
-            video_kwargs = {'do_sample_frames': False}
-            text = self.processor.apply_chat_template(
-                [{'role': 'user', 'content': [{'type': 'text', 'text': 'NULL'}]}], 
-                add_generation_prompt=True, tokenize=False
-            )
+        images, video_inputs, video_kwargs = process_vision_info(
+            conversations, image_patch_size=16,
+            return_video_metadata=True, return_video_kwargs=True
+        )
 
         if video_inputs is not None:
             videos, video_metadata = zip(*video_inputs)

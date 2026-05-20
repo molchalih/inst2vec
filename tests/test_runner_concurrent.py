@@ -74,6 +74,26 @@ def test_failure_in_one_job_does_not_kill_others():
     assert failed[0][0] == 3
 
 
+def test_elapsed_excludes_pool_queue_wait_under_saturation():
+    """Under saturation (len(jobs) > inflight) the reported elapsed time
+    must reflect only ``embed_fn`` execution, not pool-queue wait."""
+    from modules.embeddings.runner import _dispatch_embedding_jobs
+
+    def fake_embed(job):
+        time.sleep(0.05)
+        return job["clip_id"], b"v"
+
+    # 4 jobs, 2 workers → batches of 2; without the fix, the second batch
+    # would report ~0.10s (wait + work) instead of ~0.05s (work only).
+    jobs = [{"clip_id": i} for i in range(4)]
+    results = list(_dispatch_embedding_jobs(jobs, fake_embed, inflight=2))
+
+    elapsed = [r[2] for r in results]
+    assert all(e is not None for e in elapsed)
+    # Allow some jitter but ensure no entry is anywhere close to 2× work time.
+    assert max(elapsed) < 0.09, elapsed
+
+
 def test_embed_with_token_fallback_injects_case_and_clip_id():
     """Runner must enrich every payload with `case` and `clip_id` so the
     remote embedder service (which requires both) accepts it, even for

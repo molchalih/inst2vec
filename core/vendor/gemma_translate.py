@@ -5,6 +5,10 @@ import os
 
 import torch
 from transformers import pipeline
+from transformers.utils.logging import disable_progress_bar
+
+# Silence the transformers "Loading weights" tqdm bar (added in transformers v5).
+disable_progress_bar()
 
 
 DEFAULT_MODEL_ID = os.environ.get("GEMMA_TRANSLATE_MODEL", "google/translategemma-4b-it")

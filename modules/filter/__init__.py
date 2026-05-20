@@ -8,6 +8,7 @@ no-ops.
 from __future__ import annotations
 
 import json
+import time
 from itertools import chain
 
 from sqlalchemy.orm import Session
@@ -44,7 +45,7 @@ from modules.filter.state import (
     SOFT_CLIP_EXCLUSION_FLAGS,
     STAGE,
     USER_EXCLUSION_FLAGS,
-    _reset_dataset_processing_state,
+    reset_dataset_processing_state,
 )
 from modules.filter.stats import calculate_user_stats
 
@@ -113,20 +114,51 @@ def process_dataset(
     with Session(eng) as session:
         current = _fingerprint(session, cfg)
         if not fp.is_stale(session, STAGE, SCOPE, current):
-            log("filter", "fingerprint match — skipping")
+            log("filter", "SKIP", "fingerprint", "ok")
             return
 
         diff = fp.describe_diff(session, STAGE, SCOPE, current)
-        log("filter", f"stale ({diff}) — recomputing")
+        log("filter", "SCAN", "fingerprint", "stale", stats={"diff": diff})
 
-        _reset_dataset_processing_state(session)
+        t0 = time.perf_counter()
+        reset_dataset_processing_state(session)
+
+        t_hard = time.perf_counter()
         _hard_preprocess(session, cfg)
+        log(
+            "filter",
+            "WRITE",
+            "hard",
+            "ok",
+            stats={"time": time.perf_counter() - t_hard},
+        )
+
         calculate_user_stats(session)
+
+        t_soft = time.perf_counter()
         _soft_preprocess(session, cfg)
+        log(
+            "filter",
+            "WRITE",
+            "soft",
+            "ok",
+            stats={"time": time.perf_counter() - t_soft},
+        )
+
+        t_sel = time.perf_counter()
         _random_sample(session, cfg)
+        log(
+            "filter",
+            "WRITE",
+            "selection",
+            "ok",
+            stats={"time": time.perf_counter() - t_sel},
+        )
 
         fp.mark_complete(session, STAGE, SCOPE, current)
         session.commit()
+
+        log("filter", "SEAL", "filter", "ok", stats={"time": time.perf_counter() - t0})
 
 
 def run(settings: Settings, secrets: Secrets) -> None:

@@ -16,6 +16,7 @@ from core.database import (
     get_engine,
     get_session,
 )
+from core.ffmpeg import has_audio_stream
 from modules.ingest.audio import extract_audio
 
 
@@ -217,3 +218,91 @@ def test_extract_audio_stage_dispatches_through_thread_pool(
 
     TPE.assert_called_once_with(max_workers=4)
     assert all((audio_dir / f"{cid}.mp3").exists() for cid in (1, 2, 3))
+
+
+# ── has_audio_stream tests ───────────────────────────────────────────────────
+
+
+def test_has_audio_stream_true_when_video_has_audio(sample_mp4_with_audio):
+    assert has_audio_stream(str(sample_mp4_with_audio)) is True
+
+
+def test_has_audio_stream_false_when_video_is_silent(sample_mp4_no_audio):
+    assert has_audio_stream(str(sample_mp4_no_audio)) is False
+
+
+def test_has_audio_stream_false_when_file_missing(tmp_path):
+    missing = tmp_path / "does_not_exist.mp4"
+    assert has_audio_stream(str(missing)) is False
+
+
+# ── no-audio-stream skip regression ──────────────────────────────────────────
+
+
+def test_stage_skips_clips_without_audio_stream_and_seals(
+    tmp_path, sample_mp4_with_audio, sample_mp4_no_audio, db_session
+):
+    """A clip whose video has no audio stream must not count as a failure.
+
+    Reproduces the production bug where 3 Reels with video-only streams
+    forced the stage to re-run on every pipeline invocation. The stage
+    must seal its fingerprint despite the silent clips.
+    """
+    from modules.ingest.audio import extract_audio_stage
+
+    vid_dir = tmp_path / "video"
+    vid_dir.mkdir()
+    # Clip 1 has audio, clip 2 is video-only.
+    (vid_dir / "1.mp4").write_bytes(Path(sample_mp4_with_audio).read_bytes())
+    (vid_dir / "2.mp4").write_bytes(Path(sample_mp4_no_audio).read_bytes())
+
+    db_session.add(User(id=1, is_selected=True))
+    db_session.add(Clip(id=1, user_id=1, is_selected=True, is_downloaded=True))
+    db_session.add(Clip(id=2, user_id=1, is_selected=True, is_downloaded=True))
+    db_session.commit()
+
+    audio_dir = tmp_path / "audio"
+    settings = _make_settings(audio_dir=audio_dir, enabled=True, video_dir=vid_dir)
+
+    extract_audio_stage(settings)
+
+    # Clip 1 produced an mp3; clip 2 did not (skipped, not failed).
+    assert (audio_dir / "1.mp3").exists()
+    assert not (audio_dir / "2.mp3").exists()
+    # Fingerprint sealed despite silent clip.
+    assert db_session.get(StageState, ("audio_extract", "default")) is not None
+
+
+def test_stage_does_not_retry_silent_clips_on_second_run(
+    tmp_path, sample_mp4_no_audio, db_session
+):
+    """After sealing, a stage with only no-audio clips must short-circuit.
+
+    Guard against any regression that re-introduces stale-fingerprint
+    behavior for video-only Reels.
+    """
+    from modules.ingest.audio import extract_audio_stage
+
+    vid_dir = tmp_path / "video"
+    vid_dir.mkdir()
+    (vid_dir / "1.mp4").write_bytes(Path(sample_mp4_no_audio).read_bytes())
+
+    db_session.add(User(id=1, is_selected=True))
+    db_session.add(Clip(id=1, user_id=1, is_selected=True, is_downloaded=True))
+    db_session.commit()
+
+    audio_dir = tmp_path / "audio"
+    settings = _make_settings(audio_dir=audio_dir, enabled=True, video_dir=vid_dir)
+
+    # First run seals.
+    extract_audio_stage(settings)
+    assert db_session.get(StageState, ("audio_extract", "default")) is not None
+
+    # Second run must be a no-op: no ffmpeg invocation, no ffprobe rescan.
+    with (
+        patch("modules.ingest.audio.run_ffmpeg") as ff,
+        patch("modules.ingest.audio.has_audio_stream") as probe,
+    ):
+        extract_audio_stage(settings)
+    ff.assert_not_called()
+    probe.assert_not_called()

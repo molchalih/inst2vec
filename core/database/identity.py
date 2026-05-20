@@ -5,18 +5,23 @@ live in core/database/engine.py — CRUD helpers below import
 get_identity_session lazily inside each function body to avoid an
 engine→identity→engine top-level cycle.
 
-Identity-first invariant
-------------------------
-Callers MUST create the identity row first, commit it, then create the
-matching main-DB row. If the main-DB insert fails, the identity row
-becomes an orphan; ``sweep_orphans()`` reclaims those rows.
+Identity allocation
+-------------------
+Identity allocation goes through ``allocate_clip_identity`` /
+``allocate_user_identity`` context managers: the identity row is
+flushed (its id becomes known) but committed only when the caller's
+with-block exits cleanly. If the caller raises before that point,
+the identity row is rolled back so no orphan remains.
 
-The sweep is single-threaded and idempotent. Run it between pipeline
-invocations, not concurrently with one — pipeline is single-process and
-serial by design.
+``init_db`` runs ``sweep_orphans()`` at startup to reclaim any
+identity rows left behind by hard process kills (no chance for
+rollback). The sweep is single-threaded and idempotent.
 """
 
 from __future__ import annotations
+
+from collections.abc import Iterator
+from contextlib import contextmanager
 
 from sqlalchemy import BigInteger, Integer, String
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -45,21 +50,63 @@ class ClipIdentity(IdentityBase):
     api_pk: Mapped[int] = mapped_column(BigInteger, nullable=False, unique=True)
 
 
-def get_or_create_user_identity(username: str) -> int:
-    """Return sequential user id for username, creating a new UserIdentity if needed."""
+@contextmanager
+def allocate_user_identity(username: str) -> Iterator[int]:
+    """Yield a UserIdentity id; commit only on clean exit.
+
+    Callers must add the matching ``User`` row to the main DB inside
+    the with-block. If the caller raises, the identity row is rolled
+    back so no orphan remains. For usernames that already have a row,
+    yields the existing id and skips the commit-on-exit path.
+    """
     from core.database.engine import get_identity_session
 
     with get_identity_session() as s:
         ui = s.query(UserIdentity).filter_by(username=username).first()
-        if ui is None:
-            ui = UserIdentity(username=username)
-            s.add(ui)
-            s.flush()
-            uid = ui.id
-            s.commit()
-        else:
-            uid = ui.id
-    return uid
+        if ui is not None:
+            yield ui.id
+            return
+        ui = UserIdentity(username=username)
+        s.add(ui)
+        s.flush()
+        new_id = ui.id
+        try:
+            yield new_id
+        except Exception:
+            s.rollback()
+            raise
+        s.commit()
+
+
+@contextmanager
+def allocate_clip_identity(api_pk: int) -> Iterator[int]:
+    """Yield a ClipIdentity id; commit only on clean exit.
+
+    Same contract as ``allocate_user_identity`` — see that docstring.
+    """
+    from core.database.engine import get_identity_session
+
+    with get_identity_session() as s:
+        ci = s.query(ClipIdentity).filter_by(api_pk=api_pk).first()
+        if ci is not None:
+            yield ci.id
+            return
+        ci = ClipIdentity(api_pk=api_pk)
+        s.add(ci)
+        s.flush()
+        new_id = ci.id
+        try:
+            yield new_id
+        except Exception:
+            s.rollback()
+            raise
+        s.commit()
+
+
+def get_or_create_user_identity(username: str) -> int:
+    """Return sequential user id for username, creating a new UserIdentity if needed."""
+    with allocate_user_identity(username) as uid:
+        return uid
 
 
 def update_user_identity(
@@ -121,19 +168,8 @@ def get_profile_pic_url(user_id: int) -> str | None:
 
 def get_or_create_clip_identity(api_pk: int) -> int:
     """Return sequential clip id for Instagram clip PK, creating a new entry if needed."""
-    from core.database.engine import get_identity_session
-
-    with get_identity_session() as s:
-        ci = s.query(ClipIdentity).filter_by(api_pk=api_pk).first()
-        if ci is None:
-            ci = ClipIdentity(api_pk=api_pk)
-            s.add(ci)
-            s.flush()
-            cid = ci.id
-            s.commit()
-        else:
-            cid = ci.id
-    return cid
+    with allocate_clip_identity(api_pk) as cid:
+        return cid
 
 
 def sweep_orphans() -> dict[str, int]:

@@ -37,9 +37,7 @@ def _stub_translator(monkeypatch, translate_fn):
     fake.model_id = "dummy/model"
     fake.device = "cpu"
     fake.translate_text.side_effect = translate_fn
-    monkeypatch.setattr(
-        "modules.speech.translate.GemmaTranslator", lambda model_id: fake
-    )
+    monkeypatch.setattr("core.translate.GemmaTranslator", lambda model_id: fake)
     return fake
 
 

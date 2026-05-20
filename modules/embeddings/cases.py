@@ -79,6 +79,9 @@ class EmbeddingCaseSpec:
     # ``settings.embeddings`` bool attrs that all must be truthy for the
     # case to appear in ``default_cases``. Empty tuple means always-on.
     requires: tuple[str, ...] = field(default_factory=tuple)
+    # When False, the embedder pod excludes this case from SERVED_CASES.
+    # Default True so new cases must opt out of remote serving explicitly.
+    served_remotely: bool = True
 
 
 # ── provider factories ───────────────────────────────────────────────────────
@@ -268,6 +271,7 @@ GEMINI_CASE = EmbeddingCaseSpec(
     ),
     recipe_version="gemini_v1",
     requires=("gemini_enabled",),
+    served_remotely=False,
 )
 
 

@@ -1616,7 +1616,7 @@ def test_process_dataset_runs_not_enough_clips_after_robust_stats():
 def test_reset_dataset_processing_state_clears_all_derived_fields():
     from core.config import FilterSettings
     from core.database import Clip, User, UserStats
-    from modules.filter import _reset_dataset_processing_state, process_dataset
+    from modules.filter import process_dataset, reset_dataset_processing_state
 
     eng = _make_db()
     cfg = FilterSettings(
@@ -1650,7 +1650,7 @@ def test_reset_dataset_processing_state_clears_all_derived_fields():
 
     process_dataset(cfg, engine=eng)
     with Session(eng) as s:
-        _reset_dataset_processing_state(s)
+        reset_dataset_processing_state(s)
         s.commit()
         for c in s.query(Clip).all():
             for col in [
@@ -1714,13 +1714,44 @@ def test_derive_user_eligibility_sets_false_when_not_enough_clips():
 
 
 def test_reset_clears_user_is_eligible():
-    from modules.filter import _reset_dataset_processing_state
+    from modules.filter import reset_dataset_processing_state
 
     eng = _make_db()
     with Session(eng) as s:
         s.add(User(id=1, is_eligible=True))
         s.commit()
-        _reset_dataset_processing_state(s)
+        reset_dataset_processing_state(s)
         s.commit()
         user = s.get(User, 1)
         assert user.is_eligible is None
+
+
+def test_select_clips_handles_user_with_fewer_eligible_than_quota():
+    """select_clips must not raise ValueError when a user has fewer eligible clips
+    than selected_clips_per_user; instead it should select all eligible clips."""
+    from core.config import FilterSettings
+    from core.database import Clip, User
+    from modules.filter import select_clips
+
+    eng = _make_db()
+    # quota = 5, but user only has 3 eligible clips
+    cfg = FilterSettings(
+        selection_pool_percent=1.0,
+        selected_clips_per_user=5,
+        selection_random_seed=42,
+    )
+    with Session(eng) as s:
+        s.add(User(id=1, is_low_plays_median=False, is_not_enough_eligible=False))
+        __seed_eligible_clips(s, user_id=1, play_counts=[1000, 2000, 3000])
+        s.commit()
+        # Must not raise ValueError: Sample larger than population
+        select_clips(s, cfg)
+        s.commit()
+        clips = s.query(Clip).filter(Clip.user_id == 1).all()
+        selected = [c for c in clips if c.is_selected]
+        # All 3 eligible clips must be selected
+        assert len(selected) == 3
+        for c in clips:
+            assert c.is_selected is True
+        u = s.get(User, 1)
+        assert u.is_selected is True

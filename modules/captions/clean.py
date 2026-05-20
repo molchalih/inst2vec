@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import time
+
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
 from core.config import CaptionsSettings
 from core.console import log
 from core.database import Clip, get_engine, needs_caption_cleaning
-from modules.captions.state import SCOPE_CLEAN, clean_caption_text
+from modules.captions.state import clean_caption_text
 
 
 def clean_captions(cfg: CaptionsSettings, *, engine: Engine | None = None) -> None:
@@ -33,6 +35,7 @@ def clean_captions(cfg: CaptionsSettings, *, engine: Engine | None = None) -> No
 
         total = len(clips)
         filled = 0
+        t_stage = time.perf_counter()
         for i, clip in enumerate(clips, 1):
             cleaned = clean_caption_text(clip.caption_text)
             clip.caption_clean = cleaned if cleaned else ""
@@ -41,4 +44,14 @@ def clean_captions(cfg: CaptionsSettings, *, engine: Engine | None = None) -> No
             if i % cfg.commit_every == 0:
                 session.commit()
         session.commit()
-        log(SCOPE_CLEAN, f"done — {filled}/{total} captions cleaned", level="ok")
+        log(
+            "captions:clean",
+            "CLEAN",
+            "captions",
+            "ok",
+            stats={
+                "in": total,
+                "filled": filled,
+                "time": time.perf_counter() - t_stage,
+            },
+        )

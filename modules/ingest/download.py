@@ -21,6 +21,7 @@ import os
 import random
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import NamedTuple
 
 import httpx
 
@@ -38,33 +39,69 @@ SCOPE = "download"
 _COMMIT_EVERY = 20
 
 
+class FetchResult(NamedTuple):
+    ok: bool
+    status: int | None
+    size: int | None
+    duration: float
+    err: str | None
+
+
 def fetch_file(
     url: str,
     path: str,
     max_attempts: int,
     retry_delay: int,
     retry_jitter: int,
-) -> bool:
+    *,
+    min_bytes: int = 0,
+) -> FetchResult:
     """Download `url` to `path` with retries + jittered backoff + atomic rename.
 
-    Returns True on success, False if all attempts failed.
+    If `min_bytes > 0`, any response whose body is smaller than that threshold
+    is treated as a transient failure (the `.part` file is deleted and the
+    attempt is retried).  After all attempts are exhausted the result has
+    ``ok=False`` and ``err="response_too_small: <actual> < <min>"``.
     """
     tmp = path + ".part"
+    t0 = time.perf_counter()
+    last_status: int | None = None
+    last_err: str | None = None
     for attempt in range(max_attempts):
         try:
             r = httpx.get(url, follow_redirects=True, timeout=30)
+            last_status = r.status_code
             r.raise_for_status()
+            actual = len(r.content)
+            if min_bytes > 0 and actual < min_bytes:
+                last_err = f"response_too_small: {actual} < {min_bytes}"
+                if attempt < max_attempts - 1:
+                    time.sleep(retry_delay + random.uniform(0, retry_jitter))
+                continue
             with open(tmp, "wb") as f:
                 f.write(r.content)
             os.replace(tmp, path)
-            return True
-        except Exception:
+            return FetchResult(
+                ok=True,
+                status=r.status_code,
+                size=actual,
+                duration=time.perf_counter() - t0,
+                err=None,
+            )
+        except Exception as e:
+            last_err = repr(e)
             if os.path.exists(tmp):
                 with contextlib.suppress(OSError):
                     os.remove(tmp)
             if attempt < max_attempts - 1:
                 time.sleep(retry_delay + random.uniform(0, retry_jitter))
-    return False
+    return FetchResult(
+        ok=False,
+        status=last_status,
+        size=None,
+        duration=time.perf_counter() - t0,
+        err=last_err,
+    )
 
 
 def download_files(
@@ -89,8 +126,8 @@ def download_files(
         users = session.query(User).filter(User.is_selected.is_(True)).all()
 
         # 1. Resolve work items
-        profile_jobs: list[tuple[str, str]] = []  # (url, path)
-        thumbnail_jobs: list[tuple[str, str]] = []
+        profile_jobs: list[tuple[str, str, int]] = []  # (url, path, user_id)
+        thumbnail_jobs: list[tuple[str, str, int]] = []  # (url, path, clip_id)
         video_jobs: list[tuple[int, str, str]] = []  # (clip_id, url, path)
         clips_missing_url: list[int] = []
 
@@ -99,17 +136,14 @@ def download_files(
             if not os.path.exists(pic_path):
                 pic_url = get_profile_pic_url(user.id)
                 if pic_url:
-                    profile_jobs.append((pic_url, pic_path))
+                    profile_jobs.append((pic_url, pic_path, user.id))
 
             for clip in user.clips:
                 if not clip.is_selected:
                     continue
-                # Thumbnails use disk existence as resume signal — check for all selected clips.
                 thumb_path = str(paths.thumbnail_for(clip.id))
                 if not os.path.exists(thumb_path) and clip.thumbnail_url:
-                    thumbnail_jobs.append((clip.thumbnail_url, thumb_path))
-                # Video gated on is_downloaded=NULL; when retry_failed=True also
-                # pick up False rows so the next run re-attempts them.
+                    thumbnail_jobs.append((clip.thumbnail_url, thumb_path, clip.id))
                 if clip.is_downloaded is True:
                     continue
                 if clip.is_downloaded is False and not retry_failed:
@@ -121,7 +155,6 @@ def download_files(
                 if not os.path.exists(video_path):
                     video_jobs.append((clip.id, clip.video_url, video_path))
                 else:
-                    # File already on disk from prior run: flag as success.
                     clip.is_downloaded = True
 
         # 2. Mark URL-less clips as terminal failures and commit immediately
@@ -130,21 +163,32 @@ def download_files(
                 clip = session.get(Clip, cid)
                 clip.is_downloaded = False
             session.commit()
-            log(
-                SCOPE,
-                f"{len(clips_missing_url)} clips have no video_url — marked failed",
-            )
+            for cid in clips_missing_url:
+                log(
+                    SCOPE,
+                    "GET",
+                    f"clips/{cid}.mp4",
+                    "ERR",
+                    stats={"err": "no video_url"},
+                )
 
         total_jobs = len(profile_jobs) + len(thumbnail_jobs) + len(video_jobs)
         if total_jobs == 0:
-            log(SCOPE, "nothing to download")
+            log(SCOPE, "SCAN", "clips", "none")
             session.commit()
             return
 
         log(
             SCOPE,
-            f"jobs: {len(video_jobs)} video, {len(thumbnail_jobs)} thumb, "
-            f"{len(profile_jobs)} pic",
+            "SCAN",
+            "clips",
+            "ok",
+            stats={
+                "todo": total_jobs,
+                "videos": len(video_jobs),
+                "thumbs": len(thumbnail_jobs),
+                "profiles": len(profile_jobs),
+            },
         )
 
         # 3. Dispatch all work to the pool
@@ -152,6 +196,7 @@ def download_files(
         thumb_failed = 0
         pic_failed = 0
         committed_since = 0
+        t_stage = time.perf_counter()
 
         with (
             progress(total_jobs, "Downloading") as advance,
@@ -159,41 +204,85 @@ def download_files(
         ):
             future_meta: dict = {}
 
-            for url, path in profile_jobs:
+            for url, path, user_id in profile_jobs:
                 fut = pool.submit(
-                    fetch_file, url, path, max_attempts, retry_delay, retry_jitter
+                    fetch_file,
+                    url,
+                    path,
+                    max_attempts,
+                    retry_delay,
+                    retry_jitter,
+                    min_bytes=256,
                 )
-                future_meta[fut] = ("pic", None)
+                future_meta[fut] = ("pic", user_id)
 
-            for url, path in thumbnail_jobs:
+            for url, path, clip_id in thumbnail_jobs:
                 fut = pool.submit(
-                    fetch_file, url, path, max_attempts, retry_delay, retry_jitter
+                    fetch_file,
+                    url,
+                    path,
+                    max_attempts,
+                    retry_delay,
+                    retry_jitter,
+                    min_bytes=256,
                 )
-                future_meta[fut] = ("thumb", None)
+                future_meta[fut] = ("thumb", clip_id)
 
             for clip_id, url, path in video_jobs:
                 fut = pool.submit(
-                    fetch_file, url, path, max_attempts, retry_delay, retry_jitter
+                    fetch_file,
+                    url,
+                    path,
+                    max_attempts,
+                    retry_delay,
+                    retry_jitter,
+                    min_bytes=1024,
                 )
                 future_meta[fut] = ("video", clip_id)
 
             for fut in as_completed(future_meta):
-                kind, clip_id = future_meta[fut]
-                ok = fut.result()
+                kind, item_id = future_meta[fut]
+                result = fut.result()
 
                 if kind == "video":
-                    clip = session.get(Clip, clip_id)
-                    clip.is_downloaded = ok
+                    target = f"clips/{item_id}.mp4"
+                elif kind == "thumb":
+                    target = f"thumb/{item_id}.jpg"
+                else:
+                    target = f"profile/{item_id}.jpg"
+
+                if result.ok:
+                    log(
+                        SCOPE,
+                        "GET",
+                        target,
+                        str(result.status),
+                        stats={"time": result.duration, "size": result.size or 0},
+                    )
+                else:
+                    log(
+                        SCOPE,
+                        "GET",
+                        target,
+                        "ERR",
+                        stats={
+                            "time": result.duration,
+                            "err": result.err or "unknown",
+                        },
+                    )
+
+                if kind == "video":
+                    clip = session.get(Clip, item_id)
+                    clip.is_downloaded = result.ok
                     committed_since += 1
-                    if not ok:
+                    if not result.ok:
                         video_failed += 1
-                        log(SCOPE, f"video {clip_id} failed", level="warn")
                     if committed_since >= _COMMIT_EVERY:
                         session.commit()
                         committed_since = 0
-                elif kind == "thumb" and not ok:
+                elif kind == "thumb" and not result.ok:
                     thumb_failed += 1
-                elif kind == "pic" and not ok:
+                elif kind == "pic" and not result.ok:
                     pic_failed += 1
 
                 advance()
@@ -201,8 +290,16 @@ def download_files(
         session.commit()
         log(
             SCOPE,
-            f"done: {len(video_jobs) - video_failed} videos OK, {video_failed} failed, "
-            f"{thumb_failed} thumbs failed, {pic_failed} pics failed",
+            "SEAL",
+            "download",
+            "ok",
+            stats={
+                "videos_ok": len(video_jobs) - video_failed,
+                "videos_err": video_failed,
+                "thumbs_err": thumb_failed,
+                "pics_err": pic_failed,
+                "time": time.perf_counter() - t_stage,
+            },
         )
     finally:
         session.close()

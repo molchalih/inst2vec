@@ -107,7 +107,6 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
     )
 
     monkeypatch.setattr(main, "load_runtime_config", lambda: (settings, secrets))
-    monkeypatch.setattr(main, "startup", lambda: calls.append("startup"))
     monkeypatch.setattr(
         main,
         "init_db",
@@ -147,23 +146,22 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
         main.embeddings, "run_users", lambda s, k: calls.append("embed:user")
     )
     monkeypatch.setattr(
-        main.clustering, "run_search", lambda s, k: calls.append("cluster:search")
+        main.clustering, "run_search", lambda s, k, c: calls.append("cluster:search")
     )
     monkeypatch.setattr(
         main.clustering,
         "run_validation",
-        lambda s, k: calls.append("cluster:validate"),
+        lambda s, k, c: calls.append("cluster:validate"),
     )
     monkeypatch.setattr(
-        main.clustering, "run_assign", lambda s, k: calls.append("cluster:assign")
+        main.clustering, "run_assign", lambda s, k, c: calls.append("cluster:assign")
     )
 
     main.run_pipeline()
 
-    assert calls[0] == "startup"
-    assert calls[1].startswith("init:sqlite:///:memory:")
-    assert calls[2] == "import:csv"
-    assert calls[3] == "parse"
+    assert calls[0].startswith("init:sqlite:///:memory:")
+    assert calls[1] == "import:csv"
+    assert calls[2] == "parse"
     assert "download" in calls
     assert "audio:extract" in calls
     assert "cluster:search" in calls

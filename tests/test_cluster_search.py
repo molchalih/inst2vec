@@ -17,12 +17,8 @@ from tests._clustering_helpers import (
 )
 
 
-def _make_search_settings(*, gemini_enabled: bool = False, **overrides):
-    """Create a full-shaped settings namespace for run_cluster_search tests.
-
-    Returns a namespace with `.search` (grid hyperparameters) and
-    `.embeddings.gemini_enabled` so `default_cases(settings)` works.
-    """
+def _make_search_settings(**overrides):
+    """Create a settings namespace for run_cluster_search tests (grid hyperparameters)."""
     defaults = {
         "umap_n_components": [5],
         "umap_n_neighbors": [5],
@@ -37,10 +33,7 @@ def _make_search_settings(*, gemini_enabled: bool = False, **overrides):
         "random_state": 42,
     }
     defaults.update(overrides)
-    return SimpleNamespace(
-        search=SimpleNamespace(**defaults),
-        embeddings=SimpleNamespace(gemini_enabled=gemini_enabled),
-    )
+    return SimpleNamespace(search=SimpleNamespace(**defaults))
 
 
 def test_cluster_run_tablename():
@@ -279,7 +272,7 @@ def test_run_cluster_search_inserts_rows(mem_engine, monkeypatch):
     from modules.clustering.search import run_cluster_search
 
     settings = _make_search_settings()
-    run_cluster_search(settings)
+    run_cluster_search(settings, cases=("video", "sandwich", "audio"))
 
     with Session(mem_engine) as s:
         count = s.query(ClusterRun).count()
@@ -302,7 +295,7 @@ def test_run_cluster_search_new_rows_have_passes_validation_none(
     from modules.clustering.search import run_cluster_search
 
     settings = _make_search_settings()
-    run_cluster_search(settings)
+    run_cluster_search(settings, cases=("video", "sandwich", "audio"))
 
     with Session(mem_engine) as s:
         rows = s.query(ClusterRun).all()
@@ -327,7 +320,7 @@ def test_run_cluster_search_skips_no_embeddings_case(mem_engine, monkeypatch):
     from modules.clustering.search import run_cluster_search
 
     settings = _make_search_settings()
-    run_cluster_search(settings)
+    run_cluster_search(settings, cases=("video", "sandwich", "audio"))
 
     with Session(mem_engine) as s:
         video_count = (
@@ -349,8 +342,10 @@ def test_run_cluster_search_idempotent(mem_engine, monkeypatch):
     from modules.clustering.search import run_cluster_search
 
     settings = _make_search_settings()
-    run_cluster_search(settings)
-    run_cluster_search(settings)  # second call — must not duplicate
+    run_cluster_search(settings, cases=("video", "sandwich", "audio"))
+    run_cluster_search(
+        settings, cases=("video", "sandwich", "audio")
+    )  # second call — must not duplicate
 
     with Session(mem_engine) as s:
         count = s.query(ClusterRun).count()
@@ -376,7 +371,7 @@ def test_run_cluster_search_uses_single_thread_umap_per_combo(mem_engine, monkey
     from modules.clustering.search import run_cluster_search
 
     settings = _make_search_settings()
-    run_cluster_search(settings)
+    run_cluster_search(settings, cases=("video", "sandwich", "audio"))
 
     assert all(j in (None, 1) for j in received), received
     assert received, "compute_clusters should have been called"
@@ -406,7 +401,9 @@ def test_run_cluster_search_parallel_workers_uses_thread_pool(mem_engine, monkey
     from modules.clustering.search import run_cluster_search
 
     settings = _make_search_settings(umap_n_components=[5, 6])
-    run_cluster_search(settings, clustering_grid_workers=3)
+    run_cluster_search(
+        settings, cases=("video", "sandwich", "audio"), clustering_grid_workers=3
+    )
 
     with Session(mem_engine) as s:
         assert s.query(ClusterRun).count() == 6
@@ -430,7 +427,7 @@ def test_unchanged_fingerprint_skips_recomputation(monkeypatch):
 
     _seed_search_dataset()
     settings = _make_minimal_search_settings()
-    run_cluster_search(settings)
+    run_cluster_search(settings, cases=("video",))
     session = get_session()
     try:
         first_ids = {r.id for r in session.query(ClusterRun.id).all()}
@@ -438,7 +435,7 @@ def test_unchanged_fingerprint_skips_recomputation(monkeypatch):
         session.close()
     assert first_ids  # something was inserted
 
-    run_cluster_search(settings)
+    run_cluster_search(settings, cases=("video",))
     session = get_session()
     try:
         second_ids = {r.id for r in session.query(ClusterRun.id).all()}
@@ -479,7 +476,7 @@ def test_changed_embeddings_wipes_and_recomputes(monkeypatch):
 
     _seed_search_dataset()
     settings = _make_minimal_search_settings()
-    run_cluster_search(settings)
+    run_cluster_search(settings, cases=("video",))
 
     session = get_session()
     try:
@@ -494,7 +491,7 @@ def test_changed_embeddings_wipes_and_recomputes(monkeypatch):
     assert first_n_clusters == 2
 
     _mutate_one_embedding()
-    run_cluster_search(settings)
+    run_cluster_search(settings, cases=("video",))
 
     session = get_session()
     try:
@@ -522,7 +519,9 @@ def test_changed_grid_config_wipes_and_recomputes(monkeypatch):
     )
 
     _seed_search_dataset()
-    run_cluster_search(_make_minimal_search_settings(umap_n_components=[3]))
+    run_cluster_search(
+        _make_minimal_search_settings(umap_n_components=[3]), cases=("video",)
+    )
     session = get_session()
     try:
         first_components = {
@@ -533,7 +532,9 @@ def test_changed_grid_config_wipes_and_recomputes(monkeypatch):
         session.close()
     assert first_components == {3}
 
-    run_cluster_search(_make_minimal_search_settings(umap_n_components=[4]))
+    run_cluster_search(
+        _make_minimal_search_settings(umap_n_components=[4]), cases=("video",)
+    )
     session = get_session()
     try:
         second_components = {
@@ -568,7 +569,9 @@ def test_no_user_embeddings_seals_empty_state():
     finally:
         session.close()
 
-    run_cluster_search(_make_minimal_search_settings())
+    run_cluster_search(
+        _make_minimal_search_settings(), cases=("video", "sandwich", "audio")
+    )
     session = get_session()
     try:
         # No analysis users -> no ClusterRun rows for any case.

@@ -19,6 +19,7 @@ when the aggregator changes.
 from __future__ import annotations
 
 import hashlib
+import time
 from collections import defaultdict
 
 import numpy as np
@@ -101,7 +102,13 @@ def _recompute_users(
         return
     subset = [r for r in rows if r[2] in user_ids]
     aggregated = aggregate_user_embeddings_from_rows(subset)
-    log(f"embed:user:{case}", f"{len(aggregated)} users to (re-)embed")
+    log(
+        f"embed:user:{case}",
+        "SCAN",
+        "users",
+        "ok",
+        stats={"todo": len(aggregated)},
+    )
     for user_id, mean_blob in aggregated.items():
         session.merge(
             UserEmbedding(
@@ -112,6 +119,13 @@ def _recompute_users(
             )
         )
         session.commit()
+        log(
+            f"embed:user:{case}",
+            "AGG",
+            f"user_{user_id}",
+            "ok",
+            stats={"dim": len(mean_blob) // 4},
+        )
 
 
 def embed_user_embeddings(settings, cases: list[str] | None = None) -> None:
@@ -127,23 +141,22 @@ def embed_user_embeddings(settings, cases: list[str] | None = None) -> None:
     session = get_session()
     try:
         for case in case_names:
+            scope = f"embed:user:{case}"
+            t_stage = time.perf_counter()
             rows = get_clip_embedding_rows_for_user_aggregation(
                 session, case, exclude_disqualified
             )
             current = _compute_fingerprint(session, case, rows)
             if not fp.is_stale(session, STAGE, case, current):
-                log(f"embed:user:{case}", "fingerprint match — skipping")
+                log(scope, "SKIP", "fingerprint", "ok")
                 continue
 
             diff = fp.describe_diff(session, STAGE, case, current)
-            log(f"embed:user:{case}", f"stale ({diff}) — recomputing")
+            log(scope, "SCAN", "fingerprint", "stale", stats={"diff": diff})
 
             stored_state = session.get(StageState, (STAGE, case))
             if stored_state is not None and stored_state.config_hash != current.config:
-                log(
-                    f"embed:user:{case}",
-                    "config drift — wiping case before incremental diff",
-                )
+                log(scope, "WRITE", "case", "ok", stats={"reason": "config drift"})
                 _wipe_case(session, case)
 
             desired = per_user_source_hashes(rows)
@@ -152,10 +165,27 @@ def embed_user_embeddings(settings, cases: list[str] | None = None) -> None:
             orphans = set(stored) - set(desired)
 
             _delete_users(session, case, orphans)
+            if orphans:
+                log(
+                    scope,
+                    "WRITE",
+                    "orphans",
+                    "ok",
+                    stats={"deleted": len(orphans)},
+                )
             _recompute_users(session, case, rows, changed, desired)
 
             fp.mark_complete(session, STAGE, case, current)
             session.commit()
-            log(f"embed:user:{case}", "done", level="ok")
+            log(
+                scope,
+                "SEAL",
+                "aggregate",
+                "ok",
+                stats={
+                    "users": len(changed),
+                    "time": time.perf_counter() - t_stage,
+                },
+            )
     finally:
         session.close()

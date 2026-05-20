@@ -16,6 +16,7 @@ Four sub-stages, each idempotent:
 from __future__ import annotations
 
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -29,7 +30,6 @@ from modules.music.audio_sample import extract_audio_sample
 from modules.music.clients import ReccoBeatsClient, SpotifyClient, TransientError
 from modules.music.state import (
     FEATURE_FIELDS,
-    SCOPE_FEATURES,
     SCOPE_MUSIC,
     STAGE_MUSIC_FEATURES,
     UPLOAD_FIELDS,
@@ -74,9 +74,9 @@ def _make_reccobeats(http: httpx.Client, music: MusicSettings) -> ReccoBeatsClie
     )
 
 
-def _log_batch(stage: str):
+def _log_batch(scope: str):
     def cb(i: int, n: int, m: int) -> None:
-        log(SCOPE_FEATURES, f"{stage}: batch {i}/{n} — {m} matched")
+        log(scope, "SCAN", f"batch/{i}", "ok", stats={"of": n, "matched": m})
 
     return cb
 
@@ -90,14 +90,25 @@ def _resolve_spotify_ids(session, spotify: SpotifyClient, music: MusicSettings) 
         return
 
     total = len(rows)
-    log(SCOPE_FEATURES, f"spotify: resolving {total} tracks")
+    log("features:spotify", "SCAN", "tracks", "ok", stats={"todo": total})
     found = 0
+    t_pass = time.perf_counter()
     with progress(total, "Spotify lookup") as advance:
         for i, row in enumerate(rows, 1):
+            t0 = time.perf_counter()
             try:
                 sid = spotify.search_id(row.artist, row.track)
-            except TransientError:
-                # Leave spotify_id=None so the next run retries the lookup.
+            except TransientError as exc:
+                log(
+                    "features:spotify",
+                    "GET",
+                    f"music_{row.id}",
+                    "ERR",
+                    stats={
+                        "time": time.perf_counter() - t0,
+                        "err": f"spotify transient: {exc}",
+                    },
+                )
                 advance(detail=f"{row.artist} – {row.track} (transient, retryable)")
                 if i % music.commit_every == 0:
                     session.commit()
@@ -106,17 +117,36 @@ def _resolve_spotify_ids(session, spotify: SpotifyClient, music: MusicSettings) 
                 row.spotify_id = sid
                 row.recognition_status = "matched"
                 found += 1
+                log(
+                    "features:spotify",
+                    "GET",
+                    f"music_{row.id}",
+                    "ok",
+                    stats={"time": time.perf_counter() - t0, "spotify_id": sid},
+                )
             else:
                 row.recognition_status = "no_match"
-                # spotify_id stays None
+                log(
+                    "features:spotify",
+                    "GET",
+                    f"music_{row.id}",
+                    "none",
+                    stats={"time": time.perf_counter() - t0},
+                )
             advance(detail=f"{row.artist} – {row.track}")
             if i % music.commit_every == 0:
                 session.commit()
     session.commit()
     log(
-        SCOPE_FEATURES,
-        f"spotify: done — {found} found, {total - found} no match",
-        level="ok",
+        "features:spotify",
+        "SEAL",
+        "spotify",
+        "ok",
+        stats={
+            "matched": found,
+            "no_match": total - found,
+            "time": time.perf_counter() - t_pass,
+        },
     )
 
 
@@ -138,10 +168,11 @@ def _resolve_reccobeats_ids(session, rb: ReccoBeatsClient) -> set[int]:
     if not rows:
         return set()
 
-    log(SCOPE_FEATURES, f"reccobeats_id: {len(rows)} tracks to resolve")
+    t_pass = time.perf_counter()
+    log("features:reccobeats", "SCAN", "tracks", "ok", stats={"todo": len(rows)})
     rb_id_map, exhausted_spotify_ids = rb.get_ids(
         [r.spotify_id for r in rows if r.spotify_id],
-        on_batch=_log_batch("reccobeats_id"),
+        on_batch=_log_batch("features:reccobeats"),
     )
     transient: set[int] = set()
     for row in rows:
@@ -152,10 +183,16 @@ def _resolve_reccobeats_ids(session, rb: ReccoBeatsClient) -> set[int]:
     session.commit()
     matched = sum(1 for r in rows if r.reccobeats_id is not None)
     log(
-        SCOPE_FEATURES,
-        f"reccobeats_id: done — {matched} matched, "
-        f"{len(rows) - matched - len(transient)} no match, "
-        f"{len(transient)} transient (left retryable)",
+        "features:reccobeats",
+        "SEAL",
+        "reccobeats",
+        "ok",
+        stats={
+            "matched": matched,
+            "no_match": len(rows) - matched - len(transient),
+            "transient": len(transient),
+            "time": time.perf_counter() - t_pass,
+        },
     )
     return transient
 
@@ -178,10 +215,11 @@ def _enrich_catalog_features(session, rb: ReccoBeatsClient) -> set[int]:
     if not rows:
         return set()
 
-    log(SCOPE_FEATURES, f"catalog features: {len(rows)} tracks to enrich")
+    t_pass = time.perf_counter()
+    log("features:catalog", "SCAN", "tracks", "ok", stats={"todo": len(rows)})
     feat_map, exhausted_rb_ids = rb.get_features(
         [r.reccobeats_id for r in rows if r.reccobeats_id],
-        on_batch=_log_batch("catalog features"),
+        on_batch=_log_batch("features:catalog"),
     )
     transient: set[int] = set()
     enriched = 0
@@ -199,9 +237,15 @@ def _enrich_catalog_features(session, rb: ReccoBeatsClient) -> set[int]:
                 enriched += 1
     session.commit()
     log(
-        SCOPE_FEATURES,
-        f"catalog features: done — {enriched} enriched, "
-        f"{len(transient)} transient (left retryable)",
+        "features:catalog",
+        "SEAL",
+        "catalog",
+        "ok",
+        stats={
+            "enriched": enriched,
+            "transient": len(transient),
+            "time": time.perf_counter() - t_pass,
+        },
     )
     return transient
 
@@ -247,32 +291,67 @@ def _enrich_upload_fallback(
     total = len(candidates_by_music)
 
     if total:
-        log(SCOPE_FEATURES, f"upload fallback: {total} tracks without catalog coverage")
+        log("features:upload_fb", "SCAN", "tracks", "ok", stats={"todo": total})
         enriched = 0
+        t_pass = time.perf_counter()
         video_dir_path = Path(video_dir)
         with progress(total, "Upload fallback") as advance:
             for i, (music_id, clip_ids) in enumerate(candidates_by_music.items(), 1):
                 row = session.get(Music, music_id)
                 label = f"{row.artist} – {row.track}"
+                t0 = time.perf_counter()
                 outcome = _try_candidates_for_music(
                     rb, row, clip_ids, video_dir_path, music
                 )
                 if outcome == "ok":
                     enriched += 1
+                    log(
+                        "features:upload_fb",
+                        "PUT",
+                        f"music_{music_id}",
+                        "ok",
+                        stats={"time": time.perf_counter() - t0},
+                    )
                     advance(detail=f"{label} (ok)")
                 elif outcome == "transient":
                     transient_music_ids_local.add(music_id)
+                    log(
+                        "features:upload_fb",
+                        "PUT",
+                        f"music_{music_id}",
+                        "ERR",
+                        stats={
+                            "time": time.perf_counter() - t0,
+                            "err": "RB transient (retryable)",
+                        },
+                    )
                     advance(detail=f"{label} (RB transient — left retryable)")
                 else:
+                    log(
+                        "features:upload_fb",
+                        "PUT",
+                        f"music_{music_id}",
+                        "none",
+                        stats={
+                            "time": time.perf_counter() - t0,
+                            "reason": outcome,
+                        },
+                    )
                     advance(detail=f"{label} ({outcome})")
 
                 if i % music.commit_every == 0:
                     session.commit()
         session.commit()
         log(
-            SCOPE_FEATURES,
-            f"upload fallback: done — {enriched}/{total} enriched",
-            level="ok",
+            "features:upload_fb",
+            "SEAL",
+            "upload_fb",
+            "ok",
+            stats={
+                "enriched": enriched,
+                "of": total,
+                "time": time.perf_counter() - t_pass,
+            },
         )
 
     sweep_q = session.query(Music).filter(
@@ -287,7 +366,7 @@ def _enrich_upload_fallback(
     )
     if swept:
         session.commit()
-        log(SCOPE_FEATURES, f"sweep: {swept} rows terminal-marked as False")
+        log("features", "WRITE", "music_features", "ok", stats={"rows": swept})
 
 
 def _try_candidates_for_music(
@@ -340,6 +419,7 @@ def extract_music_features(
 ) -> None:
     """Fill Spotify IDs, ReccoBeats IDs, and audio features for all linked Music rows."""
     session = get_session()
+    t_stage = time.perf_counter()
     try:
         current = fp.Fingerprint(
             data=fp.hash_text(""),
@@ -352,7 +432,7 @@ def extract_music_features(
             SCOPE_MUSIC,
             current,
             reset_music_features,
-            log_scope=SCOPE_FEATURES,
+            log_scope="features",
             drift_msg="resetting feature columns",
         )
 
@@ -372,5 +452,12 @@ def extract_music_features(
 
         fp.mark_complete(session, STAGE_MUSIC_FEATURES, SCOPE_MUSIC, current)
         session.commit()
+        log(
+            "features",
+            "SEAL",
+            "features",
+            "ok",
+            stats={"time": time.perf_counter() - t_stage},
+        )
     finally:
         session.close()

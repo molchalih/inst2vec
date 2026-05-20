@@ -23,13 +23,9 @@ def _make_settings(**overrides):
     return SimpleNamespace(**defaults)
 
 
-def _make_full_settings(*, gemini_enabled: bool = False, **overrides):
-    """Full-shape settings namespace (validation + embeddings) for
-    validate_clustering, which now reads default_cases(settings)."""
-    return SimpleNamespace(
-        validation=_make_settings(**overrides),
-        embeddings=SimpleNamespace(gemini_enabled=gemini_enabled),
-    )
+def _make_full_settings(**overrides):
+    """Settings namespace (validation knobs) for validate_clustering tests."""
+    return SimpleNamespace(validation=_make_settings(**overrides))
 
 
 def _make_engine():
@@ -233,7 +229,7 @@ def test_validate_clustering_phase_order(monkeypatch):
 
     from modules.clustering.validation import validate_clustering
 
-    validate_clustering(_make_full_settings())
+    validate_clustering(_make_full_settings(), cases=("video",))
 
     video_seq = [(op, c) for op, c in sequence if c == "video"]
 
@@ -350,7 +346,7 @@ def _seed_validate_dataset() -> object:
 
     _seed_search_dataset()
     search_settings = _make_minimal_search_settings()
-    run_cluster_search(search_settings)
+    run_cluster_search(search_settings, cases=("video",))
     return SimpleNamespace(
         validation=SimpleNamespace(
             max_noise_ratio=0.9,
@@ -358,7 +354,6 @@ def _seed_validate_dataset() -> object:
             max_clusters=20,
             plateau_drop_threshold=0.05,
         ),
-        embeddings=SimpleNamespace(gemini_enabled=False),
     )
 
 
@@ -368,7 +363,7 @@ def test_validate_unchanged_fingerprint_skips_recomputation(monkeypatch):
     from modules.clustering import validation as validation_mod
 
     settings = _seed_validate_dataset()
-    validate_clustering(settings)
+    validate_clustering(settings, cases=("video",))
 
     calls = []
     original = validation_mod._compute_row_scores
@@ -378,7 +373,7 @@ def test_validate_unchanged_fingerprint_skips_recomputation(monkeypatch):
         return original(*args, **kwargs)
 
     monkeypatch.setattr(validation_mod, "_compute_row_scores", spy)
-    validate_clustering(settings)
+    validate_clustering(settings, cases=("video",))
     assert calls == []  # no rescoring happened
 
 
@@ -388,7 +383,7 @@ def test_validate_changed_config_invalidates_and_rewrites_fields():
     from modules.clustering import validate_clustering
 
     settings = _seed_validate_dataset()
-    validate_clustering(settings)
+    validate_clustering(settings, cases=("video",))
 
     # Mark a row's fields as sentinels so we can detect overwrites.
     session = get_session()
@@ -410,9 +405,8 @@ def test_validate_changed_config_invalidates_and_rewrites_fields():
             max_clusters=settings.validation.max_clusters,
             plateau_drop_threshold=0.20,
         ),
-        embeddings=SimpleNamespace(gemini_enabled=False),
     )
-    validate_clustering(changed)
+    validate_clustering(changed, cases=("video",))
 
     session = get_session()
     try:
@@ -430,7 +424,7 @@ def test_validate_passes_validation_semantics_pending_pass_fail():
     from modules.clustering import validate_clustering
 
     settings = _seed_validate_dataset()
-    validate_clustering(settings)
+    validate_clustering(settings, cases=("video",))
 
     session = get_session()
     try:
@@ -456,7 +450,7 @@ def test_validate_score_value_error_marks_false(monkeypatch):
         return "value_error"
 
     monkeypatch.setattr(validation_mod, "_compute_row_scores", boom)
-    validate_clustering(settings)
+    validate_clustering(settings, cases=("video",))
 
     session = get_session()
     try:

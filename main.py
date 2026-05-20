@@ -1,5 +1,12 @@
-from core.config import load_runtime_config
-from core.console import phase, startup
+from core.splash import boot
+
+boot()
+
+# ruff: noqa: E402
+from collections.abc import Callable
+
+from core.config import Secrets, Settings, load_runtime_config
+from core.console import phase, pipeline
 from core.database import init_db
 from modules import (
     captions,
@@ -11,121 +18,62 @@ from modules import (
     speech,
     upload,
 )
+from modules.embeddings.cases import default_cases
+
+
+def _init_db_stage(_settings: Settings, secrets: Secrets) -> None:
+    init_db(secrets.database_url, secrets.identity_db_url)
+
+
+# Pipeline DAG (upstream → downstream, by Fingerprint.dependency edges):
+#   Database             : —
+#   Importing            : Database
+#   Profile Parsing      : Importing
+#   Processing Dataset   : Profile Parsing
+#   Download             : Processing Dataset
+#   Upload               : Download
+#   Audio extraction     : Download
+#   Music fingerprinting : Audio extraction
+#   Music features       : Music fingerprinting
+#   Speech               : Audio extraction
+#   Captions             : Profile Parsing
+#   Clip Embeddings      : Speech, Captions, Music (case-dependent)
+#   User Embeddings      : Clip Embeddings
+#   Cluster Search       : User Embeddings
+#   Cluster Validation   : Cluster Search
+#   Clustering           : Cluster Validation
+# Reorder = noisy fingerprint resets on the next run, not data loss.
+def _stages(
+    cases: tuple[str, ...],
+) -> list[tuple[str, Callable[[Settings, Secrets], None]]]:
+    return [
+        ("Database", _init_db_stage),
+        ("Importing", ingest.run_seed),
+        ("Profile Parsing", ingest.run_profiles),
+        ("Processing Dataset", filter.run),
+        ("Download", ingest.run_download),
+        ("Upload", upload.run),
+        ("Audio extraction", ingest.run_audio),
+        ("Music fingerprinting", music.run_classify),
+        ("Music feature extraction", music.run_features),
+        ("Speech transcription", speech.run),
+        ("Captions translation", captions.run),
+        ("Clip Embeddings", embeddings.run_clip),
+        ("User Embeddings", embeddings.run_users),
+        ("Cluster Search", lambda s, x: clustering.run_search(s, x, cases)),
+        ("Cluster Validation", lambda s, x: clustering.run_validation(s, x, cases)),
+        ("Clustering", lambda s, x: clustering.run_assign(s, x, cases)),
+    ]
 
 
 def run_pipeline() -> None:
-
     settings, secrets = load_runtime_config()
-
-    startup()
-
-    """
-    0. DATABASE: initializes the databases (identity and main). Populate / seed from .csv if neccessary.
-    """
-    phase("Database")
-    init_db(secrets.database_url, secrets.identity_db_url)
-
-    phase("Importing")
-    ingest.run_seed(settings, secrets)
-
-    """
-    1. PARSING: fetches profiles and corresponding clips metadata via hiker api, populates the database.
-    a) fetch_profiles: fetches profiles and corresponding clips metadata, populates the database.
-    b) fetch_clips: fetches clips metadata, populates the database.
-    """
-    phase("Profile Parsing")
-    ingest.run_profiles(settings, secrets)
-
-    """
-    2. PROCESSING: Filters low quality and unwanted clips, randomly selects appropriate ones. Generates statistics.
-    a) hard: flags low quality clips and those that don't meet the basic policy.
-    b) soft: flags clips that are outliers in the dataset.
-    c) random: randomly selects clips from the remaining pool.
-    """
-    phase("Processing Dataset")
-    filter.run(settings, secrets)
-
-    """
-    3. DOWNLOADING: downloads profile pics, videos and thumbnails of the filtered profiles.
-    """
-    phase("Download")
-    ingest.run_download(settings, secrets)
-
-    """
-    3.5 UPLOAD: pushes selected+downloaded videos to the object store so the
-    remote embedder GPU pod can fetch them. No-op when storage.bucket is unset.
-    """
-    phase("Upload")
-    upload.run(settings, secrets)
-
-    """
-    3.6 AUDIO EXTRACTION: extracts and fingerprints mp3 audio from downloaded
-    videos. Always runs; idempotent via fingerprint seal + per-file mtime.
-    """
-    phase("Audio extraction")
-    ingest.run_audio(settings, secrets)
-
-    """
-    4.1 MUSIC: fingerprints the music in videos.
-    """
-    phase("Music fingerprinting")
-    music.run_classify(settings, secrets)
-
-    """
-    4.2. MUSIC: extracts the music features (its textual representation).
-    """
-    phase("Music feature extraction")
-    music.run_features(settings, secrets)
-
-    """
-    5. SPEECH: transcribes speech with Whisper (writes is_speech_detected),
-       translates detected non-English speech, then post-cleans
-       hallucination-marker translations.
-    """
-    phase("Speech transcription")
-    speech.run(settings, secrets)
-
-    """
-    6. CAPTIONS: translates applicable captions.
-    """
-    phase("Captions translation")
-    captions.run(settings, secrets)
-
-    """
-    7. EMBEDDINGS: embeds the features into a vector space (various modalities).
-    - video: only video
-    - sandwich: video + music features
-    - audio: only audio
-    """
-    phase("Clip Embeddings")
-    embeddings.run_clip(settings, secrets)
-
-    """
-    8. USER EMBEDDINGS: calculates the average embedding of the clips belonging to a user, generating a user-level representation.
-    """
-    phase("User Embeddings")
-    # Aggregate every case that downstream clustering will request, so
-    # gemini (when embeddings.gemini_enabled=true) produces UserEmbedding
-    # rows and is not silently sealed as an empty matrix.
-    embeddings.run_users(settings, secrets)
-
-    """
-    9. CLUSTER SEARCH: UMAP + HDBSCAN grid search over hyperparameters.
-    """
-    phase("Cluster Search")
-    clustering.run_search(settings, secrets)
-
-    """
-    10. CLUSTER VALIDATION: DBCV + silhouette scoring with plateau detection.
-    """
-    phase("Cluster Validation")
-    clustering.run_validation(settings, secrets)
-
-    """
-    11. CLUSTERING: assign final cluster labels using the best run per case.
-    """
-    phase("Clustering")
-    clustering.run_assign(settings, secrets)
+    cases = default_cases(settings)
+    stages = _stages(cases)
+    with pipeline(total_stages=len(stages)):
+        for name, fn in stages:
+            phase(name)
+            fn(settings, secrets)
 
 
 if __name__ == "__main__":

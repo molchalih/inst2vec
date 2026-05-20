@@ -9,6 +9,8 @@ from core.database.identity import (  # noqa: F401  -- re-exports for core.datab
     ClipIdentity,
     IdentityBase,
     UserIdentity,
+    allocate_clip_identity,
+    allocate_user_identity,
     get_api_pk,
     get_or_create_clip_identity,
     get_or_create_user_identity,

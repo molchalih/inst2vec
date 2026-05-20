@@ -12,13 +12,21 @@ Per case the stage:
   6. Embeds that subset, committing each row as it succeeds.
   7. Seals the fingerprint only when zero clips failed; partial failure
      leaves the stage unsealed so the next run retries only the missing ones.
+
+Per-clip failures (e.g. ``process_vision_info`` raising on a corrupt
+video, or a network error from a remote provider) propagate from the
+provider into ``_dispatch_embedding_jobs``, which logs at ``warn``,
+counts the failure, and yields ``(clip_id, None, None)``. The runner skips
+the row and refuses to seal — the next run will retry just those
+clips. Failed clips are NOT replaced with placeholder embeddings.
 """
 
 from __future__ import annotations
 
 import os
+import time
 from collections.abc import Callable, Iterator
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 
 from core import fingerprint as fp
 from core.console import log, progress
@@ -56,39 +64,58 @@ def _dispatch_embedding_jobs(
     jobs: list[dict],
     embed_fn: Callable[[dict], tuple[int, bytes | None]],
     inflight: int,
-) -> Iterator[tuple[int, bytes | None]]:
+    log_tag: str = "embed",
+) -> Iterator[tuple[int, bytes | None, float | None]]:
     """Run ``embed_fn`` over ``jobs`` with bounded concurrency.
 
-    Yields (clip_id, blob_or_none) as each future resolves, in completion
-    order (not submission order). When ``inflight == 1`` behavior is
-    sequential and order-preserving relative to ``jobs``.
-
-    Exceptions inside ``embed_fn`` are caught and converted to
-    ``(clip_id, None)`` so the runner's main-thread loop can advance
-    progress and account for failures uniformly. The exception is
-    logged at warn level so operators see the failure cause; the loop
-    continues.
+    Yields ``(clip_id, blob_or_none, elapsed_seconds_or_none)``. On
+    success, ``elapsed`` is the wall time spent inside ``embed_fn``.
+    On exception, the dispatcher logs and yields ``(clip_id, None, None)``.
     """
     if inflight <= 1:
         for job in jobs:
+            t0 = time.perf_counter()
             try:
-                yield embed_fn(job)
+                clip_id, blob = embed_fn(job)
             except Exception as exc:
                 clip_id = job.get("clip_id", -1)
-                log("embed", f"clip {clip_id} failed: {exc!r}", level="warn")
-                yield (clip_id, None)
+                log(
+                    log_tag,
+                    "EMB",
+                    f"clip_{clip_id}",
+                    "ERR",
+                    stats={"err": repr(exc)},
+                )
+                yield (clip_id, None, None)
+                continue
+            yield (clip_id, blob, time.perf_counter() - t0)
         return
 
+    def _timed(job: dict) -> tuple[int, bytes | None, float]:
+        # Measure inside the worker so queue-wait under saturation
+        # (len(jobs) > inflight) doesn't inflate the reported time.
+        t0 = time.perf_counter()
+        clip_id, blob = embed_fn(job)
+        return clip_id, blob, time.perf_counter() - t0
+
     with ThreadPoolExecutor(max_workers=inflight) as pool:
-        futures = {pool.submit(embed_fn, job): job for job in jobs}
+        futures: dict[Future, dict] = {pool.submit(_timed, job): job for job in jobs}
         for fut in as_completed(futures):
             job = futures[fut]
             try:
-                yield fut.result()
+                clip_id, blob, elapsed = fut.result()
             except Exception as exc:
                 clip_id = job.get("clip_id", -1)
-                log("embed", f"clip {clip_id} failed: {exc!r}", level="warn")
-                yield (clip_id, None)
+                log(
+                    log_tag,
+                    "EMB",
+                    f"clip_{clip_id}",
+                    "ERR",
+                    stats={"err": repr(exc)},
+                )
+                yield (clip_id, None, None)
+                continue
+            yield (clip_id, blob, elapsed)
 
 
 def embed_clip_embeddings(
@@ -121,11 +148,7 @@ def _video_path(clip_id: int, video_dir: str) -> str:
 def _compute_fingerprint_and_per_clip(
     session, spec: EmbeddingCaseSpec, settings, candidates: list[Clip]
 ) -> tuple[fp.Fingerprint, dict[int, str]]:
-    """Return (Fingerprint, {clip_id: per_clip_source_hash}) for ``case``.
-
-    Both share the same ``dependency_rows_for_case`` source of truth so the
-    aggregate ``Fingerprint.dependency`` and the per-row hashes never drift.
-    """
+    """Return (Fingerprint, {clip_id: per_clip_source_hash}) for ``case``."""
     candidate_ids = sorted(c.id for c in candidates)
     per_clip, dep_agg = per_clip_source_hashes_and_aggregate(
         session, spec.name, candidate_ids, settings=settings
@@ -154,9 +177,7 @@ def _run_case(settings, secrets, spec: EmbeddingCaseSpec) -> None:
         )
         candidate_ids = {c.id for c in candidates}
 
-        # Sweep orphan ClipEmbedding rows for this case — clips no longer in
-        # the candidate set must not contaminate downstream aggregation. Runs
-        # unconditionally so even otherwise-sealed cases reclaim orphans.
+        # Sweep orphan ClipEmbedding rows for this case.
         orphan_q = session.query(ClipEmbedding).filter(
             ClipEmbedding.embedding_case == spec.name,
         )
@@ -165,24 +186,24 @@ def _run_case(settings, secrets, spec: EmbeddingCaseSpec) -> None:
         deleted = orphan_q.delete(synchronize_session=False)
         if deleted:
             session.commit()
-            log(log_tag, f"swept {deleted} orphan row(s)")
+            log(log_tag, "WRITE", "orphans", "ok", stats={"deleted": deleted})
 
         current, per_clip = _compute_fingerprint_and_per_clip(
             session, spec, settings, candidates
         )
         if not fp.is_stale(session, STAGE, spec.name, current):
-            log(log_tag, "fingerprint match — skipping")
+            log(log_tag, "SKIP", "fingerprint", "ok")
             return
 
         stored = session.get(StageState, (STAGE, spec.name))
         if stored is not None and stored.config_hash != current.config:
             diff = fp.describe_diff(session, STAGE, spec.name, current)
-            log(log_tag, f"config drift ({diff}) — wiping case")
+            log(log_tag, "SCAN", "fingerprint", "stale", stats={"diff": diff})
             _wipe_case(session, spec.name)
 
         embedded = get_embedded_source_hashes(session, spec.name)
         target_ids = fp.row_diff(per_clip, embedded)
-        log(log_tag, f"{len(target_ids)} clip(s) to (re-)embed")
+        log(log_tag, "SCAN", "jobs", "ok", stats={"todo": len(target_ids)})
 
         _embed_targets(
             session,
@@ -212,37 +233,18 @@ def _embed_targets(
     embedded: dict[int, str | None],
     current: fp.Fingerprint,
 ) -> None:
-    """Embed the subset of ``candidates`` whose ids are in ``target_ids``.
-
-    Writes ``source_hash`` on every merged row so future runs can diff. On
-    full success seals the stage; on any failure (or on a stale row that
-    can no longer be rebuilt) leaves stage unsealed so the next run
-    retries only the still-missing/stale clips.
-
-    ``embedded`` carries the pre-run ``clip_id → stored source_hash`` map
-    so we can distinguish two skip cases:
-
-    * **Previously embedded but now un-buildable** (video file vanished,
-      text_builder went from text → None): the existing row is stale.
-      Delete it so aggregation can't read it, and refuse to seal.
-    * **Never embedded and currently un-buildable** (e.g. an audio case
-      for a clip that has no speech): nothing stale to remove, the
-      candidate is simply non-embeddable for this case; safe to seal.
-    """
+    """Embed the subset of ``candidates`` whose ids are in ``target_ids``."""
     targets = [c for c in candidates if c.id in target_ids]
 
-    # Materialize the work list (skip clips missing video files or text).
     music_map: dict = {}
     if spec.text_builder is not None:
         music_map = get_music_map(session)
 
     video_dir = settings.paths.video_dir
-    # Only gemini reads audio_path; keep this resolution next to video_dir
-    # so the runner's settings.paths is the single source of truth for both.
     audio_dir = settings.paths.audio_dir if spec.name == "gemini" else None
     jobs: list[tuple[Clip, str | None]] = []
-    stale_skipped: list[int] = []  # had a row, can't rebuild → block sealing
-    fresh_skipped = 0  # never had a row, can't build → fine to seal
+    stale_skipped: list[int] = []
+    fresh_skipped = 0
     for clip in targets:
         had_row = clip.id in embedded
         if spec.requires_video:
@@ -264,10 +266,6 @@ def _embed_targets(
                 continue
         jobs.append((clip, text))
 
-    # Drop rows whose inputs are no longer reproducible so downstream
-    # aggregation cannot consume stale embeddings. Keep the stage
-    # unsealed for those — the inconsistency stays loud rather than
-    # silently sealed as current.
     if stale_skipped:
         session.query(ClipEmbedding).filter(
             ClipEmbedding.embedding_case == spec.name,
@@ -276,32 +274,47 @@ def _embed_targets(
         session.commit()
         log(
             log_tag,
-            f"{len(stale_skipped)} previously-embedded target(s) no longer "
-            "buildable — dropped stale row(s), leaving stage stale for retry",
-            level="warn",
+            "WRITE",
+            "stale_rows",
+            "ok",
+            stats={"dropped": len(stale_skipped)},
         )
+
+    t_stage = time.perf_counter()
 
     if not jobs:
         if stale_skipped:
+            log(
+                log_tag,
+                "SEAL",
+                "embed",
+                "stale",
+                stats={"stale": len(stale_skipped)},
+            )
             return  # do not seal — un-buildable stale targets remain unresolved
         if fresh_skipped:
             log(
                 log_tag,
-                f"{fresh_skipped} candidate(s) non-embeddable for this case "
-                "(no prior row) — sealing",
+                "SCAN",
+                "candidates",
+                "ok",
+                stats={"non_embeddable": fresh_skipped},
             )
         else:
-            log(log_tag, "nothing to embed (empty work set after filtering)")
+            log(log_tag, "SCAN", "jobs", "none")
         fp.mark_complete(session, STAGE, spec.name, current)
         session.commit()
+        log(
+            log_tag,
+            "SEAL",
+            "embed",
+            "ok",
+            stats={"done": 0, "time": time.perf_counter() - t_stage},
+        )
         return
-
-    log(log_tag, f"{len(jobs)} clips to embed")
 
     provider = spec.provider_factory(settings, secrets)
 
-    # Pre-compute per-clip sampling on the main thread (ffprobe subprocess
-    # calls are cheap and keep the worker thread closure small).
     job_specs: list[dict] = []
     clip_by_id: dict[int, Clip] = {}
     for clip, text in jobs:
@@ -320,6 +333,15 @@ def _embed_targets(
             if audio_dir is not None
             else None
         )
+        # Symmetric to the video-missing check above: a gemini job without
+        # its audio file would surface as a generic provider error. Skip
+        # instead so the runner reports a clean SKIP, not an EMB ERR.
+        if audio_path is not None and not os.path.exists(audio_path):
+            if clip.id in embedded:
+                stale_skipped.append(clip.id)
+            else:
+                fresh_skipped += 1
+            continue
         job_specs.append(
             {
                 "clip_id": clip.id,
@@ -346,9 +368,12 @@ def _embed_targets(
         return clip.id, blob
 
     failures = 0
+    succeeded = 0
     inflight = settings.embeddings.inflight
     with progress(len(jobs), f"Embedding {spec.name}") as advance:
-        for clip_id, blob in _dispatch_embedding_jobs(job_specs, _embed_job, inflight):
+        for clip_id, blob, elapsed in _dispatch_embedding_jobs(
+            job_specs, _embed_job, inflight, log_tag
+        ):
             if blob is None:
                 failures += 1
                 advance(detail=f"✗ {clip_id}")
@@ -359,20 +384,47 @@ def _embed_targets(
                 embedding=blob,
                 source_hash=per_clip[clip_id],
             )
-            session.merge(row)  # main thread, single session
+            session.merge(row)
             session.commit()
+            succeeded += 1
+            stats: dict = {"dim": len(blob) // 4}
+            if elapsed is not None:
+                stats["time"] = elapsed
+            log(
+                log_tag,
+                "EMB",
+                f"clip_{clip_id}",
+                "ok",
+                stats=stats,
+            )
             advance(detail=f"✓ {clip_id}")
 
     if failures or stale_skipped:
         log(
             log_tag,
-            f"{failures}/{len(jobs)} failed, {len(stale_skipped)} un-buildable stale — leaving stage stale for retry",
-            level="warn",
+            "SEAL",
+            "embed",
+            "stale",
+            stats={
+                "done": succeeded,
+                "err": failures,
+                "stale": len(stale_skipped),
+                "time": time.perf_counter() - t_stage,
+            },
         )
     else:
         fp.mark_complete(session, STAGE, spec.name, current)
         session.commit()
-    log(log_tag, "done", level="ok")
+        log(
+            log_tag,
+            "SEAL",
+            "embed",
+            "ok",
+            stats={
+                "done": succeeded,
+                "time": time.perf_counter() - t_stage,
+            },
+        )
 
 
 def _embed_with_token_fallback(
@@ -387,7 +439,12 @@ def _embed_with_token_fallback(
 ) -> bytes | None:
     """Run the provider once, with a descending frame-cap retry only for
     cases that opt into video token-budget fallback. Returns the float32
-    blob on success, or None if all attempts fail (next run will retry).
+    blob on success.
+
+    Non-token-budget exceptions propagate to the dispatcher so the
+    failure cause is logged per-clip. Token-mismatch errors are caught
+    only while a retry frame-cap remains; the final attempt's exception
+    also propagates.
     """
 
     def _build(cap_: int | None) -> dict:
@@ -398,10 +455,7 @@ def _embed_with_token_fallback(
 
     if not spec.apply_video_token_fallback or max_frames is None:
         payload = _build(max_frames)
-        try:
-            out = provider.embed(payload)
-        except Exception:
-            return None
+        out = provider.embed(payload)
         return to_bytes(out[0])
 
     caps = frame_retry_schedule(max_frames)
@@ -409,9 +463,9 @@ def _embed_with_token_fallback(
         payload = _build(cap)
         try:
             out = provider.embed(payload)
-            return to_bytes(out[0])
         except Exception as e:
             if is_token_mismatch_error(e) and attempt_idx < len(caps) - 1:
                 continue
-            return None
+            raise
+        return to_bytes(out[0])
     return None

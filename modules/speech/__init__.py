@@ -31,7 +31,6 @@ __all__ = [
     "classify_speech",
     "clean_speech",
     "prepare_for_whisper",
-    "process_speech",
     "run",
     "translate_speech",
 ]

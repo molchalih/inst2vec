@@ -1,14 +1,16 @@
 import csv
 import os
+import time
 from urllib.parse import urlparse
 
 from core.console import log
-from core.database import User, get_or_create_user_identity, get_session
+from core.database import User, allocate_user_identity, get_session
 
 
 def load_usernames_from_csv(csv_path: str = "data/data.csv"):
+    t0 = time.perf_counter()
     if not os.path.exists(csv_path):
-        log("database", f"data CSV not found at {csv_path!r} — skipping import")
+        log("seed", "LOAD", csv_path, "none")
         return
 
     with open(csv_path) as f:
@@ -25,19 +27,28 @@ def load_usernames_from_csv(csv_path: str = "data/data.csv"):
 
     total = len(urls)
     unique = len(usernames)
-    duplicates_in_csv = total - unique
+    log("seed", "LOAD", csv_path, "ok", stats={"rows": total, "unique": unique})
 
     session = get_session()
     loaded = 0
     for username in usernames:
-        user_id = get_or_create_user_identity(username)
-        if not session.query(User).filter_by(id=user_id).first():
+        with allocate_user_identity(username) as user_id:
+            if session.query(User).filter_by(id=user_id).first():
+                continue
             session.add(User(id=user_id))
+            session.commit()
             loaded += 1
-    session.commit()
     already_in_db = unique - loaded
     log(
-        "database",
-        f"loaded {loaded} usernames ({duplicates_in_csv} duplicates in csv, {already_in_db} already in db)",
+        "seed",
+        "WRITE",
+        "users",
+        "ok",
+        stats={
+            "new": loaded,
+            "skipped_db": already_in_db,
+            "duplicates_csv": total - unique,
+            "time": time.perf_counter() - t0,
+        },
     )
     session.close()

@@ -55,9 +55,7 @@ def _stub_translator(monkeypatch, *, translate_fn):
         ):
             return translate_fn(text, source_lang_code, target_lang_code)
 
-    monkeypatch.setattr(
-        "modules.captions.translate.GemmaTranslator", lambda model_id: _T()
-    )
+    monkeypatch.setattr("core.translate.GemmaTranslator", lambda model_id: _T())
 
 
 def test_translate_writes_translation_for_non_english(session, monkeypatch):
@@ -95,14 +93,21 @@ def test_translate_logs_failure_and_continues(session, monkeypatch):
         return "hello"
 
     _stub_translator(monkeypatch, translate_fn=fail_first)
-    logged = []
+    logged: list[tuple] = []
     monkeypatch.setattr(
-        "modules.captions.translate.log",
-        lambda scope, msg, level="info": logged.append((scope, msg, level)),
+        "core.translate.log",
+        lambda *args, **kwargs: logged.append((args, kwargs)),
     )
     translate_captions(_cfg(), engine=eng)
     row1 = s.query(Clip).filter_by(id=1).one()
     row2 = s.query(Clip).filter_by(id=2).one()
     assert row1.caption_translation is None
     assert row2.caption_translation == "hello"
-    assert any("1" in msg and "boom" in msg for _, msg, _ in logged), logged
+    assert any(
+        len(args) >= 4
+        and args[1] == "MT"
+        and args[2] == "cap_1"
+        and args[3] == "ERR"
+        and "boom" in str(kwargs.get("stats", {}).get("err", ""))
+        for args, kwargs in logged
+    ), logged

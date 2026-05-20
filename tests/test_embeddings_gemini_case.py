@@ -545,6 +545,89 @@ def test_config_drift_wipes_case(
     assert len(rows[0].embedding) == 768 * 4  # float32 = 4 bytes/element
 
 
+def _make_upload_and_embed_provider(monkeypatch, tmp_path):
+    """Shared setup for B4 cleanup tests.
+
+    Returns (provider, fake_client, deleted_list, v_path, a_path).
+    ``deleted_list`` is appended to whenever ``client.files.delete`` is called.
+    """
+    v = tmp_path / "v.mp4"
+    v.write_bytes(b"v")
+    a = tmp_path / "a.mp3"
+    a.write_bytes(b"a")
+
+    monkeypatch.setattr(
+        "modules.embeddings.gemini.probe_duration_seconds",
+        lambda p, *, strict=False: 10.0,
+    )
+
+    deleted: list[str] = []
+
+    upload_video = MagicMock(name="files/abc")
+    upload_video.name = "files/abc"
+    upload_audio = MagicMock(name="files/def")
+    upload_audio.name = "files/def"
+
+    fake_client = MagicMock()
+    fake_client.files.upload.side_effect = [upload_video, upload_audio]
+    fake_client.files.delete.side_effect = lambda name: deleted.append(name)
+
+    provider = GeminiMultimodalProvider(
+        api_key="x",
+        model="m",
+        output_dim=3072,
+        max_video_seconds=120,
+        max_audio_seconds=80,
+        request_timeout_s=10,
+        max_retries=0,
+        client=fake_client,
+    )
+    monkeypatch.setattr(
+        GeminiMultimodalProvider,
+        "_build_request",
+        lambda self, t, v_file, a_file: ([t, "vp", "ap"], {"dim": self.output_dim}),
+    )
+    return provider, fake_client, deleted, str(v), str(a)
+
+
+def test_files_delete_called_on_success(monkeypatch, tmp_path):
+    """B4: successful embed deletes both uploaded files."""
+    provider, fake_client, deleted, v, a = _make_upload_and_embed_provider(
+        monkeypatch, tmp_path
+    )
+
+    fake_embed = MagicMock()
+    fake_embed.values = [0.1] * 3072
+    fake_response = MagicMock()
+    fake_response.embeddings = [fake_embed]
+    fake_client.models.embed_content.return_value = fake_response
+
+    out = provider.embed({"video_path": v, "audio_path": a, "text": "t"})
+    assert len(out) == 1
+    assert set(deleted) == {"files/abc", "files/def"}
+
+
+def test_files_delete_called_on_embed_failure(monkeypatch, tmp_path):
+    """B4: embed exception still deletes both uploaded files before propagating."""
+    provider, fake_client, deleted, v, a = _make_upload_and_embed_provider(
+        monkeypatch, tmp_path
+    )
+
+    # Reset uploads so the failure path gets fresh file handles with known names.
+    upload_video = MagicMock()
+    upload_video.name = "files/abc"
+    upload_audio = MagicMock()
+    upload_audio.name = "files/def"
+    fake_client.files.upload.side_effect = [upload_video, upload_audio]
+
+    fake_client.models.embed_content.side_effect = RuntimeError("embed boom")
+
+    with pytest.raises(RuntimeError, match="embed boom"):
+        provider.embed({"video_path": v, "audio_path": a, "text": "t"})
+
+    assert set(deleted) == {"files/abc", "files/def"}
+
+
 def test_per_clip_diff_re_embeds_only_touched_clip(
     tmp_path, db_session, monkeypatch, sample_mp4_with_audio
 ):

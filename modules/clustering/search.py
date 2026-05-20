@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import time
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from itertools import product
@@ -25,7 +26,6 @@ from modules.clustering.core import (
     compute_clusters,
     load_user_matrix,
 )
-from modules.embeddings.cases import default_cases
 
 STAGE = Stage.CLUSTER_SEARCH
 
@@ -125,18 +125,21 @@ def _combo_to_row(combo: dict, result) -> ClusterRun:
     )
 
 
-def run_cluster_search(settings: Settings, clustering_grid_workers: int = 1) -> None:
+def run_cluster_search(
+    settings: Settings,
+    cases: tuple[str, ...],
+    clustering_grid_workers: int = 1,
+) -> None:
     """Run grid search over hyperparameter combos per embedding case.
 
     Idempotent via modules.fingerprint: fingerprint per case, wipe scoped
     rows on stale, run full grid in memory, bulk-insert, mark_complete.
     Long compute runs outside the write transaction.
 
-    ``settings`` is the full runtime settings object (so we can read
-    ``settings.embeddings.gemini_enabled`` via ``default_cases``) and
-    grid hyperparameters from ``settings.search``.
+    ``cases`` is the tuple of embedding case names to search over (e.g.
+    ``("video", "sandwich", "audio")``).  Grid hyperparameters are read
+    from ``settings.search``.
     """
-    cases = default_cases(settings)
     combos = _load_grid(settings.search, cases=cases)
     grid_workers = max(1, clustering_grid_workers)
 
@@ -154,17 +157,19 @@ def run_cluster_search(settings: Settings, clustering_grid_workers: int = 1) -> 
         finally:
             session.close()
 
+        scope = f"search:{case}"
         if not stale:
-            log(f"cluster_search:{case}", "fingerprint match — skipping")
+            log(scope, "SKIP", "fingerprint", "ok")
             continue
 
-        log(f"cluster_search:{case}", f"stale ({diff}) — recomputing")
+        log(scope, "SCAN", "fingerprint", "stale", stats={"diff": diff})
 
         # 2. load inputs (read-only)
         matrix, _ = load_user_matrix(case)
 
         # 3. compute outside any write transaction
         new_rows: list[ClusterRun] = []
+        t_stage = time.perf_counter()
         if matrix.shape[0] > 0:
             with progress(len(case_combos), f"cluster search · {case}") as advance:
                 if grid_workers == 1:
@@ -174,24 +179,50 @@ def run_cluster_search(settings: Settings, clustering_grid_workers: int = 1) -> 
                             f"nn={combo['umap_n_neighbors']} "
                             f"mcs={combo['hdbscan_min_cluster_size']}"
                         )
+                        target = (
+                            f"n={combo['umap_n_neighbors']},"
+                            f"mcs={combo['hdbscan_min_cluster_size']}"
+                        )
                         p = {k: v for k, v in combo.items() if k != "embedding_case"}
+                        t0 = time.perf_counter()
                         try:
                             result = compute_clusters(matrix, **p)
                         except ValueError as exc:
                             log(
-                                f"cluster_search:{case}",
-                                f"skipping — {exc}",
-                                level="warn",
+                                scope,
+                                "FIT",
+                                target,
+                                "ERR",
+                                stats={
+                                    "time": time.perf_counter() - t0,
+                                    "err": str(exc),
+                                },
                             )
                             advance(1, detail=f"{short} | skip {str(exc)[:48]}")
                             continue
                         new_rows.append(_combo_to_row(combo, result))
+                        log(
+                            scope,
+                            "FIT",
+                            target,
+                            "ok",
+                            stats={
+                                "time": time.perf_counter() - t0,
+                                "k": result.n_clusters,
+                                "noise": round(result.noise_ratio, 3),
+                            },
+                        )
                         advance(1, detail=f"{short} | k={result.n_clusters}")
                 else:
 
                     def run_one(c: dict, *, _matrix=matrix):
                         p = {k: v for k, v in c.items() if k != "embedding_case"}
-                        return c, compute_clusters(_matrix, **p)
+                        t = time.perf_counter()
+                        return (
+                            c,
+                            compute_clusters(_matrix, **p),
+                            time.perf_counter() - t,
+                        )
 
                     with ThreadPoolExecutor(max_workers=grid_workers) as ex:
                         futures = {ex.submit(run_one, c): c for c in case_combos}
@@ -202,24 +233,39 @@ def run_cluster_search(settings: Settings, clustering_grid_workers: int = 1) -> 
                                 f"nn={combo['umap_n_neighbors']} "
                                 f"mcs={combo['hdbscan_min_cluster_size']}"
                             )
+                            target = (
+                                f"n={combo['umap_n_neighbors']},"
+                                f"mcs={combo['hdbscan_min_cluster_size']}"
+                            )
                             try:
-                                c_done, result = fut.result()
+                                c_done, result, duration = fut.result()
                             except ValueError as exc:
                                 log(
-                                    f"cluster_search:{case}",
-                                    f"skipping — {exc}",
-                                    level="warn",
+                                    scope,
+                                    "FIT",
+                                    target,
+                                    "ERR",
+                                    stats={"err": str(exc)},
                                 )
                                 advance(1, detail=f"{short} | skip {str(exc)[:48]}")
                                 continue
                             new_rows.append(_combo_to_row(c_done, result))
+                            log(
+                                scope,
+                                "FIT",
+                                target,
+                                "ok",
+                                stats={
+                                    "time": duration,
+                                    "k": result.n_clusters,
+                                    "noise": round(result.noise_ratio, 3),
+                                },
+                            )
                             advance(1, detail=f"{short} | k={result.n_clusters}")
         else:
-            log(f"cluster_search:{case}", "no analysis embeddings — sealing empty")
+            log(scope, "SCAN", "embeddings", "none")
 
         # 4. short write section
-        # Open write session only after compute completes — long UMAP/HDBSCAN
-        # work must not run inside an open write transaction.
         session = get_session()
         try:
             session.query(ClusterRun).filter(ClusterRun.embedding_case == case).delete()
@@ -229,4 +275,13 @@ def run_cluster_search(settings: Settings, clustering_grid_workers: int = 1) -> 
             session.commit()
         finally:
             session.close()
-        log(f"cluster_search:{case}", "done", level="ok")
+        log(
+            scope,
+            "SEAL",
+            "search",
+            "ok",
+            stats={
+                "runs": len(new_rows),
+                "time": time.perf_counter() - t_stage,
+            },
+        )

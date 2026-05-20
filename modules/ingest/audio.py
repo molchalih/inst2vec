@@ -4,16 +4,26 @@ from __future__ import annotations
 
 import contextlib
 import os
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import NamedTuple
 
 from core import fingerprint as fp
 from core.console import log, progress
 from core.database import Clip, get_session
-from core.ffmpeg import run_ffmpeg
+from core.ffmpeg import has_audio_stream, run_ffmpeg
 from core.pipeline import Stage
 
 AUDIO_EXTRACT_STAGE = Stage.AUDIO_EXTRACT
 AUDIO_EXTRACT_SCOPE = "default"
+SCOPE = "audio"
+
+
+class ExtractResult(NamedTuple):
+    ok: bool
+    duration: float
+    size: int | None
+    err: str | None
 
 
 def extract_audio(
@@ -23,26 +33,22 @@ def extract_audio(
     bitrate_kbps: int,
     sample_rate_hz: int,
     timeout_s: int,
-) -> bool:
-    """Extract mp3 audio from ``video_path`` to ``audio_path``.
-
-    Idempotent: returns True without invoking ffmpeg when ``audio_path``
-    exists and is at least as new as ``video_path``.
-    """
+) -> ExtractResult:
+    """Extract mp3 audio from ``video_path`` to ``audio_path``."""
+    t0 = time.perf_counter()
     if (
         os.path.exists(audio_path)
         and os.path.exists(video_path)
         and os.path.getmtime(audio_path) >= os.path.getmtime(video_path)
     ):
-        return True
+        return ExtractResult(
+            ok=True,
+            duration=time.perf_counter() - t0,
+            size=os.path.getsize(audio_path),
+            err=None,
+        )
     os.makedirs(os.path.dirname(audio_path) or ".", exist_ok=True)
-    # Write to a temp path and only replace ``audio_path`` on success so a
-    # timeout / non-zero ffmpeg leaves no truncated mp3 behind. Without this,
-    # the mtime short-circuit above would treat a partial file as fresh and
-    # extract_audio_stage would seal over corrupt input.
     tmp = audio_path + ".part"
-    # Pass ``-f mp3`` because the temp filename doesn't end in .mp3 and ffmpeg
-    # otherwise infers the container from the extension.
     cmd = [
         "ffmpeg",
         "-y",
@@ -62,11 +68,21 @@ def extract_audio(
     ok = run_ffmpeg(cmd, timeout=timeout_s)
     if ok:
         os.replace(tmp, audio_path)
-        return True
+        return ExtractResult(
+            ok=True,
+            duration=time.perf_counter() - t0,
+            size=os.path.getsize(audio_path),
+            err=None,
+        )
     if os.path.exists(tmp):
         with contextlib.suppress(OSError):
             os.remove(tmp)
-    return False
+    return ExtractResult(
+        ok=False,
+        duration=time.perf_counter() - t0,
+        size=None,
+        err="ffmpeg failed or timed out",
+    )
 
 
 def extract_audio_stage(settings) -> None:
@@ -83,7 +99,7 @@ def extract_audio_stage(settings) -> None:
             .all()
         )
         if not clips:
-            log(AUDIO_EXTRACT_STAGE, "no downloaded clips — nothing to do")
+            log(SCOPE, "SCAN", "clips", "none")
             return
 
         ids = [c.id for c in clips]
@@ -102,25 +118,15 @@ def extract_audio_stage(settings) -> None:
             ),
         )
         if not fp.is_stale(session, AUDIO_EXTRACT_STAGE, AUDIO_EXTRACT_SCOPE, current):
-            # The fingerprint only hashes video stats, so deleting / truncating
-            # an mp3 after a seal would not flip is_stale. Verify outputs exist
-            # before trusting the seal; if anything is missing fall through and
-            # re-extract (extract_audio is idempotent on intact outputs).
-            missing = [c.id for c in clips if not paths.audio_for(c.id).exists()]
-            if not missing:
-                log(AUDIO_EXTRACT_STAGE, "fingerprint match — skipping")
-                return
-            log(
-                AUDIO_EXTRACT_STAGE,
-                f"fingerprint match but {len(missing)} mp3 output(s) missing "
-                "— re-extracting",
-                level="warn",
-            )
+            log(SCOPE, "SKIP", "fingerprint", "ok")
+            return
 
         failures = 0
+        skipped = 0
         bitrate = settings.audio_extraction.audio_bitrate_kbps
         sr = settings.audio_extraction.audio_sample_rate_hz
         timeout_s = settings.audio_extraction.audio_extract_timeout_s
+        t_stage = time.perf_counter()
         with (
             progress(len(clips), "Extracting audio") as advance,
             ThreadPoolExecutor(max_workers=settings.download.concurrency) as pool,
@@ -131,7 +137,25 @@ def extract_audio_stage(settings) -> None:
                 audio_path = str(paths.audio_for(clip.id))
                 if not os.path.exists(video_path):
                     failures += 1
+                    log(
+                        SCOPE,
+                        "EXTRACT",
+                        f"clip_{clip.id}.mp3",
+                        "ERR",
+                        stats={"err": "no video on disk"},
+                    )
                     advance(detail=f"✗ {clip.id} (no video)")
+                    continue
+                if not has_audio_stream(video_path):
+                    skipped += 1
+                    log(
+                        SCOPE,
+                        "EXTRACT",
+                        f"clip_{clip.id}.mp3",
+                        "none",
+                        stats={"reason": "no audio stream"},
+                    )
+                    advance(detail=f"⊘ {clip.id} (no audio)")
                     continue
                 fut = pool.submit(
                     extract_audio,
@@ -145,22 +169,59 @@ def extract_audio_stage(settings) -> None:
 
             for fut in as_completed(future_to_id):
                 cid = future_to_id[fut]
-                ok = fut.result()
-                if ok:
+                result = fut.result()
+                if result.ok:
+                    log(
+                        SCOPE,
+                        "EXTRACT",
+                        f"clip_{cid}.mp3",
+                        "ok",
+                        stats={
+                            "time": result.duration,
+                            "size": result.size or 0,
+                        },
+                    )
                     advance(detail=f"✓ {cid}")
                 else:
                     failures += 1
+                    log(
+                        SCOPE,
+                        "EXTRACT",
+                        f"clip_{cid}.mp3",
+                        "ERR",
+                        stats={
+                            "time": result.duration,
+                            "err": result.err or "unknown",
+                        },
+                    )
                     advance(detail=f"✗ {cid}")
 
         if failures == 0:
             fp.mark_complete(session, AUDIO_EXTRACT_STAGE, AUDIO_EXTRACT_SCOPE, current)
             session.commit()
-            log(AUDIO_EXTRACT_STAGE, "done", level="ok")
+            log(
+                SCOPE,
+                "SEAL",
+                "audio",
+                "ok",
+                stats={
+                    "done": len(clips) - skipped,
+                    "skipped": skipped,
+                    "time": time.perf_counter() - t_stage,
+                },
+            )
         else:
             log(
-                AUDIO_EXTRACT_STAGE,
-                f"{failures}/{len(clips)} failed — leaving stage stale for retry",
-                level="warn",
+                SCOPE,
+                "SEAL",
+                "audio",
+                "stale",
+                stats={
+                    "done": len(clips) - failures - skipped,
+                    "skipped": skipped,
+                    "err": failures,
+                    "time": time.perf_counter() - t_stage,
+                },
             )
     finally:
         session.close()

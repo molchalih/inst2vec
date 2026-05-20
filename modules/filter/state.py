@@ -31,7 +31,7 @@ USER_EXCLUSION_FLAGS: tuple[str, ...] = (
 )
 
 
-def _reset_dataset_processing_state(session: Session) -> None:
+def reset_dataset_processing_state(session: Session) -> None:
     for clip in session.query(Clip).all():
         clip.is_garbage = None
         clip.is_too_short = None

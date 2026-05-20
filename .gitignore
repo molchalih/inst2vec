@@ -18,6 +18,12 @@ docs/index.quarto_ipynb*
 docs/refs/
 docs/DataCollectionNotice_FGW-9358_2026.pdf
 
+# Local TUI prototypes (scratch — to be removed)
+docs/dynamic_progress.py
+docs/jobs.py
+docs/log.py
+docs/screen.py
+
 # Paper sources & renders — kept locally only, never tracked
 docs/index.qmd
 docs/index.pdf

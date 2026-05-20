@@ -124,3 +124,22 @@ def test_sweep_orphans_deletes_orphan_clip_identity():
     with get_identity_session() as s:
         assert s.get(ClipIdentity, orphan_clip_id) is None
         assert s.get(ClipIdentity, matched_clip_id) is not None
+
+
+def test_init_db_calls_sweep_orphans(monkeypatch, tmp_path) -> None:
+    """init_db must auto-sweep orphans on every pipeline boot."""
+    from core.database import identity, init_db
+
+    calls: list[str] = []
+
+    def fake_sweep() -> dict[str, int]:
+        calls.append("called")
+        return {"users_swept": 0, "clips_swept": 0}
+
+    monkeypatch.setattr(identity, "sweep_orphans", fake_sweep)
+
+    db_url = f"sqlite:///{tmp_path}/main.db"
+    id_url = f"sqlite:///{tmp_path}/identity.db"
+    init_db(db_url, id_url)
+
+    assert calls == ["called"]

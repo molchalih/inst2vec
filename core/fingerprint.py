@@ -5,6 +5,25 @@ dependency) on entry and asks ``is_stale`` whether its stored
 counterpart still matches. On mismatch the stage wipes its outputs for
 the scope, recomputes, and calls ``mark_complete``. The stage commits
 its own transaction; ``mark_complete`` only merges.
+
+Three canonical patterns
+------------------------
+
+1. **Config-only + ``fp.gate``.** ``data=""``, ``dependency=""``,
+   ``config=hash(payload)``. The stage uses row-level predicates to
+   find unfinished work; config drift wipes outputs via the
+   ``on_drift`` callback. Canonical: ``modules/music/classify.py``,
+   ``modules/captions/__init__.py``, ``modules/speech/__init__.py``.
+
+2. **Full triple + ``fp.is_stale``.** All three fields hashed. A
+   staleness check either resets and reruns the entire scope or
+   skips it. Canonical: ``modules/filter/__init__.py``,
+   ``modules/ingest/audio.py``, ``modules/clustering/*``.
+
+3. **Per-item source hash overlay.** Pattern (2) plus a per-row
+   source hash persisted alongside the output, gating individual
+   re-computation when a row's inputs change without invalidating
+   the whole scope. Canonical: ``modules/embeddings/runner.py``.
 """
 
 from __future__ import annotations
@@ -117,13 +136,13 @@ def gate(
     """
     stored = session.get(StageState, (stage, scope))
     if stored is None:
-        log(log_scope, "no prior state — sealing on completion")
+        log(log_scope, "SCAN", "fingerprint", "none")
     elif stored.config_hash != current.config:
         diff = describe_diff(session, stage, scope, current)
-        log(log_scope, f"config drift ({diff}) — {drift_msg}")
+        log(log_scope, "SCAN", "fingerprint", "stale", stats={"diff": diff})
         on_drift(session)
     else:
-        log(log_scope, "fingerprint match — skipping reset")
+        log(log_scope, "SKIP", "fingerprint", "ok")
 
 
 def describe_diff(

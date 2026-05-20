@@ -20,7 +20,6 @@ from core.database import (
 )
 from modules.music.clients import TransientError
 from modules.music.state import (
-    SCOPE_CLASSIFY,
     SCOPE_MUSIC,
     STAGE_MUSIC_CLASSIFY,
     classify_config_payload,
@@ -121,7 +120,7 @@ def classify_music(
         SCOPE_MUSIC,
         current,
         reset_music_classify,
-        log_scope=SCOPE_CLASSIFY,
+        log_scope="acr",
         drift_msg="resetting music classify outputs",
     )
 
@@ -148,17 +147,26 @@ def classify_music(
             "timeout": 10,
         }
     )
-    log(SCOPE_CLASSIFY, f"{len(clips)} clips to fingerprint")
+    log("acr", "SCAN", "clips", "ok", stats={"todo": len(clips)})
     matched = no_match = missing = 0
+    t_stage = time.perf_counter()
 
     with progress(len(clips), "Fingerprinting") as advance:
         for i, clip in enumerate(clips, 1):
             path = paths.video_for(clip.id)
             if not path.exists():
                 missing += 1
+                log(
+                    "acr",
+                    "ID",
+                    f"clip_{clip.id}",
+                    "ERR",
+                    stats={"err": "video missing on disk"},
+                )
                 advance()
                 continue
 
+            t0 = time.perf_counter()
             try:
                 result = _fingerprint(
                     acr,
@@ -168,11 +176,18 @@ def classify_music(
                     retry_delay=music.api_retry_delay,
                     retry_jitter=music.api_retry_jitter,
                 )
-            except TransientError:
-                # Leave is_music_recognized=None so the next run retries.
-                # Counter is bumped under the "missing/transient" label so the
-                # summary doesn't conflate transient errors with clean no-match.
+            except TransientError as exc:
                 missing += 1
+                log(
+                    "acr",
+                    "ID",
+                    f"clip_{clip.id}",
+                    "ERR",
+                    stats={
+                        "time": time.perf_counter() - t0,
+                        "err": f"acr transient: {exc}",
+                    },
+                )
                 advance(detail=f"{clip.id}: ACR transient (left retryable)")
                 if i % music.commit_every == 0:
                     session.commit()
@@ -185,10 +200,28 @@ def classify_music(
                 clip.music_confidence = confidence
                 clip.is_music_recognized = True
                 matched += 1
+                log(
+                    "acr",
+                    "ID",
+                    f"clip_{clip.id}",
+                    "ok",
+                    stats={
+                        "time": time.perf_counter() - t0,
+                        "conf": round(confidence, 2),
+                        "track": f"{artist} – {track}",
+                    },
+                )
                 advance(detail=f"{clip.id}: {artist} – {track} ({confidence:.0%})")
             else:
                 clip.is_music_recognized = False
                 no_match += 1
+                log(
+                    "acr",
+                    "ID",
+                    f"clip_{clip.id}",
+                    "none",
+                    stats={"time": time.perf_counter() - t0},
+                )
                 advance()
 
             if i % music.commit_every == 0:
@@ -198,7 +231,15 @@ def classify_music(
     fp.mark_complete(session, STAGE_MUSIC_CLASSIFY, SCOPE_MUSIC, current)
     session.commit()
     session.close()
-    parts = [f"{matched} matched", f"{no_match} no match"]
-    if missing:
-        parts.append(f"{missing} skipped (video missing or ACR transient)")
-    log(SCOPE_CLASSIFY, f"done — {', '.join(parts)}", level="ok")
+    log(
+        "acr",
+        "SEAL",
+        "classify",
+        "ok",
+        stats={
+            "hit": matched,
+            "miss": no_match,
+            "skipped": missing,
+            "time": time.perf_counter() - t_stage,
+        },
+    )

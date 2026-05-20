@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 
 from core import fingerprint as fp
 from core.config import Settings, ValidationSettings
@@ -28,7 +29,6 @@ from modules.clustering.core import (
     load_user_matrix,
 )
 from modules.clustering.results import select_best_cluster_run
-from modules.embeddings.cases import default_cases
 
 STAGE = Stage.CLUSTER_ASSIGN
 # Bump when assign-stage logic changes in a way the data/dependency
@@ -68,12 +68,14 @@ def _fingerprint(session, case: str, settings: ValidationSettings) -> fp.Fingerp
 
 
 def _assign_case(case: str, settings: ValidationSettings) -> None:
+    scope = f"cluster:{case}"
+    t_stage = time.perf_counter()
     # 1. gate on upstream validation state
     session = get_session()
     try:
         upstream = session.get(StageState, ("cluster_validation", case))
         if upstream is None:
-            log(f"assign:{case}", "no validation state — skipping")
+            log(scope, "SKIP", "validation", "none")
             return
         current = _fingerprint(session, case, settings)
         stale = fp.is_stale(session, STAGE, case, current)
@@ -85,17 +87,19 @@ def _assign_case(case: str, settings: ValidationSettings) -> None:
         session.close()
 
     if not stale:
-        log(f"assign:{case}", "fingerprint match — skipping")
+        log(scope, "SKIP", "fingerprint", "ok")
         return
 
-    log(f"assign:{case}", f"stale ({diff}) — recomputing")
+    log(scope, "SCAN", "fingerprint", "stale", stats={"diff": diff})
 
     # 2. compute in memory (no DB lock)
     new_user_clusters: list[UserCluster] = []
+    fit_stats: dict = {}
     if best is not None:
         matrix, user_ids = load_user_matrix(case)
         if matrix.shape[0] > 0:
             params = _best_params(best)
+            t_fit = time.perf_counter()
             try:
                 result = compute_clusters(matrix, **params)
                 new_user_clusters = [
@@ -108,13 +112,23 @@ def _assign_case(case: str, settings: ValidationSettings) -> None:
                     )
                     for i in range(len(user_ids))
                 ]
+                fit_stats = {
+                    "time": time.perf_counter() - t_fit,
+                    "k": result.n_clusters,
+                    "noise": round(result.noise_ratio, 3),
+                }
+                log(scope, "FIT", "champion", "ok", stats=fit_stats)
             except ValueError as exc:
                 log(
-                    f"assign:{case}",
-                    f"compute_clusters skipped — {exc}",
-                    level="warn",
+                    scope,
+                    "FIT",
+                    "champion",
+                    "ERR",
+                    stats={
+                        "time": time.perf_counter() - t_fit,
+                        "err": str(exc),
+                    },
                 )
-                # treat as empty assignment; still seal so we don't retry
                 new_user_clusters = []
 
     # 3. short write section (open AFTER compute)
@@ -128,20 +142,28 @@ def _assign_case(case: str, settings: ValidationSettings) -> None:
     finally:
         session.close()
     log(
-        f"assign:{case}",
-        f"sealed with {len(new_user_clusters)} user_clusters",
-        level="ok",
+        scope,
+        "WRITE",
+        "user_clusters",
+        "ok",
+        stats={"rows": len(new_user_clusters)},
+    )
+    log(
+        scope,
+        "SEAL",
+        "assign",
+        "ok",
+        stats={"time": time.perf_counter() - t_stage},
     )
 
 
-def assign_clusters(settings: Settings) -> None:
+def assign_clusters(settings: Settings, cases: tuple[str, ...]) -> None:
     """Per-case final clustering assignment, fingerprint-gated.
 
-    ``settings`` is the full runtime settings object; best-run selection
-    uses ``settings.validation.plateau_drop_threshold`` (so it matches
-    the threshold the validation stage was configured with), and the
-    case set is gated via ``default_cases(settings)``.
+    ``cases`` is the tuple of embedding case names to assign clusters for
+    (e.g. ``("video", "sandwich", "audio")``).  Best-run selection uses
+    ``settings.validation.plateau_drop_threshold``.
     """
     validation_settings = settings.validation
-    for case in default_cases(settings):
+    for case in cases:
         _assign_case(case, validation_settings)

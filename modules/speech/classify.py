@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import whisper
@@ -16,13 +17,14 @@ from core.database import (
 )
 from modules.speech.state import (
     HALLUCINATION_MARKERS,
-    SCOPE_CLASSIFY,
-    SCOPE_CLEAN,
     has_hallucination_marker,
     has_meaningful_speech_text,
     is_repeated_output,
 )
 from modules.speech.vad import VadConfig, prepare_for_whisper
+
+SCOPE = "whisper"
+SCOPE_CLEAN = "whisper:clean"
 
 
 def _transcribe(model, path: str) -> tuple[str, str, float, float, float]:
@@ -87,28 +89,54 @@ def classify_speech(
     speech_out = Path(speech_audio_dir)
     speech_out.mkdir(parents=True, exist_ok=True)
 
-    log(SCOPE_CLASSIFY, f"{len(clips)} clips to transcribe")
+    log(SCOPE, "SCAN", "clips", "ok", stats={"todo": len(clips)})
     model: whisper.Whisper | None = None
     detected = no_speech_vad = no_speech = missing = errored = 0
+    t_stage = time.perf_counter()
 
     with progress(len(clips), "Transcribing") as advance:
         for i, clip in enumerate(clips, 1):
             video_path = Path(video_dir) / f"{clip.id}.mp4"
             if not video_path.exists():
                 missing += 1
+                log(
+                    SCOPE,
+                    "ASR",
+                    f"clip_{clip.id}",
+                    "ERR",
+                    stats={"err": "video not downloaded yet"},
+                )
                 advance()
                 continue
 
+            t0 = time.perf_counter()
             try:
                 vad = prepare_for_whisper(video_path, speech_out, vad_config)
-            except Exception:
+            except Exception as exc:
                 errored += 1
+                log(
+                    SCOPE,
+                    "ASR",
+                    f"clip_{clip.id}",
+                    "ERR",
+                    stats={
+                        "time": time.perf_counter() - t0,
+                        "err": f"VAD error: {exc}",
+                    },
+                )
                 advance(detail=f"{clip.id}: VAD error (left unresolved)")
                 continue
 
             if not vad.is_speech_detected:
                 clip.is_speech_detected = False
                 no_speech_vad += 1
+                log(
+                    SCOPE,
+                    "ASR",
+                    f"clip_{clip.id}",
+                    "none",
+                    stats={"time": time.perf_counter() - t0, "src": "vad"},
+                )
                 advance(detail=f"{clip.id}: VAD silent")
                 if i % commit_every == 0:
                     session.commit()
@@ -118,14 +146,31 @@ def classify_speech(
                 vad.speech_audio_path is not None
             )  # guaranteed by VadResult invariant
             if model is None:
-                log(SCOPE_CLASSIFY, f"loading {whisper_model}…")
+                t_load = time.perf_counter()
                 model = whisper.load_model(whisper_model)
+                log(
+                    SCOPE,
+                    "LOAD",
+                    whisper_model,
+                    "ok",
+                    stats={"time": time.perf_counter() - t_load},
+                )
             try:
                 text, language, conf, avg_logprob, compression_ratio = _transcribe(
                     model, str(vad.speech_audio_path)
                 )
-            except Exception:
+            except Exception as exc:
                 errored += 1
+                log(
+                    SCOPE,
+                    "ASR",
+                    f"clip_{clip.id}",
+                    "ERR",
+                    stats={
+                        "time": time.perf_counter() - t0,
+                        "err": f"transcription error: {exc}",
+                    },
+                )
                 advance(detail=f"{clip.id}: transcription error (left unresolved)")
                 continue
 
@@ -149,10 +194,27 @@ def classify_speech(
                 clip.is_speech_detected = True
                 detected += 1
                 preview = text[:60] + ("…" if len(text) > 60 else "")
+                log(
+                    SCOPE,
+                    "ASR",
+                    f"clip_{clip.id}",
+                    language or "ok",
+                    stats={
+                        "time": time.perf_counter() - t0,
+                        "conf": round(conf, 2),
+                    },
+                )
                 advance(detail=f'{clip.id}: "{preview}"')
             else:
                 clip.is_speech_detected = False
                 no_speech += 1
+                log(
+                    SCOPE,
+                    "ASR",
+                    f"clip_{clip.id}",
+                    "none",
+                    stats={"time": time.perf_counter() - t0, "src": "whisper"},
+                )
                 advance()
 
             if i % commit_every == 0:
@@ -160,16 +222,20 @@ def classify_speech(
 
     session.commit()
     session.close()
-    parts = [
-        f"{detected} with speech",
-        f"{no_speech_vad} silent (VAD)",
-        f"{no_speech} silent (Whisper)",
-    ]
-    if missing:
-        parts.append(f"{missing} skipped (video not downloaded yet)")
-    if errored:
-        parts.append(f"{errored} skipped (VAD/transcription error)")
-    log(SCOPE_CLASSIFY, f"done — {', '.join(parts)}", level="ok")
+    log(
+        SCOPE,
+        "SEAL",
+        "transcribe",
+        "ok",
+        stats={
+            "speech": detected,
+            "silent_vad": no_speech_vad,
+            "silent_whisper": no_speech,
+            "missing": missing,
+            "err": errored,
+            "time": time.perf_counter() - t_stage,
+        },
+    )
 
 
 def clean_speech() -> None:
@@ -200,6 +266,7 @@ def clean_speech() -> None:
         session.close()
         return
 
+    t_stage = time.perf_counter()
     for clip in clips:
         original = (clip.speech_translation or "")[:60]
         clip.is_speech_detected = False
@@ -211,9 +278,18 @@ def clean_speech() -> None:
         clip.speech_compression_ratio = None
         log(
             SCOPE_CLEAN,
-            f'{clip.id}: cleared poisoned speech columns (was: "{original}")',
+            "CLEAN",
+            f"clip_{clip.id}",
+            "ok",
+            stats={"preview": original[:32]},
         )
 
     session.commit()
     session.close()
-    log(SCOPE_CLEAN, f"done — {len(clips)} clips cleared")
+    log(
+        SCOPE_CLEAN,
+        "SEAL",
+        "clean",
+        "ok",
+        stats={"cleared": len(clips), "time": time.perf_counter() - t_stage},
+    )

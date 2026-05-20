@@ -7,14 +7,14 @@ from core.console import log, progress
 from core.database import (
     Clip,
     User,
+    allocate_clip_identity,
     get_api_pk,
-    get_or_create_clip_identity,
     get_session,
     get_username,
     update_user_identity,
 )
 
-SCOPE = "fetch_profiles"
+SCOPE = "hiker"
 
 
 def _fetch_clips(cl: Any, user: User, session: Any) -> None:
@@ -26,12 +26,21 @@ def _fetch_clips(cl: Any, user: User, session: Any) -> None:
     next_page_id: str | None = None
 
     for _ in range(5):
+        t0 = time.perf_counter()
         if next_page_id is not None:
             data = cl.user_clips_v2(str(api_pk), next_page_id)
         else:
             data = cl.user_clips_v2(str(api_pk))
         page = data["response"]
-        all_items.extend(page.get("items", []))
+        items = page.get("items", [])
+        log(
+            SCOPE,
+            "GET",
+            f"user_clips/{api_pk}",
+            "200",
+            stats={"time": time.perf_counter() - t0, "clips": len(items)},
+        )
+        all_items.extend(items)
         next_page_id = data.get("next_page_id") or None
         if not next_page_id:
             break
@@ -41,34 +50,41 @@ def _fetch_clips(cl: Any, user: User, session: Any) -> None:
     for item in all_items:
         m = item["media"]
         clip_api_pk = int(m["pk"])
-        clip_id = get_or_create_clip_identity(clip_api_pk)
+        with allocate_clip_identity(clip_api_pk) as clip_id:
+            if session.query(Clip).filter_by(id=clip_id).first():
+                continue
 
-        if session.query(Clip).filter_by(id=clip_id).first():
-            continue
-
-        cap = m.get("caption") or {}
-
-        session.add(
-            Clip(
-                id=clip_id,
-                user_id=user.id,
-                thumbnail_url=m.get("thumbnail_url"),
-                video_url=m.get("video_url"),
-                caption_text=cap.get("text"),
-                caption_translation=cap.get("text_translation"),
-                comment_count=m.get("comment_count"),
-                reshare_count=m.get("reshare_count"),
-                like_count=m.get("like_count"),
-                play_count=m.get("play_count"),
-                video_duration=m.get("video_duration"),
-                taken_at=m.get("taken_at"),
+            cap = m.get("caption") or {}
+            session.add(
+                Clip(
+                    id=clip_id,
+                    user_id=user.id,
+                    thumbnail_url=m.get("thumbnail_url"),
+                    video_url=m.get("video_url"),
+                    caption_text=cap.get("text"),
+                    caption_translation=cap.get("text_translation"),
+                    comment_count=m.get("comment_count"),
+                    reshare_count=m.get("reshare_count"),
+                    like_count=m.get("like_count"),
+                    play_count=m.get("play_count"),
+                    video_duration=m.get("video_duration"),
+                    taken_at=m.get("taken_at"),
+                )
             )
-        )
+            session.flush()
 
 
 def _process_user(cl: Any, user: User, session: Any) -> None:
     username = get_username(user.id)
+    t0 = time.perf_counter()
     data = cl.user_by_username_v1(username)
+    log(
+        SCOPE,
+        "GET",
+        f"user_by_username/{username}",
+        "200",
+        stats={"time": time.perf_counter() - t0},
+    )
     info = data.get("user", data)
 
     update_user_identity(
@@ -95,14 +111,15 @@ def fetch_profiles(
     users = session.query(User).filter(User.parse_status.is_(None)).all()
 
     if not users:
-        log(SCOPE, "no new users provided", level="warn")
+        log(SCOPE, "SCAN", "users", "none")
         session.close()
         return
 
-    log(SCOPE, f"{len(users)} users to process")
+    log(SCOPE, "SCAN", "users", "ok", stats={"todo": len(users)})
 
     parsed = failed = 0
     total_users = len(users)
+    t_stage = time.perf_counter()
 
     with progress(total_users, "Fetching profiles") as advance:
         for user in users:
@@ -116,7 +133,13 @@ def fetch_profiles(
                     advance(detail=f"{parsed}/{total_users}")
                     break
                 except Exception as e:
-                    log(SCOPE, f"error fetching user: {e}", level="err")
+                    log(
+                        SCOPE,
+                        "GET",
+                        f"user/{user.id}",
+                        "ERR",
+                        stats={"err": str(e), "attempt": attempt + 1},
+                    )
                     session.rollback()
                     user = session.query(User).filter_by(id=user.id).one()
                     if attempt == 2:
@@ -127,9 +150,14 @@ def fetch_profiles(
 
     session.close()
 
-    total = parsed + failed
     log(
         SCOPE,
-        f"done — total: {total}, parsed: {parsed}, failed: {failed}",
-        level="ok",
+        "SEAL",
+        "profiles",
+        "ok",
+        stats={
+            "ok": parsed,
+            "err": failed,
+            "time": time.perf_counter() - t_stage,
+        },
     )

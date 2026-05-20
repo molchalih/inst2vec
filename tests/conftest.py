@@ -51,3 +51,33 @@ def sample_mp4_with_audio(tmp_path_factory):
         cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
     )
     return out
+
+
+@pytest.fixture(scope="session")
+def sample_mp4_no_audio(tmp_path_factory):
+    """Tiny synthetic mp4 (5s, h264 only, NO audio stream).
+
+    Mirrors `sample_mp4_with_audio` for the no-audio extraction edge
+    case. Skipped if ffmpeg is not on PATH.
+    """
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("ffmpeg not installed")
+    out = tmp_path_factory.mktemp("media_silent") / "sample_silent.mp4"
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc=size=64x64:rate=10:duration=5",
+        "-c:v",
+        "libx264",
+        "-pix_fmt",
+        "yuv420p",
+        "-an",
+        str(out),
+    ]
+    subprocess.run(
+        cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+    )
+    return out

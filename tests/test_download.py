@@ -61,7 +61,7 @@ def test_fetch_file_success_writes_atomic(tmp_path, monkeypatch):
         retry_jitter=5,
     )
 
-    assert ok is True
+    assert ok.ok is True
     assert target.read_bytes() == b"video"
     assert not (tmp_path / "out.mp4.part").exists()
 
@@ -88,7 +88,7 @@ def test_fetch_file_retries_then_succeeds(tmp_path, monkeypatch):
         retry_jitter=5,
     )
 
-    assert ok is True
+    assert ok.ok is True
     assert calls["n"] == 3
     assert len(sleeps) == 2
     for s in sleeps:
@@ -108,7 +108,7 @@ def test_fetch_file_exhausted_returns_false(tmp_path, monkeypatch):
         retry_jitter=0,
     )
 
-    assert ok is False
+    assert ok.ok is False
     assert not target.exists()
     assert not (tmp_path / "out.mp4.part").exists()
 
@@ -136,7 +136,7 @@ def test_fetch_file_no_partial_on_write_failure(tmp_path, monkeypatch):
 
     monkeypatch.setattr(dl_mod.os, "replace", real_replace)
 
-    assert ok is False
+    assert ok.ok is False
     assert not target.exists()
 
 
@@ -182,7 +182,7 @@ def test_download_files_happy_path(tmp_path, monkeypatch, isolated_db):
     monkeypatch.setattr(
         dl_mod, "get_profile_pic_url", lambda uid: f"https://x/{uid}.jpg"
     )
-    monkeypatch.setattr(httpx, "get", lambda *a, **kw: _make_response(200, b"data"))
+    monkeypatch.setattr(httpx, "get", lambda *a, **kw: _make_response(200, b"x" * 1024))
     monkeypatch.setattr(dl_mod.time, "sleep", lambda _: None)
 
     dl_mod.download_files(*_dl(tmp_path, max_attempts=3, concurrency=2))
@@ -223,7 +223,7 @@ def test_download_files_rerun_skips_completed(tmp_path, monkeypatch, isolated_db
 
     def counting_get(*a, **kw):
         calls["n"] += 1
-        return _make_response(200, b"data")
+        return _make_response(200, b"x" * 1024)
 
     monkeypatch.setattr(dl_mod, "get_profile_pic_url", lambda uid: None)
     monkeypatch.setattr(httpx, "get", counting_get)
@@ -275,6 +275,71 @@ def test_download_files_missing_video_url_marks_failed(
     session = get_session()
     assert session.get(Clip, 100).is_downloaded is False
     session.close()
+
+
+def test_fetch_file_rejects_zero_byte_response(tmp_path, monkeypatch):
+    """200 OK with empty body and min_bytes=1 → ok=False, no file at path."""
+    target = tmp_path / "out.mp4"
+    monkeypatch.setattr(httpx, "get", lambda *a, **kw: _make_response(200, b""))
+    monkeypatch.setattr(dl_mod.time, "sleep", lambda _: None)
+
+    result = dl_mod.fetch_file(
+        "https://example.com/v.mp4",
+        str(target),
+        max_attempts=1,
+        retry_delay=0,
+        retry_jitter=0,
+        min_bytes=1,
+    )
+
+    assert result.ok is False
+    assert not target.exists()
+    assert not (tmp_path / "out.mp4.part").exists()
+    assert result.err is not None
+    assert "response_too_small" in result.err
+
+
+def test_fetch_file_rejects_sub_threshold_response(tmp_path, monkeypatch):
+    """200 OK with 50 bytes and min_bytes=1024 → ok=False, no file at path."""
+    target = tmp_path / "out.mp4"
+    monkeypatch.setattr(httpx, "get", lambda *a, **kw: _make_response(200, b"x" * 50))
+    monkeypatch.setattr(dl_mod.time, "sleep", lambda _: None)
+
+    result = dl_mod.fetch_file(
+        "https://example.com/v.mp4",
+        str(target),
+        max_attempts=1,
+        retry_delay=0,
+        retry_jitter=0,
+        min_bytes=1024,
+    )
+
+    assert result.ok is False
+    assert not target.exists()
+    assert not (tmp_path / "out.mp4.part").exists()
+    assert result.err is not None
+    assert "response_too_small" in result.err
+
+
+def test_fetch_file_accepts_response_above_threshold(tmp_path, monkeypatch):
+    """200 OK with 2048 bytes and min_bytes=1024 → ok=True, file present."""
+    target = tmp_path / "out.mp4"
+    body = b"x" * 2048
+    monkeypatch.setattr(httpx, "get", lambda *a, **kw: _make_response(200, body))
+    monkeypatch.setattr(dl_mod.time, "sleep", lambda _: None)
+
+    result = dl_mod.fetch_file(
+        "https://example.com/v.mp4",
+        str(target),
+        max_attempts=1,
+        retry_delay=0,
+        retry_jitter=0,
+        min_bytes=1024,
+    )
+
+    assert result.ok is True
+    assert target.exists()
+    assert target.read_bytes() == body
 
 
 def test_download_files_respects_concurrency(tmp_path, monkeypatch, isolated_db):

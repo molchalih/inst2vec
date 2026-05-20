@@ -41,17 +41,14 @@ def _is_retriable(exc: Exception) -> bool:
 
 
 def _retry(call, *, max_retries: int, base_delay: float = 1.0, max_delay: float = 60.0):
-    last: Exception | None = None
     for attempt in range(max_retries + 1):
         try:
             return call()
         except Exception as exc:
             if not _is_retriable(exc) or attempt == max_retries:
                 raise
-            last = exc
             delay = min(max_delay, base_delay * (2**attempt))
             time.sleep(delay)
-    raise last  # unreachable
 
 
 class GeminiMultimodalProvider:
@@ -107,30 +104,49 @@ class GeminiMultimodalProvider:
         video_file = self._client.files.upload(file=video_path)
         audio_file = self._client.files.upload(file=audio_path)
 
-        contents, config = self._build_request(text, video_file, audio_file)
-        response = _retry(
-            lambda: self._client.models.embed_content(
-                model=self.model, contents=contents, config=config
-            ),
-            max_retries=self.max_retries,
-        )
-
-        values = list(response.embeddings[0].values)
-        if len(values) != self.output_dim:
-            raise GeminiOutputDimMismatch(
-                f"expected {self.output_dim}-d vector, got {len(values)}-d"
-            )
-        vector = torch.tensor(values, dtype=torch.float32)
-
-        # Best-effort observability; never the cause of a failure.
         try:
-            elapsed = time.time() - t0
-            bytes_up = os.path.getsize(video_path) + os.path.getsize(audio_path)
-            log("gemini", f"bytes_uploaded={bytes_up} embed_seconds={elapsed:.2f}")
-        except OSError:
-            pass
+            contents, config = self._build_request(text, video_file, audio_file)
+            response = _retry(
+                lambda: self._client.models.embed_content(
+                    model=self.model, contents=contents, config=config
+                ),
+                max_retries=self.max_retries,
+            )
 
-        return [vector]
+            values = list(response.embeddings[0].values)
+            if len(values) != self.output_dim:
+                raise GeminiOutputDimMismatch(
+                    f"expected {self.output_dim}-d vector, got {len(values)}-d"
+                )
+            vector = torch.tensor(values, dtype=torch.float32)
+
+            # Best-effort observability; never the cause of a failure.
+            try:
+                elapsed = time.time() - t0
+                bytes_up = os.path.getsize(video_path) + os.path.getsize(audio_path)
+                log(
+                    "gemini",
+                    "EMB",
+                    os.path.basename(video_path),
+                    "ok",
+                    stats={"time": elapsed, "size": bytes_up},
+                )
+            except OSError:
+                pass
+
+            return [vector]
+        finally:
+            for f in (video_file, audio_file):
+                try:
+                    self._client.files.delete(f.name)
+                except Exception as exc:
+                    log(
+                        "gemini",
+                        "WARN",
+                        f.name,
+                        "delete failed",
+                        stats={"err": str(exc)},
+                    )
 
     def _build_request(self, text, video_file, audio_file):
         from google.genai import types

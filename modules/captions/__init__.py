@@ -28,7 +28,6 @@ from modules.captions.translate import translate_captions
 __all__ = [
     "clean_captions",
     "detect_caption_language",
-    "process_captions",
     "run",
     "translate_captions",
 ]

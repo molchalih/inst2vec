@@ -1,6 +1,7 @@
 """Phase 6b — clustering validation: filter, score, plateau, select."""
 
 import json
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from types import SimpleNamespace
 from typing import cast
@@ -21,7 +22,6 @@ from modules.clustering.core import (
     load_user_matrix,
     resolve_hdbscan_metric,
 )
-from modules.embeddings.cases import default_cases
 
 STAGE = Stage.CLUSTER_VALIDATION
 
@@ -214,24 +214,42 @@ def _compute_updates(
     # --- phase score ----------------------------------------------------------
     to_score = [snap for snap in snapshots if updates[snap["id"]]["passes_validation"]]
 
+    scope = f"validate:{case}"
     if to_score:
         _workers = max(1, workers)
         if _workers == 1:
             with progress(len(to_score), f"validate score · {case}") as advance:
                 for i, snap in enumerate(to_score):
                     advance(0, detail=f"id={snap['id']} ({i + 1}/{len(to_score)})")
+                    t0 = time.perf_counter()
                     outcome = _compute_row_scores(matrix, snap["params"])
                     if outcome in ("value_error", "dbcv_fail"):
                         log(
-                            f"validate:{case}",
-                            f"score skip id={snap['id']} — {outcome}",
-                            level="warn",
+                            scope,
+                            "SCORE",
+                            f"run_{snap['id']}",
+                            "ERR",
+                            stats={
+                                "time": time.perf_counter() - t0,
+                                "err": str(outcome),
+                            },
                         )
                         updates[snap["id"]]["passes_validation"] = False
                     else:
-                        dbcv, sil = outcome
+                        dbcv, sil = cast(tuple[float, float], outcome)
                         updates[snap["id"]]["dbcv"] = dbcv
                         updates[snap["id"]]["silhouette"] = sil
+                        log(
+                            scope,
+                            "SCORE",
+                            f"run_{snap['id']}",
+                            "ok",
+                            stats={
+                                "time": time.perf_counter() - t0,
+                                "dbcv": round(dbcv, 3),
+                                "silh": round(sil, 3),
+                            },
+                        )
                     advance(
                         1,
                         detail=(
@@ -260,9 +278,11 @@ def _compute_updates(
                         rid, outcome = fut.result()
                     except Exception as exc:
                         log(
-                            f"validate:{case}",
-                            f"score skip id={row_id} — {exc}",
-                            level="warn",
+                            scope,
+                            "SCORE",
+                            f"run_{row_id}",
+                            "ERR",
+                            stats={"err": str(exc)},
                         )
                         results_map[row_id] = "value_error"
                         advance(1, detail=f"id={row_id} skip")
@@ -275,10 +295,27 @@ def _compute_updates(
                 outcome = results_map.get(rid, "value_error")
                 if outcome in ("value_error", "dbcv_fail"):
                     updates[rid]["passes_validation"] = False
+                    log(
+                        scope,
+                        "SCORE",
+                        f"run_{rid}",
+                        "ERR",
+                        stats={"err": str(outcome)},
+                    )
                 else:
                     dbcv_val, sil_val = cast(tuple[float, float], outcome)
                     updates[rid]["dbcv"] = dbcv_val
                     updates[rid]["silhouette"] = sil_val
+                    log(
+                        scope,
+                        "SCORE",
+                        f"run_{rid}",
+                        "ok",
+                        stats={
+                            "dbcv": round(dbcv_val, 3),
+                            "silh": round(sil_val, 3),
+                        },
+                    )
 
     # --- phase plateau --------------------------------------------------------
     # Build lightweight proxy objects for _find_param_neighbors (it reads
@@ -295,21 +332,31 @@ def _compute_updates(
             scored_proxies.append(proxy)
 
     if scored_proxies:
+        log(scope, "SCAN", "plateau", "ok", stats={"n": len(scored_proxies)})
         with progress(len(scored_proxies), f"validate plateau · {case}") as advance:
             for proxy in scored_proxies:
                 neighbors = _find_param_neighbors(proxy, scored_proxies)  # type: ignore[arg-type]
                 dbcv_vals = [n.dbcv for n in neighbors if n.dbcv is not None]
                 plateau = float(np.mean(dbcv_vals)) if dbcv_vals else proxy.dbcv
                 updates[proxy.id]["param_plateau_score"] = plateau
+                log(
+                    scope,
+                    "SCORE",
+                    f"run_{proxy.id}",
+                    "plateau",
+                    stats={
+                        "plateau": round(plateau, 4),
+                        "neighbors": len(dbcv_vals),
+                    },
+                )
                 advance(
                     1,
                     detail=f"id={proxy.id} plateau={plateau:.4f} ({len(dbcv_vals)} neighbors)",
                 )
-        log(f"validate:{case}", f"plateau — scored {len(scored_proxies)} rows")
 
     n_pass = sum(1 for u in updates.values() if u["passes_validation"])
     n_fail = len(updates) - n_pass
-    log(f"validate:{case}", f"filter — {n_pass} passed, {n_fail} disqualified")
+    log(scope, "WRITE", "filter", "ok", stats={"pass": n_pass, "fail": n_fail})
 
     return updates
 
@@ -317,15 +364,20 @@ def _compute_updates(
 # ── orchestration entry point ─────────────────────────────────────────────────
 
 
-def validate_clustering(settings: Settings, clustering_grid_workers: int = 1) -> None:
+def validate_clustering(
+    settings: Settings,
+    cases: tuple[str, ...],
+    clustering_grid_workers: int = 1,
+) -> None:
     """Filter -> score -> plateau -> select, fingerprint-gated per case.
 
-    ``settings`` is the full runtime settings object; per-case validation
-    knobs are read from ``settings.validation``, and the case set is
-    gated via ``default_cases(settings)``.
+    ``cases`` is the tuple of embedding case names to validate (e.g.
+    ``("video", "sandwich", "audio")``).  Per-case knobs are read from
+    ``settings.validation``.
     """
     validation_settings = settings.validation
-    for case in default_cases(settings):
+    for case in cases:
+        scope = f"validate:{case}"
         # 1. fingerprint check
         session = get_session()
         try:
@@ -336,16 +388,17 @@ def validate_clustering(settings: Settings, clustering_grid_workers: int = 1) ->
             session.close()
 
         if not stale:
-            log(f"validate:{case}", "fingerprint match — skipping")
+            log(scope, "SKIP", "fingerprint", "ok")
             continue
 
-        log(f"validate:{case}", f"stale ({diff}) — recomputing")
+        log(scope, "SCAN", "fingerprint", "stale", stats={"diff": diff})
 
+        t_stage = time.perf_counter()
         # 2. load matrix (read-only)
         matrix, _ = load_user_matrix(case)
 
         if matrix.shape[0] == 0:
-            log(f"validate:{case}", "no embeddings — sealing empty")
+            log(scope, "SCAN", "embeddings", "none")
             session = get_session()
             try:
                 session.query(ClusterRun).filter(
@@ -382,4 +435,15 @@ def validate_clustering(settings: Settings, clustering_grid_workers: int = 1) ->
         finally:
             session.close()
 
-        log(f"validate:{case}", "done", level="ok")
+        n_pass = sum(1 for u in updates.values() if u["passes_validation"])
+        log(
+            scope,
+            "SEAL",
+            "validate",
+            "ok",
+            stats={
+                "pass": n_pass,
+                "fail": len(updates) - n_pass,
+                "time": time.perf_counter() - t_stage,
+            },
+        )
