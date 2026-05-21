@@ -13,6 +13,8 @@ def test_stage_enum_covers_existing_callsites():
         "cluster_search",
         "cluster_validation",
         "cluster_assign",
+        "mir",
+        "audio_extract_mir",
     }
     actual = {s.value for s in Stage}
     assert actual == expected, (
@@ -27,3 +29,10 @@ def test_stage_enum_str_compat():
     s = Stage.FILTER
     assert s == "filter"
     assert f"{s}" == "filter" or s.value == "filter"  # str(StrEnum) is the value
+
+
+def test_stage_includes_mir_members():
+    from core.pipeline import Stage
+
+    assert Stage.MIR.value == "mir"
+    assert Stage.AUDIO_EXTRACT_MIR.value == "audio_extract_mir"

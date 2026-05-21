@@ -260,3 +260,43 @@ def test_secrets_present_when_gemini_enabled_and_key_set(tmp_path):
         settings, secrets = config_mod.load_runtime_config()
     assert settings.embeddings.gemini_enabled is True
     assert secrets.gemini_api_key == "gem-key"
+
+
+def test_settings_includes_mir_section(tmp_path):
+    settings, _ = _load_with_fake_toml(tmp_path)
+    assert hasattr(settings, "mir")
+    mir = settings.mir
+    assert mir.binary_threshold == 0.5
+    assert mir.topk_genre == 10
+    assert mir.topk_moodtheme == 10
+    assert mir.topk_instrument == 10
+    assert mir.inference_sample_rate == 16_000
+    assert mir.download_concurrency == 4
+    assert mir.commit_every == 25
+    assert mir.prefetch_queue_size == 1
+    assert mir.http_timeout == 30.0
+    assert mir.model_dir == "models/mir"
+    assert mir.maest_checkpoint == "discogs-maest-30s-pw-519l-1.pb"
+    assert mir.maest_output == "StatefulPartitionedCall:0"
+    assert mir.effnet_checkpoint == "discogs-effnet-bs64-1.pb"
+    assert mir.effnet_embed_output == "PartitionedCall:1"
+
+
+def test_mir_settings_rejects_invalid_threshold():
+    from pydantic import ValidationError
+
+    from core.config import MirSettings
+
+    with pytest.raises(ValidationError):
+        MirSettings(binary_threshold=0.0)
+    with pytest.raises(ValidationError):
+        MirSettings(binary_threshold=1.0)
+
+
+def test_mir_settings_rejects_non_positive_topk():
+    from pydantic import ValidationError
+
+    from core.config import MirSettings
+
+    with pytest.raises(ValidationError):
+        MirSettings(topk_genre=0)

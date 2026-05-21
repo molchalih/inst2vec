@@ -130,6 +130,10 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
         main.ingest, "run_audio", lambda s, k: calls.append("audio:extract")
     )
     monkeypatch.setattr(
+        main.ingest, "run_audio_mir", lambda s, k: calls.append("audio:mir")
+    )
+    monkeypatch.setattr(main.mir, "run_mir", lambda s, k: calls.append("mir:run"))
+    monkeypatch.setattr(
         main.music, "run_classify", lambda s, k: calls.append("music:classify")
     )
     monkeypatch.setattr(
@@ -164,5 +168,33 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
     assert calls[2] == "parse"
     assert "download" in calls
     assert "audio:extract" in calls
+    assert "audio:mir" in calls
+    assert "mir:run" in calls
+    # Confirm music stages are no longer active (their stubs would be in calls if invoked).
+    assert "music:classify" not in calls
+    assert "music:features" not in calls
     assert "cluster:search" in calls
     assert calls[-1] == "cluster:assign"
+
+
+def test_pipeline_includes_mir_stages_and_excludes_music():
+    import main
+
+    stages = main._stages(cases=())
+    names = [n for (n, _fn) in stages]
+
+    assert "MIR audio extraction" in names
+    assert "MIR inference" in names
+
+    # Music stages are dropped from the active list (Phase 1: commented out).
+    assert "Music fingerprinting" not in names
+    assert "Music feature extraction" not in names
+
+    # Ordering: MIR audio extraction sits directly after Audio extraction;
+    # MIR inference sits where the music stages used to (between
+    # MIR audio extraction and Speech transcription).
+    i_audio = names.index("Audio extraction")
+    i_audio_mir = names.index("MIR audio extraction")
+    i_mir = names.index("MIR inference")
+    i_speech = names.index("Speech transcription")
+    assert i_audio < i_audio_mir < i_mir < i_speech

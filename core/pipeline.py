@@ -17,3 +17,5 @@ class Stage(StrEnum):
     CLUSTER_SEARCH = "cluster_search"
     CLUSTER_VALIDATION = "cluster_validation"
     CLUSTER_ASSIGN = "cluster_assign"
+    MIR = "mir"
+    AUDIO_EXTRACT_MIR = "audio_extract_mir"

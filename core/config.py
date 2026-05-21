@@ -19,6 +19,7 @@ class PathsSettings(BaseModel):
     # audio_dir is always created and populated by extract_audio_stage;
     # downstream stages assume it exists when audio was extracted.
     audio_dir: str = "data/audio"
+    audio_mir_dir: str = "data/audio_mir"
     data_csv_path: str
 
     def video_for(self, clip_id: int) -> Path:
@@ -26,6 +27,9 @@ class PathsSettings(BaseModel):
 
     def audio_for(self, clip_id: int) -> Path:
         return Path(self.audio_dir) / f"{clip_id}.mp3"
+
+    def audio_mir_for(self, clip_id: int) -> Path:
+        return Path(self.audio_mir_dir) / f"{clip_id}.wav"
 
     def thumbnail_for(self, clip_id: int) -> Path:
         return Path(self.thumbnail_dir) / f"{clip_id}.jpg"
@@ -87,6 +91,46 @@ class MusicSettings(BaseModel):
         return v
 
 
+class MirSettings(BaseModel):
+    binary_threshold: float = 0.5
+    topk_genre: int = 10
+    topk_moodtheme: int = 10
+    topk_instrument: int = 10
+    inference_sample_rate: int = 16_000
+    model_dir: str = "models/mir"
+    download_concurrency: int = 4
+    commit_every: int = 25
+    prefetch_queue_size: int = 1
+    http_timeout: float = 30.0
+
+    maest_checkpoint: str = "discogs-maest-30s-pw-519l-1.pb"
+    maest_output: str = "StatefulPartitionedCall:0"
+    effnet_checkpoint: str = "discogs-effnet-bs64-1.pb"
+    effnet_embed_output: str = "PartitionedCall:1"
+
+    @field_validator(
+        "topk_genre",
+        "topk_moodtheme",
+        "topk_instrument",
+        "inference_sample_rate",
+        "download_concurrency",
+        "commit_every",
+        "prefetch_queue_size",
+    )
+    @classmethod
+    def _positive(cls, v: int) -> int:
+        if v <= 0:
+            raise ValueError("must be > 0")
+        return v
+
+    @field_validator("binary_threshold")
+    @classmethod
+    def _ratio(cls, v: float) -> float:
+        if not 0.0 < v < 1.0:
+            raise ValueError("must lie in (0, 1)")
+        return v
+
+
 class SpeechSettings(BaseModel):
     whisper_model: str
     commit_every: int
@@ -119,6 +163,11 @@ class AudioExtractionSettings(BaseModel):
     audio_bitrate_kbps: int = 128
     audio_sample_rate_hz: int = 44100
     audio_extract_timeout_s: int = 60
+    mir_codec: str = "pcm_s16le"
+    mir_extension: str = "wav"
+    mir_sample_rate_hz: int = 44_100
+    mir_channels: int = 2
+    mir_extract_timeout_s: int = 60
 
 
 class EmbeddingsSettings(BaseModel):
@@ -188,6 +237,7 @@ class Settings(BaseModel):
     download: DownloadSettings
     filter: FilterSettings
     music: MusicSettings
+    mir: MirSettings = Field(default_factory=MirSettings)
     speech: SpeechSettings
     captions: CaptionsSettings
     embeddings: EmbeddingsSettings
@@ -226,6 +276,7 @@ def load_runtime_config() -> tuple[Settings, Secrets]:
         download=DownloadSettings(**raw["download"]),
         filter=FilterSettings(**raw.get("filter", {})),
         music=MusicSettings(**raw["music"]),
+        mir=MirSettings(**raw.get("mir", {})),
         speech=SpeechSettings(**raw["speech"]),
         captions=CaptionsSettings(**raw["captions"]),
         embeddings=EmbeddingsSettings(**raw["embeddings"]),

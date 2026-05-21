@@ -19,6 +19,7 @@ from core.database.identity import (  # noqa: F401  -- re-exports for core.datab
     update_user_identity,
 )
 from core.database.models import (  # noqa: F401  -- re-exports for core.database.*
+    AudioMIR,
     Base,
     Clip,
     ClipEmbedding,

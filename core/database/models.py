@@ -200,6 +200,56 @@ class Music(Base):
     clips: Mapped[list["Clip"]] = relationship("Clip", back_populates="music")  # type: ignore[assignment]
 
 
+class AudioMIR(Base):
+    __tablename__ = "audio_mir"
+    __table_args__ = (UniqueConstraint("clip_id", name="uq_audio_mir_clip"),)
+
+    clip_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("clips.id"), primary_key=True
+    )
+
+    is_mir_extracted: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    mir_error: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    approachability: Mapped[float | None] = mapped_column(Float, nullable=True)
+    engagement: Mapped[float | None] = mapped_column(Float, nullable=True)
+    danceability: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    is_aggressive: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    is_happy: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    is_party: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    is_relaxed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    is_sad: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    is_acoustic: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    is_electronic: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    is_instrumental: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    is_female_voice: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    is_bright_timbre: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    is_tonal: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+
+    genre_labels: Mapped[str | None] = mapped_column(String, nullable=True)
+    genre_scores: Mapped[str | None] = mapped_column(String, nullable=True)
+    moodtheme_labels: Mapped[str | None] = mapped_column(String, nullable=True)
+    moodtheme_scores: Mapped[str | None] = mapped_column(String, nullable=True)
+    instrument_labels: Mapped[str | None] = mapped_column(String, nullable=True)
+    instrument_scores: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    audio_duration_s: Mapped[float | None] = mapped_column(Float, nullable=True)
+    inference_time_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    created_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    clip: Mapped["Clip"] = relationship("Clip")
+
+
 class ClipEmbedding(Base):
     __tablename__ = "clip_embeddings"
     __table_args__ = (

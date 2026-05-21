@@ -306,3 +306,25 @@ def test_stage_does_not_retry_silent_clips_on_second_run(
         extract_audio_stage(settings)
     ff.assert_not_called()
     probe.assert_not_called()
+
+
+def test_extracts_wav_pcm_stereo(sample_mp4_with_audio, tmp_path):
+    from modules.ingest.audio import extract_audio
+
+    out = tmp_path / "1.wav"
+    result = extract_audio(
+        str(sample_mp4_with_audio),
+        str(out),
+        bitrate_kbps=0,
+        sample_rate_hz=44_100,
+        timeout_s=60,
+        codec="pcm_s16le",
+        extension="wav",
+        channels=2,
+    )
+    assert result.ok
+    assert out.exists()
+    assert out.stat().st_size > 5_000
+    # WAV PCM s16le starts with "RIFF....WAVE"
+    head = out.read_bytes()[:12]
+    assert head[:4] == b"RIFF" and head[8:12] == b"WAVE"

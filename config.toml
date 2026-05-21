@@ -132,3 +132,19 @@ backend = "s3"
 bucket = ""
 prefix = "videos/"
 signed_url_ttl_s = 3600
+
+[mir]
+binary_threshold = 0.5
+topk_genre = 10
+topk_moodtheme = 10
+topk_instrument = 10
+inference_sample_rate = 16000
+model_dir = "models/mir"
+download_concurrency = 4
+commit_every = 25
+prefetch_queue_size = 1
+http_timeout = 30.0
+maest_checkpoint = "discogs-maest-30s-pw-519l-1.pb"
+maest_output = "StatefulPartitionedCall:0"
+effnet_checkpoint = "discogs-effnet-bs64-1.pb"
+effnet_embed_output = "PartitionedCall:1"

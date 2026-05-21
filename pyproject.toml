@@ -41,6 +41,7 @@ dependencies = [
     "umap-learn>=0.5.12",
     "setuptools",
     "boto3>=1.43.9",
+    "essentia-tensorflow>=2.1b6.dev1389,<2.1b6.dev1438",
 ]
 
 [project.urls]

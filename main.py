@@ -14,7 +14,8 @@ from modules import (
     embeddings,
     filter,
     ingest,
-    music,
+    mir,
+    music,  # noqa: F401  - kept imported during Phase 1; Phase 2 removes
     speech,
     upload,
 )
@@ -33,8 +34,8 @@ def _init_db_stage(_settings: Settings, secrets: Secrets) -> None:
 #   Download             : Processing Dataset
 #   Upload               : Download
 #   Audio extraction     : Download
-#   Music fingerprinting : Audio extraction
-#   Music features       : Music fingerprinting
+#   MIR audio extraction : Audio extraction
+#   MIR inference        : MIR audio extraction
 #   Speech               : Audio extraction
 #   Captions             : Profile Parsing
 #   Clip Embeddings      : Speech, Captions, Music (case-dependent)
@@ -54,8 +55,10 @@ def _stages(
         ("Download", ingest.run_download),
         ("Upload", upload.run),
         ("Audio extraction", ingest.run_audio),
-        ("Music fingerprinting", music.run_classify),
-        ("Music feature extraction", music.run_features),
+        ("MIR audio extraction", ingest.run_audio_mir),
+        # ("Music fingerprinting", music.run_classify),         # Phase 2: delete
+        # ("Music feature extraction", music.run_features),     # Phase 2: delete
+        ("MIR inference", mir.run_mir),
         ("Speech transcription", speech.run),
         ("Captions translation", captions.run),
         ("Clip Embeddings", embeddings.run_clip),
