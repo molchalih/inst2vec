@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
+import json
 import os
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -11,6 +15,8 @@ import httpx
 
 from core.config import MirSettings
 from core.console import log
+
+_LOG_CKPT = "mir:checkpoint"
 
 _MAEST_BASE = "https://essentia.upf.edu/models/feature-extractors/maest"
 _EFFNET_BASE = "https://essentia.upf.edu/models/feature-extractors/discogs-effnet"
@@ -70,34 +76,49 @@ def ensure_checkpoints(mir: MirSettings) -> None:
     items = _manifest(mir)
     missing = [(u, p) for (u, p) in items if not p.exists()]
     if not missing:
-        log("mir:checkpoint", "SCAN", "checkpoints", "ok", stats={"missing": 0})
+        log(_LOG_CKPT, "SCAN", "checkpoints", "ok", stats={"missing": 0})
+        validate_checkpoint_sidecars(mir)
         return
 
-    log("mir:checkpoint", "SCAN", "checkpoints", "ok", stats={"missing": len(missing)})
+    log(_LOG_CKPT, "SCAN", "checkpoints", "ok", stats={"missing": len(missing)})
     os.makedirs(mir.model_dir, exist_ok=True)
     errors: list[str] = []
+    errors_lock = threading.Lock()
 
     def _fetch(client: httpx.Client, url: str, target: Path) -> None:
         tmp = Path(str(target) + ".part")
-        try:
-            with client.stream("GET", url) as resp:
-                resp.raise_for_status()
-                with open(tmp, "wb") as f:
-                    for chunk in resp.iter_bytes():
-                        f.write(chunk)
-            os.replace(tmp, target)
-            log("mir:checkpoint", "GET", target.name, "ok")
-        except (httpx.HTTPError, OSError) as exc:
-            with contextlib.suppress(OSError):
-                tmp.unlink()
-            errors.append(f"{target.name}: {exc}")
-            log(
-                "mir:checkpoint",
-                "GET",
-                target.name,
-                "ERR",
-                stats={"err": str(exc)},
-            )
+        last_err: Exception | None = None
+        for attempt in range(mir.checkpoint_max_attempts):
+            try:
+                with client.stream("GET", url) as resp:
+                    resp.raise_for_status()
+                    with open(tmp, "wb") as f:
+                        for chunk in resp.iter_bytes():
+                            f.write(chunk)
+                os.replace(tmp, target)
+                log(
+                    "mir:checkpoint",
+                    "GET",
+                    target.name,
+                    "ok",
+                    stats={"attempts": attempt + 1},
+                )
+                return
+            except (httpx.HTTPError, OSError) as exc:
+                last_err = exc
+                with contextlib.suppress(OSError):
+                    tmp.unlink()
+                if attempt + 1 < mir.checkpoint_max_attempts:
+                    time.sleep(mir.checkpoint_backoff_seconds * (2**attempt))
+        with errors_lock:
+            errors.append(f"{target.name}: {last_err}")
+        log(
+            "mir:checkpoint",
+            "GET",
+            target.name,
+            "ERR",
+            stats={"err": str(last_err), "attempts": mir.checkpoint_max_attempts},
+        )
 
     with (
         _make_client(mir.http_timeout) as client,
@@ -108,6 +129,60 @@ def ensure_checkpoints(mir: MirSettings) -> None:
             fut.result()
 
     if errors:
-        log("mir:checkpoint", "SEAL", "checkpoints", "ERR", stats={"err": len(errors)})
+        log(_LOG_CKPT, "SEAL", "checkpoints", "ERR", stats={"err": len(errors)})
         raise RuntimeError("ensure_checkpoints failed:\n  " + "\n  ".join(errors))
-    log("mir:checkpoint", "SEAL", "checkpoints", "ok", stats={"got": len(missing)})
+    log(_LOG_CKPT, "SEAL", "checkpoints", "ok", stats={"got": len(missing)})
+    validate_checkpoint_sidecars(mir)
+
+
+def _sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _sidecar_path(pb_path: Path) -> Path:
+    return pb_path.parent / (pb_path.name + ".sha256")
+
+
+def _maintain_sidecar(pb_path: Path) -> None:
+    """Ensure ``<pb>.sha256`` matches the current (size, mtime) of ``pb_path``.
+
+    Re-hashes and rewrites the sidecar when missing, unreadable, or when the
+    stored (size, mtime) header differs from the .pb on disk. Idempotent.
+    """
+    side = _sidecar_path(pb_path)
+    st = pb_path.stat()
+    if side.exists():
+        try:
+            data = json.loads(side.read_text())
+            if (
+                isinstance(data, dict)
+                and data.get("size") == st.st_size
+                and data.get("mtime_ns") == st.st_mtime_ns
+                and isinstance(data.get("sha256"), str)
+            ):
+                return
+        except (json.JSONDecodeError, OSError):
+            pass
+    digest = _sha256_file(pb_path)
+    side.write_text(
+        json.dumps(
+            {"sha256": digest, "size": st.st_size, "mtime_ns": st.st_mtime_ns},
+            sort_keys=True,
+        )
+    )
+
+
+def validate_checkpoint_sidecars(mir: MirSettings) -> None:
+    """Refresh sidecars for every .pb present in ``mir.model_dir``.
+
+    Cheap: a noop when sidecar headers match the current files. Designed to
+    run at MIR stage entry so manual .pb swaps surface as fingerprint drift
+    on the next run.
+    """
+    for _url, target in _manifest(mir):
+        if target.exists():
+            _maintain_sidecar(target)

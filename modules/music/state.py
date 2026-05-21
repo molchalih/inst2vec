@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import json
-
 from sqlalchemy.orm import Session
 
 from core.config import MusicSettings
 from core.database import Clip, Music
+from core.fingerprint import stable_subset_payload
 from core.pipeline import Stage
 
 FEATURE_FIELDS: list[str] = [
@@ -50,19 +49,14 @@ _FEATURES_CONFIG_FIELDS: tuple[str, ...] = (
 )
 
 
-def _stable_subset_payload(music: MusicSettings, fields: tuple[str, ...]) -> str:
-    payload = {f: getattr(music, f) for f in fields}
-    return json.dumps(payload, sort_keys=True, default=str)
-
-
 def classify_config_payload(music: MusicSettings) -> str:
     """Stable JSON of the MusicSettings fields that affect classify outputs."""
-    return _stable_subset_payload(music, _CLASSIFY_CONFIG_FIELDS)
+    return stable_subset_payload(music, _CLASSIFY_CONFIG_FIELDS)
 
 
 def features_config_payload(music: MusicSettings) -> str:
     """Stable JSON of the MusicSettings fields that affect feature outputs."""
-    return _stable_subset_payload(music, _FEATURES_CONFIG_FIELDS)
+    return stable_subset_payload(music, _FEATURES_CONFIG_FIELDS)
 
 
 def music_has_features(row: Music) -> bool:

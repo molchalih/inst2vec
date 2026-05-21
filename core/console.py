@@ -61,6 +61,7 @@ Verb = Literal[
     "SCORE",
     "WRITE",
     "SEAL",
+    "SWEEP",
 ]
 _VERBS: frozenset[str] = frozenset(get_args(Verb))
 

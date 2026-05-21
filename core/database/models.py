@@ -209,7 +209,17 @@ class AudioMIR(Base):
     )
 
     is_mir_extracted: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
-    mir_error: Mapped[str | None] = mapped_column(String, nullable=True)
+    mir_error: Mapped[str | None] = mapped_column(
+        SAEnum(
+            "maest",
+            "effnet",
+            "audio_load",
+            "no_audio_file",
+            name="audio_mir_error",
+            validate_strings=True,
+        ),
+        nullable=True,
+    )
 
     approachability: Mapped[float | None] = mapped_column(Float, nullable=True)
     engagement: Mapped[float | None] = mapped_column(Float, nullable=True)

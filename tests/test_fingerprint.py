@@ -1,5 +1,7 @@
 """Unit tests for the fingerprint helper."""
 
+import json
+
 import pytest
 
 from core.database import Base, StageState, get_engine, get_session
@@ -295,3 +297,145 @@ def test_gate_match_does_not_invoke_callback(fresh_state):
     )
 
     assert called == []
+
+
+def test_gate_dependency_drift_ignored_by_default(fresh_state):
+    """Without check_dependency, dependency mismatch does NOT call on_drift."""
+    from core import fingerprint as fp
+    from core.database import StageState
+
+    session = fresh_state
+    session.merge(
+        StageState(
+            stage_name="t",
+            scope_key="s",
+            data_hash="d",
+            config_hash="c",
+            dependency_hash="old-dep",
+        )
+    )
+    session.commit()
+
+    current = fp.Fingerprint(data="d", config="c", dependency="new-dep")
+    called = {"n": 0}
+
+    def on_drift(_s):
+        called["n"] += 1
+
+    fp.gate(
+        session,
+        "t",
+        "s",
+        current,
+        on_drift,
+        log_scope="x",
+        drift_msg="dep drift",
+    )
+    assert called["n"] == 0
+
+
+def test_gate_dependency_drift_triggers_when_flag_set(fresh_state):
+    """With check_dependency=True, dependency mismatch calls on_drift."""
+    from core import fingerprint as fp
+    from core.database import StageState
+
+    session = fresh_state
+    session.merge(
+        StageState(
+            stage_name="t",
+            scope_key="s",
+            data_hash="d",
+            config_hash="c",
+            dependency_hash="old-dep",
+        )
+    )
+    session.commit()
+
+    current = fp.Fingerprint(data="d", config="c", dependency="new-dep")
+    called = {"n": 0}
+
+    def on_drift(_s):
+        called["n"] += 1
+
+    fp.gate(
+        session,
+        "t",
+        "s",
+        current,
+        on_drift,
+        log_scope="x",
+        drift_msg="dep drift",
+        check_dependency=True,
+    )
+    assert called["n"] == 1
+
+
+def test_gate_dependency_match_does_not_trigger_when_flag_set(fresh_state):
+    from core import fingerprint as fp
+    from core.database import StageState
+
+    session = fresh_state
+    session.merge(
+        StageState(
+            stage_name="t",
+            scope_key="s",
+            data_hash="d",
+            config_hash="c",
+            dependency_hash="dep",
+        )
+    )
+    session.commit()
+
+    current = fp.Fingerprint(data="d", config="c", dependency="dep")
+    called = {"n": 0}
+
+    def on_drift(_s):
+        called["n"] += 1
+
+    fp.gate(
+        session,
+        "t",
+        "s",
+        current,
+        on_drift,
+        log_scope="x",
+        drift_msg="m",
+        check_dependency=True,
+    )
+    assert called["n"] == 0
+
+
+# ── stable_subset_payload ─────────────────────────────────────────────────────
+
+
+def test_stable_subset_payload_orders_fields_deterministically():
+    from core.fingerprint import stable_subset_payload
+
+    class M:
+        a = 1
+        b = "x"
+        c = 3.5
+
+    out1 = stable_subset_payload(M(), ("c", "a", "b"))
+    out2 = stable_subset_payload(M(), ("b", "a", "c"))
+    assert out1 == out2
+    assert json.loads(out1) == {"a": 1, "b": "x", "c": 3.5}
+
+
+def test_stable_subset_payload_accepts_mapping():
+    from core.fingerprint import stable_subset_payload
+
+    out = stable_subset_payload({"a": 1, "b": "x"}, ("a", "b"))
+    assert json.loads(out) == {"a": 1, "b": "x"}
+
+
+def test_stable_subset_payload_serializes_unknown_types_via_str():
+    from pathlib import Path
+
+    from core.fingerprint import stable_subset_payload
+
+    class M:
+        p = Path("/tmp/x")
+
+    out = stable_subset_payload(M(), ("p",))
+    assert json.loads(out) == {"p": "/tmp/x"}

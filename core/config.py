@@ -100,13 +100,18 @@ class MirSettings(BaseModel):
     model_dir: str = "models/mir"
     download_concurrency: int = 4
     commit_every: int = 25
-    prefetch_queue_size: int = 1
+    prefetch_queue_size: int = 2
     http_timeout: float = 30.0
 
     maest_checkpoint: str = "discogs-maest-30s-pw-519l-1.pb"
+    maest_input: str = "serving_default_melspectrogram"
     maest_output: str = "StatefulPartitionedCall:0"
+    maest_patch_seconds: float = 30.0
     effnet_checkpoint: str = "discogs-effnet-bs64-1.pb"
     effnet_embed_output: str = "PartitionedCall:1"
+
+    checkpoint_max_attempts: int = 3
+    checkpoint_backoff_seconds: float = 2.0
 
     @field_validator(
         "topk_genre",
@@ -116,6 +121,7 @@ class MirSettings(BaseModel):
         "download_concurrency",
         "commit_every",
         "prefetch_queue_size",
+        "checkpoint_max_attempts",
     )
     @classmethod
     def _positive(cls, v: int) -> int:
@@ -128,6 +134,13 @@ class MirSettings(BaseModel):
     def _ratio(cls, v: float) -> float:
         if not 0.0 < v < 1.0:
             raise ValueError("must lie in (0, 1)")
+        return v
+
+    @field_validator("maest_patch_seconds")
+    @classmethod
+    def _positive_float(cls, v: float) -> float:
+        if v <= 0:
+            raise ValueError("must be > 0")
         return v
 
 
@@ -165,8 +178,8 @@ class AudioExtractionSettings(BaseModel):
     audio_extract_timeout_s: int = 60
     mir_codec: str = "pcm_s16le"
     mir_extension: str = "wav"
-    mir_sample_rate_hz: int = 44_100
-    mir_channels: int = 2
+    mir_sample_rate_hz: int = 16_000
+    mir_channels: int = 1
     mir_extract_timeout_s: int = 60
 
 

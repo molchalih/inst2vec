@@ -14,12 +14,13 @@ from sqlalchemy.orm import Session
 from core import fingerprint as fp
 from core.config import MirSettings, Settings
 from core.console import log, progress
-from core.database import AudioMIR, Clip, StageState, clip_used_in_analysis, get_session
-from modules.ingest.audio import AUDIO_EXTRACT_MIR_SCOPE, AUDIO_EXTRACT_MIR_STAGE
-from modules.mir.checkpoints import ensure_checkpoints
+from core.database import AudioMIR, Clip, clip_used_in_analysis, get_session
+from core.pipeline import AUDIO_EXTRACT_MIR_SCOPE, AUDIO_EXTRACT_MIR_STAGE
+from modules.mir.checkpoints import ensure_checkpoints, validate_checkpoint_sidecars
 from modules.mir.descriptors import load_labels, topk_csv
 from modules.mir.models import build_effnet, build_maest
 from modules.mir.state import (
+    _RESET_COLUMNS,
     POS,
     SCOPE_MIR,
     STAGE_MIR,
@@ -29,6 +30,9 @@ from modules.mir.state import (
 
 _LABELS_DIR = Path(__file__).resolve().parent / "labels"
 _SENTINEL = object()
+_LOG = "mir"
+_LOG_LOAD = "mir:load"
+_LOG_INFER = "mir:infer"
 
 
 def _load_audio(path: str, sr: int) -> np.ndarray:
@@ -119,32 +123,7 @@ def _upsert(session: Session, row: AudioMIR) -> None:
     if existing is None:
         session.add(row)
         return
-    for col in (
-        "is_mir_extracted",
-        "mir_error",
-        "approachability",
-        "engagement",
-        "danceability",
-        "is_aggressive",
-        "is_happy",
-        "is_party",
-        "is_relaxed",
-        "is_sad",
-        "is_acoustic",
-        "is_electronic",
-        "is_instrumental",
-        "is_female_voice",
-        "is_bright_timbre",
-        "is_tonal",
-        "genre_labels",
-        "genre_scores",
-        "moodtheme_labels",
-        "moodtheme_scores",
-        "instrument_labels",
-        "instrument_scores",
-        "audio_duration_s",
-        "inference_time_ms",
-    ):
+    for col in _RESET_COLUMNS:
         setattr(existing, col, getattr(row, col))
 
 
@@ -154,40 +133,45 @@ def run_mir(settings: Settings, secrets=None) -> None:
     paths = settings.paths
     session = get_session()
     try:
-        current = fp.Fingerprint(
-            data=fp.hash_text(""),
-            config=fp.hash_text(mir_config_payload(mir)),
-            dependency=fp.stage_dependency_hash(
-                session, AUDIO_EXTRACT_MIR_STAGE, AUDIO_EXTRACT_MIR_SCOPE
-            ),
+        validate_checkpoint_sidecars(mir)
+
+        def _current() -> fp.Fingerprint:
+            return fp.Fingerprint(
+                data=fp.hash_text(""),
+                config=fp.hash_text(mir_config_payload(mir)),
+                dependency=fp.stage_dependency_hash(
+                    session, AUDIO_EXTRACT_MIR_STAGE, AUDIO_EXTRACT_MIR_SCOPE
+                ),
+            )
+
+        current = _current()
+        fp.gate(
+            session,
+            STAGE_MIR,
+            SCOPE_MIR,
+            current,
+            reset_audio_mir,
+            log_scope=_LOG,
+            drift_msg="resetting MIR outputs",
+            check_dependency=True,
         )
-        stored = session.get(StageState, (STAGE_MIR, SCOPE_MIR))
-        if stored is None:
-            log("mir", "SCAN", "fingerprint", "none")
-        elif (
-            stored.config_hash != current.config
-            or stored.dependency_hash != current.dependency
-        ):
-            diff = fp.describe_diff(session, STAGE_MIR, SCOPE_MIR, current)
-            log("mir", "SCAN", "fingerprint", "stale", stats={"diff": diff})
-            reset_audio_mir(session)
-        else:
-            log("mir", "SKIP", "fingerprint", "ok")
 
         eligible = _eligible_clip_ids(session)
         if not eligible:
-            log("mir", "SCAN", "clips", "none")
+            log(_LOG, "SCAN", "clips", "none")
             fp.mark_complete(session, STAGE_MIR, SCOPE_MIR, current)
             session.commit()
             return
 
         ensure_checkpoints(mir)
+        # Recompute now that sidecars are guaranteed fresh post-download.
+        current = _current()
 
         labels_genre = load_labels(_LABELS_DIR / "genre_discogs519.json")
         labels_moodtheme = load_labels(_LABELS_DIR / "mtg_jamendo_moodtheme.json")
         labels_instrument = load_labels(_LABELS_DIR / "mtg_jamendo_instrument.json")
 
-        log("mir:load", "GET", "maest+effnet", "ok", stats={"clips": len(eligible)})
+        log(_LOG_LOAD, "GET", "maest+effnet", "ok", stats={"clips": len(eligible)})
         t_stage = time.perf_counter()
         with build_maest(mir) as maest, build_effnet(mir) as effnet:
             queue: Queue = Queue(maxsize=mir.prefetch_queue_size)
@@ -221,7 +205,7 @@ def run_mir(settings: Settings, secrets=None) -> None:
                     if prefetch_err is not None:
                         row = _terminal_failure(cid, prefetch_err)
                         log(
-                            "mir:infer",
+                            _LOG_INFER,
                             "PUT",
                             f"clip_{cid}",
                             "ERR",
@@ -240,15 +224,15 @@ def run_mir(settings: Settings, secrets=None) -> None:
                         )
                         if row.is_mir_extracted:
                             log(
-                                "mir:infer",
+                                _LOG_INFER,
                                 "PUT",
                                 f"clip_{cid}",
                                 "ok",
-                                stats={"time_ms": row.inference_time_ms},
+                                stats={"time": row.inference_time_ms / 1000.0},
                             )
                         else:
                             log(
-                                "mir:infer",
+                                _LOG_INFER,
                                 "PUT",
                                 f"clip_{cid}",
                                 "ERR",
@@ -260,19 +244,18 @@ def run_mir(settings: Settings, secrets=None) -> None:
                     if processed % mir.commit_every == 0:
                         session.commit()
             t.join(timeout=1.0)
+            if t.is_alive():
+                log(_LOG, "GET", "prefetch", "timeout")
 
         session.commit()
         fp.mark_complete(session, STAGE_MIR, SCOPE_MIR, current)
         session.commit()
         log(
-            "mir",
+            _LOG,
             "SEAL",
             "mir",
             "ok",
-            stats={
-                "done": len(eligible),
-                "time": time.perf_counter() - t_stage,
-            },
+            stats={"done": len(eligible), "time": time.perf_counter() - t_stage},
         )
     finally:
         session.close()

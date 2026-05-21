@@ -273,7 +273,7 @@ def test_settings_includes_mir_section(tmp_path):
     assert mir.inference_sample_rate == 16_000
     assert mir.download_concurrency == 4
     assert mir.commit_every == 25
-    assert mir.prefetch_queue_size == 1
+    assert mir.prefetch_queue_size == 2
     assert mir.http_timeout == 30.0
     assert mir.model_dir == "models/mir"
     assert mir.maest_checkpoint == "discogs-maest-30s-pw-519l-1.pb"
@@ -300,3 +300,14 @@ def test_mir_settings_rejects_non_positive_topk():
 
     with pytest.raises(ValidationError):
         MirSettings(topk_genre=0)
+
+
+def test_audio_extraction_mir_defaults_match_inference_sample_rate():
+    """MIR WAV defaults align with Essentia's MonoLoader(sampleRate=16000)."""
+    from core.config import AudioExtractionSettings, MirSettings
+
+    ae = AudioExtractionSettings()
+    mir = MirSettings()
+    assert ae.mir_sample_rate_hz == 16_000
+    assert ae.mir_channels == 1
+    assert ae.mir_sample_rate_hz == mir.inference_sample_rate

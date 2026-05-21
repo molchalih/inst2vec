@@ -29,8 +29,9 @@ Three canonical patterns
 from __future__ import annotations
 
 import hashlib
+import json
 import os
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -66,6 +67,21 @@ def hash_rows(rows: Iterable[tuple[Any, ...]]) -> str:
 
 def hash_text(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
+
+
+def stable_subset_payload(obj: object, fields: tuple[str, ...] | list[str]) -> str:
+    """Stable JSON string over a fixed allowlist of fields.
+
+    Sorts the field list, reads each value via attribute or item access,
+    serializes with ``sort_keys=True`` and ``default=str`` so unknown
+    types (Path, datetime, enum) hash deterministically.
+    """
+    if isinstance(obj, Mapping):
+        m: Mapping[Any, object] = obj
+        payload = {f: m[f] for f in sorted(fields)}
+    else:
+        payload = {f: getattr(obj, f) for f in sorted(fields)}
+    return json.dumps(payload, sort_keys=True, default=str)
 
 
 def file_stat_for_hash(path: str | os.PathLike[str]) -> tuple[int, int]:
@@ -128,16 +144,25 @@ def gate(
     *,
     log_scope: str,
     drift_msg: str,
+    check_dependency: bool = False,
 ) -> None:
-    """Reset stage outputs on config drift; emit the standard 3-state log line.
+    """Reset stage outputs on config (or optionally dependency) drift; emit the
+    standard 3-state log line.
 
     Replaces the per-stage ``stored = session.get(...)`` / compare /
     log-and-reset boilerplate. Caller commits.
+
+    ``check_dependency=True`` extends the drift check to dependency_hash for
+    stages whose outputs depend on an upstream stage state. Default False
+    preserves the original config-only semantics for existing callers.
     """
     stored = session.get(StageState, (stage, scope))
     if stored is None:
         log(log_scope, "SCAN", "fingerprint", "none")
-    elif stored.config_hash != current.config:
+        return
+    config_changed = stored.config_hash != current.config
+    dep_changed = check_dependency and stored.dependency_hash != current.dependency
+    if config_changed or dep_changed:
         diff = describe_diff(session, stage, scope, current)
         log(log_scope, "SCAN", "fingerprint", "stale", stats={"diff": diff})
         on_drift(session)

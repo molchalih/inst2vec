@@ -11,20 +11,16 @@ import numpy as np
 def topk_csv(probs: np.ndarray, labels: list[str], k: int) -> tuple[str, str]:
     """Return ``(labels_csv, scores_csv)`` for the top-K entries in ``probs``.
 
-    Labels are joined by ``", "``. Scores are formatted to 2 decimals.
+    Labels are joined by ``", "``. Scores are formatted to 4 decimals.
+    Discogs-style ``Parent---Child`` labels are flattened to ``Parent Child``.
     """
     if len(probs) != len(labels):
         raise ValueError(f"probs length {len(probs)} != labels length {len(labels)}")
     n = min(k, len(probs))
     order = np.argsort(-np.asarray(probs), kind="stable")[:n]
-    label_parts = [labels[i] for i in order]
-    score_parts = [f"{float(probs[i]):.2f}" for i in order]
+    label_parts = [labels[i].replace("---", " ") for i in order]
+    score_parts = [f"{float(probs[i]):.4f}" for i in order]
     return ", ".join(label_parts), ", ".join(score_parts)
-
-
-def binary_decide(prob_positive: float, *, threshold: float) -> bool:
-    """True iff ``prob_positive >= threshold``."""
-    return float(prob_positive) >= threshold
 
 
 def load_labels(path: Path | str) -> list[str]:

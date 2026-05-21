@@ -50,6 +50,6 @@ def test_audio_extraction_settings_have_mir_defaults():
     s = AudioExtractionSettings()
     assert s.mir_codec == "pcm_s16le"
     assert s.mir_extension == "wav"
-    assert s.mir_sample_rate_hz == 44_100
-    assert s.mir_channels == 2
+    assert s.mir_sample_rate_hz == 16_000
+    assert s.mir_channels == 1
     assert s.mir_extract_timeout_s == 60

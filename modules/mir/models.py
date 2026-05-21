@@ -48,7 +48,9 @@ def build_maest(mir: MirSettings) -> MAEST:
     """Construct a MAEST graph from the configured checkpoint."""
     return MAEST(
         pb=Path(mir.model_dir) / mir.maest_checkpoint,
+        input=mir.maest_input,
         output=mir.maest_output,
+        min_samples=int(mir.maest_patch_seconds * mir.inference_sample_rate),
     )
 
 

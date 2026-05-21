@@ -19,3 +19,7 @@ class Stage(StrEnum):
     CLUSTER_ASSIGN = "cluster_assign"
     MIR = "mir"
     AUDIO_EXTRACT_MIR = "audio_extract_mir"
+
+
+AUDIO_EXTRACT_MIR_STAGE: Stage = Stage.AUDIO_EXTRACT_MIR
+AUDIO_EXTRACT_MIR_SCOPE: str = "default"

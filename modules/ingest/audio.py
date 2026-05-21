@@ -3,16 +3,24 @@
 from __future__ import annotations
 
 import contextlib
+import json
 import os
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import NamedTuple
 
 from core import fingerprint as fp
+from core.config import AudioExtractionSettings
 from core.console import log, progress
-from core.database import Clip, StageState, get_session
+from core.database import Clip, StageState, clip_used_in_analysis, get_session
 from core.ffmpeg import has_audio_stream, run_ffmpeg
-from core.pipeline import Stage
+from core.fingerprint import stable_subset_payload
+from core.pipeline import (
+    AUDIO_EXTRACT_MIR_SCOPE,
+    AUDIO_EXTRACT_MIR_STAGE,
+    Stage,
+)
 
 AUDIO_EXTRACT_STAGE = Stage.AUDIO_EXTRACT
 AUDIO_EXTRACT_SCOPE = "default"
@@ -230,9 +238,102 @@ def extract_audio_stage(settings) -> None:
         session.close()
 
 
-AUDIO_EXTRACT_MIR_STAGE = Stage.AUDIO_EXTRACT_MIR
-AUDIO_EXTRACT_MIR_SCOPE = "default"
-SCOPE_MIR = "audio_mir"
+LOG_SCOPE_MIR_AUDIO = "audio_mir"
+
+_MIR_EXTRACT_CONFIG_FIELDS: tuple[str, ...] = (
+    "mir_codec",
+    "mir_extension",
+    "mir_sample_rate_hz",
+    "mir_channels",
+)
+
+
+def _mir_config_payload(audio_extraction: AudioExtractionSettings) -> str:
+    """Stable JSON of AudioExtractionSettings fields that affect the MIR WAV."""
+    return stable_subset_payload(audio_extraction, _MIR_EXTRACT_CONFIG_FIELDS)
+
+
+_WAV_FILENAME_RE = re.compile(r"^(\d+)\.wav$")
+
+
+def _probe_wav_format(path: str, *, timeout: int = 5) -> tuple[int, int] | None:
+    """Return ``(sample_rate_hz, channels)`` for a WAV file, or None on probe failure."""
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-select_streams",
+                "a:0",
+                "-show_entries",
+                "stream=sample_rate,channels",
+                "-of",
+                "json",
+                path,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+    if result.returncode != 0:
+        return None
+    try:
+        streams = json.loads(result.stdout or "{}").get("streams") or []
+        if not streams:
+            return None
+        sr = int(streams[0].get("sample_rate"))
+        ch = int(streams[0].get("channels"))
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+        return None
+    return (sr, ch)
+
+
+def sweep_orphan_mir_wavs(
+    *,
+    session,
+    audio_mir_dir: str,
+    expected_sample_rate_hz: int,
+    expected_channels: int,
+) -> int:
+    """Delete WAVs whose clip_id is not selected or whose probed format drifted.
+
+    Returns the count of files removed. Idempotent: a clean tree deletes zero
+    files. WAVs that ffprobe cannot read are conservatively kept (a probe
+    failure is not a verdict of format drift).
+    """
+    if not os.path.isdir(audio_mir_dir):
+        return 0
+
+    selected_ids = {
+        cid for (cid,) in session.query(Clip.id).filter(*clip_used_in_analysis()).all()
+    }
+
+    removed = 0
+    for entry in os.listdir(audio_mir_dir):
+        match = _WAV_FILENAME_RE.match(entry)
+        if not match:
+            continue
+        clip_id = int(match.group(1))
+        path = os.path.join(audio_mir_dir, entry)
+        if clip_id not in selected_ids:
+            with contextlib.suppress(OSError):
+                os.remove(path)
+                removed += 1
+            continue
+        probed = _probe_wav_format(path)
+        if probed is None:
+            continue  # conservative: keep unprobeable WAVs
+        if probed != (expected_sample_rate_hz, expected_channels):
+            with contextlib.suppress(OSError):
+                os.remove(path)
+                removed += 1
+    return removed
 
 
 def extract_audio_mir_stage(settings) -> None:
@@ -244,13 +345,10 @@ def extract_audio_mir_stage(settings) -> None:
     session = get_session()
     try:
         clips = (
-            session.query(Clip)
-            .filter(Clip.is_downloaded.is_(True))
-            .order_by(Clip.id)
-            .all()
+            session.query(Clip).filter(*clip_used_in_analysis()).order_by(Clip.id).all()
         )
         if not clips:
-            log(SCOPE_MIR, "SCAN", "clips", "none")
+            log(LOG_SCOPE_MIR_AUDIO, "SCAN", "clips", "none")
             return
 
         ids = [c.id for c in clips]
@@ -260,12 +358,7 @@ def extract_audio_mir_stage(settings) -> None:
         ae = settings.audio_extraction
         current = fp.Fingerprint(
             data=fp.hash_rows((cid,) for cid in ids),
-            config=fp.hash_text(
-                f"codec={ae.mir_codec}"
-                f"|ext={ae.mir_extension}"
-                f"|sr={ae.mir_sample_rate_hz}"
-                f"|ch={ae.mir_channels}"
-            ),
+            config=fp.hash_text(_mir_config_payload(ae)),
             dependency=fp.hash_rows(
                 fp.file_stat_for_hash(paths.video_for(cid)) for cid in ids
             ),
@@ -273,13 +366,31 @@ def extract_audio_mir_stage(settings) -> None:
         if not fp.is_stale(
             session, AUDIO_EXTRACT_MIR_STAGE, AUDIO_EXTRACT_MIR_SCOPE, current
         ):
-            log(SCOPE_MIR, "SKIP", "fingerprint", "ok")
+            log(LOG_SCOPE_MIR_AUDIO, "SKIP", "fingerprint", "ok")
             return
 
         stored = session.get(
             StageState, (AUDIO_EXTRACT_MIR_STAGE, AUDIO_EXTRACT_MIR_SCOPE)
         )
-        force_reencode = stored is not None and stored.config_hash != current.config
+        force_reencode = stored is not None and (
+            stored.config_hash != current.config
+            or stored.dependency_hash != current.dependency
+        )
+
+        n_removed = sweep_orphan_mir_wavs(
+            session=session,
+            audio_mir_dir=paths.audio_mir_dir,
+            expected_sample_rate_hz=ae.mir_sample_rate_hz,
+            expected_channels=ae.mir_channels,
+        )
+        if n_removed:
+            log(
+                LOG_SCOPE_MIR_AUDIO,
+                "SWEEP",
+                "audio_mir",
+                "ok",
+                stats={"removed": n_removed},
+            )
 
         failures = 0
         skipped = 0
@@ -296,7 +407,7 @@ def extract_audio_mir_stage(settings) -> None:
                 if not os.path.exists(video_path):
                     failures += 1
                     log(
-                        SCOPE_MIR,
+                        LOG_SCOPE_MIR_AUDIO,
                         "EXTRACT",
                         f"clip_{clip.id}.wav",
                         "ERR",
@@ -307,7 +418,7 @@ def extract_audio_mir_stage(settings) -> None:
                 if not has_audio_stream(video_path):
                     skipped += 1
                     log(
-                        SCOPE_MIR,
+                        LOG_SCOPE_MIR_AUDIO,
                         "EXTRACT",
                         f"clip_{clip.id}.wav",
                         "none",
@@ -334,7 +445,7 @@ def extract_audio_mir_stage(settings) -> None:
                 result = fut.result()
                 if result.ok:
                     log(
-                        SCOPE_MIR,
+                        LOG_SCOPE_MIR_AUDIO,
                         "EXTRACT",
                         f"clip_{cid}.wav",
                         "ok",
@@ -347,7 +458,7 @@ def extract_audio_mir_stage(settings) -> None:
                 else:
                     failures += 1
                     log(
-                        SCOPE_MIR,
+                        LOG_SCOPE_MIR_AUDIO,
                         "EXTRACT",
                         f"clip_{cid}.wav",
                         "ERR",
@@ -364,7 +475,7 @@ def extract_audio_mir_stage(settings) -> None:
             )
             session.commit()
             log(
-                SCOPE_MIR,
+                LOG_SCOPE_MIR_AUDIO,
                 "SEAL",
                 "audio_mir",
                 "ok",
@@ -376,7 +487,7 @@ def extract_audio_mir_stage(settings) -> None:
             )
         else:
             log(
-                SCOPE_MIR,
+                LOG_SCOPE_MIR_AUDIO,
                 "SEAL",
                 "audio_mir",
                 "stale",

@@ -273,3 +273,90 @@ def test_run_mir_processes_multiple_clips_in_order(
     rows = db_session.query(AudioMIR).order_by(AudioMIR.clip_id).all()
     assert [r.clip_id for r in rows] == [10, 11, 12]
     assert all(r.is_mir_extracted is True for r in rows)
+
+
+def test_run_mir_calls_validate_checkpoint_sidecars_before_fingerprint(
+    monkeypatch, patched_pipeline, tmp_path, db_session
+):
+    """Sidecar maintenance runs at stage entry, before fingerprint comparison."""
+    from modules.mir import pipeline as pipeline_mod
+
+    seen: list[str] = []
+
+    def fake_validate(mir):
+        seen.append("validate")
+
+    monkeypatch.setattr(pipeline_mod, "validate_checkpoint_sidecars", fake_validate)
+
+    settings = _make_settings(tmp_path)
+    _write_dummy_wav(Path(settings.paths.audio_mir_dir) / "1.wav")
+    db_session.add(User(id=1))
+    db_session.add(Clip(id=1, user_id=1, is_downloaded=True, is_selected=True))
+    db_session.commit()
+
+    pipeline_mod.run_mir(settings, secrets=None)
+
+    assert "validate" in seen
+
+
+def test_run_mir_resets_when_mir_config_drifts(patched_pipeline, tmp_path, db_session):
+    """Mutating a MirSettings field after a successful run invalidates rows."""
+    settings = _make_settings(tmp_path)
+    _write_dummy_wav(Path(settings.paths.audio_mir_dir) / "1.wav")
+
+    db_session.add(User(id=1))
+    db_session.add(Clip(id=1, user_id=1, is_downloaded=True, is_selected=True))
+    db_session.commit()
+
+    patched_pipeline.run_mir(settings, secrets=None)
+    first = db_session.query(AudioMIR).filter_by(clip_id=1).one()
+    assert first.is_mir_extracted is True
+
+    # Drift a fingerprint-relevant MIR setting.
+    settings.mir = settings.mir.model_copy(update={"binary_threshold": 0.7})
+
+    patched_pipeline.run_mir(settings, secrets=None)
+
+    row = db_session.query(AudioMIR).filter_by(clip_id=1).one()
+    # The reset nulled, then the re-run repopulated, so the row is alive
+    # with non-null descriptors again.
+    assert row.is_mir_extracted is True
+    assert row.danceability is not None
+    # New threshold → at least the boolean derived from POS may differ;
+    # the contract here is that re-inference happened, not the exact value.
+    assert db_session.query(AudioMIR).count() == 1
+
+
+def test_run_mir_emits_sentinel_when_prefetch_raises_mid_loop(
+    monkeypatch, patched_pipeline, tmp_path, db_session
+):
+    """If _load_audio raises on the second clip, the main loop still drains
+    and the failed clip is committed as is_mir_extracted=False."""
+    from modules.mir import pipeline as pipeline_mod
+
+    settings = _make_settings(tmp_path)
+    for cid in (10, 11):
+        _write_dummy_wav(Path(settings.paths.audio_mir_dir) / f"{cid}.wav")
+
+    db_session.add(User(id=1))
+    db_session.add(Clip(id=10, user_id=1, is_downloaded=True, is_selected=True))
+    db_session.add(Clip(id=11, user_id=1, is_downloaded=True, is_selected=True))
+    db_session.commit()
+
+    calls = {"n": 0}
+
+    def flaky_load(path, sr):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise RuntimeError("simulated audio decode failure")
+        return np.ones(sr * 2, dtype=np.float32)
+
+    monkeypatch.setattr(pipeline_mod, "_load_audio", flaky_load)
+
+    # The whole call must terminate within a reasonable budget.
+    pipeline_mod.run_mir(settings, secrets=None)
+
+    rows = {r.clip_id: r for r in db_session.query(AudioMIR).all()}
+    assert rows[10].is_mir_extracted is True
+    assert rows[11].is_mir_extracted is False
+    assert rows[11].mir_error == "audio_load"

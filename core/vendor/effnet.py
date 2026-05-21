@@ -12,9 +12,15 @@ stub the class.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import numpy as np
+
+# Silence TensorFlow's C++ stderr (CUDA dso lookups, GPU init, oneDNN notice)
+# before essentia.standard transitively imports TF. setdefault preserves any
+# user override; level "3" suppresses INFO + WARNING + ERROR.
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
 
 
 class EffNet:
@@ -25,10 +31,17 @@ class EffNet:
         *,
         embed_output: str = "PartitionedCall:1",
     ):
+        import essentia
         from essentia.standard import (
             TensorflowPredict2D,
             TensorflowPredictEffnetDiscogs,
         )
+
+        # Idempotent with the same silencing done in MAEST: when EffNet is
+        # constructed first (e.g. tests), kill Essentia's [ WARNING ] + [ INFO ]
+        # streams here too.
+        essentia.log.warningActive = False  # ty: ignore[unresolved-attribute]
+        essentia.log.infoActive = False  # ty: ignore[unresolved-attribute]
 
         self._embed = TensorflowPredictEffnetDiscogs(
             graphFilename=str(embed_pb), output=embed_output,
