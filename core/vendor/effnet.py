@@ -31,17 +31,18 @@ class EffNet:
         *,
         embed_output: str = "PartitionedCall:1",
     ):
+        # Same ordering as MAEST: flip Essentia log flags BEFORE the
+        # essentia.standard import so the algorithm-registration INFO line
+        # ("MusicExtractorSVM: no classifier models were configured by
+        # default") is suppressed even when EffNet is constructed first.
         import essentia
+
+        essentia.log.warningActive = False  # ty: ignore[unresolved-attribute]
+        essentia.log.infoActive = False  # ty: ignore[unresolved-attribute]
         from essentia.standard import (
             TensorflowPredict2D,
             TensorflowPredictEffnetDiscogs,
         )
-
-        # Idempotent with the same silencing done in MAEST: when EffNet is
-        # constructed first (e.g. tests), kill Essentia's [ WARNING ] + [ INFO ]
-        # streams here too.
-        essentia.log.warningActive = False  # ty: ignore[unresolved-attribute]
-        essentia.log.infoActive = False  # ty: ignore[unresolved-attribute]
 
         self._embed = TensorflowPredictEffnetDiscogs(
             graphFilename=str(embed_pb), output=embed_output,

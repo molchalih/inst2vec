@@ -262,8 +262,6 @@ def run_cluster_search(
                                 },
                             )
                             advance(1, detail=f"{short} | k={result.n_clusters}")
-        else:
-            log(scope, "SCAN", "embeddings", "none")
 
         # 4. short write section
         session = get_session()

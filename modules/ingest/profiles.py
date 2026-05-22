@@ -111,7 +111,6 @@ def fetch_profiles(
     users = session.query(User).filter(User.parse_status.is_(None)).all()
 
     if not users:
-        log(SCOPE, "SCAN", "users", "none")
         session.close()
         return
 

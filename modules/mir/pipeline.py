@@ -166,7 +166,6 @@ def run_mir(settings: Settings, secrets=None) -> None:
 
         eligible = _eligible_clip_ids(session)
         if not eligible:
-            log(_LOG, "SCAN", "clips", "none")
             fp.mark_complete(session, STAGE_MIR, SCOPE_MIR, current)
             session.commit()
             return

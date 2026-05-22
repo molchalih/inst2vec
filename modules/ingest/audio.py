@@ -110,7 +110,6 @@ def extract_audio_stage(settings) -> None:
             .all()
         )
         if not clips:
-            log(SCOPE, "SCAN", "clips", "none")
             return
 
         ids = [c.id for c in clips]
@@ -348,7 +347,6 @@ def extract_audio_mir_stage(settings) -> None:
             session.query(Clip).filter(*clip_used_in_analysis()).order_by(Clip.id).all()
         )
         if not clips:
-            log(LOG_SCOPE_MIR_AUDIO, "SCAN", "clips", "none")
             return
 
         ids = [c.id for c in clips]

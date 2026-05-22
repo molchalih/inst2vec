@@ -32,16 +32,18 @@ def _tile_to_length(audio: np.ndarray, n: int) -> np.ndarray:
 
 class MAEST:
     def __init__(self, pb: Path, *, input: str, output: str, min_samples: int):
+        # Flip Essentia's log flags BEFORE importing from essentia.standard:
+        # algorithm registration during that import emits the one-shot
+        # "[ INFO ] MusicExtractorSVM: no classifier models were configured by
+        # default" line, which the post-import suppression in older revisions
+        # could not catch.
         import essentia
+
+        essentia.log.warningActive = False  # ty: ignore[unresolved-attribute]
+        essentia.log.infoActive = False  # ty: ignore[unresolved-attribute]
         from essentia.standard import (
             TensorflowPredictMAEST,  # ty: ignore[unresolved-import]
         )
-
-        # Essentia's C++ layer floods stderr with "No network created..."
-        # and per-model "[ INFO ] MusicExtractorSVM ..." lines. Disable both
-        # before any MAEST/EffNet predict runs.
-        essentia.log.warningActive = False  # ty: ignore[unresolved-attribute]
-        essentia.log.infoActive = False  # ty: ignore[unresolved-attribute]
 
         if min_samples <= 0:
             raise ValueError("min_samples must be > 0")

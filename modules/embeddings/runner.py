@@ -309,8 +309,6 @@ def _embed_targets(
                 "ok",
                 stats={"non_embeddable": fresh_skipped},
             )
-        else:
-            log(log_tag, "SCAN", "jobs", "none")
         fp.mark_complete(session, STAGE, spec.name, current)
         session.commit()
         log(

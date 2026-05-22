@@ -398,7 +398,6 @@ def validate_clustering(
         matrix, _ = load_user_matrix(case)
 
         if matrix.shape[0] == 0:
-            log(scope, "SCAN", "embeddings", "none")
             session = get_session()
             try:
                 session.query(ClusterRun).filter(

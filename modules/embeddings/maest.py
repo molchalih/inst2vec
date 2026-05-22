@@ -1,9 +1,13 @@
 """MAEST raw-embedding provider.
 
 Loads the same ``.pb`` checkpoint the MIR stage owns but requests the
-``PartitionedCall/Identity_7`` tensor (CLS + DIST + per-patch signal
-tokens, shape ``[N_patches, 1, T_tokens, 768]``). Aggregates each patch
-as ``concat(CLS, DIST, mean(signal_tokens))`` → ``(2304,)`` and mean-pools
+``StatefulPartitionedCall:7`` tensor (CLS + DIST + per-patch signal
+tokens, shape ``[N_patches, 1, T_tokens, 768]``) — the 7th transformer
+block output exposed via the SavedModel signature. The original
+frozen-graph naming for this tensor was ``PartitionedCall/Identity_7``,
+which the SavedModel-converted ``.pb`` shipped by Essentia does not
+expose at the top level. Aggregates each patch as
+``concat(CLS, DIST, mean(signal_tokens))`` → ``(2304,)`` and mean-pools
 across patches.
 
 Essentia is imported lazily so the module is importable in tests that
@@ -53,13 +57,15 @@ class MaestProvider:
         sample_rate: int,
         min_samples: int,
     ) -> None:
+        # Flip log flags before importing essentia.standard so the
+        # MusicExtractorSVM registration-time INFO line is suppressed.
         import essentia
-        from essentia.standard import (
-            TensorflowPredictMAEST,  # ty: ignore[unresolved-import]
-        )
 
         essentia.log.warningActive = False
         essentia.log.infoActive = False
+        from essentia.standard import (
+            TensorflowPredictMAEST,  # ty: ignore[unresolved-import]
+        )
 
         if min_samples <= 0:
             raise ValueError("min_samples must be > 0")
@@ -70,7 +76,7 @@ class MaestProvider:
         self._predict = TensorflowPredictMAEST(
             graphFilename=str(checkpoint_path),
             input=input_op,
-            output="PartitionedCall/Identity_7",
+            output="StatefulPartitionedCall:7",
         )
 
     def embed(self, payload: dict):

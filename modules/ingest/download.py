@@ -174,7 +174,6 @@ def download_files(
 
         total_jobs = len(profile_jobs) + len(thumbnail_jobs) + len(video_jobs)
         if total_jobs == 0:
-            log(SCOPE, "SCAN", "clips", "none")
             session.commit()
             return
 

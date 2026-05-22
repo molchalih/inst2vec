@@ -140,7 +140,7 @@ def test_case_config_identity_for_maest_captures_checkpoint_and_aggregation(tmp_
 
     assert "case=maest" in identity
     assert "maest_checkpoint=discogs-maest-30s-pw-519l-1.pb" in identity
-    assert "output_op=PartitionedCall/Identity_7" in identity
+    assert "output_op=StatefulPartitionedCall:7" in identity
     assert "aggregation=concat_cls_dist_mean_v1" in identity
     assert "patch_reduction=mean" in identity
     assert "input_sample_rate=16000" in identity

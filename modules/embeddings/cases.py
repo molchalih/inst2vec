@@ -373,7 +373,7 @@ def case_config_identity(spec: EmbeddingCaseSpec, settings) -> str:
         min_samples = int(mir.maest_patch_seconds * mir.inference_sample_rate)
         parts.append(f"maest_checkpoint={mir.maest_checkpoint}")
         parts.append(f"input_op={mir.maest_input}")
-        parts.append("output_op=PartitionedCall/Identity_7")
+        parts.append("output_op=StatefulPartitionedCall:7")
         parts.append("aggregation=concat_cls_dist_mean_v1")
         parts.append("patch_reduction=mean")
         parts.append(f"input_sample_rate={mir.inference_sample_rate}")

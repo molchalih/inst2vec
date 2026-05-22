@@ -49,7 +49,6 @@ def upload_videos(settings, secrets) -> None:
         )
 
         if not candidates:
-            log(STAGE, "SCAN", "clips", "none")
             return
 
         log(STAGE, "SCAN", "clips", "ok", stats={"todo": len(candidates)})
