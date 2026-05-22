@@ -64,6 +64,8 @@ def _kwargs(video_dir: Path):
         logprob_threshold=-0.8,
         compression_threshold=2.4,
         min_meaningful_chars=4,
+        dirty_min_chars=5,
+        dirty_min_letter_ratio=0.3,
     )
 
 
@@ -279,6 +281,23 @@ def test_clean_speech_resets_marker_translations(db_session):
     assert clip.speech_translation is None
 
 
+def test_clean_speech_keeps_translation_containing_short_corpus_phrase(db_session):
+    """A real translation that merely begins with a short common corpus
+    entry like ``"Yeah."`` must NOT be nulled — the SQL substring filter
+    only fires on substring-safe phrases (long generics + extras)."""
+    s, _ = db_session
+    clip = s.query(Clip).filter_by(id=10).one()
+    clip.is_speech_detected = True
+    clip.speech_translation = "Yeah. I agree with everything you just said."
+    s.commit()
+
+    clean_speech()
+
+    clip = s.query(Clip).filter_by(id=10).one()
+    assert clip.is_speech_detected is True
+    assert clip.speech_translation == "Yeah. I agree with everything you just said."
+
+
 def test_clean_speech_nulls_poisoned_text(db_session):
     """clean_speech must NULL the seven speech columns when a
     hallucination marker is detected, so downstream text builders and
@@ -304,6 +323,77 @@ def test_clean_speech_nulls_poisoned_text(db_session):
     assert clip.speech_confidence is None
     assert clip.speech_avg_logprob is None
     assert clip.speech_compression_ratio is None
+
+
+def test_classify_too_short_transcript_flagged_but_kept(db_session, monkeypatch):
+    """Whisper returns ``"you"`` (3 chars). The new dirty-min-chars rule flags
+    the clip as no-speech AND keeps the transcript stored for analysis."""
+    s, tmp_path = db_session
+    _stub_whisper(
+        monkeypatch,
+        {
+            "text": "you",
+            "language": "en",
+            "segments": [
+                {"no_speech_prob": 0.1, "avg_logprob": -0.2, "compression_ratio": 1.0}
+            ],
+        },
+    )
+    classify_speech(
+        speech_audio_dir=str(tmp_path / "audio"),
+        vad_config=VadConfig(enabled=False),
+        **_kwargs(tmp_path),
+    )
+    clip = s.query(Clip).filter_by(id=10).one()
+    assert clip.is_speech_detected is False
+    assert clip.speech_transcription == "you"
+
+
+def test_classify_low_letter_ratio_flagged_but_kept(db_session, monkeypatch):
+    """Digit-heavy noise trips has_low_letter_ratio; transcript preserved."""
+    s, tmp_path = db_session
+    _stub_whisper(
+        monkeypatch,
+        {
+            "text": "1, 2, 3, 4, 5.",
+            "language": "en",
+            "segments": [
+                {"no_speech_prob": 0.1, "avg_logprob": -0.2, "compression_ratio": 1.0}
+            ],
+        },
+    )
+    classify_speech(
+        speech_audio_dir=str(tmp_path / "audio"),
+        vad_config=VadConfig(enabled=False),
+        **_kwargs(tmp_path),
+    )
+    clip = s.query(Clip).filter_by(id=10).one()
+    assert clip.is_speech_detected is False
+    assert clip.speech_transcription == "1, 2, 3, 4, 5."
+
+
+def test_classify_file_hallucination_flagged_but_kept(db_session, monkeypatch):
+    """A Vexa-corpus hallucination ("Thanks for watching!") is detected by the
+    new file-backed has_hallucination_marker, flag flips, transcript preserved."""
+    s, tmp_path = db_session
+    _stub_whisper(
+        monkeypatch,
+        {
+            "text": "Thanks for watching!",
+            "language": "en",
+            "segments": [
+                {"no_speech_prob": 0.1, "avg_logprob": -0.2, "compression_ratio": 1.0}
+            ],
+        },
+    )
+    classify_speech(
+        speech_audio_dir=str(tmp_path / "audio"),
+        vad_config=VadConfig(enabled=False),
+        **_kwargs(tmp_path),
+    )
+    clip = s.query(Clip).filter_by(id=10).one()
+    assert clip.is_speech_detected is False
+    assert clip.speech_transcription == "Thanks for watching!"
 
 
 def _vad_disabled():
@@ -416,6 +506,8 @@ def test_classify_speech_marks_no_audio_stream_terminal(db_session, monkeypatch)
         logprob_threshold=-1.0,
         compression_threshold=2.4,
         min_meaningful_chars=1,
+        dirty_min_chars=5,
+        dirty_min_letter_ratio=0.3,
         vad_config=VadConfig(enabled=True),
     )
 
@@ -445,6 +537,8 @@ def test_classify_speech_leaves_probe_failure_retryable(db_session, monkeypatch)
         logprob_threshold=-1.0,
         compression_threshold=2.4,
         min_meaningful_chars=1,
+        dirty_min_chars=5,
+        dirty_min_letter_ratio=0.3,
         vad_config=VadConfig(enabled=True),
     )
 

@@ -29,6 +29,8 @@ class _SpeechCfg:
     logprob_threshold: float = -1.0
     compression_threshold: float = 2.4
     min_meaningful_chars: int = 3
+    dirty_min_chars: int = 5
+    dirty_min_letter_ratio: float = 0.3
     vad_enabled: bool = False
     vad_sampling_rate: int = 16000
     vad_threshold: float = 0.5

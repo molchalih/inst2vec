@@ -498,8 +498,12 @@ def test_config_change_still_wipes(db_session, stub_providers, monkeypatch):
         db_session,
         settings,
         clips=[
-            dict(id=10, user_id=1, speech_transcription="hello"),
-            dict(id=11, user_id=1, speech_transcription="world"),
+            dict(
+                id=10, user_id=1, speech_transcription="hello", is_speech_detected=True
+            ),
+            dict(
+                id=11, user_id=1, speech_transcription="world", is_speech_detected=True
+            ),
         ],
     )
     embed_clip_embeddings(settings, _FAKE_SECRETS)

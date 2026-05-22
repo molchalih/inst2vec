@@ -13,6 +13,8 @@ def test_classify_speech_accepts_params():
         "logprob_threshold",
         "compression_threshold",
         "min_meaningful_chars",
+        "dirty_min_chars",
+        "dirty_min_letter_ratio",
         "vad_config",
     ):
         assert name in sig.parameters, f"missing: {name}"

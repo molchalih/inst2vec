@@ -1,0 +1,5 @@
+# Project-local hallucination markers (additions beyond Vexa corpus).
+# One phrase per line. Lines starting with '#' are comments.
+# Phrases shorter than the loader's minimum length are dropped.
+
+DimaTorzok

@@ -154,6 +154,8 @@ class SpeechSettings(BaseModel):
     logprob_threshold: float
     compression_threshold: float
     min_meaningful_chars: int
+    dirty_min_chars: int
+    dirty_min_letter_ratio: float
     vad_enabled: bool
     vad_sampling_rate: int
     vad_threshold: float

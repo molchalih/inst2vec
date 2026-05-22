@@ -69,6 +69,8 @@ def process_speech(
         logprob_threshold=cfg.logprob_threshold,
         compression_threshold=cfg.compression_threshold,
         min_meaningful_chars=cfg.min_meaningful_chars,
+        dirty_min_chars=cfg.dirty_min_chars,
+        dirty_min_letter_ratio=cfg.dirty_min_letter_ratio,
         vad_config=VadConfig(
             enabled=cfg.vad_enabled,
             sampling_rate=cfg.vad_sampling_rate,

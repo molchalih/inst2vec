@@ -201,6 +201,7 @@ def test_gemini_text_joins_caption_and_transcript():
         speech_transcription="hi",
         speech_language="es",
         speech_translation="hello",
+        is_speech_detected=True,
     )
     text = build_gemini_text(clip, {})
     assert "cap en" in text
@@ -217,6 +218,7 @@ def test_gemini_text_returns_none_when_empty():
         speech_transcription=None,
         speech_language=None,
         speech_translation=None,
+        is_speech_detected=True,
     )
     assert build_gemini_text(clip, {}) is None
 
@@ -293,6 +295,7 @@ def test_dependency_rows_gemini_includes_file_stats(db_session, tmp_path):
         "caption_clean",
         "caption_language",
         "caption_translation",
+        "is_speech_detected",
         "speech_transcription",
         "speech_language",
         "speech_translation",

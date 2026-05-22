@@ -5,6 +5,7 @@ import pytest
 from modules.embeddings.text import (
     _is_non_english,
     build_audio_text,
+    build_gemini_text,
     build_sandwich_text,
     verbalize_music,
 )
@@ -56,6 +57,7 @@ def _clip(**kwargs):
         speech_transcription=None,
         speech_language=None,
         speech_translation=None,
+        is_speech_detected=True,
         music_id=None,
     )
     defaults.update(kwargs)
@@ -300,6 +302,33 @@ def test_build_sandwich_text_skips_empty_strings():
     assert build_sandwich_text(clip, {}) is None
 
 
+def test_build_sandwich_text_ignores_speech_when_not_detected():
+    """Even if a transcript sits in the row, the sandwich text must not
+    include it unless ``is_speech_detected is True``."""
+    clip = _clip(
+        caption_text="Great video",
+        caption_language="en",
+        speech_transcription="Thanks for watching!",
+        speech_language="en",
+        is_speech_detected=False,
+    )
+    result = build_sandwich_text(clip, {})
+    assert result == "Great video"
+    assert "Thanks for watching" not in (result or "")
+
+
+def test_build_sandwich_text_ignores_speech_when_detection_pending():
+    """``is_speech_detected is None`` (not yet processed) → speech ignored."""
+    clip = _clip(
+        caption_text=None,
+        speech_transcription="some words",
+        speech_language="en",
+        is_speech_detected=None,
+    )
+    result = build_sandwich_text(clip, {})
+    assert result is None
+
+
 # ── build_audio_text ──────────────────────────────────────────────────────────
 
 
@@ -423,3 +452,45 @@ def test_build_audio_text_speech_language_none_uses_raw():
     )
     result = build_audio_text(clip, {})
     assert result == "Hello world"
+
+
+def test_build_audio_text_ignores_speech_when_not_detected():
+    clip = _clip(
+        caption_text=None,
+        speech_transcription="Thanks for watching!",
+        speech_language="en",
+        is_speech_detected=False,
+    )
+    result = build_audio_text(clip, {})
+    assert result is None  # no speech and no music → None
+
+
+def test_build_audio_text_returns_only_music_when_speech_flagged_off():
+    m = _music(track="X", artist="Y", energy=0.5)
+    clip = _clip(
+        caption_text=None,
+        speech_transcription="Bye bye.",
+        speech_language="en",
+        is_speech_detected=False,
+        music_id=7,
+    )
+    result = build_audio_text(clip, {7: m})
+    assert result is not None
+    assert result.startswith("Music:")
+    assert "Bye bye" not in result
+
+
+# ── build_gemini_text ─────────────────────────────────────────────────────────
+
+
+def test_build_gemini_text_ignores_speech_when_not_detected():
+    clip = _clip(
+        caption_text="Caption stays",
+        caption_language="en",
+        speech_transcription="Subtitles by someone",
+        speech_language="en",
+        is_speech_detected=False,
+    )
+    result = build_gemini_text(clip, {})
+    assert result == "Caption stays"
+    assert "Subtitles" not in (result or "")

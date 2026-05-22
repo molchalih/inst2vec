@@ -100,15 +100,16 @@ def build_sandwich_text(clip, music_map: dict) -> str | None:
     if cap.strip():
         parts.append(cap.strip())
 
-    speech = (
-        clip.speech_translation
-        if _is_non_english(clip.speech_language)
-        and clip.speech_translation
-        and clip.speech_translation.strip()
-        else (clip.speech_transcription or "")
-    )
-    if speech.strip():
-        parts.append(speech.strip())
+    if clip.is_speech_detected is True:
+        speech = (
+            clip.speech_translation
+            if _is_non_english(clip.speech_language)
+            and clip.speech_translation
+            and clip.speech_translation.strip()
+            else (clip.speech_transcription or "")
+        )
+        if speech.strip():
+            parts.append(speech.strip())
 
     if clip.music_id is not None and clip.music_id in music_map:
         parts.append(verbalize_music(music_map[clip.music_id]))
@@ -131,13 +132,15 @@ def build_gemini_text(clip, _music_map: dict) -> str | None:
         and clip.caption_translation.strip()
         else (clip.caption_clean or clip.caption_text or "")
     )
-    speech = (
-        clip.speech_translation
-        if _is_non_english(clip.speech_language)
-        and clip.speech_translation
-        and clip.speech_translation.strip()
-        else (clip.speech_transcription or "")
-    )
+    speech = ""
+    if clip.is_speech_detected is True:
+        speech = (
+            clip.speech_translation
+            if _is_non_english(clip.speech_language)
+            and clip.speech_translation
+            and clip.speech_translation.strip()
+            else (clip.speech_transcription or "")
+        )
 
     parts = []
     if cap and cap.strip():
@@ -154,15 +157,16 @@ def build_audio_text(clip, music_map: dict) -> str | None:
     # instruction priority. Captions are deliberately excluded.
     parts = []
 
-    speech = (
-        clip.speech_translation
-        if _is_non_english(clip.speech_language)
-        and clip.speech_translation
-        and clip.speech_translation.strip()
-        else (clip.speech_transcription or "")
-    )
-    if speech.strip():
-        parts.append(speech.strip())
+    if clip.is_speech_detected is True:
+        speech = (
+            clip.speech_translation
+            if _is_non_english(clip.speech_language)
+            and clip.speech_translation
+            and clip.speech_translation.strip()
+            else (clip.speech_transcription or "")
+        )
+        if speech.strip():
+            parts.append(speech.strip())
 
     if clip.music_id is not None and clip.music_id in music_map:
         parts.append(verbalize_music(music_map[clip.music_id]))

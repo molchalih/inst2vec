@@ -193,12 +193,13 @@ SANDWICH_CASE = EmbeddingCaseSpec(
         "caption_clean",
         "caption_language",
         "caption_translation",
+        "is_speech_detected",
         "speech_transcription",
         "speech_language",
         "speech_translation",
         "_music_row",
     ),
-    recipe_version="sandwich_v1",
+    recipe_version="sandwich_v2",
 )
 
 AUDIO_CASE = EmbeddingCaseSpec(
@@ -212,12 +213,13 @@ AUDIO_CASE = EmbeddingCaseSpec(
     # a sealed run (including for previously-skipped speechless clips)
     # must flip the audio fingerprint so the clip is (re-)embedded.
     dependency_columns=(
+        "is_speech_detected",
         "speech_transcription",
         "speech_language",
         "speech_translation",
         "_music_row",
     ),
-    recipe_version="audio_v1",
+    recipe_version="audio_v2",
 )
 
 
@@ -265,11 +267,12 @@ GEMINI_CASE = EmbeddingCaseSpec(
         "caption_clean",
         "caption_language",
         "caption_translation",
+        "is_speech_detected",
         "speech_transcription",
         "speech_language",
         "speech_translation",
     ),
-    recipe_version="gemini_v1",
+    recipe_version="gemini_v2",
     requires=("gemini_enabled",),
     served_remotely=False,
 )

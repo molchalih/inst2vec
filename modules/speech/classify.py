@@ -19,8 +19,10 @@ from core.ffmpeg import probe_audio_stream
 from modules.speech.state import (
     HALLUCINATION_MARKERS,
     has_hallucination_marker,
+    has_low_letter_ratio,
     has_meaningful_speech_text,
     is_repeated_output,
+    is_too_short,
 )
 from modules.speech.vad import VadConfig, prepare_for_whisper
 
@@ -64,6 +66,8 @@ def classify_speech(
     logprob_threshold: float,
     compression_threshold: float,
     min_meaningful_chars: int,
+    dirty_min_chars: int,
+    dirty_min_letter_ratio: float,
     vad_config: VadConfig,
 ) -> None:
     """Transcribe all unresolved clips with Whisper, gated by Silero VAD.
@@ -212,9 +216,15 @@ def classify_speech(
 
             low_logprob = bool(text) and avg_logprob < logprob_threshold
             high_compression = bool(text) and compression_ratio > compression_threshold
+            too_short = is_too_short(text, min_chars=dirty_min_chars)
+            low_letter_ratio = has_low_letter_ratio(
+                text, min_ratio=dirty_min_letter_ratio
+            )
             dirty = (
                 low_logprob
                 or high_compression
+                or too_short
+                or low_letter_ratio
                 or has_hallucination_marker(text)
                 or is_repeated_output(text)
             )

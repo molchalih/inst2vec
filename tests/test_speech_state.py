@@ -61,3 +61,63 @@ def test_is_repeated_output_clean_text():
 def test_is_repeated_output_empty_or_none():
     assert is_repeated_output("") is False
     assert is_repeated_output(None) is False
+
+
+# ── is_too_short ─────────────────────────────────────────────────────────────
+
+
+def test_is_too_short_handles_none_and_empty():
+    from modules.speech.state import is_too_short
+
+    assert is_too_short(None, min_chars=5) is True
+    assert is_too_short("", min_chars=5) is True
+
+
+def test_is_too_short_strips_whitespace_before_measuring():
+    from modules.speech.state import is_too_short
+
+    assert is_too_short("   you   ", min_chars=5) is True
+    assert is_too_short("hello", min_chars=5) is False
+    assert is_too_short("hello!", min_chars=5) is False
+
+
+# ── has_low_letter_ratio ─────────────────────────────────────────────────────
+
+
+def test_has_low_letter_ratio_flags_punctuation_only():
+    from modules.speech.state import has_low_letter_ratio
+
+    assert has_low_letter_ratio("...", min_ratio=0.3) is True
+    assert has_low_letter_ratio("!!! ??? !!!", min_ratio=0.3) is True
+
+
+def test_has_low_letter_ratio_flags_digit_heavy_noise():
+    from modules.speech.state import has_low_letter_ratio
+
+    # "1, 2, 3, 4, 5." → 0 letters, all noise
+    assert has_low_letter_ratio("1, 2, 3, 4, 5.", min_ratio=0.3) is True
+
+
+def test_has_low_letter_ratio_passes_real_speech():
+    from modules.speech.state import has_low_letter_ratio
+
+    assert has_low_letter_ratio("Hello, world!", min_ratio=0.3) is False
+    assert (
+        has_low_letter_ratio(
+            "Rap is so powerful because people took it seriously.", min_ratio=0.3
+        )
+        is False
+    )
+
+
+def test_has_low_letter_ratio_empty_or_none():
+    from modules.speech.state import has_low_letter_ratio
+
+    assert has_low_letter_ratio(None, min_ratio=0.3) is True
+    assert has_low_letter_ratio("", min_ratio=0.3) is True
+
+
+def test_has_low_letter_ratio_handles_cyrillic():
+    from modules.speech.state import has_low_letter_ratio
+
+    assert has_low_letter_ratio("Привет, мир!", min_ratio=0.3) is False

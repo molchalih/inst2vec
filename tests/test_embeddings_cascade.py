@@ -206,6 +206,7 @@ def _seed(session, settings: _SettingsStub) -> None:
             is_selected=True,
             is_downloaded=True,
             speech_transcription="hi",
+            is_speech_detected=True,
         )
     )
     import os
