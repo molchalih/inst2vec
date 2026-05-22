@@ -5,8 +5,6 @@ def test_stage_enum_covers_existing_callsites():
         "audio_extract",
         "filter",
         "captions",
-        "music_classify",
-        "music_features",
         "speech",
         "clip_embeddings",
         "user_embeddings",

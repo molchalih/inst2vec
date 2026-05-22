@@ -34,21 +34,6 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
             selected_clips_per_user=10,
             selection_random_seed=42,
         ),
-        music=SimpleNamespace(
-            audio_fingerprint_confidence=0.8,
-            commit_every=50,
-            http_timeout=20.0,
-            spotify_search_limit=5,
-            spotify_token_skew_seconds=30,
-            spotify_request_timeout=8.0,
-            reccobeats_batch_size=20,
-            reccobeats_delay_min=2.0,
-            reccobeats_delay_max=3.0,
-            manual_features_max_seconds=20,
-            manual_features_sample_rate=44100,
-            manual_features_max_mb=5.0,
-            manual_features_mp3_bitrate="128k",
-        ),
         speech=SimpleNamespace(
             whisper_model="large-v3-turbo",
             commit_every=50,
@@ -92,11 +77,6 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
         database_url="sqlite:///:memory:",
         identity_db_url="sqlite:///:memory:",
         hiker_api_key="hiker",
-        arc_host="arc-host",
-        arc_access_key="arc-key",
-        arc_secret_key="arc-secret",
-        spotify_client_id="spotify-id",
-        spotify_client_secret="spotify-secret",
         huggingface_token="hf",
         gemini_api_key=None,
         embedder_remote_url="",
@@ -133,12 +113,6 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
         main.ingest, "run_audio_mir", lambda s, k: calls.append("audio:mir")
     )
     monkeypatch.setattr(main.mir, "run_mir", lambda s, k: calls.append("mir:run"))
-    monkeypatch.setattr(
-        main.music, "run_classify", lambda s, k: calls.append("music:classify")
-    )
-    monkeypatch.setattr(
-        main.music, "run_features", lambda s, k: calls.append("music:features")
-    )
     monkeypatch.setattr(main.speech, "run", lambda s, k: calls.append("speech:process"))
     monkeypatch.setattr(
         main.captions, "run", lambda s, k: calls.append("captions:process")
@@ -170,9 +144,6 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
     assert "audio:extract" in calls
     assert "audio:mir" in calls
     assert "mir:run" in calls
-    # Confirm music stages are no longer active (their stubs would be in calls if invoked).
-    assert "music:classify" not in calls
-    assert "music:features" not in calls
     assert "cluster:search" in calls
     assert calls[-1] == "cluster:assign"
 

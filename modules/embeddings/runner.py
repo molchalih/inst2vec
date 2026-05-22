@@ -50,9 +50,9 @@ from modules.embeddings.sampling import (
     is_token_mismatch_error,
 )
 from modules.embeddings.state import (
+    get_audio_mir_map,
     get_clip_embedding_candidates,
     get_embedded_source_hashes,
-    get_music_map,
     per_clip_source_hashes_and_aggregate,
 )
 from modules.embeddings.vectors import to_bytes
@@ -236,12 +236,13 @@ def _embed_targets(
     """Embed the subset of ``candidates`` whose ids are in ``target_ids``."""
     targets = [c for c in candidates if c.id in target_ids]
 
-    music_map: dict = {}
-    if spec.text_builder is not None:
-        music_map = get_music_map(session)
+    audio_mir_map: dict = {}
+    if spec.text_builder is not None and ("_audio_mir_row" in spec.dependency_columns):
+        audio_mir_map = get_audio_mir_map(session)
 
     video_dir = settings.paths.video_dir
-    audio_dir = settings.paths.audio_dir if spec.name == "gemini" else None
+    needs_audio = "_audio_file_stat" in spec.dependency_columns
+    audio_dir = settings.paths.audio_dir if needs_audio else None
     jobs: list[tuple[Clip, str | None]] = []
     stale_skipped: list[int] = []
     fresh_skipped = 0
@@ -255,9 +256,17 @@ def _embed_targets(
                 else:
                     fresh_skipped += 1
                 continue
+        if audio_dir is not None:
+            audio_path = os.path.abspath(os.path.join(audio_dir, f"{clip.id}.mp3"))
+            if not os.path.exists(audio_path):
+                if had_row:
+                    stale_skipped.append(clip.id)
+                else:
+                    fresh_skipped += 1
+                continue
         text: str | None = None
         if spec.text_builder is not None:
-            text = spec.text_builder(clip, music_map)
+            text = spec.text_builder(clip, audio_mir_map.get(clip.id))
             if text is None:
                 if had_row:
                     stale_skipped.append(clip.id)
@@ -333,15 +342,6 @@ def _embed_targets(
             if audio_dir is not None
             else None
         )
-        # Symmetric to the video-missing check above: a gemini job without
-        # its audio file would surface as a generic provider error. Skip
-        # instead so the runner reports a clean SKIP, not an EMB ERR.
-        if audio_path is not None and not os.path.exists(audio_path):
-            if clip.id in embedded:
-                stale_skipped.append(clip.id)
-            else:
-                fresh_skipped += 1
-            continue
         job_specs.append(
             {
                 "clip_id": clip.id,

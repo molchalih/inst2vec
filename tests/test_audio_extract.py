@@ -10,7 +10,6 @@ from core.database import (
     Base,
     Clip,
     ClipEmbedding,
-    Music,
     StageState,
     User,
     get_engine,
@@ -135,10 +134,13 @@ def _make_settings(
 def db_session():
     Base.metadata.create_all(get_engine())
     session = get_session()
-    for model in (StageState, ClipEmbedding, Clip, Music, User):
+    for model in (StageState, ClipEmbedding, Clip, User):
         session.query(model).delete()
     session.commit()
     yield session
+    for model in (StageState, ClipEmbedding, Clip, User):
+        session.query(model).delete()
+    session.commit()
     session.close()
 
 

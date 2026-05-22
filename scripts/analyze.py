@@ -15,7 +15,6 @@ from sqlalchemy import func  # noqa: E402
 
 from core.database import (  # noqa: E402
     Clip,
-    Music,
     User,
     clip_used_in_analysis,
     get_session,
@@ -56,41 +55,6 @@ def section_health(session):
     print(f"\nUsers:              {n_users:>8,}")
     print(f"Clips total:        {n_clips:>8,}")
     print(f"Clips disqualified: {n_disq:>8,}  ({_pct(n_disq, n_clips)})")
-
-    # Music phase
-    n_music_resolved = (
-        session.query(func.count(Clip.id))
-        .filter(Clip.is_music_recognized.is_not(None))
-        .scalar()
-    )
-    n_has_music = (
-        session.query(func.count(Clip.id))
-        .filter(Clip.is_music_recognized.is_(True))
-        .scalar()
-    )
-    n_no_music = (
-        session.query(func.count(Clip.id))
-        .filter(Clip.is_music_recognized.is_(False))
-        .scalar()
-    )
-    n_music_features = (
-        session.query(func.count(Clip.id))
-        .join(Music, Clip.music_id == Music.id)
-        .filter(Music.is_audio_features_extracted.is_(True))
-        .scalar()
-    )
-    print(
-        f"\nMusic resolved:     {n_music_resolved:>8,}  ({_pct(n_music_resolved, n_clips)} of clips)"
-    )
-    print(
-        f"  with music:       {n_has_music:>8,}  ({_pct(n_has_music, n_music_resolved)})"
-    )
-    print(
-        f"  no music:         {n_no_music:>8,}  ({_pct(n_no_music, n_music_resolved)})"
-    )
-    print(
-        f"  with features:    {n_music_features:>8,}  ({_pct(n_music_features, n_has_music)} of music clips)"
-    )
 
     # Speech phase
     n_speech_resolved = (
@@ -238,64 +202,6 @@ def section_captions(session):
         print(f"  {lang:<6}  {cnt:>6,}  ({_pct(cnt, total_detected)})")
 
 
-def section_music(session):
-    _header("MUSIC", "-")
-    n_with = (
-        session.query(func.count(Clip.id))
-        .filter(Clip.is_music_recognized.is_(True))
-        .scalar()
-    )
-    n_without = (
-        session.query(func.count(Clip.id))
-        .filter(Clip.is_music_recognized.is_(False))
-        .scalar()
-    )
-    total_resolved = n_with + n_without
-    print(
-        f"\nWith music: {n_with:,} / {total_resolved:,} ({_pct(n_with, total_resolved)})"
-    )
-    print(
-        f"No music:   {n_without:,} / {total_resolved:,} ({_pct(n_without, total_resolved)})"
-    )
-
-    top_tracks = (
-        session.query(Music.artist, Music.track, func.count(Clip.id))
-        .join(Clip, Clip.music_id == Music.id)
-        .group_by(Music.id)
-        .order_by(func.count(Clip.id).desc())
-        .limit(10)
-        .all()
-    )
-    print("\nTop 10 tracks by clip count:")
-    for artist, track, cnt in top_tracks:
-        label = f"{artist} – {track}" if artist else track
-        print(f"  {cnt:>4}x  {label[:60]}")
-
-    feature_rows = (
-        session.query(
-            Music.tempo,
-            Music.valence,
-            Music.danceability,
-            Music.energy,
-            Music.acousticness,
-        )
-        .join(Clip, Clip.music_id == Music.id)
-        .filter(Music.is_audio_features_extracted.is_(True))
-        .all()
-    )
-    feature_names = ["tempo", "valence", "danceability", "energy", "acousticness"]
-    if feature_rows:
-        print(
-            f"\nAudio features (mean ± std, across {len(feature_rows)} clips with features):"
-        )
-        for i, feat in enumerate(feature_names):
-            vals = [r[i] for r in feature_rows if r[i] is not None]
-            if vals:
-                mean = statistics.mean(vals)
-                std = statistics.stdev(vals) if len(vals) > 1 else 0.0
-                print(f"  {feat:<15}  {mean:>7.3f} ± {std:.3f}")
-
-
 def section_speech(session):
     _header("SPEECH", "-")
     n_with = (
@@ -346,7 +252,7 @@ def section_speech(session):
 def main():
     # Read-only analysis: only the DB URLs are needed. Avoid
     # load_runtime_config() so the report runs in secretless environments
-    # (smoke test, fresh checkout) where ACR/Hiker/Spotify keys are absent.
+    # (smoke test, fresh checkout) where Hiker / HuggingFace keys are absent.
     init_db(os.environ["DATABASE_URL"], os.environ["IDENTITY_DB_URL"])
     session = get_session()
     try:
@@ -357,7 +263,6 @@ def main():
         _header("CONTENT STATISTICS")
         section_engagement(session)
         section_captions(session)
-        section_music(session)
         section_speech(session)
         print()
     finally:

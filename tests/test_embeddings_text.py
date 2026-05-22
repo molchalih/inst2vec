@@ -1,3 +1,5 @@
+"""Tests for modules/embeddings/text.py."""
+
 from types import SimpleNamespace
 
 import pytest
@@ -7,7 +9,7 @@ from modules.embeddings.text import (
     build_audio_text,
     build_gemini_text,
     build_sandwich_text,
-    verbalize_music,
+    verbalize_mir,
 )
 
 
@@ -30,24 +32,6 @@ def test_is_non_english(lang, expected):
     assert _is_non_english(lang) is expected
 
 
-def _music(**kwargs):
-    defaults = dict(
-        artist="Test Artist",
-        track="Test Track",
-        energy=None,
-        valence=None,
-        acousticness=None,
-        instrumentalness=None,
-        danceability=None,
-        speechiness=None,
-        tempo=None,
-        mode=None,
-        key=None,
-    )
-    defaults.update(kwargs)
-    return SimpleNamespace(**defaults)
-
-
 def _clip(**kwargs):
     defaults = dict(
         caption_text=None,
@@ -57,440 +41,296 @@ def _clip(**kwargs):
         speech_transcription=None,
         speech_language=None,
         speech_translation=None,
-        is_speech_detected=True,
-        music_id=None,
+        is_speech_detected=None,
     )
     defaults.update(kwargs)
     return SimpleNamespace(**defaults)
 
 
-# ── verbalize_music ───────────────────────────────────────────────────────────
-
-
-def test_verbalize_music_prefix():
-    m = _music(
-        track="Laura Palmer's Theme",
-        artist="Angelo Badalamenti",
-        energy=0.01,
-        valence=0.04,
-        acousticness=0.84,
-        instrumentalness=0.91,
-        danceability=0.06,
-        speechiness=0.03,
-        tempo=68.0,
-        mode=0,
-        key=3,
+def _mir(**kwargs) -> SimpleNamespace:
+    defaults = dict(
+        is_music_detected=True,
+        genre_labels=None,
+        moodtheme_labels=None,
+        instrument_labels=None,
+        is_acoustic=None,
+        is_electronic=None,
+        is_instrumental=None,
+        is_happy=None,
+        is_sad=None,
+        is_party=None,
+        is_relaxed=None,
+        is_aggressive=None,
+        is_female_voice=None,
+        is_bright_timbre=None,
+        is_tonal=None,
+        danceability=None,
+        engagement=None,
+        approachability=None,
     )
-    result = verbalize_music(m)
-    assert result.startswith('Music: "Laura Palmer\'s Theme" by Angelo Badalamenti — ')
+    defaults.update(kwargs)
+    return SimpleNamespace(**defaults)
 
 
-def test_verbalize_music_low_energy_melancholic_acoustic_instrumental():
-    m = _music(
-        energy=0.01,
-        valence=0.04,
-        acousticness=0.84,
-        instrumentalness=0.91,
-        danceability=0.06,
-        speechiness=0.03,
-        tempo=68.0,
-        mode=0,
-        key=3,
+# ── verbalize_mir ─────────────────────────────────────────────────────────────
+
+
+def test_verbalize_mir_happy_path_full_string():
+    mir = _mir(
+        genre_labels="Electronic House, Pop Synthpop, Rock Indie",
+        moodtheme_labels="energetic, uplifting, party, summer",
+        instrument_labels="synthesizer, drums, guitar",
+        is_acoustic=False,
+        is_electronic=True,
+        is_instrumental=False,
+        is_happy=True,
+        is_sad=False,
+        is_party=True,
+        is_relaxed=False,
+        is_aggressive=False,
+        is_female_voice=True,
+        is_bright_timbre=True,
+        is_tonal=True,
+        danceability=0.85,
+        engagement=8.0,
+        approachability=6.0,
     )
-    result = verbalize_music(m)
-    assert "low energy" in result
-    assert "dark and melancholic" in result
-    assert "acoustic" in result
-    assert "instrumental" in result
-    assert "not danceable" in result
-    assert "very slow (68 BPM)" in result
-    assert "D# minor" in result
+    out = verbalize_mir(mir)
+
+    assert out.startswith("Music: Electronic House, Pop Synthpop —")
+    assert "energetic, uplifting, party" in out
+    assert "synthesizer, drums" in out
+    assert "flags: electronic, happy, party, female vocal, bright timbre, tonal" in out
+    assert "highly danceable" in out
+    assert "highly engaging" in out
+    assert "moderately approachable" in out
 
 
-def test_verbalize_music_high_energy_upbeat_electronic_vocal():
-    m = _music(
-        energy=0.90,
-        valence=0.79,
-        acousticness=0.01,
-        instrumentalness=0.00,
-        danceability=0.52,
-        speechiness=0.04,
-        tempo=117.0,
-        mode=1,
-        key=9,
+def test_verbalize_mir_empty_labels_section_omitted():
+    mir = _mir(
+        genre_labels="",
+        moodtheme_labels="energetic, uplifting",
+        instrument_labels=None,
+        danceability=0.5,
+        engagement=5.0,
+        approachability=5.0,
     )
-    result = verbalize_music(m)
-    assert "very high energy" in result
-    assert "very upbeat" in result
-    assert "electronic" in result
-    assert "vocal" in result
-    assert "moderate tempo (117 BPM)" in result
-    assert "A major" in result
-    assert "danceable" not in result
+    out = verbalize_mir(mir)
+    assert "energetic, uplifting" in out
+    assert "Music: ," not in out
+    assert "synthesizer" not in out
 
 
-def test_verbalize_music_no_key_mode():
-    m = _music(
-        energy=0.37,
-        valence=0.18,
-        acousticness=0.55,
-        instrumentalness=0.84,
-        danceability=0.24,
-        speechiness=0.03,
-        tempo=66.0,
-        mode=None,
-        key=None,
+def test_verbalize_mir_no_flags_when_all_false():
+    mir = _mir(
+        genre_labels="Pop, Rock",
+        is_acoustic=False,
+        is_electronic=False,
+        is_instrumental=False,
+        is_happy=False,
+        is_sad=False,
+        is_party=False,
+        is_relaxed=False,
+        is_aggressive=False,
+        is_female_voice=False,
+        is_bright_timbre=False,
+        is_tonal=False,
     )
-    result = verbalize_music(m)
-    assert "minor" not in result
-    assert "major" not in result
-    assert "instrumental" in result
-    assert "very slow (66 BPM)" in result
+    assert "flags:" not in verbalize_mir(mir)
 
 
-def test_verbalize_music_speechy():
-    m = _music(
-        energy=0.50,
-        valence=0.40,
-        acousticness=0.30,
-        instrumentalness=0.00,
-        danceability=0.50,
-        speechiness=0.70,
-        tempo=95.0,
-        mode=None,
-        key=None,
-    )
-    result = verbalize_music(m)
-    assert "spoken word" in result
+def test_verbalize_mir_no_flags_when_all_none():
+    assert "flags:" not in verbalize_mir(_mir(genre_labels="Pop"))
 
 
-def test_verbalize_music_rap():
-    m = _music(
-        energy=0.70,
-        valence=0.50,
-        acousticness=0.10,
-        instrumentalness=0.00,
-        danceability=0.80,
-        speechiness=0.45,
-        tempo=95.0,
-        mode=None,
-        key=None,
-    )
-    result = verbalize_music(m)
-    assert "rap or speech-heavy" in result
-    assert "highly danceable" in result
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (0.90, "highly danceable"),
+        (0.66, "highly danceable"),
+        (0.65, "moderately danceable"),
+        (0.33, "moderately danceable"),
+        (0.32, "low danceability"),
+        (0.00, "low danceability"),
+    ],
+)
+def test_verbalize_mir_danceability_buckets(value, expected):
+    assert expected in verbalize_mir(_mir(genre_labels="Pop", danceability=value))
 
 
-def test_verbalize_music_fast_tempo():
-    m = _music(
-        energy=0.85,
-        valence=0.60,
-        acousticness=0.05,
-        instrumentalness=0.00,
-        danceability=0.70,
-        speechiness=0.05,
-        tempo=175.0,
-        mode=1,
-        key=0,
-    )
-    result = verbalize_music(m)
-    assert "fast (175 BPM)" in result
-    assert "C major" in result
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (10.0, "highly engaging"),
+        (7.0, "highly engaging"),
+        (6.9, "moderately engaging"),
+        (4.0, "moderately engaging"),
+        (3.9, "low engagement"),
+        (1.0, "low engagement"),
+    ],
+)
+def test_verbalize_mir_engagement_buckets(value, expected):
+    assert expected in verbalize_mir(_mir(genre_labels="Pop", engagement=value))
 
 
-def test_verbalize_music_all_none_features():
-    m = _music()
-    result = verbalize_music(m)
-    assert result == 'Music: "Test Track" by Test Artist — '
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (10.0, "very approachable"),
+        (7.0, "very approachable"),
+        (6.9, "moderately approachable"),
+        (4.0, "moderately approachable"),
+        (3.9, "low approachability"),
+        (1.0, "low approachability"),
+    ],
+)
+def test_verbalize_mir_approachability_buckets(value, expected):
+    assert expected in verbalize_mir(_mir(genre_labels="Pop", approachability=value))
+
+
+def test_verbalize_mir_returns_empty_when_nothing_to_emit():
+    assert verbalize_mir(_mir()) == ""
 
 
 # ── build_sandwich_text ───────────────────────────────────────────────────────
 
 
-def test_build_sandwich_text_english_caption_and_speech():
-    clip = _clip(
-        caption_text="Hello world",
-        caption_language="en",
-        speech_transcription="Welcome everyone",
-        speech_language="en",
-    )
-    result = build_sandwich_text(clip, {})
-    assert result == "Hello world | Welcome everyone"
+def test_sandwich_caption_only_when_no_speech_no_music():
+    clip = _clip(caption_clean="hello world", is_speech_detected=False)
+    out = build_sandwich_text(clip, None)
+    assert out == "hello world"
 
 
-def test_build_sandwich_text_uses_caption_translation_for_non_english():
+def test_sandwich_uses_caption_translation_for_non_english():
     clip = _clip(
-        caption_text="Привет мир",
+        caption_clean="привет",
         caption_language="ru",
-        caption_translation="Hello world",
-        speech_transcription=None,
-    )
-    result = build_sandwich_text(clip, {})
-    assert result == "Hello world"
-    assert "Привет" not in result
-
-
-def test_build_sandwich_text_uses_speech_translation_for_non_english():
-    clip = _clip(
-        caption_text=None,
-        speech_transcription="Bonjour le monde",
-        speech_language="fr",
-        speech_translation="Hello world",
-    )
-    result = build_sandwich_text(clip, {})
-    assert result == "Hello world"
-
-
-def test_build_sandwich_text_falls_back_to_raw_if_no_translation():
-    clip = _clip(
-        caption_text="Привет мир",
-        caption_language="ru",
-        caption_translation=None,
-        speech_transcription=None,
-    )
-    result = build_sandwich_text(clip, {})
-    assert result == "Привет мир"
-
-
-def test_build_sandwich_text_appends_music():
-    m = _music(
-        track="Test Track",
-        artist="Test Artist",
-        energy=0.90,
-        valence=0.79,
-        acousticness=0.01,
-        instrumentalness=0.00,
-        danceability=0.52,
-        speechiness=0.04,
-        tempo=117.0,
-        mode=1,
-        key=9,
-    )
-    clip = _clip(caption_text="Great video", caption_language="en", music_id=42)
-    result = build_sandwich_text(clip, {42: m})
-    assert result is not None
-    assert result.startswith("Great video | Music:")
-    assert "Test Track" in result
-    assert "Test Artist" in result
-
-
-def test_build_sandwich_text_no_music_when_music_id_none():
-    clip = _clip(caption_text="Great video", caption_language="en", music_id=None)
-    result = build_sandwich_text(clip, {})
-    assert result is not None
-    assert "Music:" not in result
-
-
-def test_build_sandwich_text_returns_none_when_no_text():
-    clip = _clip(
-        caption_text=None,
-        caption_translation=None,
-        speech_transcription=None,
-        speech_translation=None,
-        music_id=None,
-    )
-    assert build_sandwich_text(clip, {}) is None
-
-
-def test_build_sandwich_text_skips_empty_strings():
-    clip = _clip(
-        caption_text="  ",
-        caption_language="en",
-        speech_transcription="  ",
-        speech_language="en",
-    )
-    assert build_sandwich_text(clip, {}) is None
-
-
-def test_build_sandwich_text_ignores_speech_when_not_detected():
-    """Even if a transcript sits in the row, the sandwich text must not
-    include it unless ``is_speech_detected is True``."""
-    clip = _clip(
-        caption_text="Great video",
-        caption_language="en",
-        speech_transcription="Thanks for watching!",
-        speech_language="en",
+        caption_translation="hello",
         is_speech_detected=False,
     )
-    result = build_sandwich_text(clip, {})
-    assert result == "Great video"
-    assert "Thanks for watching" not in (result or "")
+    out = build_sandwich_text(clip, None)
+    assert out == "hello"
 
 
-def test_build_sandwich_text_ignores_speech_when_detection_pending():
-    """``is_speech_detected is None`` (not yet processed) → speech ignored."""
+def test_sandwich_speech_block_only_when_is_speech_detected_true():
+    for flag, expected_has_speech in [(True, True), (False, False), (None, False)]:
+        clip = _clip(
+            speech_transcription="this is speech",
+            speech_language="en",
+            is_speech_detected=flag,
+        )
+        out = build_sandwich_text(clip, None) or ""
+        assert ("this is speech" in out) is expected_has_speech
+
+
+def test_sandwich_music_block_only_when_is_music_detected_true():
+    clip = _clip(caption_clean="cap", is_speech_detected=False)
+    on = _mir(genre_labels="Pop", is_music_detected=True)
+    off = _mir(genre_labels="Pop", is_music_detected=False)
+    none = _mir(genre_labels="Pop", is_music_detected=None)
+    assert "Music:" in build_sandwich_text(clip, on)
+    out_off = build_sandwich_text(clip, off)
+    out_none = build_sandwich_text(clip, none)
+    assert out_off == "cap"
+    assert out_none == "cap"
+    # mir_row=None also excludes the music block.
+    assert build_sandwich_text(clip, None) == "cap"
+
+
+def test_sandwich_returns_none_when_every_block_empty():
+    clip = _clip()
+    assert build_sandwich_text(clip, None) is None
+    assert build_sandwich_text(clip, _mir(is_music_detected=False)) is None
+
+
+def test_sandwich_joins_caption_speech_music_with_pipe():
     clip = _clip(
-        caption_text=None,
-        speech_transcription="some words",
+        caption_clean="cap",
+        is_speech_detected=True,
+        speech_transcription="speech",
         speech_language="en",
-        is_speech_detected=None,
     )
-    result = build_sandwich_text(clip, {})
-    assert result is None
+    mir = _mir(genre_labels="Pop", is_music_detected=True)
+    out = build_sandwich_text(clip, mir)
+    assert out is not None
+    parts = out.split(" | ")
+    assert parts[0] == "cap"
+    assert parts[1] == "speech"
+    assert parts[2].startswith("Music:")
 
 
 # ── build_audio_text ──────────────────────────────────────────────────────────
 
 
-def test_build_audio_text_music_only():
-    m = _music(
-        track="Test Track",
-        artist="Test Artist",
-        energy=0.90,
-        valence=0.79,
-        acousticness=0.01,
-        instrumentalness=0.00,
-        danceability=0.52,
-        speechiness=0.04,
-        tempo=117.0,
-        mode=1,
-        key=9,
-    )
-    clip = _clip(music_id=42)
-    result = build_audio_text(clip, {42: m})
-    assert result is not None
-    assert result.startswith('Music: "Test Track" by Test Artist')
-    assert "caption" not in result.lower()
+def test_audio_returns_none_when_no_speech_no_music():
+    assert build_audio_text(_clip(), None) is None
+    assert build_audio_text(_clip(is_speech_detected=False), None) is None
 
 
-def test_build_audio_text_speech_only_english():
-    clip = _clip(speech_transcription="Stay focused", speech_language="en")
-    result = build_audio_text(clip, {})
-    assert result == "Stay focused"
-
-
-def test_build_audio_text_speech_only_uses_translation():
+def test_audio_speech_only_when_no_music():
     clip = _clip(
-        speech_transcription="Bonjour le monde",
-        speech_language="fr",
-        speech_translation="Hello world",
+        is_speech_detected=True, speech_transcription="speech", speech_language="en"
     )
-    result = build_audio_text(clip, {})
-    assert result == "Hello world"
+    out = build_audio_text(clip, None)
+    assert out == "speech"
 
 
-def test_build_audio_text_speech_falls_back_to_raw_if_no_translation():
+def test_audio_music_only_when_no_speech():
+    mir = _mir(genre_labels="Pop", is_music_detected=True)
+    out = build_audio_text(_clip(is_speech_detected=False), mir)
+    assert out is not None and out.startswith("Music:")
+
+
+def test_audio_speech_and_music_joined_with_pipe():
     clip = _clip(
-        speech_transcription="Bonjour le monde",
-        speech_language="fr",
-        speech_translation=None,
+        is_speech_detected=True, speech_transcription="speech", speech_language="en"
     )
-    result = build_audio_text(clip, {})
-    assert result == "Bonjour le monde"
+    mir = _mir(genre_labels="Pop", is_music_detected=True)
+    out = build_audio_text(clip, mir)
+    assert out is not None
+    parts = out.split(" | ")
+    assert parts[0] == "speech"
+    assert parts[1].startswith("Music:")
 
 
-def test_build_audio_text_both_music_and_speech():
-    m = _music(
-        track="T",
-        artist="A",
-        energy=0.5,
-        valence=0.5,
-        acousticness=0.5,
-        instrumentalness=0.0,
-        danceability=0.5,
-        speechiness=0.1,
-        tempo=100.0,
-        mode=1,
-        key=0,
-    )
-    clip = _clip(speech_transcription="Let's go", speech_language="en", music_id=1)
-    result = build_audio_text(clip, {1: m})
-    assert result is not None
-    parts = result.split(" | ")
-    assert len(parts) == 2
-    assert parts[0] == "Let's go"
-    assert parts[1].startswith('Music: "T" by A')
+def test_audio_excludes_caption():
+    """Captions are deliberately excluded from the audio case."""
+    clip = _clip(caption_clean="caption text", is_speech_detected=False)
+    assert build_audio_text(clip, None) is None
 
 
-def test_build_audio_text_no_caption_included():
-    m = _music(
-        track="T",
-        artist="A",
-        energy=0.5,
-        valence=0.5,
-        acousticness=0.5,
-        instrumentalness=0.0,
-        danceability=0.5,
-        speechiness=0.1,
-        tempo=100.0,
-        mode=1,
-        key=0,
-    )
+@pytest.mark.parametrize("is_music", [False, None])
+def test_audio_excludes_music_when_not_detected(is_music):
+    mir = _mir(genre_labels="Pop", is_music_detected=is_music)
+    clip = _clip(is_speech_detected=False)
+    assert build_audio_text(clip, mir) is None
+
+
+# ── build_gemini_text (regression — no behavior change) ───────────────────────
+
+
+def test_gemini_returns_none_when_no_caption_no_speech():
+    assert build_gemini_text(_clip(), None) is None
+
+
+def test_gemini_includes_caption_and_speech_when_present():
     clip = _clip(
-        caption_text="Some caption",
-        caption_language="en",
-        speech_transcription="Hello",
+        caption_clean="cap",
+        is_speech_detected=True,
+        speech_transcription="speech",
         speech_language="en",
-        music_id=1,
     )
-    result = build_audio_text(clip, {1: m})
-    assert result is not None
-    assert "Some caption" not in result
+    out = build_gemini_text(clip, None) or ""
+    assert "cap" in out and "speech" in out
+    assert "Music:" not in out
 
 
-def test_build_audio_text_returns_none_when_neither():
-    clip = _clip()
-    assert build_audio_text(clip, {}) is None
-
-
-def test_build_audio_text_skips_empty_speech():
-    clip = _clip(speech_transcription="  ", speech_language="en")
-    assert build_audio_text(clip, {}) is None
-
-
-def test_build_audio_text_ignores_missing_music_id():
-    clip = _clip(speech_transcription="Hello", speech_language="en", music_id=99)
-    result = build_audio_text(clip, {})
-    assert result == "Hello"
-
-
-def test_build_audio_text_speech_language_none_uses_raw():
+def test_gemini_ignores_mir_row():
+    """build_gemini_text must not verbalize music, regardless of mir_row."""
     clip = _clip(
-        speech_transcription="Hello world",
-        speech_language=None,
-        speech_translation="Something else",
-    )
-    result = build_audio_text(clip, {})
-    assert result == "Hello world"
-
-
-def test_build_audio_text_ignores_speech_when_not_detected():
-    clip = _clip(
-        caption_text=None,
-        speech_transcription="Thanks for watching!",
-        speech_language="en",
+        caption_clean="cap",
         is_speech_detected=False,
     )
-    result = build_audio_text(clip, {})
-    assert result is None  # no speech and no music → None
-
-
-def test_build_audio_text_returns_only_music_when_speech_flagged_off():
-    m = _music(track="X", artist="Y", energy=0.5)
-    clip = _clip(
-        caption_text=None,
-        speech_transcription="Bye bye.",
-        speech_language="en",
-        is_speech_detected=False,
-        music_id=7,
-    )
-    result = build_audio_text(clip, {7: m})
-    assert result is not None
-    assert result.startswith("Music:")
-    assert "Bye bye" not in result
-
-
-# ── build_gemini_text ─────────────────────────────────────────────────────────
-
-
-def test_build_gemini_text_ignores_speech_when_not_detected():
-    clip = _clip(
-        caption_text="Caption stays",
-        caption_language="en",
-        speech_transcription="Subtitles by someone",
-        speech_language="en",
-        is_speech_detected=False,
-    )
-    result = build_gemini_text(clip, {})
-    assert result == "Caption stays"
-    assert "Subtitles" not in (result or "")
+    mir = _mir(genre_labels="Pop", is_music_detected=True)
+    out = build_gemini_text(clip, mir) or ""
+    assert "Music:" not in out

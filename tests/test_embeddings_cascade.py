@@ -53,10 +53,10 @@ import pytest
 from sqlalchemy import text
 
 from core.database import (
+    AudioMIR,
     Base,
     Clip,
     ClipEmbedding,
-    Music,
     StageState,
     User,
     UserEmbedding,
@@ -132,9 +132,19 @@ class _EmbeddingsStub:
 
 
 @dataclass
+class _MirStub:
+    model_dir: str = "/fake/mir_models"
+    maest_checkpoint: str = "discogs-maest-30s-pw-519l-1.pb"
+    maest_input: str = "serving_default_melspectrogram"
+    inference_sample_rate: int = 16_000
+    maest_patch_seconds: float = 30.0
+
+
+@dataclass
 class _SettingsStub:
     paths: _PathsStub
     embeddings: _EmbeddingsStub
+    mir: _MirStub
 
 
 # ── fixtures ──────────────────────────────────────────────────────────────────
@@ -155,8 +165,8 @@ def _cleanup(session) -> None:
         StageState,
         UserEmbedding,
         ClipEmbedding,
+        AudioMIR,
         Clip,
-        Music,
         User,
     ):
         session.query(model).delete()
@@ -194,6 +204,7 @@ def _settings(tmp_path) -> _SettingsStub:
     return _SettingsStub(
         paths=_PathsStub(video_dir=str(video_dir)),
         embeddings=_EmbeddingsStub(),
+        mir=_MirStub(),
     )
 
 

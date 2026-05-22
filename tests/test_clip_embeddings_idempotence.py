@@ -33,10 +33,10 @@ import numpy as np
 import pytest
 
 from core.database import (
+    AudioMIR,
     Base,
     Clip,
     ClipEmbedding,
-    Music,
     StageState,
     User,
     get_engine,
@@ -141,9 +141,19 @@ class _EmbeddingsStub:
 
 
 @dataclass
+class _MirStub:
+    model_dir: str = "/fake/mir_models"
+    maest_checkpoint: str = "discogs-maest-30s-pw-519l-1.pb"
+    maest_input: str = "serving_default_melspectrogram"
+    inference_sample_rate: int = 16_000
+    maest_patch_seconds: float = 30.0
+
+
+@dataclass
 class _SettingsStub:
     paths: _PathsStub
     embeddings: _EmbeddingsStub
+    mir: _MirStub
 
 
 def _settings(tmp_path) -> _SettingsStub:
@@ -152,6 +162,7 @@ def _settings(tmp_path) -> _SettingsStub:
     return _SettingsStub(
         paths=_PathsStub(video_dir=str(video_dir)),
         embeddings=_EmbeddingsStub(),
+        mir=_MirStub(),
     )
 
 
@@ -162,7 +173,7 @@ def _settings(tmp_path) -> _SettingsStub:
 def db_session():
     Base.metadata.create_all(get_engine())
     session = get_session()
-    for model in (StageState, ClipEmbedding, Clip, Music, User):
+    for model in (StageState, ClipEmbedding, AudioMIR, Clip, User):
         session.query(model).delete()
     session.commit()
     yield session
@@ -182,11 +193,11 @@ def _seed(
     settings: _SettingsStub,
     *,
     clips: list[dict],
-    music_rows: list[dict] | None = None,
+    audio_mir_rows: list[dict] | None = None,
 ) -> None:
-    music_rows = music_rows or []
-    for m in music_rows:
-        session.merge(Music(**m))
+    audio_mir_rows = audio_mir_rows or []
+    for row in audio_mir_rows:
+        session.merge(AudioMIR(**row))
     user_ids = {c["user_id"] for c in clips}
     for uid in user_ids:
         session.merge(User(id=uid, is_selected=True, is_eligible=True))
@@ -202,25 +213,35 @@ def _seed(
 # ── tests ────────────────────────────────────────────────────────────────────
 
 
-def test_first_run_embeds_all_three_cases(db_session, stub_providers):
+def test_first_run_embeds_all_default_cases(db_session, stub_providers, tmp_path):
     settings = _settings(stub_providers)
+    audio_dir = stub_providers / "audios"
+    audio_dir.mkdir(exist_ok=True)
+    settings.paths.audio_dir = str(audio_dir)
+    (audio_dir / "10.mp3").write_bytes(b"\x00")
+
     _seed(
         db_session,
         settings,
         clips=[dict(id=10, user_id=1)],
-        music_rows=[dict(id=1, artist="a", track="t")],
+        audio_mir_rows=[
+            dict(
+                clip_id=10,
+                is_mir_extracted=True,
+                is_music_detected=True,
+                genre_labels="Pop, Rock",
+            )
+        ],
     )
-    db_session.query(Clip).filter_by(id=10).update({"music_id": 1})
-    db_session.commit()
 
     embed_clip_embeddings(settings, _FAKE_SECRETS)
     db_session.expire_all()
 
     rows = db_session.query(ClipEmbedding).all()
     cases = {r.embedding_case for r in rows}
-    assert cases == {"video", "sandwich", "audio"}
+    assert cases == {"video", "sandwich", "audio", "maest"}
 
-    for case in ("video", "sandwich", "audio"):
+    for case in ("video", "sandwich", "audio", "maest"):
         assert db_session.get(StageState, ("clip_embeddings", case)) is not None
 
 
@@ -688,3 +709,96 @@ def test_orphan_row_swept_even_when_stage_sealed(db_session, stub_providers):
         r.clip_id
         for r in db_session.query(ClipEmbedding).filter_by(embedding_case="video")
     } == {10}, "orphan row must be swept on the next run, even when stage is sealed"
+
+
+def test_maest_case_runs_with_audio_path(db_session, stub_providers, tmp_path):
+    """The maest case must be embedded once per candidate; the provider
+    receives the clip's .mp3 path. The stub_providers fixture replaces
+    every spec.provider_factory with the fake _FakeProvider, so this also
+    exercises the payload builder path.
+    """
+    settings = _settings(stub_providers)
+    # Provide an audio_dir on the paths stub and seed an mp3 per clip.
+    audio_dir = stub_providers / "audios"
+    audio_dir.mkdir(exist_ok=True)
+    settings.paths.audio_dir = str(audio_dir)
+
+    _seed(db_session, settings, clips=[dict(id=10, user_id=1)])
+    (audio_dir / "10.mp3").write_bytes(b"\x00")
+
+    embed_clip_embeddings(settings, _FAKE_SECRETS, cases=["maest"])
+    db_session.expire_all()
+
+    rows = db_session.query(ClipEmbedding).filter_by(embedding_case="maest").all()
+    assert len(rows) == 1
+    assert rows[0].clip_id == 10
+    assert rows[0].source_hash is not None
+
+
+def test_maest_case_skips_clip_when_audio_file_missing(
+    db_session, stub_providers, tmp_path
+):
+    """No mp3 on disk → maest skips the clip cleanly without writing a row."""
+    settings = _settings(stub_providers)
+    audio_dir = stub_providers / "audios"
+    audio_dir.mkdir(exist_ok=True)
+    settings.paths.audio_dir = str(audio_dir)
+
+    _seed(db_session, settings, clips=[dict(id=10, user_id=1)])
+    # NO audio file written.
+
+    embed_clip_embeddings(settings, _FAKE_SECRETS, cases=["maest"])
+    db_session.expire_all()
+
+    rows = db_session.query(ClipEmbedding).filter_by(embedding_case="maest").all()
+    assert rows == []
+
+
+def test_audio_mir_row_descriptor_change_invalidates_sandwich_and_audio(
+    db_session, stub_providers, tmp_path, monkeypatch
+):
+    settings = _settings(stub_providers)
+    audio_dir = stub_providers / "audios"
+    audio_dir.mkdir(exist_ok=True)
+    settings.paths.audio_dir = str(audio_dir)
+    (audio_dir / "10.mp3").write_bytes(b"\x00")
+
+    _seed(
+        db_session,
+        settings,
+        clips=[
+            dict(id=10, user_id=1, speech_transcription="hi", is_speech_detected=True)
+        ],
+        audio_mir_rows=[
+            dict(
+                clip_id=10,
+                is_mir_extracted=True,
+                is_music_detected=True,
+                genre_labels="Pop",
+            )
+        ],
+    )
+
+    embed_clip_embeddings(settings, _FAKE_SECRETS, cases=["sandwich", "audio", "video"])
+    db_session.expire_all()
+
+    before = {
+        case: db_session.get(StageState, ("clip_embeddings", case)).dependency_hash
+        for case in ("video", "sandwich", "audio")
+    }
+
+    db_session.query(AudioMIR).filter_by(clip_id=10).update(
+        {"genre_labels": "Pop, Rock"}
+    )
+    db_session.commit()
+
+    embed_clip_embeddings(settings, _FAKE_SECRETS, cases=["sandwich", "audio", "video"])
+    db_session.expire_all()
+
+    after = {
+        case: db_session.get(StageState, ("clip_embeddings", case)).dependency_hash
+        for case in ("video", "sandwich", "audio")
+    }
+    assert after["video"] == before["video"]
+    assert after["sandwich"] != before["sandwich"]
+    assert after["audio"] != before["audio"]

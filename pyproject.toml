@@ -27,7 +27,6 @@ dependencies = [
     "matplotlib>=3.10.9",
     "openai-whisper>=20250625",
     "pydantic>=2.0",
-    "pyacrcloud>=1.0.11",
     "python-dotenv>=1.2.2",
     "qwen-vl-utils>=0.0.14",
     "quarto>=0.1.0",

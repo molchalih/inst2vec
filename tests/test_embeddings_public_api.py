@@ -8,6 +8,7 @@ def test_default_cases_tuple():
         "video",
         "sandwich",
         "audio",
+        "maest",
     )
 
 

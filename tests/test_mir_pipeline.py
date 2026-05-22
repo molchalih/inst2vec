@@ -75,6 +75,93 @@ def patched_pipeline(monkeypatch):
     return pipeline_mod
 
 
+def test_run_mir_sets_is_music_detected_when_top1_is_music(
+    monkeypatch, patched_pipeline, tmp_path, db_session
+):
+    """Confident music top-1 (above min_confidence and margin) → True."""
+    from tests.fakes.vendor_mir import FakeMAEST
+
+    # FakeMAEST's default linspace yields tiny margins; sharpen the distribution
+    # so the predicate produces a non-NULL verdict. Top-1 = index 0 ('Blues---Acoustic Blues'
+    # — a music label), with comfortable confidence and margin.
+    def sharp_music(self, audio):
+        v = np.zeros(519, dtype=np.float32)
+        v[0] = 0.85
+        v[1] = 0.10
+        return v
+
+    monkeypatch.setattr(FakeMAEST, "predict", sharp_music)
+
+    settings = _make_settings(tmp_path)
+    _write_dummy_wav(Path(settings.paths.audio_mir_dir) / "1.wav")
+
+    db_session.add(User(id=1))
+    db_session.add(Clip(id=1, user_id=1, is_downloaded=True, is_selected=True))
+    db_session.commit()
+
+    patched_pipeline.run_mir(settings, secrets=None)
+
+    row = db_session.query(AudioMIR).filter_by(clip_id=1).one()
+    assert row.is_music_detected is True
+
+
+def test_run_mir_sets_is_music_detected_false_for_non_music_top1(
+    monkeypatch, patched_pipeline, tmp_path, db_session
+):
+    """Confident Non-Music top-1 → False."""
+    import json as _json
+
+    from modules.mir import state as state_mod
+    from tests.fakes.vendor_mir import FakeMAEST
+
+    labels = _json.loads((state_mod._LABELS_DIR / "genre_discogs519.json").read_text())
+    non_music_idx = next(
+        i for i, lab in enumerate(labels) if lab.startswith("Non-Music---")
+    )
+
+    def sharp_non_music(self, audio):
+        v = np.zeros(519, dtype=np.float32)
+        v[non_music_idx] = 0.85
+        v[(non_music_idx + 1) % 519] = 0.10
+        return v
+
+    monkeypatch.setattr(FakeMAEST, "predict", sharp_non_music)
+
+    settings = _make_settings(tmp_path)
+    _write_dummy_wav(Path(settings.paths.audio_mir_dir) / "2.wav")
+
+    db_session.add(User(id=1))
+    db_session.add(Clip(id=2, user_id=1, is_downloaded=True, is_selected=True))
+    db_session.commit()
+
+    patched_pipeline.run_mir(settings, secrets=None)
+
+    row = db_session.query(AudioMIR).filter_by(clip_id=2).one()
+    assert row.is_music_detected is False
+
+
+def test_run_mir_leaves_is_music_detected_null_when_distribution_ambiguous(
+    patched_pipeline, tmp_path, db_session
+):
+    """Default FakeMAEST distribution (linspace, tiny margin) → NULL verdict.
+
+    The descriptor row still seals as is_mir_extracted=True; only the music-
+    detection verdict is unresolved.
+    """
+    settings = _make_settings(tmp_path)
+    _write_dummy_wav(Path(settings.paths.audio_mir_dir) / "1.wav")
+
+    db_session.add(User(id=1))
+    db_session.add(Clip(id=1, user_id=1, is_downloaded=True, is_selected=True))
+    db_session.commit()
+
+    patched_pipeline.run_mir(settings, secrets=None)
+
+    row = db_session.query(AudioMIR).filter_by(clip_id=1).one()
+    assert row.is_mir_extracted is True
+    assert row.is_music_detected is None
+
+
 def test_run_mir_writes_one_row_per_selected_clip(
     patched_pipeline, tmp_path, db_session
 ):

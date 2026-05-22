@@ -6,12 +6,17 @@ import hashlib
 import json
 from pathlib import Path
 
+import numpy as np
 from sqlalchemy.orm import Session
 
 from core.config import MirSettings
 from core.database import AudioMIR
 from core.fingerprint import stable_subset_payload
 from core.pipeline import Stage
+
+# Raw-label prefix for the Discogs "Non-Music---*" branch (519-label taxonomy).
+# Checked against the raw JSON labels, BEFORE topk_csv's "---" → " " flattening.
+NON_MUSIC_PREFIX: str = "Non-Music---"
 
 _LABELS_DIR: Path = Path(__file__).resolve().parent / "labels"
 
@@ -24,6 +29,8 @@ POS: int = 0
 
 _MIR_CONFIG_FIELDS: tuple[str, ...] = (
     "binary_threshold",
+    "music_min_confidence",
+    "music_min_margin",
     "topk_genre",
     "topk_moodtheme",
     "topk_instrument",
@@ -38,6 +45,7 @@ _MIR_CONFIG_FIELDS: tuple[str, ...] = (
 
 _RESET_COLUMNS: tuple[str, ...] = (
     "is_mir_extracted",
+    "is_music_detected",
     "mir_error",
     "approachability",
     "engagement",
@@ -110,6 +118,34 @@ def mir_config_payload(mir: MirSettings) -> str:
         name: list(spec) for name, spec in sorted(EFFNET_HEAD_SPECS.items())
     }
     return json.dumps(base, sort_keys=True, default=str)
+
+
+def infer_is_music(
+    probs: np.ndarray,
+    labels: list[str],
+    *,
+    min_confidence: float,
+    min_margin: float,
+) -> bool | None:
+    """Decide ``is_music_detected`` from MAEST's 519-label genre distribution.
+
+    Returns:
+        True  — top-1 is a music genre, top-1 prob ≥ ``min_confidence`` AND
+                ``top-1 - top-2 ≥ min_margin`` (confident music verdict).
+        False — same gates, but top-1 is in the ``Non-Music---*`` branch
+                (confident not-music verdict).
+        None  — fewer than 2 classes, length mismatch, or either gate fails
+                (unresolved; pipeline leaves the column NULL for retry).
+    """
+    if len(probs) < 2 or len(probs) != len(labels):
+        return None
+    arr = np.asarray(probs, dtype=float).reshape(-1)
+    order = np.argsort(-arr, kind="stable")
+    top1 = float(arr[order[0]])
+    top2 = float(arr[order[1]])
+    if top1 < min_confidence or (top1 - top2) < min_margin:
+        return None
+    return not labels[int(order[0])].startswith(NON_MUSIC_PREFIX)
 
 
 def reset_audio_mir(session: Session) -> None:

@@ -56,43 +56,10 @@ class FilterSettings(BaseModel):
     selection_random_seed: int = 42
 
 
-class MusicSettings(BaseModel):
-    audio_fingerprint_confidence: float
-    commit_every: int
-    http_timeout: float
-    spotify_search_limit: int
-    spotify_token_skew_seconds: int
-    spotify_request_timeout: float
-    reccobeats_batch_size: int
-    reccobeats_delay_min: float
-    reccobeats_delay_max: float
-    manual_features_max_seconds: int
-    manual_features_sample_rate: int
-    manual_features_max_mb: float
-    manual_features_mp3_bitrate: str
-    api_max_attempts: int
-    api_retry_delay: float
-    api_retry_jitter: float
-    acr_max_attempts: int
-    ffmpeg_timeout_seconds: int
-    reccobeats_upstream_fail_threshold: int
-
-    @field_validator(
-        "commit_every",
-        "api_max_attempts",
-        "acr_max_attempts",
-        "ffmpeg_timeout_seconds",
-        "reccobeats_upstream_fail_threshold",
-    )
-    @classmethod
-    def _positive(cls, v: int) -> int:
-        if v <= 0:
-            raise ValueError("must be > 0")
-        return v
-
-
 class MirSettings(BaseModel):
     binary_threshold: float = 0.5
+    music_min_confidence: float = 0.30
+    music_min_margin: float = 0.05
     topk_genre: int = 10
     topk_moodtheme: int = 10
     topk_instrument: int = 10
@@ -134,6 +101,13 @@ class MirSettings(BaseModel):
     def _ratio(cls, v: float) -> float:
         if not 0.0 < v < 1.0:
             raise ValueError("must lie in (0, 1)")
+        return v
+
+    @field_validator("music_min_confidence", "music_min_margin")
+    @classmethod
+    def _unit_interval(cls, v: float) -> float:
+        if not 0.0 <= v <= 1.0:
+            raise ValueError("must lie in [0, 1]")
         return v
 
     @field_validator("maest_patch_seconds")
@@ -251,7 +225,6 @@ class Settings(BaseModel):
     paths: PathsSettings
     download: DownloadSettings
     filter: FilterSettings
-    music: MusicSettings
     mir: MirSettings = Field(default_factory=MirSettings)
     speech: SpeechSettings
     captions: CaptionsSettings
@@ -268,11 +241,6 @@ class Secrets(BaseModel):
     database_url: str
     identity_db_url: str
     hiker_api_key: str
-    arc_host: str
-    arc_access_key: str
-    arc_secret_key: str
-    spotify_client_id: str
-    spotify_client_secret: str
     huggingface_token: str
     embedder_remote_url: str = ""
     embedder_token: str = ""
@@ -290,7 +258,6 @@ def load_runtime_config() -> tuple[Settings, Secrets]:
         paths=PathsSettings(**raw["paths"]),
         download=DownloadSettings(**raw["download"]),
         filter=FilterSettings(**raw.get("filter", {})),
-        music=MusicSettings(**raw["music"]),
         mir=MirSettings(**raw.get("mir", {})),
         speech=SpeechSettings(**raw["speech"]),
         captions=CaptionsSettings(**raw["captions"]),
@@ -312,11 +279,6 @@ def load_runtime_config() -> tuple[Settings, Secrets]:
         database_url=os.environ["DATABASE_URL"],
         identity_db_url=os.environ["IDENTITY_DB_URL"],
         hiker_api_key=os.environ["HIKER_API_KEY"],
-        arc_host=os.environ["ARC_HOST"],
-        arc_access_key=os.environ["ARC_ACCESS_KEY"],
-        arc_secret_key=os.environ["ARC_SECRET_KEY"],
-        spotify_client_id=os.environ["SPOTIFY_CLIENT_ID"],
-        spotify_client_secret=os.environ["SPOTIFY_CLIENT_SECRET"],
         huggingface_token=os.environ["HUGGINGFACE_TOKEN"],
         embedder_remote_url=os.environ.get("EMBEDDER_REMOTE_URL", ""),
         embedder_token=os.environ.get("EMBEDDER_TOKEN", ""),

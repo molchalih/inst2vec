@@ -56,10 +56,10 @@ def _runner_settings(video_dir, audio_dir):
 @pytest.fixture()
 def db_session():
     from core.database import (
+        AudioMIR,
         Base,
         Clip,
         ClipEmbedding,
-        Music,
         StageState,
         User,
         get_engine,
@@ -68,7 +68,7 @@ def db_session():
 
     Base.metadata.create_all(get_engine())
     session = get_session()
-    for model in (StageState, ClipEmbedding, Clip, Music, User):
+    for model in (StageState, ClipEmbedding, AudioMIR, Clip, User):
         session.query(model).delete()
     session.commit()
     yield session

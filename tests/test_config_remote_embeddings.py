@@ -46,11 +46,6 @@ def test_secrets_includes_remote_embedder_and_storage():
         "DATABASE_URL": "sqlite:///:memory:",
         "IDENTITY_DB_URL": "sqlite:///:memory:",
         "HIKER_API_KEY": "x",
-        "ARC_HOST": "x",
-        "ARC_ACCESS_KEY": "x",
-        "ARC_SECRET_KEY": "x",
-        "SPOTIFY_CLIENT_ID": "x",
-        "SPOTIFY_CLIENT_SECRET": "x",
         "HUGGINGFACE_TOKEN": "x",
         "EMBEDDER_REMOTE_URL": "https://pod.example/",
         "EMBEDDER_TOKEN": "tok",
@@ -75,11 +70,6 @@ def test_secrets_remote_fields_default_empty_when_not_set():
         "DATABASE_URL": "sqlite:///:memory:",
         "IDENTITY_DB_URL": "sqlite:///:memory:",
         "HIKER_API_KEY": "x",
-        "ARC_HOST": "x",
-        "ARC_ACCESS_KEY": "x",
-        "ARC_SECRET_KEY": "x",
-        "SPOTIFY_CLIENT_ID": "x",
-        "SPOTIFY_CLIENT_SECRET": "x",
         "HUGGINGFACE_TOKEN": "x",
     }
     with patch.dict(os.environ, env, clear=True):

@@ -22,7 +22,7 @@
 
 ## Overview
 
-`inst2vec` is a modular pipeline for clustering *Instagram creators* based on their *Reels* content-similarity. It parses profiles, embeds videos, music and speech; averages each user's clip vectors, and clusters the creators. While each stage provides it's own output, the final results is a flat user-to-cluster table.
+`inst2vec` is a modular pipeline for clustering *Instagram creators* based on their *Reels* content-similarity. It parses profiles, embeds videos, audio (music + speech); averages each user's clip vectors, and clusters the creators. While each stage provides it's own output, the final results is a flat user-to-cluster table.
 
 **Key concepts:** `Semantic map`, `Latent Representations`, `Unsupervised Clustering`, `Platform Vernaculars`.
 
@@ -33,10 +33,10 @@ The 11 stages execute in order from `main.py`:
 1. **Ingest** — seed accounts from CSV, pull profiles + Reels metadata via HikerAPI, download videos, extract MP3 audio.
 2. **Filter** — flag ineligible users and clips, randomly select a per-user clip pool.
 3. **Upload** — push selected videos to S3-compatible storage (no-op if `storage.bucket` is unset).
-4. **Music** — fingerprint with ACRCloud, extract features via Spotify.
+4. **MIR** — extract music descriptors (Discogs taxonomy, mood, danceability, …) from the audio waveform via MAEST + Discogs-EffNet.
 5. **Speech** — Silero VAD → Whisper transcription → translation → post-clean.
 6. **Captions** — clean, detect language, translate clip captions.
-7. **Clip embeddings** — Qwen3-VL-Embedding-8B across three cases per clip: `video`, `sandwich` (video + music text), `audio` (speech text). Runs locally or on a remote GPU pod.
+7. **Clip embeddings** — Qwen3-VL-Embedding-8B across cases per clip: `video`, `sandwich` (video + MIR-derived music text), `audio` (speech + MIR text); plus a `maest` case storing a raw 2304-d MAEST representation per clip. Runs locally or on a remote GPU pod.
 8. **User embeddings** — average each user's clip vectors per case.
 9. **Cluster search** — grid search over UMAP + HDBSCAN hyperparameters.
 10. **Cluster validation** — DBCV + silhouette scoring, plateau detection.
@@ -50,7 +50,7 @@ uv sync
 
 # 2. Configure
 cp .env.example .env
-# fill in HIKER_API_KEY, ACR_*, SPOTIFY_*, HUGGINGFACE_TOKEN
+# fill in HIKER_API_KEY, HUGGINGFACE_TOKEN
 
 # 3. Run
 uv run python main.py

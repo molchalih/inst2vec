@@ -66,6 +66,9 @@ def db_session():
         session.query(model).delete()
     session.commit()
     yield session
+    for model in (StageState, Clip, User):
+        session.query(model).delete()
+    session.commit()
     session.close()
 
 

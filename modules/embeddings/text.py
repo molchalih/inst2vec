@@ -2,15 +2,13 @@
 
 Caption/speech translation rule: use translation iff original language
 is not in {"en", None} and a non-empty translation exists; otherwise
-fall back to the original text. Music is verbalized into a compact
-textual description.
+fall back to the original text. Music is verbalized from an AudioMIR
+row into a compact textual description via ``verbalize_mir``.
 """
 
 from __future__ import annotations
 
 from core.lang import is_english
-
-_KEY_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
 
 def _is_non_english(lang: str | None) -> bool:
@@ -18,76 +16,121 @@ def _is_non_english(lang: str | None) -> bool:
     return bool(lang) and not is_english(lang)
 
 
-def verbalize_music(music) -> str:
-    descriptors = []
-
-    if music.energy is not None:
-        if music.energy >= 0.80:
-            descriptors.append("very high energy")
-        elif music.energy >= 0.55:
-            descriptors.append("high energy")
-        elif music.energy >= 0.30:
-            descriptors.append("moderate energy")
-        else:
-            descriptors.append("low energy")
-
-    if music.valence is not None:
-        if music.valence >= 0.75:
-            descriptors.append("very upbeat")
-        elif music.valence >= 0.50:
-            descriptors.append("positive")
-        elif music.valence >= 0.25:
-            descriptors.append("bittersweet")
-        else:
-            descriptors.append("dark and melancholic")
-
-    if music.acousticness is not None:
-        if music.acousticness >= 0.75:
-            descriptors.append("acoustic")
-        elif music.acousticness <= 0.20:
-            descriptors.append("electronic")
-
-    if music.instrumentalness is not None:
-        if music.instrumentalness >= 0.50:
-            descriptors.append("instrumental")
-        else:
-            descriptors.append("vocal")
-
-    if music.danceability is not None:
-        if music.danceability >= 0.75:
-            descriptors.append("highly danceable")
-        elif music.danceability <= 0.25:
-            descriptors.append("not danceable")
-
-    if music.speechiness is not None and music.speechiness >= 0.33:
-        if music.speechiness >= 0.66:
-            descriptors.append("spoken word")
-        else:
-            descriptors.append("rap or speech-heavy")
-
-    if music.tempo is not None:
-        bpm = round(music.tempo)
-        if music.tempo >= 150:
-            descriptors.append(f"fast ({bpm} BPM)")
-        elif music.tempo >= 110:
-            descriptors.append(f"moderate tempo ({bpm} BPM)")
-        elif music.tempo >= 75:
-            descriptors.append(f"slow ({bpm} BPM)")
-        else:
-            descriptors.append(f"very slow ({bpm} BPM)")
-
-    if music.mode is not None and music.key is not None and 0 <= int(music.key) <= 11:
-        mode_str = "major" if music.mode == 1 else "minor"
-        key_str = _KEY_NAMES[int(music.key)]
-        descriptors.append(f"{key_str} {mode_str}")
-
-    desc = ", ".join(descriptors)
-    track = music.track or "Unknown Track"
-    artist = music.artist or "Unknown Artist"
-    return f'Music: "{track}" by {artist} — {desc}'
+_MIR_FLAG_FIELDS: tuple[tuple[str, str], ...] = (
+    ("is_acoustic", "acoustic"),
+    ("is_electronic", "electronic"),
+    ("is_instrumental", "instrumental"),
+    ("is_happy", "happy"),
+    ("is_sad", "sad"),
+    ("is_party", "party"),
+    ("is_relaxed", "relaxed"),
+    ("is_aggressive", "aggressive"),
+    ("is_female_voice", "female vocal"),
+    ("is_bright_timbre", "bright timbre"),
+    ("is_tonal", "tonal"),
+)
 
 
-def build_sandwich_text(clip, music_map: dict) -> str | None:
+def _topk_split(value: str | None, k: int) -> list[str]:
+    """Split a comma-separated topk_csv-style string and keep the first ``k`` labels."""
+    if not value:
+        return []
+    parts = [p.strip() for p in value.split(",")]
+    parts = [p for p in parts if p]
+    return parts[:k]
+
+
+def _bucket_danceability(value: float | None) -> str | None:
+    if value is None:
+        return None
+    if value >= 0.66:
+        return "highly danceable"
+    if value >= 0.33:
+        return "moderately danceable"
+    return "low danceability"
+
+
+def _bucket_engagement(value: float | None) -> str | None:
+    if value is None:
+        return None
+    if value >= 7.0:
+        return "highly engaging"
+    if value >= 4.0:
+        return "moderately engaging"
+    return "low engagement"
+
+
+def _bucket_approachability(value: float | None) -> str | None:
+    if value is None:
+        return None
+    if value >= 7.0:
+        return "very approachable"
+    if value >= 4.0:
+        return "moderately approachable"
+    return "low approachability"
+
+
+def verbalize_mir(mir) -> str:
+    """Compact, readable description of an AudioMIR row.
+
+    Shape: ``Music: <top-2 genres> — <top-3 mood/themes>, <top-2 instruments>;
+    flags: <true-only flags>; <danceability bucket>, <engagement bucket>,
+    <approachability bucket>``.
+
+    Empty sections are skipped. Returns ``""`` only when every section is
+    empty — defensive; should not occur when ``mir.is_music_detected`` is
+    True for a successful MIR row.
+    """
+    genres = _topk_split(mir.genre_labels, 2)
+    moods = _topk_split(mir.moodtheme_labels, 3)
+    instruments = _topk_split(mir.instrument_labels, 2)
+
+    head_parts: list[str] = []
+    if genres:
+        head_parts.append(", ".join(genres))
+    tail_parts: list[str] = []
+    if moods:
+        tail_parts.append(", ".join(moods))
+    if instruments:
+        tail_parts.append(", ".join(instruments))
+
+    sections: list[str] = []
+    if head_parts and tail_parts:
+        sections.append(f"{head_parts[0]} — {', '.join(tail_parts)}")
+    elif head_parts:
+        sections.append(head_parts[0])
+    elif tail_parts:
+        sections.append(", ".join(tail_parts))
+
+    flags = [label for attr, label in _MIR_FLAG_FIELDS if getattr(mir, attr) is True]
+    if flags:
+        sections.append("flags: " + ", ".join(flags))
+
+    buckets: list[str] = []
+    for fn, value in (
+        (_bucket_danceability, mir.danceability),
+        (_bucket_engagement, mir.engagement),
+        (_bucket_approachability, mir.approachability),
+    ):
+        bucket = fn(value)
+        if bucket is not None:
+            buckets.append(bucket)
+    if buckets:
+        sections.append(", ".join(buckets))
+
+    if not sections:
+        return ""
+    return "Music: " + "; ".join(sections)
+
+
+def build_sandwich_text(clip, mir_row) -> str | None:
+    """Caption + speech + MIR music text, joined by '` | `'.
+
+    ``mir_row`` is the matching ``AudioMIR`` row for the clip (or ``None``).
+    The music block is included iff ``mir_row is not None and
+    mir_row.is_music_detected is True``. The speech block is included iff
+    ``clip.is_speech_detected is True``.
+    """
     parts = []
 
     cap = (
@@ -111,18 +154,20 @@ def build_sandwich_text(clip, music_map: dict) -> str | None:
         if speech.strip():
             parts.append(speech.strip())
 
-    if clip.music_id is not None and clip.music_id in music_map:
-        parts.append(verbalize_music(music_map[clip.music_id]))
+    if mir_row is not None and mir_row.is_music_detected is True:
+        music_text = verbalize_mir(mir_row)
+        if music_text:
+            parts.append(music_text)
 
     return " | ".join(parts) if parts else None
 
 
-def build_gemini_text(clip, _music_map: dict) -> str | None:
+def build_gemini_text(clip, _mir_row) -> str | None:
     """Caption + transcript for the gemini case.
 
-    Uses translation when source language is non-English and a non-empty
-    translation exists; otherwise the cleaned/original text. Music is
-    NOT verbalized — the model gets the raw audio track separately.
+    Music is NOT verbalized — the model gets the raw audio track
+    separately. ``_mir_row`` is accepted to keep the text_builder
+    signature uniform with the other cases and is intentionally ignored.
     Returns ``None`` when both caption and transcript are empty.
     """
     cap = (
@@ -152,9 +197,12 @@ def build_gemini_text(clip, _music_map: dict) -> str | None:
     return "\n\n---\n\n".join(parts)
 
 
-def build_audio_text(clip, music_map: dict) -> str | None:
-    # Order: speech first, music second — matches the audio embedding
-    # instruction priority. Captions are deliberately excluded.
+def build_audio_text(clip, mir_row) -> str | None:
+    """Speech + MIR music text, joined by '` | `'. Captions excluded.
+
+    Order: speech first, music second — matches the audio embedding
+    instruction priority.
+    """
     parts = []
 
     if clip.is_speech_detected is True:
@@ -168,7 +216,9 @@ def build_audio_text(clip, music_map: dict) -> str | None:
         if speech.strip():
             parts.append(speech.strip())
 
-    if clip.music_id is not None and clip.music_id in music_map:
-        parts.append(verbalize_music(music_map[clip.music_id]))
+    if mir_row is not None and mir_row.is_music_detected is True:
+        music_text = verbalize_mir(mir_row)
+        if music_text:
+            parts.append(music_text)
 
     return " | ".join(parts) if parts else None

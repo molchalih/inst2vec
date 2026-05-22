@@ -347,3 +347,42 @@ def test_ensure_checkpoints_partial_failure_keeps_successes_and_raises(
             assert not target.exists(), "failed download must not be sealed"
         else:
             assert target.read_bytes() == b"ok-payload"
+
+
+def test_read_sidecar_sha256_returns_recorded_digest(tmp_path: Path) -> None:
+    import json
+
+    from modules.mir.checkpoints import read_sidecar_sha256
+
+    pb = tmp_path / "fake.pb"
+    pb.write_bytes(b"x")
+    (tmp_path / "fake.pb.sha256").write_text(
+        json.dumps({"sha256": "deadbeef", "size": 1, "mtime_ns": 0})
+    )
+
+    assert read_sidecar_sha256(pb) == "deadbeef"
+
+
+def test_read_sidecar_sha256_absent_when_pb_missing(tmp_path: Path) -> None:
+    from modules.mir.checkpoints import read_sidecar_sha256
+
+    assert read_sidecar_sha256(tmp_path / "nope.pb") == "absent"
+
+
+def test_read_sidecar_sha256_absent_when_sidecar_missing(tmp_path: Path) -> None:
+    from modules.mir.checkpoints import read_sidecar_sha256
+
+    pb = tmp_path / "fake.pb"
+    pb.write_bytes(b"x")
+
+    assert read_sidecar_sha256(pb) == "absent"
+
+
+def test_read_sidecar_sha256_absent_when_sidecar_corrupt(tmp_path: Path) -> None:
+    from modules.mir.checkpoints import read_sidecar_sha256
+
+    pb = tmp_path / "fake.pb"
+    pb.write_bytes(b"x")
+    (tmp_path / "fake.pb.sha256").write_text("{not json")
+
+    assert read_sidecar_sha256(pb) == "absent"

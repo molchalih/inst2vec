@@ -4,10 +4,10 @@ import numpy as np
 
 from core import fingerprint as fp
 from core.database import (
+    AudioMIR,
     Base,
     Clip,
     ClipEmbedding,
-    Music,
     User,
     get_engine,
     get_session,
@@ -123,7 +123,7 @@ def test_get_embedded_source_hashes_returns_clip_id_to_hash_map():
 def test_per_clip_source_hashes_match_dependency_rows(tmp_path):
     Base.metadata.create_all(get_engine())
     session = get_session()
-    for model in (ClipEmbedding, Clip, Music, User):
+    for model in (ClipEmbedding, AudioMIR, Clip, User):
         session.query(model).delete()
     session.commit()
 
@@ -167,7 +167,7 @@ def test_dependency_rows_uses_case_spec_columns(tmp_path):
     exactly the columns the case spec declares — no more, no less."""
     Base.metadata.create_all(get_engine())
     session = get_session()
-    for model in (ClipEmbedding, Clip, Music, User):
+    for model in (ClipEmbedding, AudioMIR, Clip, User):
         session.query(model).delete()
     session.commit()
 
@@ -184,7 +184,6 @@ def test_dependency_rows_uses_case_spec_columns(tmp_path):
             speech_transcription="hi",
             speech_language="en",
             speech_translation="hi-en",
-            music_id=None,
         )
     )
     session.commit()
@@ -192,8 +191,10 @@ def test_dependency_rows_uses_case_spec_columns(tmp_path):
 
     paths = _paths_stub(tmp_path)
     for name, spec in CASE_REGISTRY.items():
-        music_map = {} if "_music_row" in spec.dependency_columns else None
-        rows = dependency_rows_for_case(name, clip, paths=paths, music_map=music_map)
+        audio_mir_map = {} if "_audio_mir_row" in spec.dependency_columns else None
+        rows = dependency_rows_for_case(
+            name, clip, paths=paths, audio_mir_map=audio_mir_map
+        )
         keys = [k for k, _ in rows]
         assert keys == list(spec.dependency_columns), (
             f"case {name}: rows={keys} expected={list(spec.dependency_columns)}"
@@ -201,16 +202,15 @@ def test_dependency_rows_uses_case_spec_columns(tmp_path):
     session.close()
 
 
-def test_music_row_sentinel_flips_when_features_arrive(tmp_path):
-    """An audio/sandwich case sealed before Music features were filled in
-    must observe a hash change once Spotify/ReccoBeats backfill the row."""
+def test_audio_mir_row_sentinel_flips_when_descriptors_arrive(tmp_path):
+    """An audio/sandwich case sealed before MIR ran must observe a hash
+    change once the AudioMIR row gains descriptors."""
     Base.metadata.create_all(get_engine())
     session = get_session()
-    for model in (ClipEmbedding, Clip, Music, User):
+    for model in (ClipEmbedding, AudioMIR, Clip, User):
         session.query(model).delete()
     session.commit()
 
-    session.merge(Music(id=7, artist="Artist", track="Song"))
     session.merge(User(id=1, is_selected=True, is_eligible=True))
     session.merge(
         Clip(
@@ -221,63 +221,68 @@ def test_music_row_sentinel_flips_when_features_arrive(tmp_path):
             speech_transcription="hi",
             speech_language="en",
             speech_translation=None,
-            music_id=7,
         )
     )
     session.commit()
     clip = session.query(Clip).filter_by(id=42).one()
     paths = _paths_stub(tmp_path)
 
-    before = dependency_rows_for_case(
-        "audio", clip, paths=paths, music_map={7: session.get(Music, 7)}
-    )
+    # No AudioMIR row yet.
+    before = dependency_rows_for_case("audio", clip, paths=paths, audio_mir_map={})
 
-    music = session.get(Music, 7)
-    music.energy = 0.8
-    music.tempo = 128.0
+    session.merge(
+        AudioMIR(
+            clip_id=42,
+            is_mir_extracted=True,
+            is_music_detected=True,
+            genre_labels="Pop, Rock",
+            engagement=8.0,
+        )
+    )
     session.commit()
+    after_map = {42: session.query(AudioMIR).filter_by(clip_id=42).one()}
 
     after = dependency_rows_for_case(
-        "audio", clip, paths=paths, music_map={7: session.get(Music, 7)}
+        "audio", clip, paths=paths, audio_mir_map=after_map
     )
     assert fp.hash_rows(before) != fp.hash_rows(after), (
-        "filling Music features for the linked row must change the audio fingerprint"
+        "AudioMIR row arrival must change the audio fingerprint"
     )
     session.close()
 
 
-def test_music_row_sentinel_flips_when_music_match_arrives(tmp_path):
-    """A speechless clip with no music_id (skipped in audio) must observe
-    a hash change once a music match is recorded."""
+def test_audio_mir_row_sentinel_flips_when_is_music_detected_flips(tmp_path):
+    """Toggling is_music_detected on the AudioMIR row must change the audio hash."""
     Base.metadata.create_all(get_engine())
     session = get_session()
-    for model in (ClipEmbedding, Clip, Music, User):
+    for model in (ClipEmbedding, AudioMIR, Clip, User):
         session.query(model).delete()
     session.commit()
 
-    session.merge(Music(id=9, artist="A", track="T", energy=0.5))
     session.merge(User(id=1, is_selected=True, is_eligible=True))
+    session.merge(Clip(id=42, user_id=1, is_selected=True, is_downloaded=True))
     session.merge(
-        Clip(
-            id=99,
-            user_id=1,
-            is_selected=True,
-            is_downloaded=True,
-            speech_transcription=None,
-            speech_language=None,
-            speech_translation=None,
-            music_id=None,
+        AudioMIR(
+            clip_id=42,
+            is_mir_extracted=True,
+            is_music_detected=False,
+            genre_labels="Pop, Rock",
         )
     )
     session.commit()
-    clip = session.query(Clip).filter_by(id=99).one()
+    clip = session.query(Clip).filter_by(id=42).one()
     paths = _paths_stub(tmp_path)
-    music_map = {9: session.get(Music, 9)}
+    mir = session.query(AudioMIR).filter_by(clip_id=42).one()
+    before = dependency_rows_for_case(
+        "audio", clip, paths=paths, audio_mir_map={42: mir}
+    )
 
-    before = dependency_rows_for_case("audio", clip, paths=paths, music_map=music_map)
-    clip.music_id = 9
+    mir.is_music_detected = True
     session.commit()
-    after = dependency_rows_for_case("audio", clip, paths=paths, music_map=music_map)
+    after_mir = session.query(AudioMIR).filter_by(clip_id=42).one()
+    after = dependency_rows_for_case(
+        "audio", clip, paths=paths, audio_mir_map={42: after_mir}
+    )
     assert fp.hash_rows(before) != fp.hash_rows(after)
     session.close()
 

@@ -61,14 +61,14 @@ class EmbeddingSecrets:
 @dataclass(frozen=True)
 class EmbeddingCaseSpec:
     name: str
-    text_builder: Callable[[object, dict], str | None] | None
+    text_builder: Callable[[object, object], str | None] | None
     requires_video: bool
     provider_factory: Callable[[object, object], Provider]
     payload_builder: Callable[
         [object, str | None, str | None, str | None, float | None, int | None], dict
     ]
     apply_video_token_fallback: bool
-    # Names of Clip / Music columns (or synthetic ``_video_file_stat`` /
+    # Names of Clip columns (or synthetic ``_video_file_stat`` /
     # ``_audio_file_stat`` sentinels) whose values feed the case's text +
     # payload builders. Drives ``dependency_rows_for_case`` so adding a new
     # case never needs to touch state.py.
@@ -185,10 +185,6 @@ SANDWICH_CASE = EmbeddingCaseSpec(
     provider_factory=_QWEN_VIDEO,
     payload_builder=_sandwich_payload,
     apply_video_token_fallback=True,
-    # _music_row captures both the FK identity (track/artist) and the
-    # feature columns verbalize_music reads, so the sandwich fingerprint
-    # also flips when Spotify/ReccoBeats backfill energy/tempo/valence
-    # for an existing music_id.
     dependency_columns=(
         "caption_clean",
         "caption_language",
@@ -197,9 +193,9 @@ SANDWICH_CASE = EmbeddingCaseSpec(
         "speech_transcription",
         "speech_language",
         "speech_translation",
-        "_music_row",
+        "_audio_mir_row",
     ),
-    recipe_version="sandwich_v2",
+    recipe_version="sandwich_v3",
 )
 
 AUDIO_CASE = EmbeddingCaseSpec(
@@ -209,17 +205,14 @@ AUDIO_CASE = EmbeddingCaseSpec(
     provider_factory=_QWEN_TEXT,
     payload_builder=_audio_payload,
     apply_video_token_fallback=False,
-    # _music_row is part of the audio text: a music match arriving after
-    # a sealed run (including for previously-skipped speechless clips)
-    # must flip the audio fingerprint so the clip is (re-)embedded.
     dependency_columns=(
         "is_speech_detected",
         "speech_transcription",
         "speech_language",
         "speech_translation",
-        "_music_row",
+        "_audio_mir_row",
     ),
-    recipe_version="audio_v2",
+    recipe_version="audio_v3",
 )
 
 
@@ -278,11 +271,50 @@ GEMINI_CASE = EmbeddingCaseSpec(
 )
 
 
+def _maest_factory(settings, secrets) -> Provider:
+    from pathlib import Path
+
+    from modules.embeddings.maest import MaestProvider
+
+    mir = settings.mir
+    checkpoint = Path(mir.model_dir) / mir.maest_checkpoint
+    return MaestProvider(
+        checkpoint_path=checkpoint,
+        input_op=mir.maest_input,
+        sample_rate=mir.inference_sample_rate,
+        min_samples=int(mir.maest_patch_seconds * mir.inference_sample_rate),
+    )
+
+
+def _maest_payload(clip, text, video_path, audio_path, fps, max_frames) -> dict:
+    if audio_path is None:
+        raise ValueError(
+            "maest payload requires audio_path; the runner must compute it "
+            "from settings.paths.audio_dir"
+        )
+    return {"audio_path": audio_path}
+
+
+MAEST_CASE = EmbeddingCaseSpec(
+    name="maest",
+    text_builder=None,
+    requires_video=False,
+    provider_factory=_maest_factory,
+    payload_builder=_maest_payload,
+    apply_video_token_fallback=False,
+    dependency_columns=("_audio_file_stat",),
+    recipe_version="maest_v1",
+    requires=(),
+    served_remotely=False,
+)
+
+
 CASE_REGISTRY: dict[str, EmbeddingCaseSpec] = {
     "video": VIDEO_CASE,
     "sandwich": SANDWICH_CASE,
     "audio": AUDIO_CASE,
     "gemini": GEMINI_CASE,
+    "maest": MAEST_CASE,
 }
 
 
@@ -307,6 +339,10 @@ def case_config_identity(spec: EmbeddingCaseSpec, settings) -> str:
     Co-located with the spec definitions so changing a case's identity
     inputs lives next to the case itself.
     """
+    from pathlib import Path
+
+    from modules.mir.checkpoints import read_sidecar_sha256
+
     parts = [
         f"case={spec.name}",
         f"provider={getattr(spec.provider_factory, '__name__', repr(spec.provider_factory))}",
@@ -331,4 +367,16 @@ def case_config_identity(spec: EmbeddingCaseSpec, settings) -> str:
         )
         parts.append(f"max_video_s={settings.embeddings.gemini_max_video_seconds}")
         parts.append(f"max_audio_s={settings.embeddings.gemini_max_audio_seconds}")
+    if spec.name == "maest":
+        mir = settings.mir
+        pb_path = Path(mir.model_dir) / mir.maest_checkpoint
+        min_samples = int(mir.maest_patch_seconds * mir.inference_sample_rate)
+        parts.append(f"maest_checkpoint={mir.maest_checkpoint}")
+        parts.append(f"input_op={mir.maest_input}")
+        parts.append("output_op=PartitionedCall/Identity_7")
+        parts.append("aggregation=concat_cls_dist_mean_v1")
+        parts.append("patch_reduction=mean")
+        parts.append(f"input_sample_rate={mir.inference_sample_rate}")
+        parts.append(f"min_samples={min_samples}")
+        parts.append(f"checkpoint_sha256={read_sidecar_sha256(pb_path)}")
     return "|".join(parts)

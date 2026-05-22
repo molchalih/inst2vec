@@ -1,7 +1,5 @@
 """Main-DB ORM: Base + model classes. No engine handles, no predicates."""
 
-from typing import Optional
-
 from sqlalchemy import (
     BigInteger,
     Boolean,
@@ -105,11 +103,6 @@ class Clip(Base):
     play_count: Mapped[int | None] = mapped_column(Integer)
     video_duration: Mapped[float | None] = mapped_column(Float, nullable=True)
     taken_at: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    music_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("music.id"), nullable=True
-    )
-    music_confidence: Mapped[float | None] = mapped_column(Float)
-    is_music_recognized: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     speech_transcription: Mapped[str | None] = mapped_column(Text)
     speech_language: Mapped[str | None] = mapped_column(String, nullable=True)
     speech_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -130,7 +123,6 @@ class Clip(Base):
     is_uploaded: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 
     user: Mapped["User"] = relationship("User", back_populates="clips")  # type: ignore[assignment]
-    music: Mapped[Optional["Music"]] = relationship("Music", back_populates="clips")  # type: ignore[assignment]
     embeddings: Mapped[list["ClipEmbedding"]] = relationship(  # type: ignore[assignment]
         "ClipEmbedding", back_populates="clip"
     )
@@ -149,57 +141,6 @@ class ClipFilterScratch(Base):
     is_creator_low_outlier: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 
 
-class Music(Base):
-    __tablename__ = "music"
-    __table_args__ = (
-        UniqueConstraint("artist", "track", name="uq_music_artist_track"),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    artist: Mapped[str] = mapped_column(String, nullable=False, default="")
-    track: Mapped[str] = mapped_column(String, nullable=False, default="")
-    spotify_id: Mapped[str | None] = mapped_column(String, nullable=True)
-    reccobeats_id: Mapped[str | None] = mapped_column(String, nullable=True)
-    is_reccobeats_resolved: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
-    recognition_status: Mapped[str] = mapped_column(
-        SAEnum(
-            "pending",
-            "matched",
-            "no_match",
-            "failed",
-            name="music_recognition_status",
-        ),
-        nullable=False,
-        default="pending",
-        server_default="pending",
-    )
-    is_audio_features_extracted: Mapped[bool | None] = mapped_column(
-        Boolean, nullable=True
-    )
-    acousticness: Mapped[float | None] = mapped_column(Float, nullable=True)
-    danceability: Mapped[float | None] = mapped_column(Float, nullable=True)
-    energy: Mapped[float | None] = mapped_column(Float, nullable=True)
-    instrumentalness: Mapped[float | None] = mapped_column(Float, nullable=True)
-    key: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    liveness: Mapped[float | None] = mapped_column(Float, nullable=True)
-    loudness: Mapped[float | None] = mapped_column(Float, nullable=True)
-    mode: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    speechiness: Mapped[float | None] = mapped_column(Float, nullable=True)
-    tempo: Mapped[float | None] = mapped_column(Float, nullable=True)
-    valence: Mapped[float | None] = mapped_column(Float, nullable=True)
-    created_at: Mapped[DateTime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-    updated_at: Mapped[DateTime] = mapped_column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        onupdate=func.now(),
-        nullable=False,
-    )
-
-    clips: Mapped[list["Clip"]] = relationship("Clip", back_populates="music")  # type: ignore[assignment]
-
-
 class AudioMIR(Base):
     __tablename__ = "audio_mir"
     __table_args__ = (UniqueConstraint("clip_id", name="uq_audio_mir_clip"),)
@@ -209,6 +150,7 @@ class AudioMIR(Base):
     )
 
     is_mir_extracted: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    is_music_detected: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     mir_error: Mapped[str | None] = mapped_column(
         SAEnum(
             "maest",

@@ -8,6 +8,9 @@ def test_clip_filter_scratch_round_trip():
     Base.metadata.create_all(get_engine())
     session = get_session()
     try:
+        for model in (ClipFilterScratch, Clip, User):
+            session.query(model).delete()
+        session.commit()
         user = User(id=1)
         clip = Clip(id=1, user_id=1)
         session.add_all([user, clip])
@@ -28,6 +31,9 @@ def test_clip_filter_scratch_round_trip():
         assert fetched.creator_relative_robust_z == -1.2
         assert fetched.is_creator_low_outlier is True
     finally:
+        for model in (ClipFilterScratch, Clip, User):
+            session.query(model).delete()
+        session.commit()
         session.close()
 
 

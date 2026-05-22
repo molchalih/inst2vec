@@ -262,6 +262,84 @@ def test_upsert_writes_exactly_the_reset_columns():
     assert "_RESET_COLUMNS" in src, "_upsert must iterate _RESET_COLUMNS"
 
 
+def test_infer_is_music_returns_true_for_confident_music_top1():
+    import numpy as np
+
+    from modules.mir.state import infer_is_music
+
+    labels = ["Rock---Punk", "Pop---Synth-Pop", "Non-Music---Speech"]
+    probs = np.array([0.8, 0.1, 0.05], dtype=np.float32)
+    assert infer_is_music(probs, labels, min_confidence=0.30, min_margin=0.05) is True
+
+
+def test_infer_is_music_returns_false_for_confident_non_music_top1():
+    import numpy as np
+
+    from modules.mir.state import infer_is_music
+
+    labels = ["Rock---Punk", "Pop---Synth-Pop", "Non-Music---Speech"]
+    probs = np.array([0.05, 0.05, 0.7], dtype=np.float32)
+    assert infer_is_music(probs, labels, min_confidence=0.30, min_margin=0.05) is False
+
+
+def test_infer_is_music_returns_none_when_top1_below_confidence():
+    import numpy as np
+
+    from modules.mir.state import infer_is_music
+
+    labels = ["Rock---Punk", "Pop---Synth-Pop", "Non-Music---Speech"]
+    probs = np.array([0.25, 0.05, 0.05], dtype=np.float32)
+    assert infer_is_music(probs, labels, min_confidence=0.30, min_margin=0.05) is None
+
+
+def test_infer_is_music_returns_none_when_margin_too_small():
+    """Confident top-1 but ambiguous vs top-2 → leave NULL for retry."""
+    import numpy as np
+
+    from modules.mir.state import infer_is_music
+
+    labels = ["Rock---Punk", "Non-Music---Speech", "Pop---Synth-Pop"]
+    probs = np.array([0.31, 0.29, 0.05], dtype=np.float32)
+    assert infer_is_music(probs, labels, min_confidence=0.30, min_margin=0.05) is None
+
+
+def test_infer_is_music_returns_none_for_degenerate_inputs():
+    import numpy as np
+
+    from modules.mir.state import infer_is_music
+
+    # length mismatch
+    assert (
+        infer_is_music(
+            np.array([0.9, 0.1]),
+            ["a", "b", "c"],
+            min_confidence=0.30,
+            min_margin=0.05,
+        )
+        is None
+    )
+    # single class
+    assert (
+        infer_is_music(
+            np.array([1.0]), ["Rock---Punk"], min_confidence=0.30, min_margin=0.05
+        )
+        is None
+    )
+
+
+def test_mir_config_payload_includes_music_detection_knobs():
+    """Fingerprint must change when music-detection thresholds drift,
+    so existing AudioMIR rows are nulled and re-classified."""
+    from modules.mir.state import mir_config_payload
+
+    a = mir_config_payload(_mir_settings(music_min_confidence=0.30))
+    b = mir_config_payload(_mir_settings(music_min_confidence=0.40))
+    c = mir_config_payload(_mir_settings(music_min_margin=0.05))
+    d = mir_config_payload(_mir_settings(music_min_margin=0.10))
+    assert a != b
+    assert c != d
+
+
 def test_payload_byte_for_byte_unchanged_after_helper_refactor():
     """Golden assertion: the MIR payload must remain byte-identical to the
     pre-refactor output for the default MirSettings. If this fails, MIR

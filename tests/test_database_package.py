@@ -17,7 +17,6 @@ CLASS_NAMES = [
     "User",
     "UserStats",
     "Clip",
-    "Music",
     "ClipEmbedding",
     "UserEmbedding",
     "UserCluster",

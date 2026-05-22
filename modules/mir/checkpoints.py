@@ -176,6 +176,25 @@ def _maintain_sidecar(pb_path: Path) -> None:
     )
 
 
+def read_sidecar_sha256(pb_path: Path) -> str:
+    """Return the recorded SHA-256 of ``pb_path`` from its sidecar.
+
+    Returns ``"absent"`` when either the .pb or its sidecar is missing
+    or unreadable. Used by callers that need a stable identifier for a
+    checkpoint without re-hashing it on every call.
+    """
+    side = _sidecar_path(pb_path)
+    if not pb_path.exists() or not side.exists():
+        return "absent"
+    try:
+        data = json.loads(side.read_text())
+        if isinstance(data, dict) and isinstance(data.get("sha256"), str):
+            return data["sha256"]
+    except (json.JSONDecodeError, OSError):
+        pass
+    return "absent"
+
+
 def validate_checkpoint_sidecars(mir: MirSettings) -> None:
     """Refresh sidecars for every .pb present in ``mir.model_dir``.
 

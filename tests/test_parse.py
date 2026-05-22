@@ -4,13 +4,27 @@ from unittest.mock import MagicMock
 import pytest
 
 from core.database import (
+    AudioMIR,
     Clip,
+    ClipEmbedding,
+    StageState,
     User,
     get_or_create_user_identity,
     get_session,
     update_user_identity,
 )
 from modules.ingest import profiles as parse_mod
+
+
+@pytest.fixture(autouse=True)
+def _clean_db():
+    """Clear shared main-DB state so prior tests cannot pollute identity allocations."""
+    session = get_session()
+    for model in (StageState, ClipEmbedding, AudioMIR, Clip, User):
+        session.query(model).delete()
+    session.commit()
+    session.close()
+    yield
 
 
 def test_fetch_profiles_accepts_explicit_params():

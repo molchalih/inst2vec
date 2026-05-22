@@ -9,8 +9,6 @@ class Stage(StrEnum):
     AUDIO_EXTRACT = "audio_extract"
     FILTER = "filter"
     CAPTIONS = "captions"
-    MUSIC_CLASSIFY = "music_classify"
-    MUSIC_FEATURES = "music_features"
     SPEECH = "speech"
     CLIP_EMBEDDINGS = "clip_embeddings"
     USER_EMBEDDINGS = "user_embeddings"

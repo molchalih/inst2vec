@@ -25,7 +25,6 @@ from core.database.models import (  # noqa: F401  -- re-exports for core.databas
     ClipEmbedding,
     ClipFilterScratch,
     ClusterRun,
-    Music,
     StageState,
     User,
     UserCluster,

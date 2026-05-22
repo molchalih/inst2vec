@@ -33,8 +33,6 @@ def test_clips_summary_to_markdown_renders_curated_metrics():
                     comment_count=2,
                     reshare_count=1,
                     play_count=100,
-                    music_id=7,
-                    is_music_recognized=True,
                     speech_transcription="hello",
                     speech_language="en",
                     speech_translation="hello",
@@ -49,7 +47,6 @@ def test_clips_summary_to_markdown_renders_curated_metrics():
                     comment_count=2,
                     reshare_count=1,
                     play_count=200,
-                    is_music_recognized=False,
                     is_speech_detected=0,
                     is_selected=True,
                     is_downloaded=True,
@@ -68,8 +65,6 @@ def test_clips_summary_to_markdown_renders_curated_metrics():
                     speech_language="fr",
                     speech_translation="hello",
                     is_speech_detected=1,
-                    is_music_recognized=True,
-                    music_id=8,
                     is_selected=False,
                 ),
             ]
@@ -89,7 +84,6 @@ def test_clips_summary_to_markdown_renders_curated_metrics():
     assert r"| $N_{\mathrm{caption\_trans}}$ | 1 (50.0%) |" in out
     assert r"| $N_{\mathrm{speech}}$ | 1 (50.0%) |" in out
     assert r"| $N_{\mathrm{speech\_trans}}$ | 1 (50.0%) |" in out
-    assert r"| $N_{\mathrm{music}}$ | 1 (50.0%) |" in out
     assert r"| $\tilde{x}_{\mathrm{views}}$ | 150 |" in out
     assert r"| $\mu_\mathrm{views}$ | 150.0 |" in out
     assert r"| $[\min-max]_{\mathrm{views}}$ | 100-200 |" in out

@@ -957,7 +957,6 @@ dependencies = [
     { name = "lingua-language-detector" },
     { name = "matplotlib" },
     { name = "openai-whisper" },
-    { name = "pyacrcloud" },
     { name = "pydantic" },
     { name = "python-dotenv" },
     { name = "quarto" },
@@ -1012,7 +1011,6 @@ requires-dist = [
     { name = "lingua-language-detector", specifier = ">=2.2.0" },
     { name = "matplotlib", specifier = ">=3.10.9" },
     { name = "openai-whisper", specifier = ">=20250625" },
-    { name = "pyacrcloud", specifier = ">=1.0.11" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "python-dotenv", specifier = ">=1.2.2" },
     { name = "quarto", specifier = ">=0.1.0" },
@@ -2116,18 +2114,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/56/7a/a0f6bda783eb4df8e3dfd55973a1ac6d368a89178c300e1b5b91cd181e5e/py_partiql_parser-0.6.3.tar.gz", hash = "sha256:09cecf916ce6e3da2c050f0cb6106166de42c33d34a078ec2eb19377ea70389a", size = 17456, upload-time = "2025-10-18T13:56:13.441Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c9/33/a7cbfccc39056a5cf8126b7aab4c8bafbedd4f0ca68ae40ecb627a2d2cd3/py_partiql_parser-0.6.3-py2.py3-none-any.whl", hash = "sha256:deb0769c3346179d2f590dcbde556f708cdb929059fb654bad75f4cf6e07f582", size = 23752, upload-time = "2025-10-18T13:56:12.256Z" },
-]
-
-[[package]]
-name = "pyacrcloud"
-version = "1.0.11"
-source = { registry = "https://pypi.org/simple" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/97/8d/704fecfea9f29a28a1766609e3404394da96e1a4ad93a0196ce6b005fcda/pyacrcloud-1.0.11-py3-none-macosx_11_0_universal2.whl", hash = "sha256:f868011cb293b6fecda5c3616ab63642cff3140ddafd4b81c86ac45d94091a98", size = 17809320, upload-time = "2025-12-22T10:34:29.524Z" },
-    { url = "https://files.pythonhosted.org/packages/e6/77/c5d85f7cd393e4728b775c0f3096d8a4899910652fabe7e69533089eb27f/pyacrcloud-1.0.11-py3-none-manylinux2010_x86_64.whl", hash = "sha256:d548f0781ae9a6e887fad77da4a6b3280fc8bc2a29c2fd20aa43321c7c294393", size = 8421725, upload-time = "2025-12-22T10:18:34.818Z" },
-    { url = "https://files.pythonhosted.org/packages/45/ce/1195b2bcfd90d5f7a5729dd7cd533e9c2ab0b9140a07d31edceadb449481/pyacrcloud-1.0.11-py3-none-manylinux2014_aarch64.whl", hash = "sha256:e87227a96ea498473c301b3615051945b01ec72a00e6134fc6d7ad532ab40775", size = 8056569, upload-time = "2025-12-22T11:13:49.935Z" },
-    { url = "https://files.pythonhosted.org/packages/be/1a/efbbe676d6a6bcff64e97467fce5bb06c525d44a3b49fad92c214d97d0d7/pyacrcloud-1.0.11-py3-none-musllinux_1_1_aarch64.whl", hash = "sha256:5e1e41d73e3de17ae982d944df1a2eb181633bf29ce4f7fcc5ad0a22eb79c5e5", size = 8151587, upload-time = "2025-12-22T10:41:47.549Z" },
-    { url = "https://files.pythonhosted.org/packages/db/6f/4872942a495bf567de79c178fe654fafebf3298ef00eaa22d5a58420c41e/pyacrcloud-1.0.11-py3-none-musllinux_1_1_x86_64.whl", hash = "sha256:ae8e04c930109e8c8e1899d6e64ba4b0ec3f4a3c5ddf98ff30d418966ef65cfd", size = 8544717, upload-time = "2025-12-22T10:20:55.52Z" },
 ]
 
 [[package]]

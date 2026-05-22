@@ -24,6 +24,7 @@ from modules.mir.state import (
     POS,
     SCOPE_MIR,
     STAGE_MIR,
+    infer_is_music,
     mir_config_payload,
     reset_audio_mir,
 )
@@ -72,6 +73,12 @@ def _infer_with_error_attribution(
         return _terminal_failure(clip_id, "effnet")
 
     g_lab, g_sc = topk_csv(genre_probs, labels_genre, mir.topk_genre)
+    is_music = infer_is_music(
+        genre_probs,
+        labels_genre,
+        min_confidence=mir.music_min_confidence,
+        min_margin=mir.music_min_margin,
+    )
     m_lab, m_sc = topk_csv(heads["moodtheme"], labels_moodtheme, mir.topk_moodtheme)
     i_lab, i_sc = topk_csv(heads["instrument"], labels_instrument, mir.topk_instrument)
     th = mir.binary_threshold
@@ -104,6 +111,7 @@ def _infer_with_error_attribution(
         audio_duration_s=float(len(audio)) / float(mir.inference_sample_rate),
         inference_time_ms=(perf_counter() - t0) * 1000.0,
         is_mir_extracted=True,
+        is_music_detected=is_music,
     )
 
 

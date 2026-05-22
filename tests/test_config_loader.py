@@ -36,27 +36,6 @@ selection_pool_percent = 0.20
 selected_clips_per_user = 10
 selection_random_seed = 42
 
-[music]
-audio_fingerprint_confidence = 0.8
-commit_every = 50
-http_timeout = 20.0
-spotify_search_limit = 5
-spotify_token_skew_seconds = 30
-spotify_request_timeout = 8.0
-reccobeats_batch_size = 20
-reccobeats_delay_min = 2.0
-reccobeats_delay_max = 3.0
-manual_features_max_seconds = 20
-manual_features_sample_rate = 44100
-manual_features_max_mb = 5.0
-manual_features_mp3_bitrate = "128k"
-api_max_attempts = 3
-api_retry_delay = 1.0
-api_retry_jitter = 1.5
-acr_max_attempts = 2
-ffmpeg_timeout_seconds = 60
-reccobeats_upstream_fail_threshold = 3
-
 [speech]
 whisper_model = "large-v3-turbo"
 commit_every = 50
@@ -104,11 +83,6 @@ FAKE_SECRETS = {
     "DATABASE_URL": "sqlite:///:memory:",
     "IDENTITY_DB_URL": "sqlite:///:memory:",
     "HIKER_API_KEY": "hiker-key",
-    "ARC_HOST": "arc-host",
-    "ARC_ACCESS_KEY": "arc-access",
-    "ARC_SECRET_KEY": "arc-secret",
-    "SPOTIFY_CLIENT_ID": "sp-id",
-    "SPOTIFY_CLIENT_SECRET": "sp-secret",
     "HUGGINGFACE_TOKEN": "hf-token",
 }
 
@@ -141,7 +115,6 @@ def test_settings_sections_present(tmp_path):
         "paths",
         "download",
         "filter",
-        "music",
         "speech",
         "captions",
         "embeddings",
@@ -157,7 +130,6 @@ def test_settings_values_correct(tmp_path):
     assert settings.download.retry_delay == 15
     assert settings.download.retry_jitter == 5
     assert settings.download.concurrency == 5
-    assert settings.music.commit_every == 50
     assert settings.filter.creator_low_z_threshold == -3.5
     assert settings.embeddings.exclude_disqualified_users is True
 
@@ -167,8 +139,6 @@ def test_secrets_from_env(tmp_path):
     assert secrets.database_url == "sqlite:///:memory:"
     assert secrets.identity_db_url == "sqlite:///:memory:"
     assert secrets.hiker_api_key == "hiker-key"
-    assert secrets.arc_host == "arc-host"
-    assert secrets.spotify_client_id == "sp-id"
     assert secrets.huggingface_token == "hf-token"
 
 
