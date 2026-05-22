@@ -348,3 +348,52 @@ class ClusterRun(Base):
     created_at: Mapped[DateTime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+class Visualization(Base):
+    __tablename__ = "visualizations"
+
+    embedding_case: Mapped[str] = mapped_column(String, primary_key=True)
+    label: Mapped[str] = mapped_column(String, nullable=False)
+    size: Mapped[int] = mapped_column(Integer, nullable=False)
+    source_hash: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
+class VisualizationUser(Base):
+    __tablename__ = "visualization_users"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "embedding_case", name="uq_visualization_users_user_case"
+        ),
+    )
+
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id"), primary_key=True
+    )
+    embedding_case: Mapped[str] = mapped_column(String, primary_key=True)
+    x: Mapped[float] = mapped_column(Float, nullable=False)
+    y: Mapped[float] = mapped_column(Float, nullable=False)
+    cluster_id: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class VisualizationCluster(Base):
+    __tablename__ = "visualization_clusters"
+
+    embedding_case: Mapped[str] = mapped_column(String, primary_key=True)
+    cluster_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    cx: Mapped[float] = mapped_column(Float, nullable=False)
+    cy: Mapped[float] = mapped_column(Float, nullable=False)
+    rx: Mapped[float] = mapped_column(Float, nullable=False)
+    ry: Mapped[float] = mapped_column(Float, nullable=False)
+    angle: Mapped[float] = mapped_column(Float, nullable=False)
+    size: Mapped[int] = mapped_column(Integer, nullable=False)
+    label: Mapped[str] = mapped_column(String, nullable=False)

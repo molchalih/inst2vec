@@ -69,6 +69,7 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
         ),
         search=SimpleNamespace(),
         validation=SimpleNamespace(plateau_drop_threshold=0.05),
+        visualization=SimpleNamespace(),
         storage=SimpleNamespace(bucket=""),
         overrides=SimpleNamespace(video="", sandwich="", audio=""),
     )
@@ -134,6 +135,9 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
     monkeypatch.setattr(
         main.clustering, "run_assign", lambda s, k, c: calls.append("cluster:assign")
     )
+    monkeypatch.setattr(
+        main.visualization, "run", lambda s, k, c: calls.append("visualization:run")
+    )
 
     main.run_pipeline()
 
@@ -145,7 +149,7 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
     assert "audio:mir" in calls
     assert "mir:run" in calls
     assert "cluster:search" in calls
-    assert calls[-1] == "cluster:assign"
+    assert calls[-1] == "visualization:run"
 
 
 def test_pipeline_includes_mir_stages_and_excludes_music():

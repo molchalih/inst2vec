@@ -82,6 +82,12 @@ class EmbeddingCaseSpec:
     # When False, the embedder pod excludes this case from SERVED_CASES.
     # Default True so new cases must opt out of remote serving explicitly.
     served_remotely: bool = True
+    # Human-readable name shown in the frontend case picker.
+    display_label: str = ""
+    # When False, the visualization stage still writes DB rows for this
+    # case, but the JSON exporter excludes it from manifest.json + the
+    # runs/ subtree. Flip to True to expose the case without recomputing.
+    expose_to_viewer: bool = True
 
 
 # ── provider factories ───────────────────────────────────────────────────────
@@ -176,6 +182,7 @@ VIDEO_CASE = EmbeddingCaseSpec(
     apply_video_token_fallback=True,
     dependency_columns=("_video_file_stat",),
     recipe_version="none",
+    display_label="Visual",
 )
 
 SANDWICH_CASE = EmbeddingCaseSpec(
@@ -196,6 +203,7 @@ SANDWICH_CASE = EmbeddingCaseSpec(
         "_audio_mir_row",
     ),
     recipe_version="sandwich_v3",
+    display_label="Visual + Music",
 )
 
 AUDIO_CASE = EmbeddingCaseSpec(
@@ -213,6 +221,7 @@ AUDIO_CASE = EmbeddingCaseSpec(
         "_audio_mir_row",
     ),
     recipe_version="audio_v3",
+    display_label="Speech",
 )
 
 
@@ -268,6 +277,8 @@ GEMINI_CASE = EmbeddingCaseSpec(
     recipe_version="gemini_v2",
     requires=("gemini_enabled",),
     served_remotely=False,
+    display_label="Gemini",
+    expose_to_viewer=False,
 )
 
 
@@ -306,6 +317,7 @@ MAEST_CASE = EmbeddingCaseSpec(
     recipe_version="maest_v1",
     requires=(),
     served_remotely=False,
+    display_label="Music (MAEST)",
 )
 
 

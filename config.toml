@@ -133,3 +133,7 @@ maest_output = "StatefulPartitionedCall:0"
 maest_patch_seconds = 30.0
 effnet_checkpoint = "discogs-effnet-bs64-1.pb"
 effnet_embed_output = "PartitionedCall:1"
+
+[visualization]
+export_dir = "data/visualization"
+default_case = "video"

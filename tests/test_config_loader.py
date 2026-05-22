@@ -77,6 +77,10 @@ plateau_drop_threshold = 0.05
 max_noise_ratio = 0.3
 min_clusters = 3
 max_clusters = 20
+
+[visualization]
+export_dir = "data/visualization"
+default_case = "video"
 """
 
 FAKE_SECRETS = {

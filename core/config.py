@@ -221,6 +221,11 @@ class StorageSettings(BaseModel):
         return v
 
 
+class VisualizationSettings(BaseModel):
+    export_dir: Path
+    default_case: str
+
+
 class Settings(BaseModel):
     paths: PathsSettings
     download: DownloadSettings
@@ -235,6 +240,7 @@ class Settings(BaseModel):
     search: SearchSettings
     validation: ValidationSettings
     storage: StorageSettings = Field(default_factory=StorageSettings)
+    visualization: VisualizationSettings
 
 
 class Secrets(BaseModel):
@@ -266,6 +272,7 @@ def load_runtime_config() -> tuple[Settings, Secrets]:
         search=SearchSettings(**raw.get("search", {})),
         validation=ValidationSettings(**raw["validation"]),
         storage=StorageSettings(**raw.get("storage", {})),
+        visualization=VisualizationSettings(**raw["visualization"]),
     )
 
     gemini_enabled = settings.embeddings.gemini_enabled

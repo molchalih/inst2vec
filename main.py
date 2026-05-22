@@ -17,6 +17,7 @@ from modules import (
     mir,
     speech,
     upload,
+    visualization,
 )
 from modules.embeddings.cases import default_cases
 
@@ -42,6 +43,7 @@ def _init_db_stage(_settings: Settings, secrets: Secrets) -> None:
 #   Cluster Search       : User Embeddings
 #   Cluster Validation   : Cluster Search
 #   Clustering           : Cluster Validation
+#   Visualization        : Clustering
 # Reorder = noisy fingerprint resets on the next run, not data loss.
 def _stages(
     cases: tuple[str, ...],
@@ -63,6 +65,7 @@ def _stages(
         ("Cluster Search", lambda s, x: clustering.run_search(s, x, cases)),
         ("Cluster Validation", lambda s, x: clustering.run_validation(s, x, cases)),
         ("Clustering", lambda s, x: clustering.run_assign(s, x, cases)),
+        ("Visualization", lambda s, x: visualization.run(s, x, cases)),
     ]
 
 

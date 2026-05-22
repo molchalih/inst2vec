@@ -69,6 +69,7 @@ scripts/cluster_analysis/LESSONS.md
 
 # Local-only state
 .claude/
+.clone
 .remember/
 **CLAUDE.md
 **AGENT.md

@@ -30,6 +30,9 @@ from core.database.models import (  # noqa: F401  -- re-exports for core.databas
     UserCluster,
     UserEmbedding,
     UserStats,
+    Visualization,
+    VisualizationCluster,
+    VisualizationUser,
 )
 from core.database.predicates import (  # noqa: F401  -- re-exports for core.database.*
     clip_has_detected_speech,
