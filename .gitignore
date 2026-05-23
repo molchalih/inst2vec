@@ -4,6 +4,7 @@
 
 # Data folder
 data/
+!frontend/public/data/
 
 # Model weights & checkpoints
 models/

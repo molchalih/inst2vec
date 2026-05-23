@@ -88,6 +88,12 @@ def _settings(tmp_path: Path, default_case: str = "video") -> SimpleNamespace:
         visualization=SimpleNamespace(
             export_dir=tmp_path,
             default_case=default_case,
+            distinctiveness_z_min=0.5,
+            distinctiveness_top_k=3,
+            genre_top_k=5,
+            instrument_top_k=3,
+            languages_top_k=3,
+            edge_percentile=66,
         )
     )
 
@@ -101,7 +107,13 @@ def test_export_writes_manifest_users_clusters_for_exposed_case(tmp_path):
     assert manifest["version"] == SCHEMA_VERSION
     assert manifest["default_run_id"] == "video"
     assert manifest["runs"] == [
-        {"id": "video", "case": "video", "label": "Visual", "size": 6}
+        {
+            "id": "video",
+            "case": "video",
+            "label": "Visual",
+            "size": 6,
+            "details_available": True,
+        }
     ]
 
     users = json.loads((tmp_path / "runs" / "video" / "users.json").read_text())
@@ -109,14 +121,17 @@ def test_export_writes_manifest_users_clusters_for_exposed_case(tmp_path):
     assert users["run_id"] == "video"
     assert users["bounds"] == {"minX": 0.0, "maxX": 5.0, "minY": -5.0, "maxY": 0.0}
     assert len(users["users"]) == 6
-    # Tuple shape: [id, x, y, cluster_id]
-    assert all(len(u) == 4 for u in users["users"])
+    # Tuple shape: [id, x, y, cluster_id, has_detail]
+    assert all(len(u) == 5 for u in users["users"])
+    # No MIR data seeded → has_detail must be False for every row.
+    assert all(u[4] is False for u in users["users"])
 
     clusters = json.loads((tmp_path / "runs" / "video" / "clusters.json").read_text())
     assert clusters["version"] == SCHEMA_VERSION
     assert clusters["run_id"] == "video"
     assert len(clusters["clusters"]) == 2
     assert {c["label"] for c in clusters["clusters"]} == {"Cluster 1", "Cluster 2"}
+    assert all("has_detail" in c for c in clusters["clusters"])
 
 
 def test_export_filters_hidden_cases(tmp_path):

@@ -224,6 +224,12 @@ class StorageSettings(BaseModel):
 class VisualizationSettings(BaseModel):
     export_dir: Path
     default_case: str
+    distinctiveness_z_min: float = 0.5
+    distinctiveness_top_k: int = 3
+    genre_top_k: int = 5
+    instrument_top_k: int = 3
+    languages_top_k: int = 3
+    edge_percentile: int = 66
 
 
 class Settings(BaseModel):
