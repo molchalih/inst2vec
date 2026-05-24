@@ -8,10 +8,9 @@ services:
       dockerfile: services/embedder/Dockerfile
     image: inst2vec-embedder:dev
     environment:
+      ORCHESTRATOR_HOST: ${ORCHESTRATOR_HOST:?set ORCHESTRATOR_HOST}
       EMBEDDER_TOKEN: ${EMBEDDER_TOKEN:?set EMBEDDER_TOKEN in env}
       HUGGINGFACE_TOKEN: ${HUGGINGFACE_TOKEN:?set HUGGINGFACE_TOKEN in env}
-    ports:
-      - "8000:8000"
     volumes:
       - embedder-workspace:/workspace
     deploy:

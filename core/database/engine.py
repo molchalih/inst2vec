@@ -4,16 +4,35 @@ Sole owner of engine globals — no other file in the package or codebase
 holds engine handles directly.
 """
 
+import sqlite3
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
 from core.console import log
 from core.database.models import Base
+
+
+def _apply_sqlite_pragmas(dbapi_connection, _connection_record) -> None:
+    """Enable WAL + a generous busy_timeout on SQLite connections.
+
+    WAL lets the embeddings drain loop (single writer) commit while the
+    producer reads; busy_timeout makes brief contention wait instead of
+    raising ``database is locked``. No-op for non-SQLite backends.
+    """
+    if not isinstance(dbapi_connection, sqlite3.Connection):
+        return
+    cursor = dbapi_connection.cursor()
+    try:
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA busy_timeout=5000")
+    finally:
+        cursor.close()
+
 
 _main_engine: Engine | None = None
 _identity_engine: Engine | None = None
@@ -51,6 +70,7 @@ def init_db(database_url: str, identity_db_url: str) -> None:
 
     t0 = time.perf_counter()
     _main_engine = create_engine(database_url)
+    event.listen(_main_engine, "connect", _apply_sqlite_pragmas)
     Base.metadata.create_all(_main_engine)
     log(
         "db",
@@ -70,6 +90,7 @@ def init_db(database_url: str, identity_db_url: str) -> None:
 
     t1 = time.perf_counter()
     _identity_engine = create_engine(wrapped_url)
+    event.listen(_identity_engine, "connect", _apply_sqlite_pragmas)
 
     from core.database.identity import IdentityBase
 

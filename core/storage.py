@@ -1,9 +1,8 @@
 """S3-compatible object store wrapper for the embedder data plane.
 
-Wraps boto3 with a small interface: ``put`` (idempotent upload),
-``head`` (existence + size), ``signed_get`` (pre-signed URL the GPU pod
-can fetch). Endpoint URL drives backend choice — AWS S3, Cloudflare R2,
-Backblaze B2, MinIO all speak the same dialect.
+Wraps boto3 with a small interface: ``put`` (idempotent upload) and
+``head`` (existence + size). Endpoint URL drives backend choice — AWS
+S3, Cloudflare R2, Backblaze B2, MinIO all speak the same dialect.
 """
 
 from __future__ import annotations
@@ -62,13 +61,6 @@ class ObjectStore:
 
     def put(self, local_path: str, key: str) -> None:
         self.client.upload_file(local_path, self.settings.bucket, key)
-
-    def signed_get(self, key: str, ttl_s: int | None = None) -> str:
-        return self.client.generate_presigned_url(
-            "get_object",
-            Params={"Bucket": self.settings.bucket, "Key": key},
-            ExpiresIn=ttl_s or self.settings.signed_url_ttl_s,
-        )
 
 
 def get_object_store(settings, secrets) -> ObjectStore:

@@ -14,22 +14,21 @@ Per case the stage:
      leaves the stage unsealed so the next run retries only the missing ones.
 
 Per-clip failures (e.g. ``process_vision_info`` raising on a corrupt
-video, or a network error from a remote provider) propagate from the
-provider into ``_dispatch_embedding_jobs``, which logs at ``warn``,
-counts the failure, and yields ``(clip_id, None, None)``. The runner skips
-the row and refuses to seal — the next run will retry just those
-clips. Failed clips are NOT replaced with placeholder embeddings.
+video, or a network error from a remote provider) are caught by the
+worker, logged as a structured ERR line, and reported back to the broker
+as a terminal failure once ``max_attempts`` is exhausted. The orchestrator
+in ``modules/embeddings/distributed.py`` counts those failures so the
+runner refuses to seal — the next run retries just those clips. Failed
+clips are NOT replaced with placeholder embeddings.
 """
 
 from __future__ import annotations
 
 import os
 import time
-from collections.abc import Callable, Iterator
-from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 
 from core import fingerprint as fp
-from core.console import log, progress
+from core.console import log
 from core.database import (
     Clip,
     ClipEmbedding,
@@ -37,6 +36,7 @@ from core.database import (
     get_session,
 )
 from core.pipeline import Stage
+from modules.embeddings.broker import make_job
 from modules.embeddings.cases import (
     CASE_REGISTRY,
     EmbeddingCaseSpec,
@@ -46,8 +46,6 @@ from modules.embeddings.cases import (
 )
 from modules.embeddings.sampling import (
     adaptive_sampling,
-    frame_retry_schedule,
-    is_token_mismatch_error,
 )
 from modules.embeddings.state import (
     get_audio_mir_map,
@@ -55,67 +53,8 @@ from modules.embeddings.state import (
     get_embedded_source_hashes,
     per_clip_source_hashes_and_aggregate,
 )
-from modules.embeddings.vectors import to_bytes
 
 STAGE = Stage.CLIP_EMBEDDINGS
-
-
-def _dispatch_embedding_jobs(
-    jobs: list[dict],
-    embed_fn: Callable[[dict], tuple[int, bytes | None]],
-    inflight: int,
-    log_tag: str = "embed",
-) -> Iterator[tuple[int, bytes | None, float | None]]:
-    """Run ``embed_fn`` over ``jobs`` with bounded concurrency.
-
-    Yields ``(clip_id, blob_or_none, elapsed_seconds_or_none)``. On
-    success, ``elapsed`` is the wall time spent inside ``embed_fn``.
-    On exception, the dispatcher logs and yields ``(clip_id, None, None)``.
-    """
-    if inflight <= 1:
-        for job in jobs:
-            t0 = time.perf_counter()
-            try:
-                clip_id, blob = embed_fn(job)
-            except Exception as exc:
-                clip_id = job.get("clip_id", -1)
-                log(
-                    log_tag,
-                    "EMB",
-                    f"clip_{clip_id}",
-                    "ERR",
-                    stats={"err": repr(exc)},
-                )
-                yield (clip_id, None, None)
-                continue
-            yield (clip_id, blob, time.perf_counter() - t0)
-        return
-
-    def _timed(job: dict) -> tuple[int, bytes | None, float]:
-        # Measure inside the worker so queue-wait under saturation
-        # (len(jobs) > inflight) doesn't inflate the reported time.
-        t0 = time.perf_counter()
-        clip_id, blob = embed_fn(job)
-        return clip_id, blob, time.perf_counter() - t0
-
-    with ThreadPoolExecutor(max_workers=inflight) as pool:
-        futures: dict[Future, dict] = {pool.submit(_timed, job): job for job in jobs}
-        for fut in as_completed(futures):
-            job = futures[fut]
-            try:
-                clip_id, blob, elapsed = fut.result()
-            except Exception as exc:
-                clip_id = job.get("clip_id", -1)
-                log(
-                    log_tag,
-                    "EMB",
-                    f"clip_{clip_id}",
-                    "ERR",
-                    stats={"err": repr(exc)},
-                )
-                yield (clip_id, None, None)
-                continue
-            yield (clip_id, blob, elapsed)
 
 
 def embed_clip_embeddings(
@@ -145,6 +84,49 @@ def _video_path(clip_id: int, video_dir: str) -> str:
     return os.path.abspath(os.path.join(video_dir, f"{clip_id}.mp4"))
 
 
+def build_jobs_for_case(
+    spec,
+    clips,
+    *,
+    texts: dict[int, str | None],
+    video_dir: str,
+    adaptive_max_frames: int,
+    adaptive_default_fps: float,
+) -> list[dict]:
+    """One Job per clip. Probes the LOCAL video for fps/max_frames so pods
+    don't have to. ``texts`` is the prebuilt text per clip. Clips with no
+    local video file are skipped for video cases. ``audio_key`` is set for
+    cases whose dependency columns include ``_audio_file_stat`` (maest /
+    gemini); only the local worker leases those (served_remotely=False)."""
+    needs_audio = "_audio_file_stat" in spec.dependency_columns
+    jobs: list[dict] = []
+    for clip in clips:
+        if spec.requires_video:
+            path = _video_path(clip.id, video_dir)
+            if not os.path.exists(path):
+                continue
+            fps, max_frames = adaptive_sampling(
+                path, adaptive_max_frames, adaptive_default_fps
+            )
+            video_key = f"videos/{clip.id}.mp4"
+        else:
+            fps, max_frames, video_key = None, None, None
+        audio_key = f"audio/{clip.id}.mp3" if needs_audio else None
+        jobs.append(
+            make_job(
+                clip_id=clip.id,
+                case=spec.name,
+                text=texts.get(clip.id),
+                video_key=video_key,
+                fps=fps,
+                max_frames=max_frames,
+                remote_eligible=bool(getattr(clip, "is_uploaded", False)),
+                audio_key=audio_key,
+            )
+        )
+    return jobs
+
+
 def _compute_fingerprint_and_per_clip(
     session, spec: EmbeddingCaseSpec, settings, candidates: list[Clip]
 ) -> tuple[fp.Fingerprint, dict[int, str]]:
@@ -171,9 +153,7 @@ def _run_case(settings, secrets, spec: EmbeddingCaseSpec) -> None:
     session = get_session()
     try:
         candidates = get_clip_embedding_candidates(
-            session,
-            settings.embeddings.exclude_disqualified_users,
-            require_uploaded=settings.embeddings.provider == "remote",
+            session, settings.embeddings.exclude_disqualified_users
         )
         candidate_ids = {c.id for c in candidates}
 
@@ -243,7 +223,8 @@ def _embed_targets(
     video_dir = settings.paths.video_dir
     needs_audio = "_audio_file_stat" in spec.dependency_columns
     audio_dir = settings.paths.audio_dir if needs_audio else None
-    jobs: list[tuple[Clip, str | None]] = []
+    texts: dict[int, str | None] = {}
+    targets_built: list[Clip] = []
     stale_skipped: list[int] = []
     fresh_skipped = 0
     for clip in targets:
@@ -273,7 +254,8 @@ def _embed_targets(
                 else:
                     fresh_skipped += 1
                 continue
-        jobs.append((clip, text))
+        texts[clip.id] = text
+        targets_built.append(clip)
 
     if stale_skipped:
         session.query(ClipEmbedding).filter(
@@ -291,7 +273,7 @@ def _embed_targets(
 
     t_stage = time.perf_counter()
 
-    if not jobs:
+    if not targets_built:
         if stale_skipped:
             log(
                 log_tag,
@@ -320,82 +302,19 @@ def _embed_targets(
         )
         return
 
-    provider = spec.provider_factory(settings, secrets)
+    from modules.embeddings.distributed import embed_jobs_distributed
 
-    job_specs: list[dict] = []
-    clip_by_id: dict[int, Clip] = {}
-    for clip, text in jobs:
-        clip_by_id[clip.id] = clip
-        if spec.requires_video:
-            path = _video_path(clip.id, video_dir)
-            fps_, max_frames = adaptive_sampling(
-                path,
-                settings.embeddings.adaptive_max_frames,
-                settings.embeddings.adaptive_default_fps,
-            )
-        else:
-            path, fps_, max_frames = None, None, None
-        audio_path = (
-            os.path.abspath(os.path.join(audio_dir, f"{clip.id}.mp3"))
-            if audio_dir is not None
-            else None
-        )
-        job_specs.append(
-            {
-                "clip_id": clip.id,
-                "text": text,
-                "path": path,
-                "audio_path": audio_path,
-                "fps": fps_,
-                "max_frames": max_frames,
-            }
-        )
-
-    def _embed_job(job: dict) -> tuple[int, bytes | None]:
-        clip = clip_by_id[job["clip_id"]]
-        blob = _embed_with_token_fallback(
-            provider,
-            spec,
-            clip,
-            job["text"],
-            job["path"],
-            job["audio_path"],
-            job["fps"],
-            job["max_frames"],
-        )
-        return clip.id, blob
-
-    failures = 0
-    succeeded = 0
-    inflight = settings.embeddings.inflight
-    with progress(len(jobs), f"Embedding {spec.name}") as advance:
-        for clip_id, blob, elapsed in _dispatch_embedding_jobs(
-            job_specs, _embed_job, inflight, log_tag
-        ):
-            if blob is None:
-                failures += 1
-                advance(detail=f"✗ {clip_id}")
-                continue
-            row = ClipEmbedding(
-                clip_id=clip_id,
-                embedding_case=spec.name,
-                embedding=blob,
-                source_hash=per_clip[clip_id],
-            )
-            session.merge(row)
-            session.commit()
-            succeeded += 1
-            stats: dict = {"dim": len(blob) // 4}
-            if elapsed is not None:
-                stats["time"] = elapsed
-            log(
-                log_tag,
-                "EMB",
-                f"clip_{clip_id}",
-                "ok",
-                stats=stats,
-            )
-            advance(detail=f"✓ {clip_id}")
+    case_jobs = build_jobs_for_case(
+        spec,
+        targets_built,
+        texts=texts,
+        video_dir=video_dir,
+        adaptive_max_frames=settings.embeddings.adaptive_max_frames,
+        adaptive_default_fps=settings.embeddings.adaptive_default_fps,
+    )
+    succeeded, failures = embed_jobs_distributed(
+        settings, secrets, session, spec, case_jobs, per_clip, log_tag
+    )
 
     if failures or stale_skipped:
         log(
@@ -423,47 +342,3 @@ def _embed_targets(
                 "time": time.perf_counter() - t_stage,
             },
         )
-
-
-def _embed_with_token_fallback(
-    provider,
-    spec: EmbeddingCaseSpec,
-    clip,
-    text: str | None,
-    video_path: str | None,
-    audio_path: str | None,
-    fps_: float | None,
-    max_frames: int | None,
-) -> bytes | None:
-    """Run the provider once, with a descending frame-cap retry only for
-    cases that opt into video token-budget fallback. Returns the float32
-    blob on success.
-
-    Non-token-budget exceptions propagate to the dispatcher so the
-    failure cause is logged per-clip. Token-mismatch errors are caught
-    only while a retry frame-cap remains; the final attempt's exception
-    also propagates.
-    """
-
-    def _build(cap_: int | None) -> dict:
-        p = spec.payload_builder(clip, text, video_path, audio_path, fps_, cap_)
-        p["clip_id"] = clip.id
-        p["case"] = spec.name
-        return p
-
-    if not spec.apply_video_token_fallback or max_frames is None:
-        payload = _build(max_frames)
-        out = provider.embed(payload)
-        return to_bytes(out[0])
-
-    caps = frame_retry_schedule(max_frames)
-    for attempt_idx, cap in enumerate(caps):
-        payload = _build(cap)
-        try:
-            out = provider.embed(payload)
-        except Exception as e:
-            if is_token_mismatch_error(e) and attempt_idx < len(caps) - 1:
-                continue
-            raise
-        return to_bytes(out[0])
-    return None

@@ -3,6 +3,8 @@ from core.splash import boot
 boot()
 
 # ruff: noqa: E402
+import argparse
+import os
 from collections.abc import Callable
 
 from core.config import Secrets, Settings, load_runtime_config
@@ -79,5 +81,25 @@ def run_pipeline() -> None:
             fn(settings, secrets)
 
 
-if __name__ == "__main__":
+def cli() -> None:
+    parser = argparse.ArgumentParser(prog="inst2vec")
+    parser.add_argument("--pod", action="store_true", help="run as an embedding pod")
+    parser.add_argument("--host", default="", help="orchestrator host:port (pod mode)")
+    parser.add_argument(
+        "--video-root",
+        default=os.environ.get("VIDEO_ROOT", "/workspace/videos"),
+        help="mounted video directory (pod mode)",
+    )
+    args = parser.parse_args()
+    if args.pod:
+        if not args.host:
+            raise SystemExit("--pod requires --host=<orchestrator:port>")
+        from modules.embeddings.pod import run_pod
+
+        run_pod(args.host, args.video_root)
+        return
     run_pipeline()
+
+
+if __name__ == "__main__":
+    cli()

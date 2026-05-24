@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 import tomllib
 from pathlib import Path
-from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -164,10 +163,14 @@ class EmbeddingsSettings(BaseModel):
     embed_max_length: int
     adaptive_max_frames: int
     adaptive_default_fps: float
-    provider: Literal["local", "remote"] = "local"
     inflight: int = 1
-    request_timeout_s: int = 120
-    max_retries: int = 3
+    # ── distributed coordinator / worker ──
+    coordinator_bind_host: str = "0.0.0.0"
+    coordinator_bind_port: int = 8765
+    lease_ttl_s: int = 600
+    max_attempts: int = 3
+    worker_request_timeout_s: int = 120
+    worker_max_retries: int = 3
     # ── Gemini Embedding 2 case ──
     gemini_enabled: bool = False
     gemini_model: str = "gemini-embedding-2-preview"
@@ -177,7 +180,14 @@ class EmbeddingsSettings(BaseModel):
     gemini_request_timeout_s: int = 60
     gemini_max_retries: int = 5
 
-    @field_validator("inflight", "request_timeout_s", "max_retries")
+    @field_validator(
+        "inflight",
+        "coordinator_bind_port",
+        "lease_ttl_s",
+        "max_attempts",
+        "worker_request_timeout_s",
+        "worker_max_retries",
+    )
     @classmethod
     def _positive(cls, v: int) -> int:
         if v <= 0:
@@ -211,14 +221,6 @@ class StorageSettings(BaseModel):
     backend: str = "s3"
     bucket: str = ""
     prefix: str = "videos/"
-    signed_url_ttl_s: int = 3600
-
-    @field_validator("signed_url_ttl_s")
-    @classmethod
-    def _positive(cls, v: int) -> int:
-        if v <= 0:
-            raise ValueError("must be > 0")
-        return v
 
 
 class VisualizationSettings(BaseModel):
@@ -254,7 +256,6 @@ class Secrets(BaseModel):
     identity_db_url: str
     hiker_api_key: str
     huggingface_token: str
-    embedder_remote_url: str = ""
     embedder_token: str = ""
     object_store_endpoint: str = ""
     object_store_access_key: str = ""
@@ -262,11 +263,11 @@ class Secrets(BaseModel):
     gemini_api_key: str | None = None
 
 
-def load_runtime_config() -> tuple[Settings, Secrets]:
+def _load_settings() -> Settings:
     with open(_CONFIG_PATH, "rb") as f:
         raw = tomllib.load(f)
 
-    settings = Settings(
+    return Settings(
         paths=PathsSettings(**raw["paths"]),
         download=DownloadSettings(**raw["download"]),
         filter=FilterSettings(**raw.get("filter", {})),
@@ -281,6 +282,30 @@ def load_runtime_config() -> tuple[Settings, Secrets]:
         visualization=VisualizationSettings(**raw["visualization"]),
     )
 
+
+def load_pod_config() -> Settings:
+    """Settings for an embedding pod — no pipeline secrets required.
+
+    A pod only embeds: it leases jobs over HTTP, runs the local Qwen model
+    on its own GPU, and reports vectors back. It never touches the DB or
+    ingest APIs, so it must not require DATABASE_URL / IDENTITY_DB_URL /
+    HIKER_API_KEY the way load_runtime_config does. Embedding tunables come
+    from config.toml (shipped in the image) so they match the orchestrator;
+    MODEL_PATH overrides the model location for the pod's mounted volume.
+    """
+    settings = _load_settings()
+    model_path = os.environ.get("MODEL_PATH")
+    if model_path:
+        settings.paths.model_path = model_path
+    hf_token = os.environ.get("HUGGINGFACE_TOKEN")
+    if hf_token:
+        os.environ["HF_TOKEN"] = hf_token
+    return settings
+
+
+def load_runtime_config() -> tuple[Settings, Secrets]:
+    settings = _load_settings()
+
     gemini_enabled = settings.embeddings.gemini_enabled
     gemini_api_key = os.environ.get("GEMINI_API_KEY")
     if gemini_enabled and not gemini_api_key:
@@ -293,7 +318,6 @@ def load_runtime_config() -> tuple[Settings, Secrets]:
         identity_db_url=os.environ["IDENTITY_DB_URL"],
         hiker_api_key=os.environ["HIKER_API_KEY"],
         huggingface_token=os.environ["HUGGINGFACE_TOKEN"],
-        embedder_remote_url=os.environ.get("EMBEDDER_REMOTE_URL", ""),
         embedder_token=os.environ.get("EMBEDDER_TOKEN", ""),
         object_store_endpoint=os.environ.get("OBJECT_STORE_ENDPOINT", ""),
         object_store_access_key=os.environ.get("OBJECT_STORE_ACCESS_KEY", ""),

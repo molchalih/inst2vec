@@ -19,7 +19,6 @@ def store(tmp_path):
                 backend="s3",
                 bucket="test-bucket",
                 prefix="videos/",
-                signed_url_ttl_s=60,
             ),
             endpoint_url=None,  # use moto default (real AWS endpoint stub)
             access_key="test",
@@ -50,24 +49,13 @@ def test_put_is_idempotent(store, tmp_path):
     assert store.head("videos/x.mp4")["size"] == 3
 
 
-def test_signed_get_returns_url(store, tmp_path):
-    p = tmp_path / "x.mp4"
-    p.write_bytes(b"abc")
-    store.put(str(p), "videos/x.mp4")
-    url = store.signed_get("videos/x.mp4", ttl_s=60)
-    assert url.startswith("https://") or url.startswith("http://")
-    assert "videos/x.mp4" in url
-
-
 def test_key_for_clip_uses_prefix(store):
     assert store.key_for_clip(12345) == "videos/12345.mp4"
 
 
 def test_key_for_clip_without_trailing_slash():
     s = ObjectStore(
-        settings=StorageSettings(
-            backend="s3", bucket="b", prefix="videos", signed_url_ttl_s=60
-        ),
+        settings=StorageSettings(backend="s3", bucket="b", prefix="videos"),
         endpoint_url=None,
         access_key="t",
         secret_key="t",

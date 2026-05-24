@@ -80,7 +80,6 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
         hiker_api_key="hiker",
         huggingface_token="hf",
         gemini_api_key=None,
-        embedder_remote_url="",
         embedder_token="",
         object_store_endpoint="",
         object_store_access_key="",

@@ -1,5 +1,6 @@
 """GPU pod inference service.
 
-Wraps the local Qwen3-VL embedder behind a FastAPI HTTP API so the
-clip-embeddings pipeline stage can run on a rented GPU pod.
+Runs the local Qwen3-VL embedder as a pull-worker that leases
+clip-embedding jobs from the orchestrator coordinator and embeds them
+on a rented GPU pod.
 """

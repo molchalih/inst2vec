@@ -15,7 +15,6 @@ from core import fingerprint as fp
 from core.config import MirSettings, Settings
 from core.console import log, progress
 from core.database import AudioMIR, Clip, clip_used_in_analysis, get_session
-from core.pipeline import AUDIO_EXTRACT_MIR_SCOPE, AUDIO_EXTRACT_MIR_STAGE
 from modules.mir.checkpoints import ensure_checkpoints, validate_checkpoint_sidecars
 from modules.mir.descriptors import load_labels, topk_csv
 from modules.mir.models import build_effnet, build_maest
@@ -144,12 +143,17 @@ def run_mir(settings: Settings, secrets=None) -> None:
         validate_checkpoint_sidecars(mir)
 
         def _current() -> fp.Fingerprint:
+            # Config-only fingerprint: a full reset fires only when a MIR knob
+            # that changes descriptor values drifts (thresholds, top-k,
+            # checkpoints, labels, heads — and inference_sample_rate, the one
+            # audio param MonoLoader actually resamples to). New clips are NOT
+            # a reset trigger; they flow through the incremental
+            # ``is_mir_extracted IS NULL`` path in _eligible_clip_ids. This also
+            # makes an interrupted run resume instead of re-wiping completed rows.
             return fp.Fingerprint(
                 data=fp.hash_text(""),
                 config=fp.hash_text(mir_config_payload(mir)),
-                dependency=fp.stage_dependency_hash(
-                    session, AUDIO_EXTRACT_MIR_STAGE, AUDIO_EXTRACT_MIR_SCOPE
-                ),
+                dependency=fp.hash_text(""),
             )
 
         current = _current()
@@ -161,7 +165,6 @@ def run_mir(settings: Settings, secrets=None) -> None:
             reset_audio_mir,
             log_scope=_LOG,
             drift_msg="resetting MIR outputs",
-            check_dependency=True,
         )
 
         eligible = _eligible_clip_ids(session)

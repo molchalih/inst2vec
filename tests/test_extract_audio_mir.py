@@ -358,10 +358,16 @@ def test_sweep_orphan_mir_wavs_keeps_unprobeable_wavs(
     assert n_deleted == 0
 
 
-def test_force_reencode_fires_on_dependency_drift(monkeypatch, tmp_path, db_session):
-    """When config_hash matches but dependency_hash drifts (e.g. upstream
-    StageState row updated), the stage must pass force_reencode=True so the
-    ffmpeg call re-encodes instead of trusting a stale WAV via mtime skip."""
+def test_force_reencode_does_not_fire_on_dependency_drift(
+    monkeypatch, tmp_path, db_session
+):
+    """Pure dependency drift (new clips added → upstream video-stat hash
+    changes) must NOT force a re-encode of already-extracted WAVs.
+
+    A re-downloaded video is already handled per-file by the mtime check
+    (video mtime > WAV mtime), so ``force_reencode`` only needs to fire on
+    *config* drift. Firing on dependency drift needlessly re-encodes every
+    existing WAV whenever the clip set grows."""
     from core import fingerprint as fp
     from modules.ingest import audio as audio_mod
 
@@ -376,20 +382,6 @@ def test_force_reencode_fires_on_dependency_drift(monkeypatch, tmp_path, db_sess
     audio_mir_dir = tmp_path / "audio_mir"
     settings = _make_settings(video_dir=vid_dir, audio_mir_dir=audio_mir_dir)
 
-    # Pre-seed StageState so config_hash matches but dependency_hash does not.
-    ae_payload = audio_mod._mir_config_payload(settings.audio_extraction)
-    cfg_hash = fp.hash_text(ae_payload)
-    db_session.merge(
-        StageState(
-            stage_name=audio_mod.AUDIO_EXTRACT_MIR_STAGE,
-            scope_key=audio_mod.AUDIO_EXTRACT_MIR_SCOPE,
-            data_hash="ignored-but-must-be-stale",
-            config_hash=cfg_hash,
-            dependency_hash="OLD-DEPENDENCY-HASH",
-        )
-    )
-    db_session.commit()
-
     calls: list[list[str]] = []
 
     def fake_run_ffmpeg(cmd, *, timeout):
@@ -401,12 +393,14 @@ def test_force_reencode_fires_on_dependency_drift(monkeypatch, tmp_path, db_sess
     monkeypatch.setattr(audio_mod, "run_ffmpeg", fake_run_ffmpeg)
     monkeypatch.setattr(audio_mod, "has_audio_stream", lambda _p: True)
 
+    # First run extracts the WAV (no prior file → ffmpeg invoked regardless).
     audio_mod.extract_audio_mir_stage(settings)
+    assert calls, "ffmpeg was not invoked on first extraction"
 
-    assert calls, "ffmpeg was not invoked"
-    # The WAV now exists; a second call with the same settings but a stale
-    # dependency_hash must still invoke ffmpeg (force_reencode bypasses mtime skip).
-    calls.clear()
+    # Now seed StageState so config_hash MATCHES but dependency_hash is stale
+    # (simulating new clips appended upstream). With the WAV already fresh
+    # (newer than the video), the per-file mtime check must skip — no ffmpeg.
+    cfg_hash = fp.hash_text(audio_mod._mir_config_payload(settings.audio_extraction))
     db_session.merge(
         StageState(
             stage_name=audio_mod.AUDIO_EXTRACT_MIR_STAGE,
@@ -417,9 +411,13 @@ def test_force_reencode_fires_on_dependency_drift(monkeypatch, tmp_path, db_sess
         )
     )
     db_session.commit()
+    calls.clear()
 
     audio_mod.extract_audio_mir_stage(settings)
-    assert calls, "expected force_reencode=True (ffmpeg invoked) on dependency drift"
+    assert not calls, (
+        "force_reencode fired on dependency drift; it must only fire on config "
+        "drift (mtime check already covers re-downloaded videos)"
+    )
 
 
 def test_extract_audio_mir_config_payload_is_field_reorder_safe():

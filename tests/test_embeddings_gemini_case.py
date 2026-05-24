@@ -352,6 +352,10 @@ def _runner_settings(video_dir, audio_dir):
             exclude_disqualified_users=False,
             provider="local",
             inflight=1,
+            lease_ttl_s=600,
+            max_attempts=3,
+            coordinator_bind_host="127.0.0.1",
+            coordinator_bind_port=0,
         ),
         audio_extraction=SimpleNamespace(
             audio_bitrate_kbps=128,

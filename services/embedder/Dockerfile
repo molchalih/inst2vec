@@ -27,6 +27,10 @@ COPY pyproject.toml uv.lock ./
 COPY core/ ./core/
 COPY modules/ ./modules/
 COPY services/embedder/ ./services/embedder/
+# Embedding tunables (max length, frame caps, fps) must match the
+# orchestrator, so the pod reads them from the same config.toml via
+# load_pod_config — DB/ingest secrets are not required.
+COPY config.toml ./
 
 # Install only what the embedder needs: the GPU build group plus the
 # embedder group. We deliberately skip the project's CPU-side deps
@@ -38,9 +42,6 @@ RUN uv sync --group gpu --group embedder --no-dev --no-install-project
 
 ENV HF_HOME=/workspace/hf-cache \
     MODEL_PATH=/workspace/models/Qwen3-VL-Embedding-8B \
-    EMBEDDER_HOST=0.0.0.0 \
-    EMBEDDER_PORT=8000
-
-EXPOSE 8000
+    VIDEO_ROOT=/workspace/videos
 
 CMD ["uv", "run", "python", "-m", "services.embedder"]

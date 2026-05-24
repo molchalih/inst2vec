@@ -60,9 +60,7 @@ BUCKET = "test-bucket"
 def test_uploads_selected_downloaded_clips(tmp_path, isolated_db):
     with mock_aws():
         store = ObjectStore(
-            settings=StorageSettings(
-                backend="s3", bucket=BUCKET, prefix="videos/", signed_url_ttl_s=60
-            ),
+            settings=StorageSettings(backend="s3", bucket=BUCKET, prefix="videos/"),
             endpoint_url=None,
             access_key="t",
             secret_key="t",
@@ -91,9 +89,7 @@ def test_uploads_selected_downloaded_clips(tmp_path, isolated_db):
 def test_skips_already_uploaded_clips(tmp_path, isolated_db):
     with mock_aws():
         store = ObjectStore(
-            settings=StorageSettings(
-                backend="s3", bucket=BUCKET, prefix="videos/", signed_url_ttl_s=60
-            ),
+            settings=StorageSettings(backend="s3", bucket=BUCKET, prefix="videos/"),
             endpoint_url=None,
             access_key="t",
             secret_key="t",
@@ -123,9 +119,7 @@ def test_skips_already_uploaded_clips(tmp_path, isolated_db):
 def test_ignores_unselected_and_undownloaded_clips(tmp_path, isolated_db):
     with mock_aws():
         store = ObjectStore(
-            settings=StorageSettings(
-                backend="s3", bucket=BUCKET, prefix="videos/", signed_url_ttl_s=60
-            ),
+            settings=StorageSettings(backend="s3", bucket=BUCKET, prefix="videos/"),
             endpoint_url=None,
             access_key="t",
             secret_key="t",
@@ -159,7 +153,6 @@ def _make_settings(tmp_path, *, bucket: str, video_dir: str | None = None):
     settings = MagicMock()
     settings.storage.bucket = bucket
     settings.storage.prefix = "videos/"
-    settings.storage.signed_url_ttl_s = 60
     settings.storage.backend = "s3"
     settings.paths.video_dir = video_dir or str(tmp_path / "videos")
     return settings

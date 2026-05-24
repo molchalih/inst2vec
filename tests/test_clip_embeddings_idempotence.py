@@ -78,7 +78,20 @@ class _FakeProvider:
         return _TorchLikeArray(arr)
 
 
-_FAKE_SECRETS = object()  # sentinel; never inspected by the fake factory
+@dataclass
+class _FakeSecrets:
+    """Carries only the fields the distributed orchestrator reads.
+
+    The fake provider factory ignores ``_secrets`` entirely, but
+    ``embed_jobs_distributed`` reads ``embedder_token`` to bind the
+    coordinator's auth, so it must be a non-empty string.
+    """
+
+    embedder_token: str = "test-token"
+    gemini_api_key: str | None = None
+
+
+_FAKE_SECRETS = _FakeSecrets()
 
 
 def _fake_factory(_settings, _secrets):
@@ -138,6 +151,10 @@ class _EmbeddingsStub:
     adaptive_default_fps: float = 1.0
     inflight: int = 1
     provider: str = "local"
+    lease_ttl_s: int = 600
+    max_attempts: int = 3
+    coordinator_bind_host: str = "127.0.0.1"
+    coordinator_bind_port: int = 0
 
 
 @dataclass
@@ -350,24 +367,28 @@ def test_partial_failure_does_not_seal_stage(db_session, stub_providers, monkeyp
     is_stale returns False, and the missing ClipEmbedding row is never retried.
     """
     settings = _settings(stub_providers)
+    # max_attempts=1 makes a single raise terminal so clip 11's first-attempt
+    # failure is not requeued/retried within the same run (the broker's
+    # intra-run retry would otherwise let it succeed and seal the stage).
+    settings.embeddings.max_attempts = 1
     _seed(
         db_session,
         settings,
         clips=[dict(id=10, user_id=1), dict(id=11, user_id=1)],
     )
 
-    from modules.embeddings import runner as runner_mod
+    from modules.embeddings import worker as worker_mod
 
-    original = runner_mod._embed_with_token_fallback
+    original = worker_mod.embed_with_token_fallback
     call_log: list[int] = []
 
-    def flaky(provider, spec, clip, *args, **kwargs):
-        call_log.append(clip.id)
-        if clip.id == 11 and call_log.count(11) == 1:
-            return None  # transient failure on first attempt for clip 11
-        return original(provider, spec, clip, *args, **kwargs)
+    def flaky(provider, spec, *, clip_id, **kwargs):
+        call_log.append(clip_id)
+        if clip_id == 11 and call_log.count(11) == 1:
+            raise RuntimeError("transient failure")  # first attempt for clip 11
+        return original(provider, spec, clip_id=clip_id, **kwargs)
 
-    monkeypatch.setattr(runner_mod, "_embed_with_token_fallback", flaky)
+    monkeypatch.setattr(worker_mod, "embed_with_token_fallback", flaky)
 
     embed_clip_embeddings(settings, _FAKE_SECRETS, cases=["video"])
     db_session.expire_all()
@@ -408,16 +429,16 @@ def test_adding_new_candidate_only_embeds_the_new_one(
     _seed(db_session, settings, clips=[dict(id=10, user_id=1)])
     embed_clip_embeddings(settings, _FAKE_SECRETS, cases=["video"])
 
-    from modules.embeddings import runner as runner_mod
+    from modules.embeddings import worker as worker_mod
 
-    original = runner_mod._embed_with_token_fallback
+    original = worker_mod.embed_with_token_fallback
     call_log: list[int] = []
 
-    def tracked(provider, spec, clip, *args, **kwargs):
-        call_log.append(clip.id)
-        return original(provider, spec, clip, *args, **kwargs)
+    def tracked(provider, spec, *, clip_id, **kwargs):
+        call_log.append(clip_id)
+        return original(provider, spec, clip_id=clip_id, **kwargs)
 
-    monkeypatch.setattr(runner_mod, "_embed_with_token_fallback", tracked)
+    monkeypatch.setattr(worker_mod, "embed_with_token_fallback", tracked)
 
     # Add a second clip without touching the first.
     _seed(db_session, settings, clips=[dict(id=11, user_id=1)])
@@ -449,16 +470,16 @@ def test_caption_change_reembeds_only_changed_clip_for_sandwich(
     )
     embed_clip_embeddings(settings, _FAKE_SECRETS, cases=["sandwich"])
 
-    from modules.embeddings import runner as runner_mod
+    from modules.embeddings import worker as worker_mod
 
-    original = runner_mod._embed_with_token_fallback
+    original = worker_mod.embed_with_token_fallback
     call_log: list[int] = []
 
-    def tracked(provider, spec, clip, *args, **kwargs):
-        call_log.append(clip.id)
-        return original(provider, spec, clip, *args, **kwargs)
+    def tracked(provider, spec, *, clip_id, **kwargs):
+        call_log.append(clip_id)
+        return original(provider, spec, clip_id=clip_id, **kwargs)
 
-    monkeypatch.setattr(runner_mod, "_embed_with_token_fallback", tracked)
+    monkeypatch.setattr(worker_mod, "embed_with_token_fallback", tracked)
 
     # Mutate clip 10's caption_clean only; clip 11's upstream unchanged.
     db_session.query(Clip).filter_by(id=10).update({"caption_clean": "ALPHA-EDIT"})
@@ -530,16 +551,16 @@ def test_config_change_still_wipes(db_session, stub_providers, monkeypatch):
     embed_clip_embeddings(settings, _FAKE_SECRETS)
     db_session.expire_all()
 
-    from modules.embeddings import runner as runner_mod
+    from modules.embeddings import worker as worker_mod
 
-    original = runner_mod._embed_with_token_fallback
+    original = worker_mod.embed_with_token_fallback
     call_log: list[tuple[str, int]] = []
 
-    def tracked(provider, spec, clip, *args, **kwargs):
-        call_log.append((spec.name, clip.id))
-        return original(provider, spec, clip, *args, **kwargs)
+    def tracked(provider, spec, *, clip_id, **kwargs):
+        call_log.append((spec.name, clip_id))
+        return original(provider, spec, clip_id=clip_id, **kwargs)
 
-    monkeypatch.setattr(runner_mod, "_embed_with_token_fallback", tracked)
+    monkeypatch.setattr(worker_mod, "embed_with_token_fallback", tracked)
 
     # Mutate AUDIO_INSTRUCTION → only audio's config_hash changes.
     monkeypatch.setattr(cases_mod, "AUDIO_INSTRUCTION", "NEW INSTRUCTION TEXT")
@@ -643,16 +664,16 @@ def test_reselecting_a_clip_after_orphan_sweep_reembeds_it(
         is None
     )
 
-    from modules.embeddings import runner as runner_mod
+    from modules.embeddings import worker as worker_mod
 
-    original = runner_mod._embed_with_token_fallback
+    original = worker_mod.embed_with_token_fallback
     call_log: list[int] = []
 
-    def tracked(provider, spec, clip, *args, **kwargs):
-        call_log.append(clip.id)
-        return original(provider, spec, clip, *args, **kwargs)
+    def tracked(provider, spec, *, clip_id, **kwargs):
+        call_log.append(clip_id)
+        return original(provider, spec, clip_id=clip_id, **kwargs)
 
-    monkeypatch.setattr(runner_mod, "_embed_with_token_fallback", tracked)
+    monkeypatch.setattr(worker_mod, "embed_with_token_fallback", tracked)
 
     db_session.query(Clip).filter_by(id=11).update({"is_selected": True})
     db_session.commit()
@@ -802,3 +823,31 @@ def test_audio_mir_row_descriptor_change_invalidates_sandwich_and_audio(
     assert after["video"] == before["video"]
     assert after["sandwich"] != before["sandwich"]
     assert after["audio"] != before["audio"]
+
+
+def test_local_only_run_skips_coordinator(db_session, stub_providers, monkeypatch):
+    """Blank embedder token = documented local-only mode: the HTTP
+    coordinator must not be built. The in-process worker drains every job
+    via LocalJobSource, so a local run needs neither the bound port nor the
+    optional embedder deps. Patching build_app/serve_in_thread to raise
+    proves the coordinator path is never entered while rows still land."""
+    from modules.embeddings import coordinator as coordinator_mod
+
+    def _must_not_run(*args, **kwargs):
+        raise AssertionError("coordinator must not start in local-only mode")
+
+    monkeypatch.setattr(coordinator_mod, "build_app", _must_not_run)
+    monkeypatch.setattr(coordinator_mod, "serve_in_thread", _must_not_run)
+
+    settings = _settings(stub_providers)
+    _seed(db_session, settings, clips=[dict(id=10, user_id=1)])
+
+    embed_clip_embeddings(settings, _FakeSecrets(embedder_token=""), cases=["video"])
+    db_session.expire_all()
+
+    rows = {
+        r.clip_id
+        for r in db_session.query(ClipEmbedding).filter_by(embedding_case="video")
+    }
+    assert rows == {10}, "local worker must drain all jobs without a coordinator"
+    assert db_session.get(StageState, ("clip_embeddings", "video")) is not None

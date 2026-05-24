@@ -59,10 +59,14 @@ exclude_disqualified_users = true
 embed_max_length = 32768
 adaptive_max_frames = 96
 adaptive_default_fps = 2.0
-provider = "local"
 inflight = 1
-request_timeout_s = 120
-max_retries = 3
+# ── distributed coordinator / worker ──
+coordinator_bind_host = "0.0.0.0"
+coordinator_bind_port = 8765
+lease_ttl_s = 600
+max_attempts = 3
+worker_request_timeout_s = 120
+worker_max_retries = 3
 # ── Gemini Embedding 2 case ──
 gemini_enabled           = false
 gemini_model             = "gemini-embedding-2-preview"
@@ -112,7 +116,6 @@ max_clusters = 20
 backend = "s3"
 bucket = ""
 prefix = "videos/"
-signed_url_ttl_s = 3600
 
 [mir]
 binary_threshold = 0.5

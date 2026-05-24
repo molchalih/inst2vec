@@ -280,10 +280,17 @@ def test_run_mir_attributes_effnet_failure(
     assert row.mir_error == "effnet"
 
 
-def test_run_mir_resets_when_audio_mir_dependency_drifts(
+def test_run_mir_does_not_reset_on_audio_mir_dependency_drift(
     patched_pipeline, tmp_path, db_session
 ):
-    """If upstream extract_audio_mir reseals, MIR resets and re-extracts."""
+    """Adding new data (upstream extract_audio_mir reseals with a new
+    dependency/data hash) must NOT wipe already-extracted MIR rows.
+
+    Only a genuine MIR *config* change may reset; new clips flow through the
+    incremental ``is_mir_extracted IS NULL`` path instead. We tag the existing
+    row with a sentinel ``danceability`` that real inference never produces
+    (FakeEffNet yields 0.9); if a reset+recompute happened it would be gone.
+    """
     from core.database import StageState
 
     settings = _make_settings(tmp_path)
@@ -297,6 +304,12 @@ def test_run_mir_resets_when_audio_mir_dependency_drifts(
     first = db_session.query(AudioMIR).filter_by(clip_id=1).one()
     assert first.is_mir_extracted is True
 
+    # Sentinel that survives only if the row is NOT reset+recomputed.
+    first.danceability = -999.0
+    db_session.commit()
+
+    # Simulate "new data added": upstream MIR-audio stage reseals with new
+    # data + dependency hashes (more clips on disk).
     db_session.merge(
         StageState(
             stage_name="audio_extract_mir",
@@ -311,8 +324,11 @@ def test_run_mir_resets_when_audio_mir_dependency_drifts(
     patched_pipeline.run_mir(settings, secrets=None)
 
     row = db_session.query(AudioMIR).filter_by(clip_id=1).one()
-    assert row.is_mir_extracted is True
     assert db_session.query(AudioMIR).count() == 1
+    assert row.is_mir_extracted is True
+    assert row.danceability == -999.0, (
+        "MIR reset+recomputed on dependency drift; it must only reset on config drift"
+    )
 
 
 def test_run_mir_skips_checkpoint_bootstrap_when_no_eligible(

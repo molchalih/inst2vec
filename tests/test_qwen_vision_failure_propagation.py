@@ -1,11 +1,11 @@
 """Regression tests: a failed Qwen3-VL vision-processing step must NOT
 silently produce a constant 'NULL' embedding. The exception must
-propagate through the provider into the runner's dispatcher, which is
-already wired to mark the clip as failed (yield ``(clip_id, None)``)
-and prevent the fingerprint seal.
+propagate through the provider into the worker, which marks the clip as
+failed (``source.fail``) so the broker counts it and the runner refuses
+to seal.
 
 See ``core/vendor/qwen3_vl_embedding.py::_preprocess_inputs`` and
-``modules/embeddings/runner.py::_dispatch_embedding_jobs``.
+``modules/embeddings/worker.py::_process_one``.
 """
 
 from __future__ import annotations
@@ -15,43 +15,65 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from modules.embeddings.runner import _dispatch_embedding_jobs
+from modules.embeddings.broker import JobBroker, make_job
+from modules.embeddings.worker import (
+    LocalJobSource,
+    embed_with_token_fallback,
+    run_worker,
+)
 
 
-def test_dispatcher_converts_embed_exception_to_none_blob(monkeypatch):
-    """A raising ``embed_fn`` must yield (clip_id, None) and log at warn,
-    not propagate. This guarantees that when the vendor stops swallowing
-    ``process_vision_info`` errors, the runner's existing machinery will
-    catch them cleanly.
+def test_worker_converts_embed_exception_to_failure(monkeypatch):
+    """A provider that raises must be reported as a terminal broker failure
+    (not propagate, not silently succeed) and logged as a structured ERR
+    line. This guarantees that when the vendor stops swallowing
+    ``process_vision_info`` errors, the worker's machinery catches them.
     """
-    jobs = [{"clip_id": 101}, {"clip_id": 102}, {"clip_id": 103}]
 
-    def embed_fn(job: dict) -> tuple[int, bytes | None]:
-        if job["clip_id"] == 102:
-            raise RuntimeError("vision processing failed: bad frame")
-        return (job["clip_id"], b"\x00" * 16)
+    class _FlakyProvider:
+        def embed(self, payload):
+            if payload["clip_id"] == 102:
+                raise RuntimeError("vision processing failed: bad frame")
+            return [[1.0, 2.0]]
+
+    b = JobBroker(lease_ttl_s=600, max_attempts=1)
+    for cid in (101, 102, 103):
+        b.add(
+            make_job(
+                clip_id=cid,
+                case="audio",
+                text="x",
+                video_key=None,
+                fps=None,
+                max_frames=None,
+                remote_eligible=False,
+            )
+        )
+    b.producer_done()
 
     log_calls: list[tuple[tuple, dict]] = []
 
     def _capture_log(*args, **kwargs) -> None:
         log_calls.append((args, kwargs))
 
-    monkeypatch.setattr("modules.embeddings.runner.log", _capture_log)
+    monkeypatch.setattr("modules.embeddings.worker.log", _capture_log)
 
-    results = list(_dispatch_embedding_jobs(jobs, embed_fn, inflight=1))
+    run_worker(
+        LocalJobSource(b),
+        provider=_FlakyProvider(),
+        video_root="/x",
+        inflight=1,
+        served_only=False,
+        poll_idle_s=0.01,
+    )
 
-    # Dispatcher now yields 3-tuples: (clip_id, blob_or_none, elapsed_or_none)
-    assert [(r[0], r[1]) for r in results] == [
-        (101, b"\x00" * 16),
-        (102, None),
-        (103, b"\x00" * 16),
-    ]
-    # Successful clips get a non-None elapsed; failed clip gets None.
-    assert results[0][2] is not None
-    assert results[1][2] is None
-    assert results[2][2] is not None
-    # The dispatcher logs the failure as a structured ERR worker line so
-    # operators see the real exception cause.
+    got = {}
+    while not b.completions.empty():
+        c = b.completions.get_nowait()
+        got[c.clip_id] = c.ok
+    assert got == {101: True, 102: False, 103: True}
+    # The worker logs the failure as a structured ERR line so operators see
+    # the real exception cause.
     assert any(
         len(args) >= 4
         and args[1] == "EMB"
@@ -118,46 +140,41 @@ def test_preprocess_inputs_propagates_vision_info_failure():
 
 
 def test_embed_with_token_fallback_propagates_non_token_errors():
-    """The runner's per-clip helper must NOT swallow provider exceptions
-    that aren't token-budget mismatches — otherwise the dispatcher's
-    per-clip warn log (the only place an operator sees the decode/codec
-    cause) never fires for the real Qwen path.
+    """The worker's per-clip helper must NOT swallow provider exceptions
+    that aren't token-budget mismatches — otherwise the worker's per-clip
+    ERR log (the only place an operator sees the decode/codec cause) never
+    fires for the real Qwen path.
     """
-    from types import SimpleNamespace
-
     from modules.embeddings.cases import CASE_REGISTRY
-    from modules.embeddings.runner import _embed_with_token_fallback
 
     class _RaisingProvider:
         def embed(self, payload):
             raise RuntimeError("process_vision_info: bad codec")
 
-    clip = SimpleNamespace(id=99)
-
     # video case opts into token-fallback; non-token failure on the first
     # (and only) attempt must propagate, not be converted to None.
     with pytest.raises(RuntimeError, match="bad codec"):
-        _embed_with_token_fallback(
+        embed_with_token_fallback(
             _RaisingProvider(),
             CASE_REGISTRY["video"],
-            clip,
-            None,
-            "/v/99.mp4",
-            None,
-            1.0,
-            32,
+            clip_id=99,
+            text=None,
+            video_path="/v/99.mp4",
+            audio_path=None,
+            fps=1.0,
+            max_frames=32,
         )
 
     # audio case has no token-fallback path; provider errors must
     # propagate verbatim.
     with pytest.raises(RuntimeError, match="bad codec"):
-        _embed_with_token_fallback(
+        embed_with_token_fallback(
             _RaisingProvider(),
             CASE_REGISTRY["audio"],
-            clip,
-            "hello",
-            None,
-            None,
-            None,
-            None,
+            clip_id=99,
+            text="hello",
+            video_path=None,
+            audio_path=None,
+            fps=None,
+            max_frames=None,
         )

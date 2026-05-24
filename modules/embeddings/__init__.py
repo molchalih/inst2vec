@@ -37,11 +37,7 @@ def run_clip(settings: Settings, secrets: Secrets) -> None:
         settings,
         EmbeddingSecrets(
             gemini_api_key=secrets.gemini_api_key,
-            embedder_remote_url=secrets.embedder_remote_url,
             embedder_token=secrets.embedder_token,
-            object_store_endpoint=secrets.object_store_endpoint,
-            object_store_access_key=secrets.object_store_access_key,
-            object_store_secret_key=secrets.object_store_secret_key,
         ),
     )
 

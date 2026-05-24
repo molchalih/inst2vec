@@ -98,7 +98,20 @@ class _FakeProvider:
         return _TorchLikeArray(arr)
 
 
-_FAKE_SECRETS = object()  # sentinel; never inspected by the fake factory
+@dataclass
+class _FakeSecrets:
+    """Carries only the fields the distributed orchestrator reads.
+
+    The fake provider factory ignores ``_secrets`` entirely, but
+    ``embed_jobs_distributed`` reads ``embedder_token`` to bind the
+    coordinator's auth.
+    """
+
+    embedder_token: str = "test-token"
+    gemini_api_key: str | None = None
+
+
+_FAKE_SECRETS = _FakeSecrets()
 
 
 def _fake_factory(_settings, _secrets):
@@ -129,6 +142,10 @@ class _EmbeddingsStub:
     adaptive_default_fps: float = 1.0
     inflight: int = 1
     provider: str = "local"
+    lease_ttl_s: int = 600
+    max_attempts: int = 3
+    coordinator_bind_host: str = "127.0.0.1"
+    coordinator_bind_port: int = 0
 
 
 @dataclass

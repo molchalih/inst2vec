@@ -370,10 +370,13 @@ def extract_audio_mir_stage(settings) -> None:
         stored = session.get(
             StageState, (AUDIO_EXTRACT_MIR_STAGE, AUDIO_EXTRACT_MIR_SCOPE)
         )
-        force_reencode = stored is not None and (
-            stored.config_hash != current.config
-            or stored.dependency_hash != current.dependency
-        )
+        # Re-encode every existing WAV only when the encode *config* drifts
+        # (sample rate / codec / channels). Dependency drift just means the
+        # clip set grew or a video was re-downloaded — a re-download is already
+        # caught per-file by extract_audio's mtime check (video newer than WAV),
+        # so forcing a full re-encode on dependency drift needlessly rewrites
+        # every WAV whenever new clips are added.
+        force_reencode = stored is not None and stored.config_hash != current.config
 
         n_removed = sweep_orphan_mir_wavs(
             session=session,

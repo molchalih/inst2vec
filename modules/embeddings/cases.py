@@ -17,11 +17,9 @@ import os as _os
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from core.storage import get_object_store
 from modules.embeddings.providers import (
     LocalQwenProvider,
     Provider,
-    RemoteQwenProvider,
 )
 from modules.embeddings.text import (
     build_audio_text,
@@ -43,19 +41,14 @@ AUDIO_INSTRUCTION = (
 class EmbeddingSecrets:
     """Secret bag threaded through provider factories.
 
-    Local providers ignore this; remote providers (Gemini, the
-    self-hosted Qwen GPU pod) read the credentials they need. Every
-    field defaults to ``""``/``None`` so ``EmbeddingSecrets()`` is a
-    valid no-arg call for tests / pipelines that don't use remote
-    providers.
+    Local providers ignore this; the Gemini provider reads
+    ``gemini_api_key``. Every field defaults to ``""``/``None`` so
+    ``EmbeddingSecrets()`` is a valid no-arg call for tests / pipelines
+    that don't need credentials.
     """
 
     gemini_api_key: str | None = None
-    embedder_remote_url: str = ""
     embedder_token: str = ""
-    object_store_endpoint: str = ""
-    object_store_access_key: str = ""
-    object_store_secret_key: str = ""
 
 
 @dataclass(frozen=True)
@@ -93,38 +86,7 @@ class EmbeddingCaseSpec:
 # ── provider factories ───────────────────────────────────────────────────────
 
 
-def _require_remote_config(settings, secrets) -> None:
-    """Fail fast when [embeddings].provider = "remote" but the required
-    URL / token / object-store settings are still at their empty defaults.
-
-    Raised once at factory-time so the operator sees one actionable error
-    instead of every clip embedding failing generically inside the runner.
-    """
-    missing: list[str] = []
-    if not secrets.embedder_remote_url:
-        missing.append("EMBEDDER_REMOTE_URL")
-    if not secrets.embedder_token:
-        missing.append("EMBEDDER_TOKEN")
-    if not settings.storage.bucket:
-        missing.append("[storage].bucket")
-    if not secrets.object_store_access_key:
-        missing.append("OBJECT_STORE_ACCESS_KEY")
-    if not secrets.object_store_secret_key:
-        missing.append("OBJECT_STORE_SECRET_KEY")
-    if missing:
-        raise RuntimeError("embeddings.provider=remote requires: " + ", ".join(missing))
-
-
 def qwen_provider(settings, secrets, *, with_frames: bool) -> Provider:
-    if settings.embeddings.provider == "remote":
-        _require_remote_config(settings, secrets)
-        return RemoteQwenProvider(
-            url=secrets.embedder_remote_url,
-            token=secrets.embedder_token,
-            storage=get_object_store(settings, secrets),
-            timeout_s=settings.embeddings.request_timeout_s,
-            max_retries=settings.embeddings.max_retries,
-        )
     if with_frames:
         return LocalQwenProvider(
             model_path=settings.paths.model_path,
