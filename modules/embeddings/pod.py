@@ -11,10 +11,58 @@ can import it.
 from __future__ import annotations
 
 import os
+import time
+
+import httpx
 
 from core.config import load_pod_config
-from modules.embeddings.cases import qwen_provider
+from core.console import log
+from modules.embeddings.cases import build_provider_router, remote_served_cases
 from modules.embeddings.worker import HttpJobSource, run_worker
+
+
+def _coordinator_base_url(host: str) -> str:
+    """Build the coordinator base URL from COORDINATOR_PUBLIC_HOST.
+
+    A bare ``host:port`` (raw port-forward) defaults to ``http://``; a value
+    that already carries a scheme (e.g. ``https://x.trycloudflare.com`` behind
+    a TLS tunnel) is used verbatim so the pod speaks HTTPS to the tunnel."""
+    if host.startswith(("http://", "https://")):
+        return host
+    return f"http://{host}"
+
+
+def wait_for_coordinator(
+    base_url: str,
+    *,
+    timeout_s: int,
+    poll_s: float = 3.0,
+    _client: httpx.Client | None = None,
+) -> None:
+    """Block until the coordinator's /healthz answers 200, or raise SystemExit.
+
+    Lets a pod be launched before the orchestrator reaches the embedding
+    stage: it polls (no auth) until the endpoint appears, then returns so the
+    model loads only once there is a coordinator to serve."""
+    owns_client = _client is None
+    client = _client if _client is not None else httpx.Client(timeout=5)
+    url = base_url.rstrip("/") + "/healthz"
+    deadline = time.monotonic() + timeout_s
+    try:
+        while True:
+            try:
+                if client.get(url).status_code == 200:
+                    return
+            except httpx.TransportError:
+                pass
+            if time.monotonic() >= deadline:
+                raise SystemExit(
+                    f"coordinator at {base_url} not reachable within {timeout_s}s"
+                )
+            time.sleep(poll_s)
+    finally:
+        if owns_client:
+            client.close()
 
 
 def run_pod(host: str, video_root: str) -> None:
@@ -22,11 +70,14 @@ def run_pod(host: str, video_root: str) -> None:
     token = os.environ.get("EMBEDDER_TOKEN", "")
     if not token:
         raise SystemExit("EMBEDDER_TOKEN env var is required for --pod")
-    # Pod always uses the local Qwen model on its own GPU (video-frame variant
-    # covers video/sandwich; audio case has no video and ignores frames).
-    provider = qwen_provider(settings, None, with_frames=True)
+    base_url = _coordinator_base_url(host)
+    log("embed:pod", "SCAN", "coordinator", host)
+    wait_for_coordinator(base_url, timeout_s=settings.embeddings.pod_connect_timeout_s)
+    # One ProviderRouter over the cases a pod may be handed; the shared Qwen
+    # backbone covers video/sandwich/audio with a single model instance.
+    provider = build_provider_router(settings, None, remote_served_cases())
     source = HttpJobSource(
-        base_url=f"http://{host}",
+        base_url=base_url,
         token=token,
         timeout_s=settings.embeddings.worker_request_timeout_s,
         max_retries=settings.embeddings.worker_max_retries,
@@ -37,5 +88,6 @@ def run_pod(host: str, video_root: str) -> None:
         video_root=video_root,
         inflight=settings.embeddings.inflight,
         served_only=True,
+        unreachable_exit_s=settings.embeddings.pod_idle_ttl_s,
         log_tag="embed:pod",
     )

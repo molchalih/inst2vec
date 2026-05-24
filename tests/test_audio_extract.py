@@ -310,6 +310,52 @@ def test_stage_does_not_retry_silent_clips_on_second_run(
     probe.assert_not_called()
 
 
+def test_stage_skips_already_extracted_clips_without_reprobing(
+    tmp_path, sample_mp4_with_audio, db_session
+):
+    """When the clip set grows (fingerprint goes stale), clips that already
+    have a fresh mp3 must be skipped without re-running ffprobe.
+
+    Reproduces the production complaint: adding a creator re-walks the whole
+    history and re-probes every old clip. Only genuinely new clips should be
+    probed/extracted; the rest are dismissed by the mtime shortcut.
+    """
+    from core.ffmpeg import has_audio_stream as real_probe
+    from modules.ingest.audio import extract_audio_stage
+
+    vid_dir = tmp_path / "video"
+    vid_dir.mkdir()
+    (vid_dir / "1.mp4").write_bytes(Path(sample_mp4_with_audio).read_bytes())
+
+    db_session.add(User(id=1, is_selected=True))
+    db_session.add(Clip(id=1, user_id=1, is_selected=True, is_downloaded=True))
+    db_session.commit()
+
+    audio_dir = tmp_path / "audio"
+    settings = _make_settings(audio_dir=audio_dir, enabled=True, video_dir=vid_dir)
+
+    # First run extracts clip 1 and seals.
+    extract_audio_stage(settings)
+    assert (audio_dir / "1.mp3").exists()
+
+    # A new creator/clip arrives -> fingerprint goes stale, stage re-runs.
+    (vid_dir / "2.mp4").write_bytes(Path(sample_mp4_with_audio).read_bytes())
+    db_session.add(Clip(id=2, user_id=1, is_selected=True, is_downloaded=True))
+    db_session.commit()
+
+    with patch("modules.ingest.audio.has_audio_stream", wraps=real_probe) as probe:
+        extract_audio_stage(settings)
+
+    probed = [call.args[0] for call in probe.call_args_list]
+    # Old, already-extracted clip must NOT be re-probed.
+    assert str(vid_dir / "1.mp4") not in probed
+    # The new clip is probed and extracted.
+    assert str(vid_dir / "2.mp4") in probed
+    assert (audio_dir / "2.mp3").exists()
+    # Stage still seals after handling the new clip.
+    assert db_session.get(StageState, ("audio_extract", "default")) is not None
+
+
 def test_extracts_wav_pcm_stereo(sample_mp4_with_audio, tmp_path):
     from modules.ingest.audio import extract_audio
 

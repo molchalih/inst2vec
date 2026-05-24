@@ -83,7 +83,7 @@ class _FakeSecrets:
     """Carries only the fields the distributed orchestrator reads.
 
     The fake provider factory ignores ``_secrets`` entirely, but
-    ``embed_jobs_distributed`` reads ``embedder_token`` to bind the
+    ``StageEmbedder`` reads ``embedder_token`` to bind the
     coordinator's auth, so it must be a non-empty string.
     """
 
@@ -155,6 +155,7 @@ class _EmbeddingsStub:
     max_attempts: int = 3
     coordinator_bind_host: str = "127.0.0.1"
     coordinator_bind_port: int = 0
+    pod_drain_grace_s: float = 0.0
 
 
 @dataclass
@@ -823,6 +824,34 @@ def test_audio_mir_row_descriptor_change_invalidates_sandwich_and_audio(
     assert after["video"] == before["video"]
     assert after["sandwich"] != before["sandwich"]
     assert after["audio"] != before["audio"]
+
+
+def test_preflight_warns_when_pods_set_but_no_bucket(
+    db_session, stub_providers, monkeypatch
+):
+    from dataclasses import dataclass
+
+    from modules.embeddings import runner as runner_mod
+
+    @dataclass
+    class _Storage:
+        bucket: str = ""
+
+    settings = _settings(stub_providers)
+    settings.storage = _Storage(bucket="")  # type: ignore[attr-defined]
+    _seed(db_session, settings, clips=[dict(id=10, user_id=1)])
+
+    logged = []
+    real_log = runner_mod.log
+
+    def _spy(*a, **kw):
+        logged.append((a, kw))
+        real_log(*a, **kw)
+
+    monkeypatch.setattr(runner_mod, "log", _spy)
+
+    embed_clip_embeddings(settings, _FakeSecrets(embedder_token="t"), cases=["video"])
+    assert any("pods" in a for a, _ in logged), "missing pod-starvation warning"
 
 
 def test_local_only_run_skips_coordinator(db_session, stub_providers, monkeypatch):

@@ -10,6 +10,8 @@ from modules.embeddings.cases import CASE_REGISTRY
 from modules.embeddings.worker import (
     HttpJobSource,
     LocalJobSource,
+    _resolve_audio_path,
+    _resolve_video_path,
     embed_with_token_fallback,
     run_worker,
 )
@@ -167,7 +169,7 @@ def test_worker_resolves_audio_path_for_audio_key(tmp_path):
             fps=None,
             max_frames=None,
             remote_eligible=False,
-            audio_key="audio/5.mp3",
+            audio_key="5.mp3",
         )
     )
     b.producer_done()
@@ -183,3 +185,57 @@ def test_worker_resolves_audio_path_for_audio_key(tmp_path):
     )
     assert p.payloads[0]["audio_path"] == str(tmp_path / "5.mp3")
     assert p.payloads[0]["case"] == "maest"
+
+
+def test_lease_raises_clear_error_on_unauthorized():
+    import pytest
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, json={"detail": "unauthorized"})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    src = HttpJobSource(
+        base_url="http://pod", token="bad", timeout_s=5, max_retries=0, _client=client
+    )
+    with pytest.raises(RuntimeError, match="401"):
+        src.lease(served_only=True)
+
+
+def test_resolve_accepts_bare_filenames():
+    assert _resolve_video_path("/v", "1.mp4") == "/v/1.mp4"
+    assert _resolve_audio_path("/a", "1.mp3") == "/a/1.mp3"
+    assert _resolve_video_path("/v", None) is None
+    assert _resolve_audio_path(None, "1.mp3") is None
+    assert _resolve_audio_path("/a", None) is None
+
+
+def test_resolve_rejects_keys_that_escape_the_media_root():
+    import pytest
+
+    for bad in ("../secrets.mp4", "videos/1.mp4", "/etc/passwd", "..", "."):
+        with pytest.raises(ValueError):
+            _resolve_video_path("/v", bad)
+        with pytest.raises(ValueError):
+            _resolve_audio_path("/a", bad)
+
+
+def test_complete_logs_and_does_not_raise_on_server_error(monkeypatch):
+    warned = []
+    import modules.embeddings.worker as worker_mod
+
+    monkeypatch.setattr(worker_mod, "log", lambda *a, **kw: warned.append((a, kw)))
+
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return httpx.Response(500, json={"detail": "boom"})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    src = HttpJobSource(
+        base_url="http://pod", token="t", timeout_s=5, max_retries=0, _client=client
+    )
+    # Must not raise; the lease will be reaped + retried orchestrator-side.
+    src.complete("L1", [1.0, 2.0])
+    assert calls["n"] == 1
+    assert warned, "a failed /complete must be logged, not silently dropped"

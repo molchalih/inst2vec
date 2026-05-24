@@ -19,6 +19,7 @@ import json
 import shutil
 from collections import defaultdict
 from collections.abc import Sequence
+from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
@@ -101,6 +102,52 @@ def _prune_stale_entity_files(dir_path: Path, keep_ids: set[int]) -> None:
             child.unlink()
 
 
+@lru_cache(maxsize=1)
+def _genre_leaf_map() -> dict[str, str]:
+    """Map flattened Discogs genre labels to their leaf genre.
+
+    MIR stores ``Parent---Child`` taxonomy entries with the separator
+    flattened to a space (``Electronic---House`` → ``Electronic House``);
+    the viewer shows only the leaf (``House``). Flattened forms are unique
+    across the 519-entry taxonomy, so the mapping is unambiguous. Labels
+    absent from the taxonomy pass through unchanged.
+
+    TODO(bad-design): the root problem is upstream — ``mir.descriptors.topk_csv``
+    discards the ``---`` separator before persisting genre labels, so the
+    parent/child structure is lost at the source and this stage has to
+    reconstruct the leaf by reloading and re-parsing the taxonomy. The
+    label CSV doubles as embedding input text, so we can't change the
+    persisted form without perturbing embeddings. The real fix (store the
+    structured label, or a separate leaf column, independent of the
+    embedding text) is deferred — revisit when the embedding text contract
+    is decoupled from the stored MIR descriptors.
+    """
+    from modules.mir.descriptors import load_labels
+
+    path = (
+        Path(__file__).resolve().parents[1] / "mir" / "labels" / "genre_discogs519.json"
+    )
+    leaf: dict[str, str] = {}
+    for raw in load_labels(path):
+        _, sep, child = raw.partition("---")
+        if sep:
+            leaf[raw.replace("---", " ")] = child
+    return leaf
+
+
+def _genre_only_pairs(
+    labels_csv: str | None, scores_csv: str | None
+) -> list[tuple[str, float]]:
+    """Parse genre label/score CSVs, reducing each label to its leaf genre."""
+    from modules.visualization.compute import parse_label_score_csv
+
+    leaf = _genre_leaf_map()
+    return [
+        (leaf.get(label, label), score)
+        for label, score in parse_label_score_csv(labels_csv, scores_csv)
+    ]
+
+
 def _make_member_clip(*, clip: Clip, mir: AudioMIR) -> ClusterMemberClip:
     from modules.visualization.compute import parse_label_score_csv
 
@@ -122,7 +169,7 @@ def _make_member_clip(*, clip: Clip, mir: AudioMIR) -> ClusterMemberClip:
         is_speech_detected=clip.is_speech_detected,
         speech_language=clip.speech_language,
         caption_language=clip.caption_language,
-        genre_pairs=parse_label_score_csv(mir.genre_labels, mir.genre_scores),
+        genre_pairs=_genre_only_pairs(mir.genre_labels, mir.genre_scores),
         instrument_pairs=parse_label_score_csv(
             mir.instrument_labels, mir.instrument_scores
         ),

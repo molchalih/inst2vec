@@ -11,7 +11,7 @@ Direct (non-pipeline) callers:
     embed_user_embeddings(settings, cases=None)
 
 Adding a new embedding case generally only requires:
-  1. Add provider/factory (if not reusing one) in providers.py / remote.py
+  1. Add provider/factory (if not reusing one) in providers.py / cases.py
   2. Add text/payload builder helpers if needed
   3. Register a new EmbeddingCaseSpec under a NEW name in cases.py
      (do not reuse "video" / "sandwich" / "audio" — see spec)
@@ -38,6 +38,9 @@ def run_clip(settings: Settings, secrets: Secrets) -> None:
         EmbeddingSecrets(
             gemini_api_key=secrets.gemini_api_key,
             embedder_token=secrets.embedder_token,
+            runpod_api_key=secrets.runpod_api_key,
+            coordinator_public_host=secrets.coordinator_public_host,
+            huggingface_token=secrets.huggingface_token,
         ),
     )
 

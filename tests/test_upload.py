@@ -86,7 +86,9 @@ def test_uploads_selected_downloaded_clips(tmp_path, isolated_db):
         session.close()
 
 
-def test_skips_already_uploaded_clips(tmp_path, isolated_db):
+def test_reuploads_when_flag_set_but_object_absent(tmp_path, isolated_db):
+    """Bucket is authoritative: if is_uploaded=True but the object is missing,
+    upload_videos self-heals by uploading the file and the flag stays True."""
     with mock_aws():
         store = ObjectStore(
             settings=StorageSettings(backend="s3", bucket=BUCKET, prefix="videos/"),
@@ -112,8 +114,11 @@ def test_skips_already_uploaded_clips(tmp_path, isolated_db):
 
         upload_videos(settings, secrets)
 
-        # head should return None — we never uploaded
-        assert store.head("videos/5.mp4") is None
+        # bucket-authoritative: object was absent so it was uploaded
+        assert store.head("videos/5.mp4")["size"] == len(b"new-bytes")
+        session = get_session()
+        assert session.get(Clip, 5).is_uploaded is True
+        session.close()
 
 
 def test_ignores_unselected_and_undownloaded_clips(tmp_path, isolated_db):
@@ -154,7 +159,9 @@ def _make_settings(tmp_path, *, bucket: str, video_dir: str | None = None):
     settings.storage.bucket = bucket
     settings.storage.prefix = "videos/"
     settings.storage.backend = "s3"
+    settings.storage.region = ""
     settings.paths.video_dir = video_dir or str(tmp_path / "videos")
+    settings.download.concurrency = 4
     return settings
 
 

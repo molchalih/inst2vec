@@ -34,6 +34,20 @@ class ExtractResult(NamedTuple):
     err: str | None
 
 
+def _output_is_fresh(audio_path: str, video_path: str) -> bool:
+    """True when the extracted audio exists and is at least as new as its source.
+
+    The cheap, file-only signal that a clip is already done: no ffprobe, no
+    ffmpeg. Lets a stale-fingerprint re-walk skip every previously-extracted
+    clip without re-probing it.
+    """
+    return (
+        os.path.exists(audio_path)
+        and os.path.exists(video_path)
+        and os.path.getmtime(audio_path) >= os.path.getmtime(video_path)
+    )
+
+
 def extract_audio(
     video_path: str,
     audio_path: str,
@@ -55,12 +69,7 @@ def extract_audio(
     even if it already exists (used when encoding config has drifted).
     """
     t0 = time.perf_counter()
-    if (
-        not force
-        and os.path.exists(audio_path)
-        and os.path.exists(video_path)
-        and os.path.getmtime(audio_path) >= os.path.getmtime(video_path)
-    ):
+    if not force and _output_is_fresh(audio_path, video_path):
         return ExtractResult(
             ok=True,
             duration=time.perf_counter() - t0,
@@ -133,6 +142,7 @@ def extract_audio_stage(settings) -> None:
 
         failures = 0
         skipped = 0
+        fresh = 0
         bitrate = settings.audio_extraction.audio_bitrate_kbps
         sr = settings.audio_extraction.audio_sample_rate_hz
         timeout_s = settings.audio_extraction.audio_extract_timeout_s
@@ -155,6 +165,10 @@ def extract_audio_stage(settings) -> None:
                         stats={"err": "no video on disk"},
                     )
                     advance(detail=f"✗ {clip.id} (no video)")
+                    continue
+                if _output_is_fresh(audio_path, video_path):
+                    fresh += 1
+                    advance(detail=f"• {clip.id} (cached)")
                     continue
                 if not has_audio_stream(video_path):
                     skipped += 1
@@ -215,7 +229,8 @@ def extract_audio_stage(settings) -> None:
                 "audio",
                 "ok",
                 stats={
-                    "done": len(clips) - skipped,
+                    "done": len(clips) - skipped - fresh,
+                    "cached": fresh,
                     "skipped": skipped,
                     "time": time.perf_counter() - t_stage,
                 },
@@ -227,7 +242,8 @@ def extract_audio_stage(settings) -> None:
                 "audio",
                 "stale",
                 stats={
-                    "done": len(clips) - failures - skipped,
+                    "done": len(clips) - failures - skipped - fresh,
+                    "cached": fresh,
                     "skipped": skipped,
                     "err": failures,
                     "time": time.perf_counter() - t_stage,
@@ -395,6 +411,7 @@ def extract_audio_mir_stage(settings) -> None:
 
         failures = 0
         skipped = 0
+        fresh = 0
         timeout_s = ae.mir_extract_timeout_s
         t_stage = time.perf_counter()
         with (
@@ -415,6 +432,10 @@ def extract_audio_mir_stage(settings) -> None:
                         stats={"err": "no video on disk"},
                     )
                     advance(detail=f"✗ {clip.id} (no video)")
+                    continue
+                if not force_reencode and _output_is_fresh(audio_path, video_path):
+                    fresh += 1
+                    advance(detail=f"• {clip.id} (cached)")
                     continue
                 if not has_audio_stream(video_path):
                     skipped += 1
@@ -481,7 +502,8 @@ def extract_audio_mir_stage(settings) -> None:
                 "audio_mir",
                 "ok",
                 stats={
-                    "done": len(clips) - skipped,
+                    "done": len(clips) - skipped - fresh,
+                    "cached": fresh,
                     "skipped": skipped,
                     "time": time.perf_counter() - t_stage,
                 },
@@ -493,7 +515,8 @@ def extract_audio_mir_stage(settings) -> None:
                 "audio_mir",
                 "stale",
                 stats={
-                    "done": len(clips) - failures - skipped,
+                    "done": len(clips) - failures - skipped - fresh,
+                    "cached": fresh,
                     "skipped": skipped,
                     "err": failures,
                     "time": time.perf_counter() - t_stage,

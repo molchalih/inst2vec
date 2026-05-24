@@ -16,10 +16,12 @@ from __future__ import annotations
 import os as _os
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from functools import partial
 
 from modules.embeddings.providers import (
     LocalQwenProvider,
     Provider,
+    ProviderRouter,
 )
 from modules.embeddings.text import (
     build_audio_text,
@@ -39,16 +41,22 @@ AUDIO_INSTRUCTION = (
 
 @dataclass(frozen=True)
 class EmbeddingSecrets:
-    """Secret bag threaded through provider factories.
+    """Secret bag threaded through the embedding stage.
 
-    Local providers ignore this; the Gemini provider reads
-    ``gemini_api_key``. Every field defaults to ``""``/``None`` so
-    ``EmbeddingSecrets()`` is a valid no-arg call for tests / pipelines
-    that don't need credentials.
+    The Gemini provider reads ``gemini_api_key``; local providers ignore it.
+    ``embedder_token`` gates the coordinator + pods. The remaining fields feed
+    the RunPod pod fleet: ``runpod_api_key`` + ``coordinator_public_host`` gate
+    auto-deploy (``fleet_enabled``) and ``huggingface_token`` is forwarded into
+    each pod's env. Every field defaults to ``""``/``None`` so
+    ``EmbeddingSecrets()`` is a valid no-arg call for tests / pipelines that
+    don't need credentials.
     """
 
     gemini_api_key: str | None = None
     embedder_token: str = ""
+    runpod_api_key: str = ""
+    coordinator_public_host: str = ""
+    huggingface_token: str = ""
 
 
 @dataclass(frozen=True)
@@ -81,6 +89,11 @@ class EmbeddingCaseSpec:
     # case, but the JSON exporter excludes it from manifest.json + the
     # runs/ subtree. Flip to True to expose the case without recomputing.
     expose_to_viewer: bool = True
+    # Cases sharing a non-empty backbone are served by ONE provider instance
+    # in build_provider_router (e.g. all "qwen" cases share one model). Empty
+    # = standalone provider via provider_factory. NOT part of
+    # case_config_identity, so flipping it never invalidates stored rows.
+    backbone: str = ""
 
 
 # ── provider factories ───────────────────────────────────────────────────────
@@ -110,6 +123,7 @@ def _make_qwen_factory(*, with_frames: bool, name: str):
 
 _QWEN_VIDEO = _make_qwen_factory(with_frames=True, name="qwen_provider_video")
 _QWEN_TEXT = _make_qwen_factory(with_frames=False, name="qwen_provider_text")
+_QWEN_FACTORIES = {_QWEN_VIDEO, _QWEN_TEXT}
 
 
 # ── payload builders ─────────────────────────────────────────────────────────
@@ -145,6 +159,7 @@ VIDEO_CASE = EmbeddingCaseSpec(
     dependency_columns=("_video_file_stat",),
     recipe_version="none",
     display_label="Visual",
+    backbone="qwen",
 )
 
 SANDWICH_CASE = EmbeddingCaseSpec(
@@ -166,6 +181,7 @@ SANDWICH_CASE = EmbeddingCaseSpec(
     ),
     recipe_version="sandwich_v3",
     display_label="Visual + Music",
+    backbone="qwen",
 )
 
 AUDIO_CASE = EmbeddingCaseSpec(
@@ -184,6 +200,7 @@ AUDIO_CASE = EmbeddingCaseSpec(
     ),
     recipe_version="audio_v3",
     display_label="Speech",
+    backbone="qwen",
 )
 
 
@@ -354,3 +371,40 @@ def case_config_identity(spec: EmbeddingCaseSpec, settings) -> str:
         parts.append(f"min_samples={min_samples}")
         parts.append(f"checkpoint_sha256={read_sidecar_sha256(pb_path)}")
     return "|".join(parts)
+
+
+def remote_served_cases() -> tuple[str, ...]:
+    """Case names a pod may be handed (served_remotely=True)."""
+    return tuple(n for n, s in CASE_REGISTRY.items() if s.served_remotely)
+
+
+def build_provider_router(settings, secrets, cases) -> ProviderRouter:
+    """Build a ProviderRouter over ``cases``.
+
+    Cases with backbone="qwen" whose ``provider_factory`` is one of the
+    standard ``_QWEN_VIDEO``/``_QWEN_TEXT`` factories share ONE Qwen instance
+    (with_frames=True). A backbone="qwen" case with an overridden
+    ``provider_factory`` falls through to its own instance via that factory,
+    which lets tests inject a stub without touching the shared model. The
+    audio case is text-only, and a text-only payload is independent of the
+    model's frame settings (see vendor format_model_input), so the shared
+    instance yields the same vector the old text-config provider did — no
+    stored-row recompute, hence audio's config_identity is intentionally left
+    unchanged. Everything else builds via its own provider_factory. All
+    builders are deferred (the router instantiates on first use).
+    """
+    instances: dict[str, Provider] = {}
+
+    def _qwen() -> Provider:
+        if "qwen" not in instances:
+            instances["qwen"] = qwen_provider(settings, secrets, with_frames=True)
+        return instances["qwen"]
+
+    factories: dict[str, Callable[[], Provider]] = {}
+    for name in cases:
+        spec = CASE_REGISTRY[name]
+        if spec.backbone == "qwen" and spec.provider_factory in _QWEN_FACTORIES:
+            factories[name] = _qwen
+        else:
+            factories[name] = partial(spec.provider_factory, settings, secrets)
+    return ProviderRouter(factories)

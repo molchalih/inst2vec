@@ -420,6 +420,46 @@ def test_force_reencode_does_not_fire_on_dependency_drift(
     )
 
 
+def test_mir_stage_skips_already_extracted_clips_without_reprobing(
+    sample_mp4_with_audio, tmp_path, db_session
+):
+    """Adding a selected clip makes the MIR fingerprint stale, but already-
+    extracted WAVs must be skipped without re-running ffprobe — only the new
+    clip is probed/extracted."""
+    from unittest.mock import patch
+
+    from core.ffmpeg import has_audio_stream as real_probe
+    from modules.ingest.audio import extract_audio_mir_stage
+
+    vid_dir = tmp_path / "video"
+    vid_dir.mkdir()
+    (vid_dir / "1.mp4").write_bytes(Path(sample_mp4_with_audio).read_bytes())
+
+    db_session.add(User(id=1))
+    db_session.add(Clip(id=1, user_id=1, is_downloaded=True, is_selected=True))
+    db_session.commit()
+
+    audio_mir_dir = tmp_path / "audio_mir"
+    settings = _make_settings(video_dir=vid_dir, audio_mir_dir=audio_mir_dir)
+
+    # First run extracts clip 1 and seals.
+    extract_audio_mir_stage(settings)
+    assert (audio_mir_dir / "1.wav").exists()
+
+    # A new selected clip arrives -> fingerprint goes stale, stage re-runs.
+    (vid_dir / "2.mp4").write_bytes(Path(sample_mp4_with_audio).read_bytes())
+    db_session.add(Clip(id=2, user_id=1, is_downloaded=True, is_selected=True))
+    db_session.commit()
+
+    with patch("modules.ingest.audio.has_audio_stream", wraps=real_probe) as probe:
+        extract_audio_mir_stage(settings)
+
+    probed = [call.args[0] for call in probe.call_args_list]
+    assert str(vid_dir / "1.mp4") not in probed
+    assert str(vid_dir / "2.mp4") in probed
+    assert (audio_mir_dir / "2.wav").exists()
+
+
 def test_extract_audio_mir_config_payload_is_field_reorder_safe():
     """The payload string must be a deterministic JSON, not a positional
     pipe-delimited string. This catches the original brittle f-string form."""

@@ -151,6 +151,42 @@ def test_paths_data_csv_path_present(tmp_path):
     assert settings.paths.data_csv_path == "data/data.csv"
 
 
+def test_env_overrides_runpod_and_storage_deployment_fields(tmp_path):
+    # Deployment-specific values live in .env, not the tracked config.toml.
+    settings, _ = _load_with_fake_toml(
+        tmp_path,
+        env_overrides={
+            "RUNPOD_NETWORK_VOLUME_ID": "vol123",
+            "RUNPOD_DATA_CENTER_ID": "EU-RO-1",
+            "RUNPOD_GPU_TYPE_ID": "NVIDIA L4",
+            "RUNPOD_GPU_MAX_PRICE_HR": "0.5",
+            "RUNPOD_GPU_MIN_VRAM_GB": "32",
+        },
+    )
+    assert settings.runpod.network_volume_id == "vol123"
+    assert settings.runpod.data_center_id == "EU-RO-1"
+    assert settings.runpod.gpu_type_id == "NVIDIA L4"
+    assert settings.runpod.gpu_max_price_hr == 0.5
+    assert settings.runpod.gpu_min_vram_gb == 32
+    # bucket == the volume and region == its DC, derived so .env stays DRY.
+    assert settings.storage.bucket == "vol123"
+    assert settings.storage.region == "EU-RO-1"
+
+
+def test_explicit_storage_env_wins_over_derivation(tmp_path):
+    settings, _ = _load_with_fake_toml(
+        tmp_path,
+        env_overrides={
+            "RUNPOD_NETWORK_VOLUME_ID": "vol123",
+            "RUNPOD_DATA_CENTER_ID": "EU-RO-1",
+            "STORAGE_BUCKET": "other-bucket",
+            "STORAGE_REGION": "US-KS-2",
+        },
+    )
+    assert settings.storage.bucket == "other-bucket"
+    assert settings.storage.region == "US-KS-2"
+
+
 def test_missing_secret_raises(tmp_path):
     from core import config as config_mod
 
@@ -236,6 +272,29 @@ def test_secrets_present_when_gemini_enabled_and_key_set(tmp_path):
         settings, secrets = config_mod.load_runtime_config()
     assert settings.embeddings.gemini_enabled is True
     assert secrets.gemini_api_key == "gem-key"
+
+
+def test_load_runpod_config_needs_no_pipeline_secrets(tmp_path):
+    # The GPU-listing helper must work from a RunPod-only env: no DB / Hiker /
+    # HuggingFace vars present, and Gemini validation must not run.
+    from core import config as config_mod
+
+    toml_file = tmp_path / "config.toml"
+    toml_file.write_bytes(MINIMAL_TOML)
+    env = {
+        "RUNPOD_API_KEY": "rp-key",
+        "RUNPOD_NETWORK_VOLUME_ID": "vol123",
+        "RUNPOD_DATA_CENTER_ID": "EU-RO-1",
+    }
+    with (
+        patch.object(config_mod, "_CONFIG_PATH", toml_file),
+        patch.dict(os.environ, env, clear=True),
+    ):
+        settings, runpod_api_key = config_mod.load_runpod_config()
+    assert runpod_api_key == "rp-key"
+    # Deployment overrides are applied, so the volume's DC is available.
+    assert settings.runpod.network_volume_id == "vol123"
+    assert settings.runpod.data_center_id == "EU-RO-1"
 
 
 def test_settings_includes_mir_section(tmp_path):

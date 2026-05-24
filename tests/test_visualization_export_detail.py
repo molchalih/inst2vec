@@ -20,8 +20,24 @@ from core.database import (
     get_engine,
     get_session,
 )
-from modules.visualization.export import export_visualization_json
+from modules.visualization.export import (
+    _genre_only_pairs,
+    export_visualization_json,
+)
 from modules.visualization.schema import SCHEMA_VERSION
+
+
+def test_genre_only_pairs_reduces_flattened_labels_to_leaf():
+    # MIR flattens ``Parent---Child`` to ``Parent Child``; the viewer shows
+    # only the leaf, including for multi-word parents.
+    assert _genre_only_pairs("Electronic House, Hip Hop Trap", "0.8, 0.2") == [
+        ("House", 0.8),
+        ("Trap", 0.2),
+    ]
+
+
+def test_genre_only_pairs_passes_unknown_labels_through():
+    assert _genre_only_pairs("totally unknown", "0.5") == [("totally unknown", 0.5)]
 
 
 def _clear() -> None:

@@ -33,7 +33,7 @@ def test_http_worker_drains_all_jobs(tmp_path):
                 clip_id=i,
                 case="video",
                 text=None,
-                video_key=f"videos/{i}.mp4",
+                video_key=f"{i}.mp4",
                 fps=2.0,
                 max_frames=96,
                 remote_eligible=True,

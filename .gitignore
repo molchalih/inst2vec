@@ -68,6 +68,10 @@ scripts/output/
 # Local-only working journal for the cluster-analysis maintainer
 scripts/cluster_analysis/LESSONS.md
 
+# Pod fleet crash-recovery state
+.runpod_fleet.json
+.runpod_fleet.json.tmp
+
 # Local-only state
 .claude/
 .clone

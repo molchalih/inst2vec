@@ -25,6 +25,7 @@ from modules.embeddings.sampling import frame_retry_schedule, is_token_mismatch_
 from modules.embeddings.vectors import to_bytes
 
 DRAINED = "drained"
+UNREACHABLE = "unreachable"
 
 
 def embed_with_token_fallback(
@@ -122,19 +123,34 @@ class HttpJobSource:
             return resp
 
     def lease(self, *, served_only: bool):
-        resp = self._post("/lease", {"served_only": served_only})
+        try:
+            resp = self._post("/lease", {"served_only": served_only})
+        except (httpx.TimeoutException, httpx.TransportError):
+            return UNREACHABLE
         if resp.status_code == 410:
             return DRAINED
         if resp.status_code == 204:
             return None
+        if resp.status_code != 200:
+            raise RuntimeError(
+                f"coordinator /lease failed: {resp.status_code} {resp.text}"
+            )
         data = resp.json()
         return Leased(lease_id=data["lease_id"], job=data["job"])
 
     def complete(self, lease_id: str, vector) -> None:
-        self._post(
+        resp = self._post(
             "/complete",
             {"lease_id": lease_id, "embedding": [float(x) for x in vector]},
         )
+        if not resp.is_success:
+            log(
+                "embed:pod",
+                "EMB",
+                f"lease_{lease_id}",
+                "WARN",
+                stats={"complete_status": resp.status_code},
+            )
 
     def complete_blob(self, lease_id: str, blob: bytes) -> None:
         import numpy as np
@@ -142,22 +158,43 @@ class HttpJobSource:
         self.complete(lease_id, np.frombuffer(blob, dtype="<f4").tolist())
 
     def fail(self, lease_id: str, error: str) -> None:
-        self._post("/fail", {"lease_id": lease_id, "error": error})
+        resp = self._post("/fail", {"lease_id": lease_id, "error": error})
+        if not resp.is_success:
+            log(
+                "embed:pod",
+                "EMB",
+                f"lease_{lease_id}",
+                "WARN",
+                stats={"fail_status": resp.status_code},
+            )
 
 
 # ── worker loop ──────────────────────────────────────────────────────────────
 
 
+def _safe_join(root: str, key: str) -> str:
+    # Jobs carry bare filenames ("{clip_id}.mp4"/".mp3") resolved against the
+    # worker's own root. A pod ingests jobs over HTTP, so reject anything with
+    # path separators, a parent ref, or a leading slash before joining: a
+    # malformed/compromised coordinator must not be able to redirect a worker
+    # outside its media root.
+    if key != os.path.basename(key) or key in (".", ".."):
+        raise ValueError(f"unsafe media key (must be a bare filename): {key!r}")
+    return os.path.join(root, key)
+
+
 def _resolve_video_path(video_root: str, video_key: str | None) -> str | None:
+    # video_key is a bare filename ("{clip_id}.mp4") relative to the worker's
+    # own video_root (local data dir or the pod's mounted volume).
     if video_key is None:
         return None
-    return os.path.join(video_root, os.path.basename(video_key))
+    return _safe_join(video_root, video_key)
 
 
 def _resolve_audio_path(audio_root: str | None, audio_key: str | None) -> str | None:
     if audio_key is None or audio_root is None:
         return None
-    return os.path.join(audio_root, os.path.basename(audio_key))
+    return _safe_join(audio_root, audio_key)
 
 
 def _process_one(
@@ -197,16 +234,33 @@ def run_worker(
     inflight: int,
     served_only: bool,
     poll_idle_s: float = 0.5,
+    unreachable_exit_s: float | None = None,
     log_tag: str = "embed:worker",
 ) -> None:
     """Drain the job source until it signals ``DRAINED``. Runs up to
-    ``inflight`` embeds concurrently across that many lanes."""
+    ``inflight`` embeds concurrently. If ``unreachable_exit_s`` is set (pods),
+    a lane exits cleanly after that many seconds of continuous ``UNREACHABLE``
+    leases — a crash backstop so a dead coordinator stops GPU billing."""
 
     def lane() -> None:
+        unreachable_since: float | None = None
         while True:
             leased = source.lease(served_only=served_only)
             if leased == DRAINED:
                 return
+            if leased == UNREACHABLE:
+                now = time.monotonic()
+                if unreachable_since is None:
+                    unreachable_since = now
+                elif (
+                    unreachable_exit_s is not None
+                    and now - unreachable_since > unreachable_exit_s
+                ):
+                    log(log_tag, "SKIP", "coordinator", "unreachable")
+                    return
+                time.sleep(poll_idle_s)
+                continue
+            unreachable_since = None
             if leased is None:
                 time.sleep(poll_idle_s)
                 continue

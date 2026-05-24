@@ -53,6 +53,21 @@ def test_key_for_clip_uses_prefix(store):
     assert store.key_for_clip(12345) == "videos/12345.mp4"
 
 
+def test_region_from_settings_is_passed_to_client():
+    # RunPod's S3 endpoint signs with SigV4 against the datacenter region; an
+    # unset/mismatched region yields SignatureDoesNotMatch.
+    with mock_aws():
+        s = ObjectStore(
+            settings=StorageSettings(
+                backend="s3", bucket="b", prefix="v", region="EU-RO-1"
+            ),
+            endpoint_url=None,
+            access_key="t",
+            secret_key="t",
+        )
+        assert s.client.meta.region_name == "EU-RO-1"
+
+
 def test_key_for_clip_without_trailing_slash():
     s = ObjectStore(
         settings=StorageSettings(backend="s3", bucket="b", prefix="videos"),

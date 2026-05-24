@@ -41,6 +41,7 @@ dependencies = [
     "setuptools",
     "boto3>=1.43.9",
     "essentia-tensorflow>=2.1b6.dev1389,<2.1b6.dev1438",
+    "runpod>=1.9.0",
 ]
 
 [project.urls]

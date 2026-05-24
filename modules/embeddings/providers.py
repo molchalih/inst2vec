@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import contextlib
 import io
+import threading
+from collections.abc import Callable
 from typing import Protocol
 
 
@@ -54,3 +56,28 @@ class LocalQwenProvider:
     def embed(self, payload: dict):
         """Process a single payload and return the model's output list."""
         return self._model.process([payload])
+
+
+class ProviderRouter:
+    """Provider that dispatches ``embed(payload)`` to a per-case backend.
+
+    Backends are built lazily on first use (double-checked locking) so a
+    case with no work never loads its model, and concurrent ``inflight``
+    lanes don't race the build. The actual ``embed`` runs outside the lock.
+    """
+
+    def __init__(self, factories: dict[str, Callable[[], Provider]]) -> None:
+        self._factories = factories
+        self._instances: dict[str, Provider] = {}
+        self._lock = threading.Lock()
+
+    def embed(self, payload: dict):
+        case = payload["case"]
+        prov = self._instances.get(case)
+        if prov is None:
+            with self._lock:
+                prov = self._instances.get(case)
+                if prov is None:
+                    prov = self._factories[case]()
+                    self._instances[case] = prov
+        return prov.embed(payload)

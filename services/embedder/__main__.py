@@ -5,6 +5,7 @@ Honored env vars:
   EMBEDDER_TOKEN      shared bearer token (required)
   MODEL_PATH          default /workspace/models/Qwen3-VL-Embedding-8B
   VIDEO_ROOT          default /workspace/videos
+  HUGGINGFACE_TOKEN   optional; exported as HF_TOKEN for gated model pulls
 """
 
 from __future__ import annotations

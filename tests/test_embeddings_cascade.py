@@ -103,7 +103,7 @@ class _FakeSecrets:
     """Carries only the fields the distributed orchestrator reads.
 
     The fake provider factory ignores ``_secrets`` entirely, but
-    ``embed_jobs_distributed`` reads ``embedder_token`` to bind the
+    ``StageEmbedder`` reads ``embedder_token`` to bind the
     coordinator's auth.
     """
 
@@ -146,6 +146,7 @@ class _EmbeddingsStub:
     max_attempts: int = 3
     coordinator_bind_host: str = "127.0.0.1"
     coordinator_bind_port: int = 0
+    pod_drain_grace_s: float = 0.0
 
 
 @dataclass

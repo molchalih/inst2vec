@@ -18,6 +18,7 @@ def test_distributed_defaults():
     assert s.max_attempts == 3
     assert s.worker_request_timeout_s == 120
     assert s.worker_max_retries == 3
+    assert s.pod_connect_timeout_s == 600
 
 
 def test_positive_validation_rejects_zero():
