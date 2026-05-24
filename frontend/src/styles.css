@@ -1,0 +1,27 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Self-hosted inspector typefaces. Files live in src/fonts and are
+   bundled by Vite (relative url, hashed at build). Variable woff2 with
+   the plain `woff2` format hint — no third-party fetch, no legacy
+   `woff2-variations` hint that some browsers reject. */
+@font-face {
+  font-family: "Fraunces";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("./fonts/fraunces-opsz.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Spline Sans Mono";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("./fonts/spline-sans-mono.woff2") format("woff2");
+}
+
+@keyframes inspector-skeleton-pulse {
+  0%, 100% { opacity: 0.4; }
+  50%      { opacity: 0.9; }
+}

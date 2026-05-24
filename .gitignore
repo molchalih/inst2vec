@@ -2,8 +2,8 @@
 .venv/
 .env
 
-# Data folder
-data/
+# Data folder (root-level Python data; not frontend/src/data)
+/data/
 !frontend/public/data/
 
 # Model weights & checkpoints
@@ -85,3 +85,12 @@ REVIEW.md
 REVIEW_ANSWERED.md
 REVIEW_TODO.md
 docs/superpowers/
+
+# Frontend AI-workflow files (architecture rules, stage briefs, feature contracts)
+frontend/docs/*.md
+frontend/src/features/*/README.md
+
+# Frontend build artefacts
+frontend/node_modules/
+frontend/dist/
+frontend/coverage/

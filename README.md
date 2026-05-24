@@ -71,3 +71,8 @@ Configuration splits into `Settings` (tunables in `config.toml`) and `Secrets` (
 ## License
 
 Apache-2.0 — see [`LICENSE`](LICENSE).
+
+## Frontend
+
+A static atlas viewer lives in `frontend/`. See
+[`frontend/README.md`](frontend/README.md) for details.

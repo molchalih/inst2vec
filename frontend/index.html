@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Tells the user agent this page is dark before any CSS is
+         parsed, so the browser's first-paint canvas color matches
+         our background instead of the default white. -->
+    <meta name="color-scheme" content="dark" />
+    <title>inst2vec atlas</title>
+    <style>
+      /* Paint-blocking base: CSS variables and root layout must be
+         present on the first frame, before the JS bundle (and the
+         Tailwind-emitted utilities that depend on them) loads.
+         Values mirror tokens.ts; channel form enables Tailwind
+         <alpha-value> substitution. */
+      :root {
+        color-scheme: dark;
+        --bg-canvas: 11 18 32;
+        --fg-default: 226 232 240;
+        --fg-muted: 148 163 184;
+      }
+      html, body, #root {
+        height: 100%;
+        margin: 0;
+        background: rgb(var(--bg-canvas));
+        color: rgb(var(--fg-default));
+        overflow: hidden;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
