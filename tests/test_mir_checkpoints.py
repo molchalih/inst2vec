@@ -26,18 +26,22 @@ def _stub_transport(status: int, payload: bytes = b"x" * 16) -> httpx.MockTransp
     return httpx.MockTransport(handler)
 
 
-def test_manifest_total_18_entries(mir_settings):
+def test_manifest_total_22_entries(mir_settings):
     from modules.mir.checkpoints import _manifest
 
     items = _manifest(mir_settings)
-    assert len(items) == 18
-    # 1 MAEST + 1 EffNet + 16 heads
+    assert len(items) == 22
+    # 1 MAEST .pb + 1 EffNet .pb + 2 ONNX + 2 JSON + 16 heads
     targets = [str(p) for (_url, p) in items]
     assert any("discogs-maest-30s-pw-519l-1.pb" in t for t in targets)
     assert any("discogs-effnet-bs64-1.pb" in t for t in targets)
     assert any("mtg_jamendo_moodtheme-discogs-effnet-1.pb" in t for t in targets)
     assert any("mtg_jamendo_instrument-discogs-effnet-1.pb" in t for t in targets)
     assert any("approachability_regression-discogs-effnet-1.pb" in t for t in targets)
+    assert any("discogs-maest-30s-pw-519l-1.onnx" in t for t in targets)
+    assert any("discogs-effnet-bsdynamic-1.onnx" in t for t in targets)
+    assert any("discogs-maest-30s-pw-519l-1.json" in t for t in targets)
+    assert any("discogs-effnet-bsdynamic-1.json" in t for t in targets)
 
 
 def test_all_present_skips_downloads(monkeypatch, mir_settings):
@@ -210,9 +214,12 @@ def test_ensure_checkpoints_writes_sidecar_for_downloaded_files(
     expected = hashlib.sha256(b"payload").hexdigest()
     for _url, target in checkpoints._manifest(mir_settings):
         side = checkpoints._sidecar_path(target)
-        assert side.exists(), target
-        data = json.loads(side.read_text())
-        assert data["sha256"] == expected
+        if target.suffix in (".onnx", ".json"):
+            assert not side.exists(), f"unexpected sidecar for untracked file: {target}"
+        else:
+            assert side.exists(), target
+            data = json.loads(side.read_text())
+            assert data["sha256"] == expected
 
 
 def test_ensure_checkpoints_refreshes_present_sidecars_on_entry(
@@ -237,9 +244,12 @@ def test_ensure_checkpoints_refreshes_present_sidecars_on_entry(
 
     for _url, target in checkpoints._manifest(mir_settings):
         side = checkpoints._sidecar_path(target)
-        assert side.exists()
-        data = json.loads(side.read_text())
-        assert "sha256" in data
+        if target.suffix in (".onnx", ".json"):
+            assert not side.exists(), f"unexpected sidecar for untracked file: {target}"
+        else:
+            assert side.exists()
+            data = json.loads(side.read_text())
+            assert "sha256" in data
 
 
 def test_ensure_checkpoints_retries_transient_failures(monkeypatch, mir_settings):
@@ -298,8 +308,8 @@ def test_ensure_checkpoints_gives_up_after_max_attempts(monkeypatch, mir_setting
 
     with pytest.raises(RuntimeError):
         checkpoints.ensure_checkpoints(mir_settings)
-    # 18 files × 2 attempts each = 36 hits
-    assert len(seen) == 18 * 2
+    # 22 files × 2 attempts each = 44 hits
+    assert len(seen) == 22 * 2
 
 
 def test_ensure_checkpoints_partial_failure_keeps_successes_and_raises(

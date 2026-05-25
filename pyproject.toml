@@ -41,6 +41,17 @@ dependencies = [
     "setuptools",
     "boto3>=1.43.9",
     "essentia-tensorflow>=2.1b6.dev1389,<2.1b6.dev1438",
+    "onnxruntime-gpu>=1.17,<2; sys_platform == 'linux'",
+    "onnxruntime>=1.17,<2; sys_platform == 'darwin'",
+    # CUDA 12 / cuDNN 9 runtime libs for the onnxruntime-gpu CUDA provider.
+    # Without these on the library path it cannot load libcudnn.so.9 and the
+    # MIR ONNX path silently falls back to CPU (see core/vendor/onnx_session).
+    "nvidia-cudnn-cu12>=9,<10; sys_platform == 'linux'",
+    "nvidia-cublas-cu12; sys_platform == 'linux'",
+    "nvidia-cuda-runtime-cu12; sys_platform == 'linux'",
+    "nvidia-cuda-nvrtc-cu12; sys_platform == 'linux'",
+    "nvidia-cufft-cu12; sys_platform == 'linux'",
+    "nvidia-curand-cu12; sys_platform == 'linux'",
     "runpod>=1.9.0",
 ]
 

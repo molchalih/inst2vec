@@ -75,6 +75,8 @@ class MirSettings(BaseModel):
     maest_patch_seconds: float = 30.0
     effnet_checkpoint: str = "discogs-effnet-bs64-1.pb"
     effnet_embed_output: str = "PartitionedCall:1"
+    maest_onnx_checkpoint: str = "discogs-maest-30s-pw-519l-1.onnx"
+    effnet_onnx_checkpoint: str = "discogs-effnet-bsdynamic-1.onnx"
 
     checkpoint_max_attempts: int = 3
     checkpoint_backoff_seconds: float = 2.0

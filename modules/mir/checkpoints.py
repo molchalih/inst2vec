@@ -22,6 +22,12 @@ _MAEST_BASE = "https://essentia.upf.edu/models/feature-extractors/maest"
 _EFFNET_BASE = "https://essentia.upf.edu/models/feature-extractors/discogs-effnet"
 _HEAD_BASE = "https://essentia.upf.edu/models/classification-heads"
 
+# Suffixes downloaded but NOT tracked in the MIR fingerprint or sidecars: the
+# ONNX models (numerically equivalent to the .pb graphs, so they must not drift
+# the seal) and their .json companions (documentation only). Only .pb graphs
+# anchor the fingerprint.
+_UNTRACKED_SUFFIXES: tuple[str, ...] = (".onnx", ".json")
+
 # (subdir, filename) for every EffNet classification/regression head.
 _EFFNET_HEAD_FILES: tuple[tuple[str, str], ...] = (
     ("approachability", "approachability_regression-discogs-effnet-1.pb"),
@@ -47,15 +53,25 @@ def _manifest(mir: MirSettings) -> list[tuple[str, Path]]:
     """(url, target_path) pairs for every checkpoint required by run_mir."""
     root = Path(mir.model_dir)
     items: list[tuple[str, Path]] = [
+        (f"{_MAEST_BASE}/{mir.maest_checkpoint}", root / mir.maest_checkpoint),
+        (f"{_EFFNET_BASE}/{mir.effnet_checkpoint}", root / mir.effnet_checkpoint),
         (
-            f"{_MAEST_BASE}/{mir.maest_checkpoint}",
-            root / mir.maest_checkpoint,
+            f"{_MAEST_BASE}/{mir.maest_onnx_checkpoint}",
+            root / mir.maest_onnx_checkpoint,
         ),
         (
-            f"{_EFFNET_BASE}/{mir.effnet_checkpoint}",
-            root / mir.effnet_checkpoint,
+            f"{_EFFNET_BASE}/{mir.effnet_onnx_checkpoint}",
+            root / mir.effnet_onnx_checkpoint,
         ),
     ]
+    # ONNX models ship a companion .json (node names + inference params); not
+    # needed at runtime but fetched for documentation/debugging.
+    for base, name in (
+        (_MAEST_BASE, mir.maest_onnx_checkpoint),
+        (_EFFNET_BASE, mir.effnet_onnx_checkpoint),
+    ):
+        js = name.rsplit(".", 1)[0] + ".json"
+        items.append((f"{base}/{js}", root / js))
     for subdir, filename in _EFFNET_HEAD_FILES:
         items.append((f"{_HEAD_BASE}/{subdir}/{filename}", root / filename))
     return items
@@ -67,7 +83,7 @@ def _make_client(timeout: float) -> httpx.Client:
 
 
 def ensure_checkpoints(mir: MirSettings) -> None:
-    """Download every required ``.pb`` graph into ``mir.model_dir``.
+    """Download every required model file into ``mir.model_dir``.
 
     All-present -> returns immediately. Missing -> parallel HTTP GETs with
     atomic ``.part`` -> rename. Any failure aborts and removes ``.part``
@@ -148,10 +164,11 @@ def _sidecar_path(pb_path: Path) -> Path:
 
 
 def _maintain_sidecar(pb_path: Path) -> None:
-    """Ensure ``<pb>.sha256`` matches the current (size, mtime) of ``pb_path``.
+    """Ensure ``<model>.sha256`` matches the current (size, mtime) of ``pb_path``.
 
     Re-hashes and rewrites the sidecar when missing, unreadable, or when the
-    stored (size, mtime) header differs from the .pb on disk. Idempotent.
+    stored (size, mtime) header differs from the checkpoint file on disk.
+    Idempotent.
     """
     side = _sidecar_path(pb_path)
     st = pb_path.stat()
@@ -179,7 +196,7 @@ def _maintain_sidecar(pb_path: Path) -> None:
 def read_sidecar_sha256(pb_path: Path) -> str:
     """Return the recorded SHA-256 of ``pb_path`` from its sidecar.
 
-    Returns ``"absent"`` when either the .pb or its sidecar is missing
+    Returns ``"absent"`` when either the model file or its sidecar is missing
     or unreadable. Used by callers that need a stable identifier for a
     checkpoint without re-hashing it on every call.
     """
@@ -196,12 +213,13 @@ def read_sidecar_sha256(pb_path: Path) -> str:
 
 
 def validate_checkpoint_sidecars(mir: MirSettings) -> None:
-    """Refresh sidecars for every .pb present in ``mir.model_dir``.
+    """Refresh sidecars for every tracked checkpoint present in ``mir.model_dir``.
 
-    Cheap: a noop when sidecar headers match the current files. Designed to
-    run at MIR stage entry so manual .pb swaps surface as fingerprint drift
-    on the next run.
+    Cheap: a noop when sidecar headers match the current files. Skips the
+    untracked .onnx / .json files (only .pb graphs anchor the fingerprint).
+    Designed to run at MIR stage entry so manual .pb swaps surface as
+    fingerprint drift on the next run.
     """
     for _url, target in _manifest(mir):
-        if target.exists():
+        if target.exists() and target.suffix not in _UNTRACKED_SUFFIXES:
             _maintain_sidecar(target)

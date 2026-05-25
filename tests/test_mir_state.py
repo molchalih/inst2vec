@@ -55,6 +55,19 @@ def test_payload_changes_with_topk_or_checkpoint():
     assert b != c
 
 
+def test_payload_stable_across_onnx_checkpoint_change():
+    # The ONNX checkpoints are deliberately excluded from the fingerprint: the
+    # ONNX path is parity-equivalent to the .pb graphs, so switching MIR to it
+    # (or bumping the .onnx filename) must NOT drift the seal and force a full
+    # re-extraction. Only the .pb-facing fields affect the payload.
+    from modules.mir.state import mir_config_payload
+
+    a = mir_config_payload(_mir_settings())
+    b = mir_config_payload(_mir_settings(maest_onnx_checkpoint="other.onnx"))
+    c = mir_config_payload(_mir_settings(effnet_onnx_checkpoint="other.onnx"))
+    assert a == b == c
+
+
 def test_reset_audio_mir_nulls_descriptor_columns_but_preserves_row():
     from core.database import AudioMIR, Clip, User
     from modules.mir.state import reset_audio_mir

@@ -36,11 +36,18 @@ _MIR_CONFIG_FIELDS: tuple[str, ...] = (
     "topk_instrument",
     "inference_sample_rate",
     "maest_checkpoint",
+    # Legacy .pb-path fields: unused by the ONNX MIR inference but retained
+    # (the embeddings `maest` case still reads them); kept in the fingerprint
+    # conservatively.
     "maest_input",
     "maest_output",
     "maest_patch_seconds",
     "effnet_checkpoint",
     "effnet_embed_output",
+    # maest_onnx_checkpoint / effnet_onnx_checkpoint are deliberately absent.
+    # The ONNX path reproduces these .pb graphs bit-for-bit (parity-verified),
+    # so switching MIR to ONNX must NOT drift the fingerprint and trigger a full
+    # re-extraction. The .pb digests stay the anchor — keep the .pb files.
 )
 
 _RESET_COLUMNS: tuple[str, ...] = (
@@ -83,11 +90,20 @@ def _label_file_hashes() -> dict[str, str]:
 
 
 def _checkpoint_digests(mir: MirSettings) -> dict[str, str]:
-    """{<pb filename>: <sha256 or 'absent'>} for every checkpoint, sorted."""
-    from modules.mir.checkpoints import _manifest, _sidecar_path
+    """{<checkpoint filename>: <sha256 or 'absent'>} for every tracked checkpoint, sorted.
+
+    Only the Essentia ``.pb`` graphs are tracked. The ``.onnx`` models are
+    excluded because the ONNX MIR path is numerically equivalent to the ``.pb``
+    path (verified by scripts/mir_onnx_parity.py); fingerprinting them would
+    drift the seal and force a needless full re-extraction when MIR switches to
+    ONNX. The ``.json`` companions are excluded as documentation-only.
+    """
+    from modules.mir.checkpoints import _UNTRACKED_SUFFIXES, _manifest, _sidecar_path
 
     out: dict[str, str] = {}
     for _url, target in _manifest(mir):
+        if target.suffix in _UNTRACKED_SUFFIXES:
+            continue
         side = _sidecar_path(target)
         digest = "absent"
         if target.exists() and side.exists():
@@ -105,9 +121,10 @@ def mir_config_payload(mir: MirSettings) -> str:
     """Stable JSON of every input that affects MIR outputs.
 
     Covers: MirSettings fields in ``_MIR_CONFIG_FIELDS``, SHA-256 of every
-    label file under ``_LABELS_DIR``, the sidecar digest for every checkpoint
-    .pb file (``"absent"`` when the sidecar has not been written yet), and the
-    per-head (filename, output_op) specs from ``EFFNET_HEAD_SPECS``.
+    label file under ``_LABELS_DIR``, the sidecar digest for every tracked
+    checkpoint file (``"absent"`` when the sidecar has not been written yet;
+    .json companions are excluded), and the per-head (filename, output_op)
+    specs from ``EFFNET_HEAD_SPECS``.
     """
     from modules.mir.models import EFFNET_HEAD_SPECS
 

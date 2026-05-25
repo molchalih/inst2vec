@@ -45,24 +45,33 @@ EFFNET_HEAD_SPECS: dict[str, tuple[str, str]] = {
 
 
 def build_maest(mir: MirSettings) -> MAEST:
-    """Construct a MAEST graph from the configured checkpoint."""
+    """Construct a MAEST ONNX session from the configured checkpoint.
+
+    ``patch_frames`` is fixed at 1876 by the ONNX graph's input shape
+    ``(N, 1876, 96)`` — it is NOT derived from ``maest_patch_seconds`` (which
+    only the Essentia-based embeddings ``maest`` case still consumes).
+    """
     return MAEST(
-        pb=Path(mir.model_dir) / mir.maest_checkpoint,
-        input=mir.maest_input,
-        output=mir.maest_output,
-        min_samples=int(mir.maest_patch_seconds * mir.inference_sample_rate),
+        pb=Path(mir.model_dir) / mir.maest_onnx_checkpoint,
+        patch_frames=1876,
     )
 
 
 def build_effnet(mir: MirSettings) -> EffNet:
-    """Construct an EffNet + per-head graph bundle."""
+    """Construct an EffNet + per-head graph bundle.
+
+    The ONNX embedding checkpoint is the ``bsdynamic`` (dynamic-batch) export of
+    the same EffNet-Discogs architecture as the legacy ``bs64`` ``.pb``; numeric
+    parity between the two was verified bit-for-bit. The 15 heads stay Essentia
+    ``.pb`` graphs on CPU.
+    """
     root = Path(mir.model_dir)
     heads = {
         name: (root / filename, output_op)
         for name, (filename, output_op) in EFFNET_HEAD_SPECS.items()
     }
     return EffNet(
-        embed_pb=root / mir.effnet_checkpoint,
+        embed_pb=root / mir.effnet_onnx_checkpoint,
         heads=heads,
-        embed_output=mir.effnet_embed_output,
+        patch_frames=128,
     )
