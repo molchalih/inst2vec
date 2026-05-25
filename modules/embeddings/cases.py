@@ -267,12 +267,10 @@ def _maest_factory(settings, secrets) -> Provider:
     from modules.embeddings.maest import MaestProvider
 
     mir = settings.mir
-    checkpoint = Path(mir.model_dir) / mir.maest_checkpoint
+    onnx_path = Path(mir.model_dir) / mir.maest_onnx_checkpoint
     return MaestProvider(
-        checkpoint_path=checkpoint,
-        input_op=mir.maest_input,
+        onnx_path=onnx_path,
         sample_rate=mir.inference_sample_rate,
-        min_samples=int(mir.maest_patch_seconds * mir.inference_sample_rate),
     )
 
 
@@ -361,14 +359,23 @@ def case_config_identity(spec: EmbeddingCaseSpec, settings) -> str:
     if spec.name == "maest":
         mir = settings.mir
         pb_path = Path(mir.model_dir) / mir.maest_checkpoint
-        min_samples = int(mir.maest_patch_seconds * mir.inference_sample_rate)
-        parts.append(f"maest_checkpoint={mir.maest_checkpoint}")
-        parts.append(f"input_op={mir.maest_input}")
-        parts.append("output_op=StatefulPartitionedCall:7")
+        # backend=onnx is the deliberate migration marker: it flips the
+        # config_hash so the runner wipes + re-extracts every maest row once.
+        # The .pb sidecar sha256 stays the content anchor — the .onnx is the
+        # numerically-equivalent conversion of that same .pb and carries no
+        # sidecar (excluded from the MIR fingerprint).
+        parts.append("backend=onnx")
+        parts.append(f"maest_onnx_checkpoint={mir.maest_onnx_checkpoint}")
+        # layer_4_tokens is the ONNX name for the .pb's StatefulPartitionedCall:7
+        # (confirmed by parity); pb_equiv documents that the produced vector is
+        # the same tensor the prior .pb-backed rows used.
+        parts.append("output_op=layer_4_tokens")
+        parts.append("pb_equiv=StatefulPartitionedCall:7")
         parts.append("aggregation=concat_cls_dist_mean_v1")
         parts.append("patch_reduction=mean")
+        parts.append("patch_frames=1876")
+        parts.append("patch_hop=1875")
         parts.append(f"input_sample_rate={mir.inference_sample_rate}")
-        parts.append(f"min_samples={min_samples}")
         parts.append(f"checkpoint_sha256={read_sidecar_sha256(pb_path)}")
     return "|".join(parts)
 

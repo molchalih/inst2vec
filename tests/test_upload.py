@@ -160,8 +160,9 @@ def _make_settings(tmp_path, *, bucket: str, video_dir: str | None = None):
     settings.storage.prefix = "videos/"
     settings.storage.backend = "s3"
     settings.storage.region = ""
+    settings.storage.verify_concurrency = 8
+    settings.storage.upload_concurrency = 4
     settings.paths.video_dir = video_dir or str(tmp_path / "videos")
-    settings.download.concurrency = 4
     return settings
 
 

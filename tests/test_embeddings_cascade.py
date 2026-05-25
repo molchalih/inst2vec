@@ -153,6 +153,7 @@ class _EmbeddingsStub:
 class _MirStub:
     model_dir: str = "/fake/mir_models"
     maest_checkpoint: str = "discogs-maest-30s-pw-519l-1.pb"
+    maest_onnx_checkpoint: str = "discogs-maest-30s-pw-519l-1.onnx"
     maest_input: str = "serving_default_melspectrogram"
     inference_sample_rate: int = 16_000
     maest_patch_seconds: float = 30.0

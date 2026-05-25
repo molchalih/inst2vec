@@ -26,6 +26,7 @@ class _SpeechCfg:
     translate_target_lang: str = "en"
     translation_max_chars: int = 4096
     translate_max_new_tokens: int = 256
+    translate_batch_size: int = 16
     logprob_threshold: float = -1.0
     compression_threshold: float = 2.4
     min_meaningful_chars: int = 3
@@ -164,15 +165,17 @@ def test_config_change_resets_speech_columns(monkeypatch, db_session):
 
 
 def test_speech_config_payload_ignores_operational_knobs():
-    """commit_every and vad_ffmpeg_timeout_s must not invalidate the
-    speech fingerprint — they're purely operational."""
+    """commit_every, vad_ffmpeg_timeout_s and translate_batch_size must not
+    invalidate the speech fingerprint — they're purely operational."""
     from modules.speech.state import speech_config_payload
 
     base = _SpeechCfg()
     bumped_commit = _SpeechCfg(commit_every=base.commit_every + 5)
     bumped_vad_to = _SpeechCfg(vad_ffmpeg_timeout_s=base.vad_ffmpeg_timeout_s + 30)
+    bumped_batch = _SpeechCfg(translate_batch_size=base.translate_batch_size * 4)
     assert speech_config_payload(base) == speech_config_payload(bumped_commit)
     assert speech_config_payload(base) == speech_config_payload(bumped_vad_to)
+    assert speech_config_payload(base) == speech_config_payload(bumped_batch)
 
 
 def test_speech_config_payload_flips_on_output_affecting_knob():

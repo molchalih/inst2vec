@@ -193,16 +193,22 @@ def _run_case(
         )
         candidate_ids = {c.id for c in candidates}
 
-        # Sweep orphan ClipEmbedding rows for this case.
-        orphan_q = session.query(ClipEmbedding).filter(
-            ClipEmbedding.embedding_case == spec.name,
-        )
+        # Sweep orphan ClipEmbedding rows for this case. An empty candidate set
+        # is never a legitimate "delete every row" signal — it means upstream
+        # (selection) produced nothing this run, e.g. a half-loaded DB on a
+        # fresh box. Skip the sweep entirely rather than wipe the whole case.
         if candidate_ids:
-            orphan_q = orphan_q.filter(~ClipEmbedding.clip_id.in_(candidate_ids))
-        deleted = orphan_q.delete(synchronize_session=False)
-        if deleted:
-            session.commit()
-            log(log_tag, "WRITE", "orphans", "ok", stats={"deleted": deleted})
+            deleted = (
+                session.query(ClipEmbedding)
+                .filter(
+                    ClipEmbedding.embedding_case == spec.name,
+                    ~ClipEmbedding.clip_id.in_(candidate_ids),
+                )
+                .delete(synchronize_session=False)
+            )
+            if deleted:
+                session.commit()
+                log(log_tag, "WRITE", "orphans", "ok", stats={"deleted": deleted})
 
         current, per_clip = _compute_fingerprint_and_per_clip(
             session, spec, settings, candidates

@@ -107,12 +107,13 @@ def test_default_cases_includes_maest():
     assert "maest" in default_cases(settings_stub)
 
 
-def test_case_config_identity_for_maest_captures_checkpoint_and_aggregation(tmp_path):
-    """The maest identity string must include the sidecar sha256, the
-    aggregation tag, the input sample rate, and the output op."""
+def test_case_config_identity_for_maest_captures_onnx_backend(tmp_path):
+    """The maest identity must mark the onnx backend, the :7 output, the
+    aggregation, the patch geometry, and keep the .pb sidecar sha256 anchor.
+    The presence of ``backend=onnx`` is what forces the one-time re-extraction
+    when migrating off the Essentia .pb path."""
     from modules.embeddings.cases import MAEST_CASE, case_config_identity
 
-    # Seed the MIR model dir with a fake checkpoint + sidecar.
     model_dir = tmp_path / "mir_models"
     model_dir.mkdir()
     pb = model_dir / "discogs-maest-30s-pw-519l-1.pb"
@@ -131,6 +132,7 @@ def test_case_config_identity_for_maest_captures_checkpoint_and_aggregation(tmp_
         mir=types.SimpleNamespace(
             model_dir=str(model_dir),
             maest_checkpoint="discogs-maest-30s-pw-519l-1.pb",
+            maest_onnx_checkpoint="discogs-maest-30s-pw-519l-1.onnx",
             maest_input="serving_default_melspectrogram",
             inference_sample_rate=16000,
             maest_patch_seconds=30.0,
@@ -139,10 +141,16 @@ def test_case_config_identity_for_maest_captures_checkpoint_and_aggregation(tmp_
     identity = case_config_identity(MAEST_CASE, settings)
 
     assert "case=maest" in identity
-    assert "maest_checkpoint=discogs-maest-30s-pw-519l-1.pb" in identity
-    assert "output_op=StatefulPartitionedCall:7" in identity
+    assert "backend=onnx" in identity
+    assert "maest_onnx_checkpoint=discogs-maest-30s-pw-519l-1.onnx" in identity
+    assert "output_op=layer_4_tokens" in identity
+    assert "pb_equiv=StatefulPartitionedCall:7" in identity
     assert "aggregation=concat_cls_dist_mean_v1" in identity
     assert "patch_reduction=mean" in identity
+    assert "patch_frames=1876" in identity
+    assert "patch_hop=1875" in identity
     assert "input_sample_rate=16000" in identity
-    assert "min_samples=480000" in identity
     assert "checkpoint_sha256=abc123" in identity
+    # The Essentia-only knobs are gone now that the backend is onnx.
+    assert "input_op=" not in identity
+    assert "min_samples=" not in identity

@@ -88,6 +88,7 @@ def process_speech(
         translate_target_lang=cfg.translate_target_lang,
         translation_max_chars=cfg.translation_max_chars,
         translate_max_new_tokens=cfg.translate_max_new_tokens,
+        translate_batch_size=cfg.translate_batch_size,
     )
     clean_speech()
 

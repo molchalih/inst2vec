@@ -10,9 +10,11 @@ fully-local runs that never talk to the GPU pod.
 from __future__ import annotations
 
 import os
+import threading
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import nullcontext
 
 from core.config import Secrets, Settings
 from core.console import log, progress
@@ -42,9 +44,13 @@ def verify_outcome(store, key: str, local_size: int) -> str:
     return "present" if meta["size"] == local_size else "mismatch"
 
 
-def process_clip_upload(store, key: str, local_path: str) -> str:
+def process_clip_upload(store, key: str, local_path: str, put_gate=None) -> str:
     """Verify one clip against the bucket and upload if needed. Pure of DB
     state so it is safe to run in a worker thread; the caller updates the DB.
+
+    The HEAD verification runs unthrottled (it is a tiny request), but the
+    ``store.put()`` is held behind ``put_gate`` when supplied so a cold bucket
+    cannot launch a verify-width storm of concurrent video uploads.
 
     Returns: ``ok`` (already present), ``uploaded`` (put done), ``missing``
     (no local file), ``failed`` (HEAD or PUT raised). A transient store error on
@@ -56,7 +62,8 @@ def process_clip_upload(store, key: str, local_path: str) -> str:
         outcome = verify_outcome(store, key, os.path.getsize(local_path))
         if outcome == "present":
             return "ok"
-        store.put(local_path, key)
+        with put_gate or nullcontext():
+            store.put(local_path, key)
     except Exception:
         return "failed"
     return "uploaded"
@@ -68,11 +75,16 @@ def run_uploads(
     key_for,
     *,
     workers: int,
+    put_workers: int | None = None,
     on_result: Callable[[int, str], None] | None = None,
 ) -> dict[int, bool]:
     """Verify+upload ``clips`` (list of (clip_id, local_path)) concurrently.
 
-    Network I/O runs in a thread pool; no DB access here. Returns
+    Network I/O runs in a thread pool sized to ``workers`` (the HEAD-verify
+    width). ``put_workers`` caps how many ``store.put()`` calls run at once via
+    a shared semaphore, so the wide verify pool does not translate into an
+    equally wide burst of video uploads on a cold/mismatched bucket; when
+    ``None`` the puts are unthrottled. No DB access here. Returns
     {clip_id: available}, where ``available`` means the object is confirmed
     present in the bucket (ok or uploaded) — the value to store in
     ``Clip.is_uploaded``.
@@ -83,9 +95,10 @@ def run_uploads(
     available: dict[int, bool] = {}
     if not clips:
         return available
+    put_gate = threading.Semaphore(max(put_workers, 1)) if put_workers else None
     with ThreadPoolExecutor(max_workers=max(workers, 1)) as pool:
         futures = {
-            pool.submit(process_clip_upload, store, key_for(cid), path): cid
+            pool.submit(process_clip_upload, store, key_for(cid), path, put_gate): cid
             for cid, path in clips
         }
         for fut in as_completed(futures):
@@ -108,7 +121,8 @@ def upload_videos(settings, secrets) -> None:
 
     store = get_object_store(settings, secrets)
     video_dir = settings.paths.video_dir
-    workers = settings.download.concurrency
+    workers = settings.storage.verify_concurrency
+    put_workers = settings.storage.upload_concurrency
 
     session = get_session()
     t_stage = time.perf_counter()
@@ -146,7 +160,12 @@ def upload_videos(settings, secrets) -> None:
                     log(STAGE, "PUT", "clips", "ok", stats={"done": done, **counts})
 
             available = run_uploads(
-                store, clips, key_for, workers=workers, on_result=on_result
+                store,
+                clips,
+                key_for,
+                workers=workers,
+                put_workers=put_workers,
+                on_result=on_result,
             )
 
         uploaded = absent = 0

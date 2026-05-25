@@ -33,6 +33,8 @@ translate_model = "google/translategemma-4b-it"
 translate_target_lang = "en"
 translation_max_chars = 1000
 translate_max_new_tokens = 200
+# GPU decode batch width for translation (throughput-only, not fingerprinted).
+translate_batch_size = 16
 logprob_threshold = -0.8
 compression_threshold = 2.4
 min_meaningful_chars = 8
@@ -53,6 +55,8 @@ translate_model = "google/translategemma-4b-it"
 translate_target_lang = "en"
 translation_max_chars = 1000
 translate_max_new_tokens = 200
+# GPU decode batch width for translation (throughput-only, not fingerprinted).
+translate_batch_size = 16
 
 [embeddings]
 exclude_disqualified_users = true
@@ -120,6 +124,13 @@ backend = "s3"
 bucket = ""
 prefix = "videos/"
 region = ""
+# Thread-pool width for the upload stage's verify+upload scan. Every rerun HEADs
+# every selected clip (bucket is authoritative); these are tiny calls, so a wide
+# pool keeps reruns fast.
+verify_concurrency = 64
+# How many real video uploads run at once. Kept well below verify_concurrency so
+# a cold bucket can't fire a verify-width burst of multi-MB PUTs at the endpoint.
+upload_concurrency = 8
 
 [runpod]
 # Container image the pods run (push services/embedder/Dockerfile to a registry).

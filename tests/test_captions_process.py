@@ -244,12 +244,17 @@ def test_process_captions_unchanged_config_does_not_reset(monkeypatch, db_sessio
 
 
 def test_captions_config_payload_ignores_operational_knobs():
-    """commit_every must not invalidate the captions fingerprint."""
+    """commit_every and translate_batch_size must not invalidate the captions
+    fingerprint — they're purely operational."""
     from modules.captions.state import captions_config_payload
 
     base = _cfg()
     bumped_commit = base.model_copy(update={"commit_every": base.commit_every + 5})
+    bumped_batch = base.model_copy(
+        update={"translate_batch_size": base.translate_batch_size * 4}
+    )
     assert captions_config_payload(base) == captions_config_payload(bumped_commit)
+    assert captions_config_payload(base) == captions_config_payload(bumped_batch)
 
 
 def test_captions_config_payload_flips_on_output_affecting_knob():

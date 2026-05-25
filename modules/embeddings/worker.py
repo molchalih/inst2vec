@@ -185,16 +185,20 @@ def _safe_join(root: str, key: str) -> str:
 
 def _resolve_video_path(video_root: str, video_key: str | None) -> str | None:
     # video_key is a bare filename ("{clip_id}.mp4") relative to the worker's
-    # own video_root (local data dir or the pod's mounted volume).
+    # own video_root (local data dir or the pod's mounted volume). Returned
+    # absolute: qwen-vl-utils forms a "file://" URI from the path, and a
+    # relative root yields the malformed "file://data/..." (host=data) URI that
+    # torchcodec cannot open. abspath also matches build_jobs_for_case's
+    # existence check, which probes the absolute path.
     if video_key is None:
         return None
-    return _safe_join(video_root, video_key)
+    return os.path.abspath(_safe_join(video_root, video_key))
 
 
 def _resolve_audio_path(audio_root: str | None, audio_key: str | None) -> str | None:
     if audio_key is None or audio_root is None:
         return None
-    return _safe_join(audio_root, audio_key)
+    return os.path.abspath(_safe_join(audio_root, audio_key))
 
 
 def _process_one(

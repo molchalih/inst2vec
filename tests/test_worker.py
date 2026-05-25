@@ -209,6 +209,22 @@ def test_resolve_accepts_bare_filenames():
     assert _resolve_audio_path("/a", None) is None
 
 
+def test_resolve_returns_absolute_path_for_relative_root():
+    # qwen-vl-utils turns the path into a "file://" URI before decoding. A
+    # relative root yields the malformed "file://data/source/videos/1.mp4"
+    # (parsed host=data) that torchcodec cannot open, even though the file
+    # exists. The worker must hand the model an absolute path.
+    import os
+
+    vp = _resolve_video_path("data/source/videos", "1.mp4")
+    assert vp is not None and os.path.isabs(vp)
+    assert vp == os.path.abspath("data/source/videos/1.mp4")
+
+    ap = _resolve_audio_path("data/source/audio", "1.mp3")
+    assert ap is not None and os.path.isabs(ap)
+    assert ap == os.path.abspath("data/source/audio/1.mp3")
+
+
 def test_resolve_rejects_keys_that_escape_the_media_root():
     import pytest
 

@@ -55,6 +55,9 @@ def _stub_translator(monkeypatch, *, translate_fn):
         ):
             return translate_fn(text, source_lang_code, target_lang_code)
 
+        def translate_batch(self, items, *, max_new_tokens, batch_size):
+            return [translate_fn(text, src, dst) for (text, src, dst) in items]
+
     monkeypatch.setattr("core.translate.GemmaTranslator", lambda model_id: _T())
 
 

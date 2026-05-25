@@ -126,6 +126,9 @@ class SpeechSettings(BaseModel):
     translate_target_lang: str
     translation_max_chars: int
     translate_max_new_tokens: int
+    # GPU decode batch width for translation. Throughput-only — does not change
+    # per-row outputs, so it is excluded from the speech config fingerprint.
+    translate_batch_size: int = 16
     logprob_threshold: float
     compression_threshold: float
     min_meaningful_chars: int
@@ -147,6 +150,9 @@ class CaptionsSettings(BaseModel):
     translate_target_lang: str
     translation_max_chars: int
     translate_max_new_tokens: int
+    # GPU decode batch width for translation. Throughput-only — does not change
+    # per-row outputs, so it is excluded from the captions config fingerprint.
+    translate_batch_size: int = 16
 
 
 class AudioExtractionSettings(BaseModel):
@@ -235,6 +241,22 @@ class StorageSettings(BaseModel):
     # SigV4 region. Required for RunPod's S3 endpoint (= the datacenter id, e.g.
     # "EU-RO-1"), else SignatureDoesNotMatch. Empty for AWS/R2 default.
     region: str = ""
+    # Thread-pool width for the upload stage's verify+upload scan. Every rerun
+    # HEADs every selected clip to keep the bucket authoritative; these are tiny
+    # network calls, so a wide pool keeps reruns fast. Independent of download
+    # concurrency (which throttles HikerAPI/CDN pulls, not S3 HEADs).
+    verify_concurrency: int = 64
+    # How many actual video uploads (store.put) may run at once. Held well below
+    # verify_concurrency so a cold/mismatched bucket cannot turn the wide HEAD
+    # pool into a verify-width burst of multi-MB PUTs that throttles the endpoint.
+    upload_concurrency: int = 8
+
+    @field_validator("verify_concurrency", "upload_concurrency")
+    @classmethod
+    def _positive(cls, v: int) -> int:
+        if v <= 0:
+            raise ValueError("must be > 0")
+        return v
 
 
 class RunpodSettings(BaseModel):

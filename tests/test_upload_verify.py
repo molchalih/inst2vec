@@ -1,4 +1,6 @@
 import os
+import threading
+import time
 
 from modules.upload import process_clip_upload, run_uploads, verify_outcome
 
@@ -105,3 +107,43 @@ def test_run_uploads_sets_flags_from_real_state(tmp_path):
     assert results[2] is True  # uploaded
     assert results[3] is False  # missing local
     assert set(store.puts) == {"videos/2.mp4"}
+
+
+class _ConcurrencyTrackingStore(_FakeStore):
+    """Empty bucket (every clip is absent -> needs PUT). Each put() holds a slot
+    briefly so overlapping uploads are observable, recording the peak count."""
+
+    def __init__(self):
+        super().__init__({})
+        self._lock = threading.Lock()
+        self.active = 0
+        self.max_active = 0
+        self.puts = []
+
+    def put(self, local_path, key):
+        with self._lock:
+            self.active += 1
+            self.max_active = max(self.max_active, self.active)
+        time.sleep(0.02)
+        with self._lock:
+            self.active -= 1
+            self.puts.append(key)
+
+
+def test_run_uploads_throttles_puts_independently_of_verify_workers(tmp_path):
+    """PUTs must stay capped at put_workers even when the verify pool is wide,
+    so a cold bucket can't start a verify-width storm of concurrent uploads."""
+    store = _ConcurrencyTrackingStore()
+    clips = []
+    for i in range(1, 21):
+        _write(tmp_path, f"{i}.mp4", 10)
+        clips.append((i, str(tmp_path / f"{i}.mp4")))
+
+    def key_for(cid):
+        return f"videos/{cid}.mp4"
+
+    results = run_uploads(store, clips, key_for, workers=20, put_workers=3)
+
+    assert all(results.values())  # all uploaded
+    assert len(store.puts) == 20
+    assert store.max_active <= 3  # PUTs throttled despite 20 verify workers

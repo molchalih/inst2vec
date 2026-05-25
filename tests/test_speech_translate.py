@@ -37,6 +37,19 @@ def _stub_translator(monkeypatch, translate_fn):
     fake.model_id = "dummy/model"
     fake.device = "cpu"
     fake.translate_text.side_effect = translate_fn
+
+    def _batch(items, *, max_new_tokens, batch_size):
+        return [
+            translate_fn(
+                text=text,
+                source_lang_code=src,
+                target_lang_code=dst,
+                max_new_tokens=max_new_tokens,
+            )
+            for (text, src, dst) in items
+        ]
+
+    fake.translate_batch.side_effect = _batch
     monkeypatch.setattr("core.translate.GemmaTranslator", lambda model_id: fake)
     return fake
 

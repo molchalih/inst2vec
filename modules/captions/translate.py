@@ -34,6 +34,7 @@ def translate_captions(cfg: CaptionsSettings, *, engine: Engine | None = None) -
             max_chars=cfg.translation_max_chars,
             max_new_tokens=cfg.translate_max_new_tokens,
             commit_every=cfg.commit_every,
+            batch_size=cfg.translate_batch_size,
             session=session,
             progress_label="Translating captions",
             log_tag_prefix="cap",

@@ -12,6 +12,7 @@ def translate_speech(
     translate_target_lang: str,
     translation_max_chars: int,
     translate_max_new_tokens: int,
+    translate_batch_size: int = 16,
 ) -> None:
     """Translate clips with detected non-English speech but no translation.
 
@@ -36,6 +37,7 @@ def translate_speech(
             max_chars=translation_max_chars,
             max_new_tokens=translate_max_new_tokens,
             commit_every=commit_every,
+            batch_size=translate_batch_size,
             session=session,
             progress_label="Translating speech",
             log_tag_prefix="clip",

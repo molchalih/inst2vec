@@ -162,6 +162,7 @@ class _EmbeddingsStub:
 class _MirStub:
     model_dir: str = "/fake/mir_models"
     maest_checkpoint: str = "discogs-maest-30s-pw-519l-1.pb"
+    maest_onnx_checkpoint: str = "discogs-maest-30s-pw-519l-1.onnx"
     maest_input: str = "serving_default_melspectrogram"
     inference_sample_rate: int = 16_000
     maest_patch_seconds: float = 30.0
@@ -532,6 +533,38 @@ def test_deselecting_a_clip_sweeps_its_row_and_drops_it_from_aggregation(
     )
     # User 1 still has clip 10, so exactly one row comes back.
     assert len(agg) == 1
+
+
+def test_empty_candidate_set_does_not_wipe_existing_rows(db_session, stub_providers):
+    """A momentarily-empty candidate set (e.g. a half-loaded DB on a fresh box,
+    or the selection stage not yet run) must not be read as "delete every row
+    for this case". The orphan sweep is skipped entirely when there are zero
+    candidates, so existing embeddings survive."""
+    settings = _settings(stub_providers)
+    _seed(
+        db_session,
+        settings,
+        clips=[dict(id=10, user_id=1), dict(id=11, user_id=1)],
+    )
+    embed_clip_embeddings(settings, _FAKE_SECRETS, cases=["video"])
+    db_session.expire_all()
+    before = {
+        r.clip_id
+        for r in db_session.query(ClipEmbedding).filter_by(embedding_case="video")
+    }
+    assert before == {10, 11}
+
+    # Candidate query now returns nothing (every clip deselected).
+    db_session.query(Clip).update({"is_selected": False})
+    db_session.commit()
+
+    embed_clip_embeddings(settings, _FAKE_SECRETS, cases=["video"])
+    db_session.expire_all()
+    after = {
+        r.clip_id
+        for r in db_session.query(ClipEmbedding).filter_by(embedding_case="video")
+    }
+    assert after == {10, 11}, "an empty candidate set must not wipe existing rows"
 
 
 def test_config_change_still_wipes(db_session, stub_providers, monkeypatch):
