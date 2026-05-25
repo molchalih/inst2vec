@@ -30,6 +30,8 @@ def _make_search_settings(**overrides):
         "hdbscan_min_cluster_size": [10],
         "hdbscan_min_samples": [],
         "hdbscan_selection": ["eom"],
+        "hdbscan_max_cluster_frac": 0.0,
+        "embedding_preprocess": {},
         "random_state": 42,
     }
     defaults.update(overrides)
@@ -262,7 +264,7 @@ def mem_engine(monkeypatch):
 def test_run_cluster_search_inserts_rows(mem_engine, monkeypatch):
     monkeypatch.setattr(
         "modules.clustering.search.load_user_matrix",
-        lambda case: (_fake_matrix(), list(range(80))),
+        lambda case, preprocess="none": (_fake_matrix(), list(range(80))),
     )
     monkeypatch.setattr(
         "modules.clustering.search.compute_clusters",
@@ -285,7 +287,7 @@ def test_run_cluster_search_new_rows_have_passes_validation_none(
     """New rows inserted by run_cluster_search have passes_validation=None (pending)."""
     monkeypatch.setattr(
         "modules.clustering.search.load_user_matrix",
-        lambda case: (_fake_matrix(), list(range(80))),
+        lambda case, preprocess="none": (_fake_matrix(), list(range(80))),
     )
     monkeypatch.setattr(
         "modules.clustering.search.compute_clusters",
@@ -306,7 +308,7 @@ def test_run_cluster_search_new_rows_have_passes_validation_none(
 def test_run_cluster_search_skips_no_embeddings_case(mem_engine, monkeypatch):
     """If a case has zero embeddings, search skips it (no rows inserted or mutated)."""
 
-    def fake_load(case):
+    def fake_load(case, preprocess="none"):
         if case == "video":
             return (np.zeros((0, 30), dtype=np.float32), [])
         return (_fake_matrix(), list(range(80)))
@@ -332,7 +334,7 @@ def test_run_cluster_search_skips_no_embeddings_case(mem_engine, monkeypatch):
 def test_run_cluster_search_idempotent(mem_engine, monkeypatch):
     monkeypatch.setattr(
         "modules.clustering.search.load_user_matrix",
-        lambda case: (_fake_matrix(), list(range(80))),
+        lambda case, preprocess="none": (_fake_matrix(), list(range(80))),
     )
     monkeypatch.setattr(
         "modules.clustering.search.compute_clusters",
@@ -364,7 +366,7 @@ def test_run_cluster_search_uses_single_thread_umap_per_combo(mem_engine, monkey
     monkeypatch.setenv("CLUSTERING_JOBS", "99")
     monkeypatch.setattr(
         "modules.clustering.search.load_user_matrix",
-        lambda case: (_fake_matrix(), list(range(80))),
+        lambda case, preprocess="none": (_fake_matrix(), list(range(80))),
     )
     monkeypatch.setattr("modules.clustering.search.compute_clusters", capture_compute)
 
@@ -394,7 +396,7 @@ def test_run_cluster_search_parallel_workers_uses_thread_pool(mem_engine, monkey
     monkeypatch.setattr("modules.clustering.search.ThreadPoolExecutor", RecordingPool)
     monkeypatch.setattr(
         "modules.clustering.search.load_user_matrix",
-        lambda case: (_fake_matrix(), list(range(80))),
+        lambda case, preprocess="none": (_fake_matrix(), list(range(80))),
     )
     monkeypatch.setattr("modules.clustering.search.compute_clusters", tracking_compute)
 

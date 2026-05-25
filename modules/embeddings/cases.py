@@ -180,7 +180,7 @@ SANDWICH_CASE = EmbeddingCaseSpec(
         "_audio_mir_row",
     ),
     recipe_version="sandwich_v3",
-    display_label="Visual + Music",
+    display_label="Combined",
     backbone="qwen",
 )
 
@@ -199,7 +199,7 @@ AUDIO_CASE = EmbeddingCaseSpec(
         "_audio_mir_row",
     ),
     recipe_version="audio_v3",
-    display_label="Speech",
+    display_label="Spoken",
     backbone="qwen",
 )
 
@@ -294,7 +294,7 @@ MAEST_CASE = EmbeddingCaseSpec(
     recipe_version="maest_v1",
     requires=(),
     served_remotely=False,
-    display_label="Music (MAEST)",
+    display_label="Musical",
 )
 
 

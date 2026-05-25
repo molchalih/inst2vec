@@ -18,14 +18,18 @@ def _make_settings(**overrides):
         "max_noise_ratio": 0.3,
         "min_clusters": 3,
         "max_clusters": 20,
+        "max_dominance": 1.0,
     }
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
 
 
 def _make_full_settings(**overrides):
-    """Settings namespace (validation knobs) for validate_clustering tests."""
-    return SimpleNamespace(validation=_make_settings(**overrides))
+    """Settings namespace (validation + search knobs) for validate_clustering tests."""
+    return SimpleNamespace(
+        validation=_make_settings(**overrides),
+        search=SimpleNamespace(hdbscan_max_cluster_frac=0.0, embedding_preprocess={}),
+    )
 
 
 def _make_engine():
@@ -207,7 +211,7 @@ def test_validate_clustering_phase_order(monkeypatch):
 
     sequence = []
 
-    def fake_load_matrix(case):
+    def fake_load_matrix(case, preprocess="none"):
         if case == "video":
             return (np.ones((5, 10), dtype=np.float32), list(range(5)))
         return (np.zeros((0, 10), dtype=np.float32), [])
@@ -216,9 +220,11 @@ def test_validate_clustering_phase_order(monkeypatch):
 
     original_compute_updates = validation_mod._compute_updates
 
-    def spy_compute_updates(case, matrix, settings, workers=1):
+    def spy_compute_updates(case, matrix, settings, workers=1, max_cluster_frac=0.0):
         sequence.append(("compute_updates", case))
-        return original_compute_updates(case, matrix, settings, workers)
+        return original_compute_updates(
+            case, matrix, settings, workers, max_cluster_frac=max_cluster_frac
+        )
 
     monkeypatch.setattr(
         "modules.clustering.validation.load_user_matrix", fake_load_matrix
@@ -353,7 +359,9 @@ def _seed_validate_dataset() -> object:
             min_clusters=1,
             max_clusters=20,
             plateau_drop_threshold=0.05,
+            max_dominance=1.0,
         ),
+        search=SimpleNamespace(hdbscan_max_cluster_frac=0.0, embedding_preprocess={}),
     )
 
 
@@ -404,7 +412,9 @@ def test_validate_changed_config_invalidates_and_rewrites_fields():
             min_clusters=settings.validation.min_clusters,
             max_clusters=settings.validation.max_clusters,
             plateau_drop_threshold=0.20,
+            max_dominance=settings.validation.max_dominance,
         ),
+        search=settings.search,
     )
     validate_clustering(changed, cases=("video",))
 
@@ -446,7 +456,7 @@ def test_validate_score_value_error_marks_false(monkeypatch):
 
     settings = _seed_validate_dataset()
 
-    def boom(matrix, params):
+    def boom(matrix, params, max_cluster_frac=0.0):
         return "value_error"
 
     monkeypatch.setattr(validation_mod, "_compute_row_scores", boom)

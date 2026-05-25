@@ -86,7 +86,13 @@ def _load_grid(settings, cases: Iterable[str]) -> list[dict]:
     return combos
 
 
-def _fingerprint(session, case: str, case_combos: list[dict]) -> fp.Fingerprint:
+def _fingerprint(
+    session,
+    case: str,
+    case_combos: list[dict],
+    preprocess: str,
+    max_cluster_frac: float,
+) -> fp.Fingerprint:
     rows = (
         session.query(UserEmbedding.user_id, UserEmbedding.embedding)
         .join(Clip, Clip.user_id == UserEmbedding.user_id)
@@ -99,12 +105,19 @@ def _fingerprint(session, case: str, case_combos: list[dict]) -> fp.Fingerprint:
         .all()
     )
     data = fp.hash_rows((uid, hashlib.sha256(blob).hexdigest()) for uid, blob in rows)
+    # preprocess + max_cluster_frac are applied at fit time (not stored as
+    # per-run columns), so they must enter the config hash explicitly to
+    # invalidate search when they change.
     config = fp.hash_text(
         json.dumps(
-            sorted(
-                [{k: c[k] for k in CLUSTER_PARAM_COLS} for c in case_combos],
-                key=lambda d: tuple(str(d[k]) for k in CLUSTER_PARAM_COLS),
-            ),
+            {
+                "combos": sorted(
+                    [{k: c[k] for k in CLUSTER_PARAM_COLS} for c in case_combos],
+                    key=lambda d: tuple(str(d[k]) for k in CLUSTER_PARAM_COLS),
+                ),
+                "preprocess": preprocess,
+                "max_cluster_frac": float(max_cluster_frac),
+            },
             sort_keys=True,
             default=str,
         )
@@ -142,16 +155,20 @@ def run_cluster_search(
     """
     combos = _load_grid(settings.search, cases=cases)
     grid_workers = max(1, clustering_grid_workers)
+    max_cluster_frac = float(settings.search.hdbscan_max_cluster_frac)
 
     combos_by_case: dict[str, list[dict]] = {}
     for combo in combos:
         combos_by_case.setdefault(combo["embedding_case"], []).append(combo)
 
     for case, case_combos in combos_by_case.items():
+        preprocess = settings.search.embedding_preprocess.get(case, "none")
         # 1. fingerprint check (read-only session)
         session = get_session()
         try:
-            current = _fingerprint(session, case, case_combos)
+            current = _fingerprint(
+                session, case, case_combos, preprocess, max_cluster_frac
+            )
             stale = fp.is_stale(session, STAGE, case, current)
             diff = fp.describe_diff(session, STAGE, case, current) if stale else ""
         finally:
@@ -165,7 +182,7 @@ def run_cluster_search(
         log(scope, "SCAN", "fingerprint", "stale", stats={"diff": diff})
 
         # 2. load inputs (read-only)
-        matrix, _ = load_user_matrix(case)
+        matrix, _ = load_user_matrix(case, preprocess=preprocess)
 
         # 3. compute outside any write transaction
         new_rows: list[ClusterRun] = []
@@ -186,7 +203,9 @@ def run_cluster_search(
                         p = {k: v for k, v in combo.items() if k != "embedding_case"}
                         t0 = time.perf_counter()
                         try:
-                            result = compute_clusters(matrix, **p)
+                            result = compute_clusters(
+                                matrix, hdbscan_max_cluster_frac=max_cluster_frac, **p
+                            )
                         except ValueError as exc:
                             log(
                                 scope,
@@ -215,12 +234,14 @@ def run_cluster_search(
                         advance(1, detail=f"{short} | k={result.n_clusters}")
                 else:
 
-                    def run_one(c: dict, *, _matrix=matrix):
+                    def run_one(c: dict, *, _matrix=matrix, _frac=max_cluster_frac):
                         p = {k: v for k, v in c.items() if k != "embedding_case"}
                         t = time.perf_counter()
                         return (
                             c,
-                            compute_clusters(_matrix, **p),
+                            compute_clusters(
+                                _matrix, hdbscan_max_cluster_frac=_frac, **p
+                            ),
                             time.perf_counter() - t,
                         )
 

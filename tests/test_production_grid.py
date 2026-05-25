@@ -36,8 +36,10 @@ def test_production_search_grid_loads_and_expands(search_settings: SearchSetting
     assert search_settings.hdbscan_selection, "hdbscan_selection must be non-empty"
 
     combos = _load_grid(search_settings, cases=["sandwich"])
-    assert 100 <= len(combos) <= 500, (
-        f"grid size {len(combos)} outside expected production band [100, 500]"
+    # Band widened to absorb the eom+leaf selection sweep (doubles the grid to
+    # ~720); alarm only if it explodes beyond that.
+    assert 100 <= len(combos) <= 900, (
+        f"grid size {len(combos)} outside expected production band [100, 900]"
     )
 
 
@@ -51,9 +53,9 @@ def test_production_grid_drops_known_bad_values(search_settings: SearchSettings)
     assert "euclidean" not in search_settings.umap_metrics, (
         "umap_metric=euclidean empirically excluded — see config.toml [search]"
     )
-    assert "leaf" not in search_settings.hdbscan_selection, (
-        "leaf produces 25+ clusters, outside 8-14 target band"
-    )
+    # NB: leaf is intentionally back in the sweep (capped by
+    # hdbscan_max_cluster_frac + validation.max_dominance) to break the dense
+    # eom mega-cluster; it is no longer an excluded value.
     assert 0.05 not in [float(x) for x in search_settings.umap_min_dist], (
         "umap_min_dist=0.05 empirically excluded — see config.toml [search]"
     )

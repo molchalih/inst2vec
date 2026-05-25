@@ -435,7 +435,11 @@ def export_visualization_json(settings, cases: tuple[str, ...]) -> None:
                 {
                     "id": case,
                     "case": case,
-                    "label": viz.label,
+                    # Label is presentation metadata, not fingerprinted data:
+                    # read it live from the case spec so renaming a
+                    # display_label lands on the next export without forcing
+                    # the (data-only) viz fingerprint stale.
+                    "label": CASE_REGISTRY[case].display_label,
                     "size": viz.size,
                     "details_available": True,
                 }

@@ -25,9 +25,13 @@ def _wrap(validation: ValidationSettings):
     """Wrap a ValidationSettings into a settings namespace.
 
     We still pin validation knobs via the Pydantic model so per-field
-    defaults stay realistic.
+    defaults stay realistic. A ``.search`` slice carries the preprocess map
+    and max_cluster_frac that assign_clusters now reads.
     """
-    return SimpleNamespace(validation=validation)
+    return SimpleNamespace(
+        validation=validation,
+        search=SimpleNamespace(hdbscan_max_cluster_frac=0.0, embedding_preprocess={}),
+    )
 
 
 DEFAULT_VALIDATION = ValidationSettings(

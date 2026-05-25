@@ -32,11 +32,13 @@ const seed = (store: ReturnType<typeof createStore>, details: boolean) => {
 };
 
 describe("selection.atom — selectDotAtom", () => {
-  it("details on + has_detail true → creator selection", () => {
+  // TODO: restore creator selection once per-creator data is ready
+  // (the creator path in selectDotAtom is commented out for now).
+  it("details on + has_detail true → cluster selection (creator path disabled)", () => {
     const store = createStore();
     seed(store, true);
     store.set(selectDotAtom, 1);
-    expect(store.get(selectionAtom)).toEqual({ kind: "creator", creatorId: 1 });
+    expect(store.get(selectionAtom)).toEqual({ kind: "cluster", clusterId: 5 });
   });
 
   it("details on + has_detail false → cluster fallback", () => {

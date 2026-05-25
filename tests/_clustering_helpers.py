@@ -93,6 +93,8 @@ def _make_minimal_search_settings(
             hdbscan_min_cluster_size=[5],
             hdbscan_min_samples=[],
             hdbscan_selection=["eom"],
+            hdbscan_max_cluster_frac=0.0,
+            embedding_preprocess={},
             random_state=42,
         ),
     )
@@ -104,13 +106,23 @@ def _make_minimal_validation_settings(
     max_noise_ratio: float = 0.9,
     min_clusters: int = 1,
     max_clusters: int = 20,
+    max_dominance: float = 1.0,
 ) -> object:
-    """Tiny settings object for validate_clustering/assign_clusters tests."""
+    """Tiny settings object for validate_clustering/assign_clusters tests.
+
+    Carries a ``.search`` slice too, since validate_clustering/assign_clusters
+    read the preprocess map and max_cluster_frac from there.
+    """
     return SimpleNamespace(
         validation=SimpleNamespace(
             plateau_drop_threshold=plateau_drop_threshold,
             max_noise_ratio=max_noise_ratio,
             min_clusters=min_clusters,
             max_clusters=max_clusters,
+            max_dominance=max_dominance,
+        ),
+        search=SimpleNamespace(
+            hdbscan_max_cluster_frac=0.0,
+            embedding_preprocess={},
         ),
     )

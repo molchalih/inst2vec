@@ -67,7 +67,12 @@ def _fingerprint(session, case: str, settings: ValidationSettings) -> fp.Fingerp
     )
 
 
-def _assign_case(case: str, settings: ValidationSettings) -> None:
+def _assign_case(
+    case: str,
+    settings: ValidationSettings,
+    preprocess: str = "none",
+    max_cluster_frac: float = 0.0,
+) -> None:
     scope = f"cluster:{case}"
     t_stage = time.perf_counter()
     # 1. gate on upstream validation state
@@ -96,12 +101,14 @@ def _assign_case(case: str, settings: ValidationSettings) -> None:
     new_user_clusters: list[UserCluster] = []
     fit_stats: dict = {}
     if best is not None:
-        matrix, user_ids = load_user_matrix(case)
+        matrix, user_ids = load_user_matrix(case, preprocess=preprocess)
         if matrix.shape[0] > 0:
             params = _best_params(best)
             t_fit = time.perf_counter()
             try:
-                result = compute_clusters(matrix, **params)
+                result = compute_clusters(
+                    matrix, hdbscan_max_cluster_frac=max_cluster_frac, **params
+                )
                 new_user_clusters = [
                     UserCluster(
                         user_id=user_ids[i],
@@ -165,5 +172,7 @@ def assign_clusters(settings: Settings, cases: tuple[str, ...]) -> None:
     ``settings.validation.plateau_drop_threshold``.
     """
     validation_settings = settings.validation
+    max_cluster_frac = float(settings.search.hdbscan_max_cluster_frac)
     for case in cases:
-        _assign_case(case, validation_settings)
+        preprocess = settings.search.embedding_preprocess.get(case, "none")
+        _assign_case(case, validation_settings, preprocess, max_cluster_frac)

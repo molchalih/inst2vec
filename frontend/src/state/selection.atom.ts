@@ -1,9 +1,10 @@
 import { atom, useAtomValue, useSetAtom } from "jotai";
 import { activeRunAtom } from "./run.atom";
-import { manifestAtom } from "./manifest.atom";
+// TODO: re-enable when per-creator data is ready (see selectDotAtom).
+// import { manifestAtom } from "./manifest.atom";
 import { viewportAtom } from "./viewport.atom";
 import { parseHash } from "./route.atom";
-import type { Manifest } from "@/data";
+// import type { Manifest } from "@/data";
 
 export type Selection =
   | { kind: "cluster"; clusterId: number }
@@ -26,22 +27,24 @@ export const selectionAtom = atom<Selection>(initialSelection());
 
 export const useSelection = (): Selection => useAtomValue(selectionAtom);
 
-const detailsAvailableForActive = (
-  manifest: Manifest | null,
-  activeRunId: string | null,
-): boolean => {
-  if (!manifest || !activeRunId) return false;
-  const run = manifest.runs.find((r) => r.id === activeRunId);
-  return run?.details_available ?? false;
-};
+// TODO: re-enable when per-creator data is ready (see selectDotAtom).
+// const detailsAvailableForActive = (
+//   manifest: Manifest | null,
+//   activeRunId: string | null,
+// ): boolean => {
+//   if (!manifest || !activeRunId) return false;
+//   const run = manifest.runs.find((r) => r.id === activeRunId);
+//   return run?.details_available ?? false;
+// };
 
 /**
  * Click → selection writer. Action-atom shape so the logic is testable
  * via createStore without React, matching the wheelZoomAtom precedent.
  *
- * When the active run has details_available=true AND the dot's own
- * has_detail flag is true, a click opens the creator panel.
- * Otherwise the click resolves to the cluster the dot belongs to.
+ * Currently a click always resolves to the cluster the dot belongs to.
+ * The per-creator panel path is commented out below (TODO) until
+ * per-creator data is ready; it opened the creator panel when the active
+ * run had details_available=true AND the dot's own has_detail flag was true.
  */
 export const selectDotAtom = atom<null, [number], void>(
   null,
@@ -51,16 +54,18 @@ export const selectDotAtom = atom<null, [number], void>(
     const user = activeRun.users.find(([id]) => id === dotId);
     if (!user) return;
     const clusterId = user[3];
-    const hasDetail = user[4];
     // Noise dots have no meaningful cluster pane; ignore the click.
     if (clusterId < 0) return;
 
-    const manifest = get(manifestAtom);
-    const detailsOn = detailsAvailableForActive(manifest, activeRun.meta.id);
-
-    const next: Selection = detailsOn && hasDetail
-      ? { kind: "creator", creatorId: dotId }
-      : { kind: "cluster", clusterId };
+    // TODO: restore the creator-detail panel once per-creator data is
+    // ready. Until then a dot click always opens its cluster pane.
+    // const hasDetail = user[4];
+    // const manifest = get(manifestAtom);
+    // const detailsOn = detailsAvailableForActive(manifest, activeRun.meta.id);
+    // const next: Selection = detailsOn && hasDetail
+    //   ? { kind: "creator", creatorId: dotId }
+    //   : { kind: "cluster", clusterId };
+    const next: Selection = { kind: "cluster", clusterId };
 
     // Pin the current viewport into viewportAtom before flipping
     // selection. visibleRectAtom shrinks the instant selection becomes

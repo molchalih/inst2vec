@@ -13,6 +13,13 @@ retry_delay = 15
 retry_jitter = 5
 concurrency = 5
 
+[parse]
+max_attempts = 3
+# HikerAPI is rate-limited, so back off longer than the CDN download stage.
+retry_delay = 30
+retry_jitter = 5
+concurrency = 5
+
 [filter]
 min_video_duration = 3
 max_video_duration = 80
@@ -106,15 +113,32 @@ umap2d_min_dist = 0.1
 umap2d_metrics = ["cosine"]
 hdbscan_min_cluster_size = [13, 15, 17, 20]
 hdbscan_min_samples = [5, 10, 15]
-hdbscan_selection = ["eom"]
+# Both selection methods are now swept (grid doubles to 720/case): eom gives
+# persistence-stable clusters (prone to one mega-cluster on dense embeddings);
+# leaf gives finer, balanced bottom-of-tree clusters. The max_cluster_frac cap
+# below reins in eom's mega-cluster; leaf self-limits.
+hdbscan_selection = ["eom", "leaf"]
+# Cap the largest eom cluster at 22.5% of analysis users (the dense embedding
+# core was collapsing into one 35-44% mega-cluster under uncapped eom).
+hdbscan_max_cluster_frac = 0.225
+# Strip the dominant shared component per case before UMAP. maest is
+# near-degenerate (mean pairwise cosine ~0.97) so it needs centering;
+# sandwich/video benefit from full z-scoring; audio clusters best raw.
+embedding_preprocess = { maest = "center", sandwich = "standardize", video = "standardize", audio = "none" }
 random_state = 42
 clustering_grid_workers = 1
 
 [validation]
 plateau_drop_threshold = 0.05
-max_noise_ratio = 0.3
+# Raised from 0.30: the balanced (leaf / capped-eom) solutions that break the
+# mega-cluster trade noise for granularity and sit at ~0.33-0.38 noise.
+max_noise_ratio = 0.35
 min_clusters = 3
 max_clusters = 20
+# Backstop against the mega-cluster: reject any run whose largest cluster is
+# more than 40% of assigned users. Complements the eom max_cluster_frac cap and
+# also guards leaf runs.
+max_dominance = 0.4
 
 [storage]
 backend = "s3"
@@ -188,4 +212,4 @@ effnet_onnx_checkpoint = "discogs-effnet-bsdynamic-1.onnx"
 
 [visualization]
 export_dir = "data/visualization"
-default_case = "video"
+default_case = "sandwich"

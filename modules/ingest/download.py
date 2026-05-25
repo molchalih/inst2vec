@@ -18,13 +18,13 @@ from __future__ import annotations
 
 import contextlib
 import os
-import random
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import NamedTuple
 
 import httpx
 
+from core.concurrency import retry_with_backoff
 from core.config import DownloadSettings, PathsSettings
 from core.console import log, progress
 from core.database import (
@@ -61,47 +61,54 @@ def fetch_file(
     If `min_bytes > 0`, any response whose body is smaller than that threshold
     is treated as a transient failure (the `.part` file is deleted and the
     attempt is retried).  After all attempts are exhausted the result has
-    ``ok=False`` and ``err="response_too_small: <actual> < <min>"``.
+    ``ok=False`` and ``err`` set to the ``repr`` of the last failure (for the
+    too-small case, a ``ValueError`` whose message is
+    ``response_too_small: <actual> < <min>``).
     """
     tmp = path + ".part"
     t0 = time.perf_counter()
-    last_status: int | None = None
-    last_err: str | None = None
-    for attempt in range(max_attempts):
+    result: dict[str, int | None] = {"status": None, "size": None}
+
+    def _attempt() -> None:
         try:
             r = httpx.get(url, follow_redirects=True, timeout=30)
-            last_status = r.status_code
+            result["status"] = r.status_code
             r.raise_for_status()
             actual = len(r.content)
             if min_bytes > 0 and actual < min_bytes:
-                last_err = f"response_too_small: {actual} < {min_bytes}"
-                if attempt < max_attempts - 1:
-                    time.sleep(retry_delay + random.uniform(0, retry_jitter))
-                continue
+                raise ValueError(f"response_too_small: {actual} < {min_bytes}")
             with open(tmp, "wb") as f:
                 f.write(r.content)
             os.replace(tmp, path)
-            return FetchResult(
-                ok=True,
-                status=r.status_code,
-                size=actual,
-                duration=time.perf_counter() - t0,
-                err=None,
-            )
-        except Exception as e:
-            last_err = repr(e)
+            result["size"] = actual
+        except Exception:
             if os.path.exists(tmp):
                 with contextlib.suppress(OSError):
                     os.remove(tmp)
-            if attempt < max_attempts - 1:
-                time.sleep(retry_delay + random.uniform(0, retry_jitter))
-    return FetchResult(
-        ok=False,
-        status=last_status,
-        size=None,
-        duration=time.perf_counter() - t0,
-        err=last_err,
-    )
+            raise
+
+    try:
+        retry_with_backoff(
+            _attempt,
+            max_attempts=max_attempts,
+            retry_delay=retry_delay,
+            retry_jitter=retry_jitter,
+        )
+        return FetchResult(
+            ok=True,
+            status=result["status"],
+            size=result["size"],
+            duration=time.perf_counter() - t0,
+            err=None,
+        )
+    except Exception as e:
+        return FetchResult(
+            ok=False,
+            status=result["status"],
+            size=None,
+            duration=time.perf_counter() - t0,
+            err=repr(e),
+        )
 
 
 def download_files(

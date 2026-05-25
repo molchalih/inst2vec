@@ -41,10 +41,17 @@ def _row_to_params(row: ClusterRun) -> dict:
     return {col: getattr(row, col) for col in CLUSTER_PARAM_COLS}
 
 
-def _compute_row_scores(matrix: np.ndarray, params: dict) -> tuple[float, float] | str:
+def _compute_row_scores(
+    matrix: np.ndarray, params: dict, max_cluster_frac: float = 0.0
+) -> tuple[float, float] | str:
     """Run clustering and metrics for one param set. Returns (dbcv, silhouette) or error token."""
     try:
-        result = compute_clusters(matrix, return_nd_matrix=True, **params)
+        result = compute_clusters(
+            matrix,
+            return_nd_matrix=True,
+            hdbscan_max_cluster_frac=max_cluster_frac,
+            **params,
+        )
     except ValueError:
         return "value_error"
 
@@ -145,6 +152,7 @@ def _fingerprint(session, case: str, settings) -> fp.Fingerprint:
                 "min_clusters": int(settings.min_clusters),
                 "max_clusters": int(settings.max_clusters),
                 "plateau_drop_threshold": float(settings.plateau_drop_threshold),
+                "max_dominance": float(settings.max_dominance),
             },
             sort_keys=True,
         )
@@ -158,6 +166,7 @@ def _compute_updates(
     matrix: np.ndarray,
     settings,
     workers: int = 1,
+    max_cluster_frac: float = 0.0,
 ) -> dict[int, dict]:
     """Compute filter+score+plateau for all ClusterRun rows for *case* in memory.
 
@@ -168,6 +177,11 @@ def _compute_updates(
     max_noise = float(settings.max_noise_ratio)
     min_clusters = int(settings.min_clusters)
     max_clusters = int(settings.max_clusters)
+    max_dominance = float(settings.max_dominance)
+    # >= 1.0 disables the dominance guard; skip it entirely so float error in
+    # the reconstructed assigned count can never spuriously reject a run.
+    dominance_guard = max_dominance < 1.0
+    n_total = matrix.shape[0]
 
     # --- load rows (read-only) ------------------------------------------------
     session = get_session()
@@ -186,6 +200,7 @@ def _compute_updates(
                     "id": row.id,
                     "noise_ratio": row.noise_ratio,
                     "n_clusters": row.n_clusters,
+                    "max_size": row.max_size,
                     "params": _row_to_params(row),
                     # keep param cols on snapshot for neighbor detection
                     **{col: getattr(row, col) for col in CLUSTER_PARAM_COLS},
@@ -204,6 +219,13 @@ def _compute_updates(
             snap["noise_ratio"] <= max_noise
             and min_clusters <= snap["n_clusters"] <= max_clusters
         )
+        if passes and dominance_guard:
+            # Recover the exact integer assigned count: noise_ratio is stored
+            # rounded, so n_total*(1-noise_ratio) drifts; n_total - round(noise)
+            # is exact for realistic n.
+            assigned = n_total - round(snap["noise_ratio"] * n_total)
+            dominance = (snap["max_size"] / assigned) if assigned > 0 else 1.0
+            passes = dominance <= max_dominance
         updates[snap["id"]] = {
             "passes_validation": passes,
             "dbcv": None,
@@ -222,7 +244,9 @@ def _compute_updates(
                 for i, snap in enumerate(to_score):
                     advance(0, detail=f"id={snap['id']} ({i + 1}/{len(to_score)})")
                     t0 = time.perf_counter()
-                    outcome = _compute_row_scores(matrix, snap["params"])
+                    outcome = _compute_row_scores(
+                        matrix, snap["params"], max_cluster_frac
+                    )
                     if outcome in ("value_error", "dbcv_fail"):
                         log(
                             scope,
@@ -263,7 +287,7 @@ def _compute_updates(
 
             def work(item: tuple[int, dict]) -> tuple[int, object]:
                 rid, params = item
-                return rid, _compute_row_scores(matrix, params)
+                return rid, _compute_row_scores(matrix, params, max_cluster_frac)
 
             payload = [(snap["id"], snap["params"]) for snap in to_score]
             with (
@@ -376,7 +400,9 @@ def validate_clustering(
     ``settings.validation``.
     """
     validation_settings = settings.validation
+    max_cluster_frac = float(settings.search.hdbscan_max_cluster_frac)
     for case in cases:
+        preprocess = settings.search.embedding_preprocess.get(case, "none")
         scope = f"validate:{case}"
         # 1. fingerprint check
         session = get_session()
@@ -395,7 +421,7 @@ def validate_clustering(
 
         t_stage = time.perf_counter()
         # 2. load matrix (read-only)
-        matrix, _ = load_user_matrix(case)
+        matrix, _ = load_user_matrix(case, preprocess=preprocess)
 
         if matrix.shape[0] == 0:
             session = get_session()
@@ -419,7 +445,11 @@ def validate_clustering(
 
         # 3. compute in memory (no open write transaction)
         updates = _compute_updates(
-            case, matrix, validation_settings, clustering_grid_workers
+            case,
+            matrix,
+            validation_settings,
+            clustering_grid_workers,
+            max_cluster_frac=max_cluster_frac,
         )
 
         # 4. short write section (open AFTER compute)

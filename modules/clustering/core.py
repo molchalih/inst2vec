@@ -76,6 +76,7 @@ def compute_clusters(
     hdbscan_min_samples: int | None = None,
     hdbscan_cluster_selection_method: str = "eom",
     hdbscan_metric: str = DEFAULT_HDBSCAN_METRIC,
+    hdbscan_max_cluster_frac: float = 0.0,
     random_state: int = 42,
     return_nd_matrix: bool = False,
     umap_n_jobs: int = 1,
@@ -110,11 +111,19 @@ def compute_clusters(
     matrix_nd = cast(np.ndarray, reducer_nd.fit_transform(matrix))
 
     effective_metric = resolve_hdbscan_metric(hdbscan_metric)
+    # Cap the largest cluster as a fraction of the sample (only eom honors it;
+    # HDBSCAN treats max_cluster_size=0 as "no limit").
+    max_cluster_size = (
+        round(hdbscan_max_cluster_frac * matrix.shape[0])
+        if hdbscan_max_cluster_frac and hdbscan_max_cluster_frac > 0.0
+        else 0
+    )
     clusterer = hdbscan.HDBSCAN(
         min_cluster_size=hdbscan_min_cluster_size,
         min_samples=hdbscan_min_samples,
         cluster_selection_method=hdbscan_cluster_selection_method,
         metric=effective_metric,
+        max_cluster_size=max_cluster_size,
     )
     labels = clusterer.fit_predict(matrix_nd)
 
@@ -148,12 +157,36 @@ def compute_clusters(
     )
 
 
-def load_user_matrix(embedding_case: str) -> tuple[np.ndarray, list[int]]:
+def preprocess_matrix(matrix: np.ndarray, mode: str) -> np.ndarray:
+    """Strip the dominant shared component before clustering.
+
+    "none" returns the matrix unchanged; "center" subtracts the column mean;
+    "standardize" z-scores each column (zero-variance columns are left at 0).
+    Anisotropic embeddings (e.g. raw MAEST at ~0.97 mean cosine) cluster into
+    one mega-blob under cosine until this shared offset/scale is removed.
+    """
+    if mode in ("", "none") or matrix.shape[0] == 0:
+        return matrix
+    centered = matrix - matrix.mean(axis=0, keepdims=True)
+    if mode == "center":
+        return centered
+    if mode == "standardize":
+        std = matrix.std(axis=0, keepdims=True)
+        std[std == 0] = 1.0
+        return centered / std
+    raise ValueError(f"unknown embedding preprocess mode: {mode!r}")
+
+
+def load_user_matrix(
+    embedding_case: str, preprocess: str = "none"
+) -> tuple[np.ndarray, list[int]]:
     """Load user embeddings for the analysis dataset. Returns (matrix, user_ids).
 
     Analysis scope is enforced by reusing ``clip_used_in_analysis()`` via a
     subquery on UserEmbedding.user_id; no clip-level WHERE clause is
-    duplicated here.
+    duplicated here. ``preprocess`` applies an optional per-case transform
+    (see :func:`preprocess_matrix`) so search/validation/assign all share the
+    same transformed matrix.
     """
     session = get_session()
     try:
@@ -171,6 +204,6 @@ def load_user_matrix(embedding_case: str) -> tuple[np.ndarray, list[int]]:
             return np.empty((0, 0), dtype=np.float32), []
         user_ids = [r.user_id for r in rows]
         arrays = [np.frombuffer(r.embedding, dtype=np.float32).copy() for r in rows]
-        return np.stack(arrays), user_ids
+        return preprocess_matrix(np.stack(arrays), preprocess), user_ids
     finally:
         session.close()

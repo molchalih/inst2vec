@@ -23,7 +23,7 @@ def run_seed(settings: Settings, secrets: Secrets) -> None:
 
 def run_profiles(settings: Settings, secrets: Secrets) -> None:
     """Fetch Instagram profiles + clips metadata via HikerAPI."""
-    fetch_profiles(hiker_api_key=secrets.hiker_api_key)
+    fetch_profiles(hiker_api_key=secrets.hiker_api_key, parse=settings.parse)
 
 
 def run_download(settings: Settings, secrets: Secrets) -> None:

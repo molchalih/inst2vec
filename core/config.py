@@ -41,6 +41,13 @@ class DownloadSettings(BaseModel):
     concurrency: int
 
 
+class ParseSettings(BaseModel):
+    max_attempts: int = 3
+    retry_delay: int = 30
+    retry_jitter: int = 5
+    concurrency: int = 5
+
+
 class FilterSettings(BaseModel):
     min_video_duration: int = 3
     max_video_duration: int = 80
@@ -223,6 +230,14 @@ class SearchSettings(BaseModel):
     hdbscan_min_cluster_size: list[int] = []
     hdbscan_min_samples: list[int] = []
     hdbscan_selection: list[str] = []
+    # Cap the largest cluster at this fraction of the analysis users
+    # (HDBSCAN max_cluster_size = round(frac * n)). Only HDBSCAN's eom
+    # selection honors it; leaf ignores it. 0.0 disables the cap.
+    hdbscan_max_cluster_frac: float = 0.0
+    # Per-case embedding preprocessing applied in load_user_matrix before
+    # UMAP: "none" | "center" (subtract column mean) | "standardize"
+    # (z-score). Cases absent from the map default to "none".
+    embedding_preprocess: dict[str, str] = {}
     random_state: int = 42
     clustering_grid_workers: int = 1
 
@@ -232,6 +247,9 @@ class ValidationSettings(BaseModel):
     max_noise_ratio: float
     min_clusters: int
     max_clusters: int
+    # Reject runs whose largest cluster exceeds this fraction of assigned
+    # (non-noise) users. 1.0 disables the guard.
+    max_dominance: float = 1.0
 
 
 class StorageSettings(BaseModel):
@@ -297,6 +315,7 @@ class VisualizationSettings(BaseModel):
 class Settings(BaseModel):
     paths: PathsSettings
     download: DownloadSettings
+    parse: ParseSettings = Field(default_factory=ParseSettings)
     filter: FilterSettings
     mir: MirSettings = Field(default_factory=MirSettings)
     speech: SpeechSettings
@@ -333,6 +352,7 @@ def _load_settings() -> Settings:
     return Settings(
         paths=PathsSettings(**raw["paths"]),
         download=DownloadSettings(**raw["download"]),
+        parse=ParseSettings(**raw.get("parse", {})),
         filter=FilterSettings(**raw.get("filter", {})),
         mir=MirSettings(**raw.get("mir", {})),
         speech=SpeechSettings(**raw["speech"]),
