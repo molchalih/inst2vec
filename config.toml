@@ -19,6 +19,8 @@ max_attempts = 3
 retry_delay = 30
 retry_jitter = 5
 concurrency = 5
+# TODO: wire to parsing logic (currently hardcoded as page_size * max_pages).
+max_clips_per_user = 60
 
 [filter]
 min_video_duration = 3

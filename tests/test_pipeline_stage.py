@@ -13,6 +13,7 @@ def test_stage_enum_covers_existing_callsites():
         "cluster_assign",
         "mir",
         "audio_extract_mir",
+        "labels",
         "visualization",
     }
     actual = {s.value for s in Stage}

@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from core.database import Base, Clip, User
+from core.database import Base, Clip, ClipEmbedding, User
 
 
 def _make_engine():
@@ -112,6 +112,33 @@ def test_clips_summary_to_markdown_uses_dash_for_missing_numeric_values():
     out = clips_summary_to_markdown(eng)
 
     assert "| median views | - |" in out
+
+
+def test_get_clips_summary_cells_includes_embedding_counts():
+    eng = _make_engine()
+    with Session(eng) as s:
+        s.add(User(id=1, parse_status="success", is_eligible=True))
+        s.add_all(
+            [
+                Clip(id=11, user_id=1, is_selected=True, is_downloaded=True),
+                Clip(id=12, user_id=1, is_selected=True, is_downloaded=True),
+            ]
+        )
+        s.add(
+            ClipEmbedding(
+                clip_id=11,
+                embedding_case="video",
+                embedding=b"\x00\x00",
+            )
+        )
+        s.commit()
+
+    from docs.reporting.tables.clips import get_clips_summary_cells
+
+    cells = get_clips_summary_cells(eng)
+
+    assert cells["kept_clips_count"] == "2"
+    assert cells["video_embeddings"] == "1"
 
 
 def test_render_clips_summary_returns_markdown_object():

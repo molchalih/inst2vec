@@ -17,6 +17,7 @@ class Stage(StrEnum):
     CLUSTER_ASSIGN = "cluster_assign"
     MIR = "mir"
     AUDIO_EXTRACT_MIR = "audio_extract_mir"
+    LABELS = "labels"
     VISUALIZATION = "visualization"
 
 
