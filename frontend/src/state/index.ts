@@ -12,7 +12,7 @@ export {
 } from "./selection.atom";
 export { routeAtom, useRoute, parseHash, serializeRoute } from "./route.atom";
 export { routeSchema, type Route } from "./route.schema";
-export { caseAtom } from "./case.atom";
+export { caseAtom, displayedCaseAtom } from "./case.atom";
 export { manifestAtom, ensureManifestAtom } from "./manifest.atom";
 export { activeRunIdAtom } from "./active-run-id.atom";
 export {
@@ -40,3 +40,8 @@ export {
   useIntro, useIsIntroPlaying,
   type IntroState, type IntroDriver,
 } from "./intro.atom";
+export {
+  inspectorPhaseAtom, isPanelOpen, isContentMounted, shouldAdvanceDisplayed,
+  type InspectorPhase,
+} from "./inspector-phase.atom";
+export { pendingCaseAtom, isCaseSwitchInFlightAtom } from "./pending-case.atom";

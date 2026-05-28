@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { StaticApiClient } from "./StaticApiClient";
+import { StaticApiClient, AssetNotFoundError } from "./StaticApiClient";
 import { ApiUnavailableError } from "./ApiClient";
 
 const ok = (body: unknown) =>
@@ -9,9 +9,8 @@ const notFound = () =>
   Promise.resolve(new Response("missing", { status: 404 }));
 
 const clusterDetailFixture = {
-  version: 3,
+  version: 6,
   cluster_id: 7,
-  label: "Cluster 8",
   size: 1,
   ellipse: { cx: 0, cy: 0, rx: 1, ry: 1, angle: 0 },
   audio: { approachability: 0.5, engagement: 0.5, danceability: 0.5 },
@@ -29,7 +28,7 @@ const clusterDetailFixture = {
 };
 
 const creatorDetailFixture = {
-  version: 3,
+  version: 6,
   user_id: 42,
   cluster_id: 7,
   x: 0, y: 0,
@@ -50,6 +49,7 @@ const creatorDetailFixture = {
     distance_from_centroid_percentile: 0,
     nearest_other_cluster: null,
   },
+  clips: [],
 };
 
 describe("StaticApiClient", () => {
@@ -78,10 +78,11 @@ describe("StaticApiClient", () => {
     expect(globalThis.fetch).toHaveBeenCalledWith("/data/runs/video-1/users/42.json");
   });
 
-  it("throws on 404", async () => {
+  it("throws AssetNotFoundError on 404 so callers can fall back gracefully", async () => {
     globalThis.fetch = vi.fn(notFound) as never;
     const c = new StaticApiClient("/data/", () => "video-1");
-    await expect(c.getClusterDetail(7)).rejects.toThrow();
+    await expect(c.getCreatorDetail(42)).rejects.toBeInstanceOf(AssetNotFoundError);
+    await expect(c.getClusterDetail(7)).rejects.toBeInstanceOf(AssetNotFoundError);
   });
 
   it("live-only methods throw ApiUnavailableError", async () => {

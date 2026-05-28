@@ -14,8 +14,8 @@ export const AudioBar = ({ name, value }: AudioBarProps) => {
   const { bar } = tokens.inspector;
   return (
     <div style={{
-      display: "grid", gridTemplateColumns: "92px 1fr 30px", gap: 9,
-      alignItems: "center", fontSize: 12, padding: "3px 0",
+      display: "grid", gridTemplateColumns: "112px 1fr 26px", gap: 8,
+      alignItems: "center", fontSize: 11, padding: "2px 0",
     }}>
       <span style={{ color: tokens.ink.dim }}>{name}</span>
       <div style={{

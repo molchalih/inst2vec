@@ -6,4 +6,4 @@ reject. Bumping it forces every JSON file to be rewritten on the next
 pipeline run.
 """
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 6

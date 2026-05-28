@@ -24,10 +24,13 @@ from pathlib import Path
 
 import numpy as np
 from sqlalchemy import func
+from sqlalchemy.orm import Session
 
 from core.database import (
     AudioMIR,
     Clip,
+    ClipLabel,
+    ClusterLabel,
     User,
     UserCluster,
     UserStats,
@@ -38,6 +41,12 @@ from core.database import (
 )
 from core.log import event, scope
 from modules.embeddings.cases import CASE_REGISTRY
+from modules.labels.cases import REGISTRY as LABEL_CASE_REGISTRY
+from modules.labels.validation import clip_role_keys
+from modules.visualization.cluster_label_render import (
+    display_label_for,
+    render_label_block,
+)
 from modules.visualization.compute import (
     ClusterMember,
     ClusterMemberClip,
@@ -58,6 +67,68 @@ def _write_json(path: Path, payload: dict) -> None:
             ensure_ascii=False,
             separators=(",", ":"),
         )
+
+
+# Mapping from validation rule codes (modules/labels/validation.py) to
+# human-readable warning strings consumed by the frontend / Quarto.
+_WARNING_LABELS: dict[str, str] = {
+    "S1": "tag_count_out_of_range",
+    "S2": "tag_length_out_of_range",
+    "S3": "duplicate_tag_within_kind",
+    "S4": "hashtag_like_tag",
+    "S6": "invalid_confidence",
+    "S7": "ungrounded_tag_reference",
+    "S8": "sentence_length_out_of_range",
+}
+
+
+def _render_user_clips_block(
+    session: Session, user_id: int, *, case: str
+) -> list[dict]:
+    """Build the ``clips: [...]`` JSON block for one creator.
+
+    Joins ``Clip`` (selected) → ``ClipLabel`` (status=success) restricted
+    to ``label_case == case`` so the per-case export does not 4×-fan-out
+    when multiple modality labels exist for the same clip. Payload keys
+    for the case-specific observable-tag list and one-sentence reading are
+    derived from ``LabelCaseSpec`` (via ``clip_role_keys``) — the
+    case-agnostic ``aesthetic_tags`` / ``community_signalling_tags``
+    payload keys are stable per SPEC.
+    """
+    observable_key, sentence_key = clip_role_keys(LABEL_CASE_REGISTRY[case])
+    rows = (
+        session.query(Clip, ClipLabel)
+        .join(ClipLabel, ClipLabel.clip_id == Clip.id)
+        .filter(
+            Clip.user_id == user_id,
+            Clip.is_selected.is_(True),
+            ClipLabel.label_case == case,
+            ClipLabel.status == "success",
+        )
+        .order_by(Clip.id)
+        .all()
+    )
+    out: list[dict] = []
+    for clip, label in rows:
+        payload = label.payload or {}
+        out.append(
+            {
+                "clip_id": clip.id,
+                "shortcode": getattr(clip, "shortcode", None),
+                "thumbnail_url": getattr(clip, "thumbnail_url", None),
+                "sentence": payload.get(sentence_key, ""),
+                "tags": {
+                    "observable": payload.get(observable_key, []),
+                    "aesthetic": payload.get("aesthetic_tags", []),
+                    "community": payload.get("community_signalling_tags", []),
+                },
+                "validation": label.validation or "ok",
+                "warnings": [
+                    _WARNING_LABELS.get(code, code) for code in (label.warnings or [])
+                ],
+            }
+        )
+    return out
 
 
 def _bounds(users: list[VisualizationUser]) -> dict[str, float]:
@@ -248,12 +319,14 @@ def _load_case_detail_inputs(
 
 def _write_case_details(
     *,
+    session: Session,
     settings_viz,
     case: str,
     cluster_rows: Sequence[VisualizationCluster],
     user_rows: Sequence[VisualizationUser],
     member_by_user: dict[int, ClusterMember],
     members_by_cluster: dict[int, list[int]],
+    cluster_label_rows: dict[int, ClusterLabel],
     export_dir: Path,
 ) -> tuple[set[int], set[int]]:
     """Write per-cluster and per-user detail files. Returns (written_cluster_ids, written_user_ids)."""
@@ -282,9 +355,23 @@ def _write_case_details(
             instrument_top_k=settings_viz.instrument_top_k,
             languages_top_k=settings_viz.languages_top_k,
         )
+        cluster_payload = detail.to_json()
+        # The frontend's clusterDetailSchema reserves the ``label`` key for
+        # the case-agnostic label block (Phase E). ``detail.to_json()`` writes
+        # the cluster's display-label string there; we overwrite it with the
+        # block when available, and drop the key entirely otherwise so the
+        # Zod schema's ``label?: ClusterLabel`` shape parses.
+        label_block = render_label_block(
+            cluster_label_rows.get(c.cluster_id),
+            spec=LABEL_CASE_REGISTRY[case],
+        )
+        if label_block is not None:
+            cluster_payload["label"] = label_block
+        else:
+            cluster_payload.pop("label", None)
         _write_json(
             export_dir / "runs" / case / "clusters" / f"{c.cluster_id}.json",
-            detail.to_json(),
+            cluster_payload,
         )
         written_clusters.add(c.cluster_id)
 
@@ -338,9 +425,11 @@ def _write_case_details(
             instrument_top_k=settings_viz.instrument_top_k,
             languages_top_k=settings_viz.languages_top_k,
         )
+        payload = detail.to_json()
+        payload["clips"] = _render_user_clips_block(session, u.user_id, case=case)
         _write_json(
             export_dir / "runs" / case / "users" / f"{u.user_id}.json",
-            detail.to_json(),
+            payload,
         )
         written_users.add(u.user_id)
 
@@ -389,13 +478,21 @@ def export_visualization_json(settings, cases: tuple[str, ...]) -> None:
                 .all()
             )
             member_by_user, members_by_cluster = _load_case_detail_inputs(session, case)
+            cluster_label_rows = {
+                r.cluster_id: r
+                for r in session.query(ClusterLabel)
+                .filter(ClusterLabel.embedding_case == case)
+                .all()
+            }
             written_clusters, written_users = _write_case_details(
+                session=session,
                 settings_viz=viz_settings,
                 case=case,
                 cluster_rows=clusters,
                 user_rows=users,
                 member_by_user=member_by_user,
                 members_by_cluster=members_by_cluster,
+                cluster_label_rows=cluster_label_rows,
                 export_dir=export_dir,
             )
 
@@ -426,7 +523,9 @@ def export_visualization_json(settings, cases: tuple[str, ...]) -> None:
                     "clusters": [
                         {
                             "id": c.cluster_id,
-                            "label": c.label,
+                            "label": display_label_for(
+                                cluster_label_rows.get(c.cluster_id), c.label
+                            ),
                             "cx": c.cx,
                             "cy": c.cy,
                             "rx": c.rx,

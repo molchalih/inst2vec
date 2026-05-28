@@ -161,10 +161,61 @@ export const tokens = {
     close: { top: 12, right: 14, size: 18 },
   },
   inspector: {
+    // Inspector open/close + pane-swap choreography. Decoupled from
+    // the global `motion` ramp so the panel can move at its own pace.
+    // Consumed by `useInspectorChoreography`, `Inspector`, and
+    // `Panel` (via the `durationMs` prop on the inspector mount).
+    motion: {
+      slideMs: 560,      // panel slide-in / slide-out
+      contentMs: 560,    // pane content slide-in / slide-out (single block)
+      // Accent morph runs slightly past one full swap so the gradient
+      // continues to settle as the new pane finishes sliding in.
+      accentMs: 1150,
+      /**
+       * Fraction of the first phase's duration after which the second
+       * phase begins. 0 = strictly sequential (no overlap), 1 =
+       * second phase starts immediately. Applied only to the
+       * open and close paths (where two distinct DOM elements — the
+       * panel and the content wrapper — can animate concurrently).
+       * Swap paths stay sequential because both halves share the same
+       * content element.
+       */
+      overlap: 0.35,
+    },
     bar:       { height: 6, radius: 999, trackAlpha: 0.07 },
     chip: {
       paddingX: 10, paddingY: 4, radius: 999,
       weightFillAlpha: 0.22,
+    },
+    // Colour palettes for clip-label tag chips. One hue family with
+    // three weight steps so the three kinds read as a hierarchy.
+    // Consumed by features/inspector/ui/primitives/Chip via its
+    // `tone` prop. `warningOutline` overrides the border colour on
+    // any chip belonging to a warn-validation clip.
+    tagChip: {
+      observable: {
+        bg: "var(--bg-chip-observable)",
+        fg: "var(--fg-chip-observable)",
+        border: "var(--border-chip-observable)",
+      },
+      aesthetic: {
+        bg: "var(--bg-chip-aesthetic)",
+        fg: "var(--fg-chip-aesthetic)",
+        border: "var(--border-chip-aesthetic)",
+      },
+      community: {
+        bg: "var(--bg-chip-community)",
+        fg: "var(--fg-chip-community)",
+        border: "var(--border-chip-community)",
+      },
+      warningOutline: "var(--border-chip-warn)",
+    },
+    // Layout knobs for SectionClips row cards.
+    clipCard: {
+      padding: 8,
+      gap: 8,
+      thumbWidth: 80,
+      radius: 6,
     },
     microBar: {
       labelColWidth: 80, valueColWidth: 28, rowGap: 6,

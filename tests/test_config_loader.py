@@ -81,6 +81,19 @@ max_clusters = 20
 [visualization]
 export_dir = "data/visualization"
 default_case = "video"
+
+[labels]
+prompt = "test prompt"
+cluster_max_new_tokens = 1400
+cluster_sample_token_budget = 7500
+cluster_max_clips_per_cluster = 60
+cluster_max_clips_per_user = 2
+cluster_min_tags = 3
+cluster_max_tags = 12
+cluster_min_sentence_chars = 20
+cluster_max_sentence_chars = 320
+cluster_max_attempts = 3
+cluster_prompt = "test cluster prompt"
 """
 
 FAKE_SECRETS = {

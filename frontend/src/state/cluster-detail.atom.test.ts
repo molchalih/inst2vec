@@ -9,7 +9,7 @@ import type { ApiClient, ClusterDetail, Manifest } from "@/data";
 import { ApiUnavailableError } from "@/data";
 
 const manifest = (defaultRunId: string, runIds: string[]): Manifest => ({
-  version: 3,
+  version: 6,
   default_run_id: defaultRunId,
   runs: runIds.map((id) => ({
     id, case: "video", label: id, size: 1, details_available: true,
@@ -30,7 +30,7 @@ const defer = <T>(): Deferred<T> => {
 };
 
 const fakeDetail = (id: number): ClusterDetail => ({
-  version: 3, cluster_id: id, label: `C${id}`, size: 1,
+  version: 6, cluster_id: id, size: 1,
   ellipse: { cx: 0, cy: 0, rx: 1, ry: 1, angle: 0 },
   audio: { approachability: 0.5, engagement: 0.5, danceability: 0.5 },
   mood_shares: { happy: 0, sad: 0, relaxed: 0, aggressive: 0, party: 0 },

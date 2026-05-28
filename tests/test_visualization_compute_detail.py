@@ -355,6 +355,10 @@ def test_build_cluster_detail_basic_shape():
             "distance": pytest.approx(0.7071, abs=1e-3),
         }
     ]
+    # All clips have caption_language="en" → coverage is 1.0 over all clips,
+    # not 1.0 over only-captioned clips.
+    assert j["caption"]["detected_share"] == pytest.approx(1.0)
+    assert j["caption"]["top_langs"] == [{"code": "en", "share": 1.0}]
 
 
 def test_build_user_detail_borderline_dot_includes_nearest_other():

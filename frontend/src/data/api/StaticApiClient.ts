@@ -6,6 +6,19 @@ import type { CreatorSummary } from "./ApiClient";
 import { type ApiClient, ApiUnavailableError } from "./ApiClient";
 
 /**
+ * Thrown when a static per-id JSON is missing (HTTP 404). Distinct
+ * from generic fetch errors so callers can fall back gracefully —
+ * e.g. creator-detail loads route to the cluster pane instead of
+ * surfacing an error UI when the per-creator JSON was never exported.
+ */
+export class AssetNotFoundError extends Error {
+  constructor(url: string) {
+    super(`Asset not found: ${url}`);
+    this.name = "AssetNotFoundError";
+  }
+}
+
+/**
  * Drop-in for the future HttpApiClient. Reads static per-id JSON files
  * shipped alongside the bulk payload. Throws ApiUnavailableError for
  * methods that genuinely need a live backend.
@@ -55,6 +68,7 @@ export class StaticApiClient implements ApiClient {
 
   private async fetchJson(url: string): Promise<unknown> {
     const res = await fetch(url);
+    if (res.status === 404) throw new AssetNotFoundError(url);
     if (!res.ok) throw new Error(`Fetch ${url}: ${res.status}`);
     return res.json();
   }

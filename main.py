@@ -17,6 +17,7 @@ from modules import (
     embeddings,
     filter,
     ingest,
+    labels,
     mir,
     speech,
     upload,
@@ -47,6 +48,7 @@ def _init_db_stage(_settings: Settings, secrets: Secrets) -> None:
 #   Cluster Search       : User Embeddings
 #   Cluster Validation   : Cluster Search
 #   Clustering           : Cluster Validation
+#   Visual Labels        : Processing Dataset (selected clips only)
 #   Visualization        : Clustering
 # Reorder = noisy fingerprint resets on the next run, not data loss.
 def _stages(
@@ -69,6 +71,7 @@ def _stages(
         ("Cluster Search", lambda s, x: clustering.run_search(s, x, cases)),
         ("Cluster Validation", lambda s, x: clustering.run_validation(s, x, cases)),
         ("Clustering", lambda s, x: clustering.run_assign(s, x, cases)),
+        ("Visual Labels", labels.run),
         ("Visualization", lambda s, x: visualization.run(s, x, cases)),
     ]
 

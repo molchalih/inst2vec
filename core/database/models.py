@@ -1,6 +1,9 @@
 """Main-DB ORM: Base + model classes. No engine handles, no predicates."""
 
+from typing import Any
+
 from sqlalchemy import (
+    JSON,
     BigInteger,
     Boolean,
     DateTime,
@@ -401,3 +404,61 @@ class VisualizationCluster(Base):
     angle: Mapped[float] = mapped_column(Float, nullable=False)
     size: Mapped[int] = mapped_column(Integer, nullable=False)
     label: Mapped[str] = mapped_column(String, nullable=False)
+
+
+class ClipLabel(Base):
+    __tablename__ = "clip_labels"
+    __table_args__ = (
+        UniqueConstraint("clip_id", "label_case", name="uq_clip_labels_clip_case"),
+    )
+
+    clip_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("clips.id"), primary_key=True
+    )
+    # Per-case discriminator mirroring ``ClipEmbedding.embedding_case`` so a
+    # single clip can carry one stage-1 label row per modality (video / audio
+    # / sandwich / maest / gemini). The ``server_default="video"`` is the
+    # in-place backfill mechanism for sqlite (no Alembic); pre-existing rows
+    # come back as ``label_case="video"`` on the next ``init_db`` run.
+    label_case: Mapped[str] = mapped_column(
+        String, primary_key=True, nullable=False, server_default="video"
+    )
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    validation: Mapped[str | None] = mapped_column(String, nullable=True)
+    payload: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    warnings: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    # Stable digest of the case's input text (audio / sandwich / maest).
+    # ``None`` for the video case — frames are fingerprinted by file-stat
+    # upstream, not by a per-row source string. Mirrors
+    # ``ClipEmbedding.source_hash``.
+    source_hash: Mapped[str | None] = mapped_column(String, nullable=True)
+    updated_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    clip: Mapped["Clip"] = relationship("Clip")
+
+
+class ClusterLabel(Base):
+    __tablename__ = "cluster_labels"
+
+    embedding_case: Mapped[str] = mapped_column(String, primary_key=True)
+    cluster_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    validation: Mapped[str | None] = mapped_column(String, nullable=True)
+    payload: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    warnings: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    sampled_clip_ids: Mapped[list[int] | None] = mapped_column(JSON, nullable=True)
+    updated_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )

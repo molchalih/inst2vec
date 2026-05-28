@@ -15,10 +15,12 @@ export type {
   ApiClient, CreatorDetail, CreatorSummary,
 } from "./api/ApiClient";
 export { ApiUnavailableError } from "./api/ApiClient";
-export type { ClusterDetail } from "./schemas/cluster-detail.schema";
+export type { ClusterDetail, ClusterLabel } from "./schemas/cluster-detail.schema";
 export { clusterDetailSchema } from "./schemas/cluster-detail.schema";
 export { creatorDetailSchema } from "./schemas/creator-detail.schema";
-export { StaticApiClient } from "./api/StaticApiClient";
+export { clipLabelEntrySchema } from "./schemas/clip-label.schema";
+export type { ClipLabelEntry, GroundedTag, ObservableTag } from "./schemas/clip-label.schema";
+export { StaticApiClient, AssetNotFoundError } from "./api/StaticApiClient";
 export { HttpApiClient } from "./api/HttpApiClient";
 
 export type {

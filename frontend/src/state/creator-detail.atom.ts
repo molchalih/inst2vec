@@ -1,7 +1,9 @@
 import { atom, type Atom } from "jotai";
-import type { CreatorDetail } from "@/data";
+import { AssetNotFoundError, type CreatorDetail } from "@/data";
 import { requireApiClient } from "./api-singleton";
 import { activeRunIdAtom } from "./active-run-id.atom";
+import { activeRunAtom } from "./run.atom";
+import { selectionAtom } from "./selection.atom";
 
 // Cache entries are keyed by `${runId}:${id}` so that switching runs
 // doesn't surface stale detail data for a colliding creator id.
@@ -74,12 +76,30 @@ export const ensureCreatorDetailAtom = atom(null, async (get, set, id: number) =
     set(creatorDetailMapAtom, (prev) => {
       const loading = new Set(prev.loading);
       loading.delete(k);
+      if (err instanceof AssetNotFoundError) {
+        // Missing per-creator JSON: don't record an error — the
+        // fallback below transitions selection to the cluster pane.
+        return { ...prev, loading };
+      }
       const errors = new Map(prev.errors).set(
         k,
         err instanceof Error ? err : new Error(String(err)),
       );
       return { ...prev, loading, errors };
     });
+    if (err instanceof AssetNotFoundError) {
+      // Manifest may advertise details_available=true while the per-id
+      // JSON was never exported (committed assets, fresh-clone builds).
+      // Route the selection to the user's cluster instead of surfacing
+      // a fetch-error UI for data that will never arrive.
+      const run = get(activeRunAtom);
+      const user = run?.users.find(([uid]) => uid === id);
+      const clusterId = user?.[3];
+      if (clusterId !== undefined && clusterId >= 0) {
+        set(selectionAtom, { kind: "cluster", clusterId });
+        return;
+      }
+    }
     throw err;
   }
 });

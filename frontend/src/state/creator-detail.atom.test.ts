@@ -4,12 +4,14 @@ import {
   creatorDetailMapAtom, ensureCreatorDetailAtom, creatorDetailFor,
 } from "./creator-detail.atom";
 import { manifestAtom } from "./manifest.atom";
+import { runStateAtom } from "./run.atom";
+import { selectionAtom } from "./selection.atom";
 import { setApiClient } from "./api-singleton";
-import type { ApiClient, CreatorDetail, Manifest } from "@/data";
-import { ApiUnavailableError } from "@/data";
+import type { ApiClient, AtlasRun, CreatorDetail, Manifest } from "@/data";
+import { ApiUnavailableError, AssetNotFoundError } from "@/data";
 
 const manifest = (defaultRunId: string, runIds: string[]): Manifest => ({
-  version: 3,
+  version: 6,
   default_run_id: defaultRunId,
   runs: runIds.map((id) => ({
     id, case: "video", label: id, size: 1, details_available: true,
@@ -30,7 +32,7 @@ const defer = <T>(): Deferred<T> => {
 };
 
 const fakeDetail = (id: number): CreatorDetail => ({
-  version: 3, user_id: id, cluster_id: 1, x: 0, y: 0, n_clips: 1,
+  version: 6, user_id: id, cluster_id: 1, x: 0, y: 0, n_clips: 1,
   audio: { approachability: 0.5, engagement: 0.5, danceability: 0.5 },
   mood_shares: { happy: 0, sad: 0, relaxed: 0, aggressive: 0, party: 0 },
   timbre_shares: { acoustic: 0, electronic: 0, instrumental: 0, female_voice: 0, bright: 0, tonal: 0 },
@@ -45,6 +47,7 @@ const fakeDetail = (id: number): CreatorDetail => ({
     distance_from_centroid_percentile: 0,
     nearest_other_cluster: null,
   },
+  clips: [],
 });
 
 class ProgrammableApi implements ApiClient {
@@ -110,6 +113,33 @@ describe("creator-detail.atom", () => {
     await p2;
     expect(store.get(creatorDetailFor(7)).data?.user_id).toBe(7);
     expect(store.get(creatorDetailFor(7)).error).toBeUndefined();
+  });
+
+  it("AssetNotFoundError → routes selection to the user's cluster and clears the slot", async () => {
+    const store = seed("run-1");
+    const run: AtlasRun = {
+      meta: { id: "run-1", case: "video", label: "v", size: 1, details_available: true },
+      bounds: { minX: -1, maxX: 1, minY: -1, maxY: 1 },
+      users: [[7, 0, 0, 4, true, 0.5]],
+      clusters: [],
+    };
+    store.set(runStateAtom, { runs: new Map([["run-1", run]]), activeRunId: "run-1" });
+
+    const p = store.set(ensureCreatorDetailAtom, 7);
+    api.fail(7, new AssetNotFoundError("/data/runs/run-1/users/7.json"));
+    await p;
+
+    expect(store.get(creatorDetailFor(7))).toEqual({});
+    expect(store.get(selectionAtom)).toEqual({ kind: "cluster", clusterId: 4 });
+  });
+
+  it("AssetNotFoundError with no resolvable user → rethrows without selection change", async () => {
+    const store = seed("run-1");
+    // No runState seeded → activeRunAtom resolves to null, no fallback target.
+    const p = store.set(ensureCreatorDetailAtom, 99);
+    api.fail(99, new AssetNotFoundError("/data/runs/run-1/users/99.json"));
+    await expect(p).rejects.toBeInstanceOf(AssetNotFoundError);
+    expect(store.get(selectionAtom)).toBeNull();
   });
 
   it("refetches when the active run changes for the same id", async () => {

@@ -5,7 +5,7 @@ import {
 } from "@/state";
 import {
   useFitOnActiveRun, useUrlSync, useTrackViewportSize, useVersionTransition,
-  useIntroAnimation,
+  useIntroAnimation, useCaseSwitchOrchestrator,
 } from "@/interaction";
 import { Stage, DotsLayer, EllipsesLayer, HoverLayer } from "@/render";
 import { Providers } from "./providers";
@@ -70,6 +70,11 @@ const CameraFocus = () => {
   return null;
 };
 
+const CaseSwitchOrchestrator = () => {
+  useCaseSwitchOrchestrator();
+  return null;
+};
+
 export const AppShell = () => (
   <Providers>
     <Routing />
@@ -79,6 +84,7 @@ export const AppShell = () => (
     <Intro />
     <VersionTransition />
     <CameraFocus />
+    <CaseSwitchOrchestrator />
     <main className="w-screen h-screen bg-bg-canvas relative">
       <Stage>
         <EllipsesLayer />

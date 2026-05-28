@@ -44,6 +44,8 @@ export { ellipseAlphaScale, ellipseSide, userAlphaSchedule } from "./morph/sched
 export { computeWaveDelays, waveProgress, scalePop } from "./morph/wave";
 
 export { formatCompact } from "./format/compact";
+export { groundingLabel, warningLabel, TAG_KIND_ORDER, type TagKind } from "./format/clip-label";
+export { clusterWarningLabel } from "./format/cluster-label";
 
 export { phraseFor, type Phrase } from "./distinctiveness/phrase";
 

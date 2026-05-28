@@ -88,6 +88,7 @@ class StageEmbedder:
                     audio_root=self._settings.paths.audio_dir,
                     inflight=emb.inflight,
                     served_only=False,
+                    poll_idle_s=emb.drain_poll_s,
                     log_tag="embed:local",
                 ),
                 daemon=True,
@@ -129,13 +130,14 @@ class StageEmbedder:
         failures = 0
         case = spec.name
         stall_timeout_s = max(self._settings.embeddings.lease_ttl_s, 60)
+        poll_s = self._settings.embeddings.drain_poll_s
         last_progress = time.monotonic()
         while not (
             self._broker.case_outstanding(case) == 0
             and self._broker.completions.empty()
         ):
             try:
-                item_result = self._broker.completions.get(timeout=0.5)
+                item_result = self._broker.completions.get(timeout=poll_s)
             except queue.Empty:
                 if (
                     self._worker is not None

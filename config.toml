@@ -19,8 +19,6 @@ max_attempts = 3
 retry_delay = 30
 retry_jitter = 5
 concurrency = 5
-# TODO: wire to parsing logic (currently hardcoded as page_size * max_pages).
-max_clips_per_user = 60
 
 [filter]
 min_video_duration = 3
@@ -214,3 +212,328 @@ effnet_onnx_checkpoint = "discogs-effnet-bsdynamic-1.onnx"
 [visualization]
 export_dir = "data/visualization"
 default_case = "sandwich"
+
+[labels]
+model_path        = "./models/Qwen3-VL-8B-Instruct"
+frame_count       = 8
+max_new_tokens    = 1200
+max_attempts      = 3
+parallelism       = 1
+generation_seed   = 0
+# GPU decode batch width for the clip-pass (throughput-only, not fingerprinted).
+batch_size        = 4
+
+min_tags_per_kind   = 3
+max_tags_per_kind   = 8
+min_tag_chars       = 3
+max_tag_chars       = 60
+min_sentence_chars  = 20
+max_sentence_chars  = 240
+
+cluster_max_new_tokens          = 1400
+cluster_sample_token_budget     = 18000
+cluster_max_clips_per_cluster   = 60
+cluster_max_clips_per_user      = 2
+cluster_min_tags                = 3
+cluster_max_tags                = 12
+cluster_min_sentence_chars      = 20
+cluster_max_sentence_chars      = 320
+cluster_max_attempts            = 3
+
+# Per-case stage-1 prompts. One entry per case in modules.labels.cases.REGISTRY.
+# The ``video`` body is the original flat ``labels.prompt`` text verbatim — do
+# not edit without bumping the labels stage fingerprint (drops all video-case
+# ClipLabel rows).
+[labels.case_prompts]
+video = """
+You are performing visual analysis of Instagram Reels.
+
+The aim is not to classify the video into predefined categories. Instead,
+generate concise, open-ended descriptors that capture its visual aesthetic
+and the kind of cultural sensibility or imagined community it may communicate.
+
+Your analysis must distinguish between:
+
+1. Observable visual features:
+   Describe what can be directly grounded in the video: setting, bodies or
+   objects shown, styling, composition, camera relation, movement, lighting,
+   colour palette, editing rhythm, texture, polish, and mode of self-presentation.
+
+2. Aesthetic interpretation:
+   Generate short descriptors for the video's overall visual sensibility.
+   These may be abstract, affective, stylistic, or culturally coded, but must
+   be supported by the observable visual features.
+
+3. Potential community signalling:
+   Generate cautious descriptors for the type of shared taste, lifestyle
+   orientation, or aesthetic belonging the video appears to signal.
+   Do not assign demographic identities, political identities, sexuality,
+   class position, or psychological traits. Phrase these as aesthetic signals,
+   not facts about the creator.
+
+Rules:
+- Do not use a fixed taxonomy.
+- Prefer precise phrases over generic tags such as "beautiful", "aesthetic",
+  "cool", or "trendy".
+- Generate tags that are useful for comparing this video with other Reels.
+- Do not mention anything that is not visually evidenced.
+- Abstract descriptors must include a short grounding explanation.
+- Use lowercase tags.
+- Return valid JSON only.
+
+Return this JSON structure:
+
+{
+  "observable_visual_tags": [
+    {
+      "tag": "string",
+      "evidence": "brief visible grounding"
+    }
+  ],
+  "aesthetic_tags": [
+    {
+      "tag": "string",
+      "grounded_in": ["observable tag", "observable tag"],
+      "confidence": "high | medium | low"
+    }
+  ],
+  "community_signalling_tags": [
+    {
+      "tag": "string",
+      "grounded_in": ["aesthetic tag", "observable tag"],
+      "confidence": "high | medium | low"
+    }
+  ],
+  "one_sentence_visual_reading": "string"
+}
+"""
+
+audio = """
+You are analysing the audio identity of an Instagram Reel from a textual
+verbalization of its speech transcription and music descriptors (genre,
+mood/theme, instrument, danceability, engagement, approachability).
+
+Do not classify into fixed categories. Generate concise, grounded
+descriptors capturing the audio aesthetic and the kind of taste community
+the soundtrack and speech together may signal.
+
+Distinguish:
+
+1. Observable audio features — what is directly evidenced in the supplied
+   text: spoken content topics, music genre, mood/theme, instrumentation,
+   energy descriptors.
+2. Aesthetic interpretation — short, grounded descriptors for the audio
+   sensibility (e.g. "warm lo-fi confessional", "club-leaning peak-time
+   energy").
+3. Potential community signalling — cautious descriptors phrased as
+   aesthetic signals, not demographic identities.
+
+Rules:
+- Do not use a fixed taxonomy.
+- Do not mention anything not evidenced in the supplied text.
+- Abstract descriptors must include a short grounding explanation.
+- Use lowercase tags.
+- Return valid JSON only.
+
+Return this JSON structure:
+
+{
+  "observable_audio_tags": [
+    {"tag": "string", "evidence": "brief grounding phrase"}
+  ],
+  "aesthetic_tags": [
+    {"tag": "string", "grounded_in": ["observable tag", "observable tag"], "confidence": "high | medium | low"}
+  ],
+  "community_signalling_tags": [
+    {"tag": "string", "grounded_in": ["aesthetic tag", "observable tag"], "confidence": "high | medium | low"}
+  ],
+  "one_sentence_audio_reading": "string"
+}
+"""
+
+sandwich = """
+You are synthesising the multimodal identity of an Instagram Reel from
+its visual observations (already produced as a JSON block) plus its
+caption, speech transcription, and music descriptors.
+
+Do not classify into fixed categories. Generate grounded descriptors
+capturing the combined visual + audio + textual aesthetic and the taste
+community it may signal.
+
+Distinguish:
+
+1. Observable multimodal features — what is directly evidenced across
+   the visual block and the textual block.
+2. Aesthetic interpretation — short, grounded descriptors for the
+   combined sensibility.
+3. Potential community signalling — cautious descriptors phrased as
+   aesthetic signals, not demographic identities.
+
+Rules:
+- Do not use a fixed taxonomy.
+- Cite evidence from either the visual block or the textual block.
+- Abstract descriptors must include a short grounding explanation.
+- Use lowercase tags.
+- Return valid JSON only.
+
+Return this JSON structure:
+
+{
+  "observable_multimodal_tags": [
+    {"tag": "string", "evidence": "brief grounding phrase"}
+  ],
+  "aesthetic_tags": [
+    {"tag": "string", "grounded_in": ["observable tag", "observable tag"], "confidence": "high | medium | low"}
+  ],
+  "community_signalling_tags": [
+    {"tag": "string", "grounded_in": ["aesthetic tag", "observable tag"], "confidence": "high | medium | low"}
+  ],
+  "one_sentence_multimodal_reading": "string"
+}
+"""
+
+maest = """
+You are analysing the musical identity of an Instagram Reel from a
+verbalization of its music information retrieval features (genre,
+mood/theme, instrumentation, danceability, engagement, approachability).
+
+Do not classify into fixed categories. Generate grounded descriptors
+capturing the musical aesthetic and the taste community the soundtrack
+may signal.
+
+Distinguish:
+
+1. Observable music features — what is directly evidenced in the
+   supplied text: genre, mood/theme, instrumentation, energy buckets.
+2. Aesthetic interpretation — short, grounded descriptors for the
+   musical sensibility.
+3. Potential community signalling — cautious descriptors phrased as
+   aesthetic signals, not demographic identities.
+
+Rules:
+- Do not use a fixed taxonomy.
+- Quote evidence from the verbalization in each observable entry.
+- Abstract descriptors must include a short grounding explanation.
+- Use lowercase tags.
+- Return valid JSON only.
+
+Return this JSON structure:
+
+{
+  "observable_music_tags": [
+    {"tag": "string", "evidence": "fragment from the verbalization"}
+  ],
+  "aesthetic_tags": [
+    {"tag": "string", "grounded_in": ["observable tag", "observable tag"], "confidence": "high | medium | low"}
+  ],
+  "community_signalling_tags": [
+    {"tag": "string", "grounded_in": ["aesthetic tag", "observable tag"], "confidence": "high | medium | low"}
+  ],
+  "one_sentence_music_reading": "string"
+}
+"""
+
+# Per-case stage-2 cluster prompts. Same body shape across cases; the
+# repertoire key is renamed per modality. ``video`` is the previous flat
+# ``cluster_prompt`` text verbatim.
+[labels.cluster_case_prompts]
+video = """
+You are synthesising the shared visual identity of a cluster of Instagram
+Reels creators. You will receive a JSON list of per-clip analyses (each
+with an observable_visual_tags array, an aesthetic_tags array, a
+community_signalling_tags array, and one_sentence_visual_reading). These
+are representative clips from one cluster.
+
+Your task: identify the recurring visual logic across the supplied
+clips and synthesise a cluster-level description.
+
+Distinguish carefully between what visibly recurs across multiple clips
+(repertoire), how those recurring elements organise an aesthetic
+sensibility (aesthetic logic), and what kind of taste community the
+overall style may signal — phrased cautiously, as aesthetic signals, not
+demographic identities.
+
+Rules:
+- Do not use a fixed taxonomy.
+- Do not assign demographic identities, political identities, sexuality,
+  class position, or psychological traits.
+- Ground every aesthetic_logic entry in repertoire tags by name.
+- Prefer precise phrases over generic descriptors such as "aesthetic",
+  "cool", or "trendy".
+
+Return ONLY a JSON object with exactly these top-level keys:
+  cluster_label, cluster_summary, dominant_visual_repertoire,
+  dominant_aesthetic_logic, taste_signalling, visibility_orientation,
+  internal_variations, boundary_notes, tool_tags.
+"""
+
+audio = """
+You are synthesising the shared audio identity of a cluster of Instagram
+Reels creators. You will receive a JSON list of per-clip audio analyses
+(each with an observable_audio_tags array, an aesthetic_tags array, a
+community_signalling_tags array, and one_sentence_audio_reading).
+
+Identify the recurring audio logic across the supplied clips and
+synthesise a cluster-level description. Distinguish between what audibly
+recurs (repertoire), how those recurring elements organise an aesthetic
+sensibility (aesthetic logic), and what kind of taste community the
+soundtrack and speech may signal — phrased cautiously, as aesthetic
+signals, not demographic identities.
+
+Rules:
+- Do not use a fixed taxonomy.
+- Do not assign demographic identities.
+- Ground every aesthetic_logic entry in repertoire tags by name.
+
+Return ONLY a JSON object with exactly these top-level keys:
+  cluster_label, cluster_summary, dominant_audio_repertoire,
+  dominant_aesthetic_logic, taste_signalling, visibility_orientation,
+  internal_variations, boundary_notes, tool_tags.
+"""
+
+sandwich = """
+You are synthesising the shared multimodal identity of a cluster of
+Instagram Reels creators. You will receive a JSON list of per-clip
+multimodal analyses (each with an observable_multimodal_tags array, an
+aesthetic_tags array, a community_signalling_tags array, and
+one_sentence_multimodal_reading).
+
+Identify the recurring multimodal logic across the supplied clips and
+synthesise a cluster-level description. Distinguish between what recurs
+(repertoire), how those recurring elements organise an aesthetic
+sensibility, and what kind of taste community the combination may
+signal — phrased cautiously.
+
+Rules:
+- Do not use a fixed taxonomy.
+- Do not assign demographic identities.
+- Ground every aesthetic_logic entry in repertoire tags by name.
+
+Return ONLY a JSON object with exactly these top-level keys:
+  cluster_label, cluster_summary, dominant_multimodal_repertoire,
+  dominant_aesthetic_logic, taste_signalling, visibility_orientation,
+  internal_variations, boundary_notes, tool_tags.
+"""
+
+maest = """
+You are synthesising the shared musical identity of a cluster of
+Instagram Reels creators. You will receive a JSON list of per-clip music
+analyses (each with an observable_music_tags array, an aesthetic_tags
+array, a community_signalling_tags array, and one_sentence_music_reading).
+
+Identify the recurring musical logic across the supplied clips and
+synthesise a cluster-level description. Distinguish between what
+musically recurs (repertoire), how those recurring elements organise an
+aesthetic sensibility, and what kind of taste community the soundtrack
+may signal — phrased cautiously.
+
+Rules:
+- Do not use a fixed taxonomy.
+- Do not assign demographic identities.
+- Ground every aesthetic_logic entry in repertoire tags by name.
+
+Return ONLY a JSON object with exactly these top-level keys:
+  cluster_label, cluster_summary, dominant_music_repertoire,
+  dominant_aesthetic_logic, taste_signalling, visibility_orientation,
+  internal_variations, boundary_notes, tool_tags.
+"""

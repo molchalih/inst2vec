@@ -1,9 +1,20 @@
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { useAtom, useAtomValue } from "jotai";
-import { caseAtom, manifestAtom, useIsIntroPlaying } from "@/state";
+import { displayedCaseAtom, manifestAtom, useIsIntroPlaying } from "@/state";
 import { useEscKey } from "@/interaction";
+import type { ManifestRun } from "@/data";
 import { drawerOpenAtom } from "../state.atom";
 import { VersionPill } from "./VersionPill";
+
+// Display order in the drawer: the combined-modality case ("sandwich")
+// is the canonical default and renders first; the rest keep manifest
+// order. Pure presentation concern — the underlying manifest is not
+// mutated.
+const orderForDisplay = (runs: readonly ManifestRun[]): ManifestRun[] => {
+  const sandwich = runs.filter((r) => r.case === "sandwich");
+  const rest = runs.filter((r) => r.case !== "sandwich");
+  return [...sandwich, ...rest];
+};
 
 /**
  * Version drawer: collapsed-by-default, top-anchored. The tongue is
@@ -21,7 +32,10 @@ import { VersionPill } from "./VersionPill";
  */
 export const VersionsDrawer = () => {
   const manifest = useAtomValue(manifestAtom);
-  const activeCase = useAtomValue(caseAtom);
+  // Mirrors `VersionPill`: the drawer's "currently selected" affordance
+  // (the label shown in the closed-drawer tongue) flips with the user's
+  // click, not with the deferred route change.
+  const activeCase = useAtomValue(displayedCaseAtom);
   const introPlaying = useIsIntroPlaying();
   const [open, setOpen] = useAtom(drawerOpenAtom);
 
@@ -35,6 +49,10 @@ export const VersionsDrawer = () => {
 
   const activeRun = manifest?.runs.find((r) => r.case === activeCase);
   const activeLabel = activeRun ? activeRun.label : "";
+  const orderedRuns = useMemo(
+    () => (manifest ? orderForDisplay(manifest.runs) : []),
+    [manifest],
+  );
 
   return (
     <div
@@ -54,7 +72,7 @@ export const VersionsDrawer = () => {
           "flex items-center justify-center gap-drawer-gap px-drawer-px",
         ].join(" ")}
       >
-        {manifest?.runs.map((run) => (
+        {orderedRuns.map((run) => (
           <VersionPill key={run.id} run={run} />
         ))}
       </div>

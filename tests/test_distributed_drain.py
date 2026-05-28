@@ -175,6 +175,7 @@ class _Emb:
     coordinator_bind_host: str = "127.0.0.1"
     coordinator_bind_port: int = 0
     pod_drain_grace_s: float = 0.0
+    drain_poll_s: float = 0.01
 
 
 @dataclass

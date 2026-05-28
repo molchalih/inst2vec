@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import os
 import tomllib
+import warnings
 from pathlib import Path
+from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 _CONFIG_PATH = Path(__file__).parent.parent / "config.toml"
 
@@ -126,6 +128,102 @@ class MirSettings(BaseModel):
         return v
 
 
+class LabelsSettings(BaseModel):
+    model_path: str = "./models/Qwen3-VL-8B-Instruct"
+    frame_count: int = 8
+    max_new_tokens: int = 1200
+    max_attempts: int = 3
+    parallelism: int = 1
+    generation_seed: int = 0
+    # GPU decode batch width for the clip-pass. Throughput knob only — excluded
+    # from the clip-pass fingerprint (see ``_LABELS_CONFIG_FIELDS`` in
+    # ``modules.labels.state``). Drives ``LabelsGenerator.run_many``.
+    batch_size: int = 1
+
+    min_tags_per_kind: int = 3
+    max_tags_per_kind: int = 10
+    min_tag_chars: int = 3
+    max_tag_chars: int = 60
+    min_sentence_chars: int = 20
+    max_sentence_chars: int = 240
+
+    # Per-case prompts. ``case_prompts[<case>]`` is the stage-1 prompt body
+    # the labels pass renders against ``modules.labels.cases.REGISTRY[case]``.
+    # Mirrors the per-case shape of ``modules.embeddings.cases.CASE_REGISTRY``.
+    # The legacy flat ``labels.prompt`` / ``labels.cluster_prompt`` keys are
+    # accepted with a ``DeprecationWarning`` (see ``_promote_legacy_prompts``)
+    # and back-fill into ``case_prompts["video"]`` only — non-video cases
+    # raise a clear ``ValueError`` at ``modules.labels.prompts.prompt_for``
+    # lookup time when their entry is missing.
+    case_prompts: dict[str, str] = Field(default_factory=dict)
+    cluster_case_prompts: dict[str, str] = Field(default_factory=dict)
+
+    # Stage 2 (per-cluster pass) knobs.
+    cluster_max_new_tokens: int = 1400
+    cluster_sample_token_budget: int = 7500
+    cluster_max_clips_per_cluster: int = 60
+    cluster_max_clips_per_user: int = 2
+    cluster_min_tags: int = 3
+    cluster_max_tags: int = 12
+    cluster_min_sentence_chars: int = 20
+    cluster_max_sentence_chars: int = 320
+    cluster_max_attempts: int = 3
+
+    @model_validator(mode="before")
+    @classmethod
+    def _promote_legacy_prompts(cls, data: Any) -> Any:
+        """Promote legacy flat ``prompt`` / ``cluster_prompt`` keys into the
+        per-case sub-tables (SPEC §5.6).
+
+        Fires a single ``DeprecationWarning`` per ``LabelsSettings`` load
+        when either legacy key is present. When both old and new keys are
+        supplied, the new sub-tables win and the warning still fires so the
+        operator is told to drop the dead flat key.
+        """
+        if not isinstance(data, dict):
+            return data
+        legacy_clip = data.pop("prompt", None)
+        legacy_cluster = data.pop("cluster_prompt", None)
+        case_prompts = dict(data.get("case_prompts") or {})
+        cluster_case_prompts = dict(data.get("cluster_case_prompts") or {})
+
+        used_legacy_clip = legacy_clip is not None and "video" not in case_prompts
+        used_legacy_cluster = (
+            legacy_cluster is not None and "video" not in cluster_case_prompts
+        )
+        if used_legacy_clip:
+            case_prompts["video"] = legacy_clip
+        if used_legacy_cluster:
+            cluster_case_prompts["video"] = legacy_cluster
+
+        both_clip = (
+            legacy_clip is not None and "video" in case_prompts and not used_legacy_clip
+        )
+        both_cluster = (
+            legacy_cluster is not None
+            and "video" in cluster_case_prompts
+            and not used_legacy_cluster
+        )
+        if legacy_clip is not None or legacy_cluster is not None:
+            note = (
+                "labels.prompt / labels.cluster_prompt are deprecated; "
+                "move them under [labels.case_prompts] / "
+                "[labels.cluster_case_prompts]."
+            )
+            if both_clip or both_cluster:
+                note += (
+                    " Both legacy and new keys present — new keys win, "
+                    "legacy keys ignored."
+                )
+            warnings.warn(note, DeprecationWarning, stacklevel=2)
+
+        if case_prompts:
+            data["case_prompts"] = case_prompts
+        if cluster_case_prompts:
+            data["cluster_case_prompts"] = cluster_case_prompts
+        return data
+
+
 class SpeechSettings(BaseModel):
     whisper_model: str
     commit_every: int
@@ -190,6 +288,10 @@ class EmbeddingsSettings(BaseModel):
     # Seconds the coordinator keeps serving after the queue drains so pods
     # polling /lease observe HTTP 410 instead of a connection error on shutdown.
     pod_drain_grace_s: float = 10.0
+    # Per-iteration timeout for the orchestrator drain loop's queue.get().
+    # Production default is fine; tests override to ~0.01 to avoid stacking
+    # half-second blocks when the fake-provider work is sub-millisecond.
+    drain_poll_s: float = 0.5
     # Seconds a pod tolerates an unreachable coordinator before exiting cleanly
     # (crash backstop so a dead orchestrator doesn't leave GPUs billing).
     pod_idle_ttl_s: int = 300
@@ -317,6 +419,7 @@ class Settings(BaseModel):
     parse: ParseSettings = Field(default_factory=ParseSettings)
     filter: FilterSettings
     mir: MirSettings = Field(default_factory=MirSettings)
+    labels: LabelsSettings
     speech: SpeechSettings
     captions: CaptionsSettings
     embeddings: EmbeddingsSettings
@@ -354,6 +457,7 @@ def _load_settings() -> Settings:
         parse=ParseSettings(**raw.get("parse", {})),
         filter=FilterSettings(**raw.get("filter", {})),
         mir=MirSettings(**raw.get("mir", {})),
+        labels=LabelsSettings(**raw["labels"]),
         speech=SpeechSettings(**raw["speech"]),
         captions=CaptionsSettings(**raw["captions"]),
         embeddings=EmbeddingsSettings(**raw["embeddings"]),

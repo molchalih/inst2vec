@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { creatorDetailSchema } from "./creator-detail.schema";
 
 const sample = {
-  version: 3,
+  version: 6,
   user_id: 12345,
   cluster_id: 7,
   x: 1.42,
@@ -35,6 +35,7 @@ const sample = {
     distance_from_centroid_percentile: 78,
     nearest_other_cluster: { cluster_id: 3, label: "Cluster 4", distance: 0.41 },
   },
+  clips: [],
 };
 
 describe("creatorDetailSchema", () => {

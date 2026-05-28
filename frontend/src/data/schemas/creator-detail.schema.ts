@@ -1,18 +1,10 @@
 import { z } from "zod";
 import { SCHEMA_VERSION } from "./version";
 import {
-  audioScoresSchema, moodSharesSchema, timbreSharesSchema,
-  weightedTagSchema, langShareSchema, distinctivenessEntrySchema,
+  audioScoresSchema, captionSchema, moodSharesSchema, timbreSharesSchema,
+  weightedTagSchema, speechSchema, distinctivenessEntrySchema,
 } from "./cluster-detail.schema";
-
-const speechSchema = z.object({
-  detected_share: z.number(),
-  top_langs: z.array(langShareSchema),
-}).strict();
-
-const captionSchema = z.object({
-  top_langs: z.array(langShareSchema),
-}).strict();
+import { clipLabelEntrySchema } from "./clip-label.schema";
 
 const postingSchema = z.object({
   median_plays: z.number(),
@@ -52,6 +44,7 @@ export const creatorDetailSchema = z.object({
   activity_span_months: z.number().int(),
   distinctiveness: z.array(distinctivenessEntrySchema),
   spatial: spatialCreatorSchema,
+  clips: z.array(clipLabelEntrySchema),
 }).strict();
 
 export type CreatorDetail = z.infer<typeof creatorDetailSchema>;

@@ -356,6 +356,7 @@ def _runner_settings(video_dir, audio_dir):
             max_attempts=3,
             coordinator_bind_host="127.0.0.1",
             coordinator_bind_port=0,
+            drain_poll_s=0.01,
         ),
         audio_extraction=SimpleNamespace(
             audio_bitrate_kbps=128,

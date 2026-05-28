@@ -522,9 +522,15 @@ def build_cluster_detail(
         ),
     }
     caption = {
+        "detected_share": round(
+            aggregate_boolean_share(
+                [c.caption_language is not None for c in all_clips]
+            ),
+            4,
+        ),
         "top_langs": top_languages(
             [c.caption_language for c in all_clips], top_k=languages_top_k
-        )
+        ),
     }
     posting = {
         "median_plays": round(_median_or_none([m.median_plays for m in members]) or 0),
@@ -632,9 +638,13 @@ def build_user_detail(
         ),
     }
     caption = {
+        "detected_share": round(
+            aggregate_boolean_share([c.caption_language is not None for c in clips]),
+            4,
+        ),
         "top_langs": top_languages(
             [c.caption_language for c in clips], top_k=languages_top_k
-        )
+        ),
     }
     posting = {
         "median_plays": self_member.median_plays or 0,

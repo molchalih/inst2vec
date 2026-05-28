@@ -3,9 +3,10 @@ import { tokens } from "@/ui/tokens";
 
 type PaneBodyProps = {
   /**
-   * When true the column stretches to the panel height and distributes
-   * its sections top-to-bottom (the full detail view). Left false for
-   * the short unavailable/error states so they sit at the top.
+   * When true the column owns the panel's full height; children stack
+   * top-down with a fixed `panel.sectionGap` between them. The column
+   * never distributes leftover space across sections, and never adds a
+   * scrollbar of its own.
    */
   fill?: boolean;
   children: ReactNode;
@@ -35,9 +36,8 @@ export const PaneBody = ({ fill = false, children }: PaneBodyProps) => (
       display: "flex",
       flexDirection: "column",
       gap: tokens.panel.sectionGap,
-      ...(fill ? { justifyContent: "space-between" } : null),
     } as CSSProperties}>
-      {children}
+      {fill ? <>{children}</> : children}
     </div>
   </div>
 );

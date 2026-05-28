@@ -6,6 +6,13 @@ type PanelProps = {
   side?: "left" | "right";
   onClose: () => void;
   children: ReactNode;
+  /**
+   * Slide animation duration in ms. Defaults to `tokens.motion.medium`
+   * for the generic chromeless slide-in; consumers that own the rest
+   * of an open/close orchestration (e.g. the inspector) pass their own
+   * duration so the slide stays in sync with downstream cascades.
+   */
+  durationMs?: number;
 };
 
 const offClass = (side: "left" | "right"): string =>
@@ -16,7 +23,14 @@ const offClass = (side: "left" | "right"): string =>
  * consumer. The panel just owns the slide animation, Esc handling,
  * focus trap, and the background card.
  */
-export const Panel = ({ open, side = "left", onClose, children }: PanelProps) => {
+export const Panel = ({
+  open,
+  side = "left",
+  onClose,
+  children,
+  durationMs,
+}: PanelProps) => {
+  const slideMs = durationMs ?? tokens.motion.medium;
   const ref = useRef<HTMLDivElement | null>(null);
   const [mounted, setMounted] = useState(open);
   const [show, setShow] = useState(false);
@@ -39,9 +53,9 @@ export const Panel = ({ open, side = "left", onClose, children }: PanelProps) =>
       };
     }
     setShow(false);
-    const t = window.setTimeout(() => setMounted(false), tokens.motion.medium);
+    const t = window.setTimeout(() => setMounted(false), slideMs);
     return () => clearTimeout(t);
-  }, [open]);
+  }, [open, slideMs]);
 
   useEffect(() => {
     if (!open) return;
@@ -93,7 +107,7 @@ export const Panel = ({ open, side = "left", onClose, children }: PanelProps) =>
         background: tokens.panel.bg,
         backdropFilter: `blur(${tokens.glass.blurPx}px)`,
         boxShadow: tokens.glass.shadow,
-        transitionDuration: `${tokens.motion.medium}ms`,
+        transitionDuration: `${slideMs}ms`,
       }}
     >
       {children}

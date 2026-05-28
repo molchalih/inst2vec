@@ -24,6 +24,8 @@ from core.database.models import (  # noqa: F401  -- re-exports for core.databas
     Clip,
     ClipEmbedding,
     ClipFilterScratch,
+    ClipLabel,
+    ClusterLabel,
     ClusterRun,
     StageState,
     User,
@@ -36,6 +38,8 @@ from core.database.models import (  # noqa: F401  -- re-exports for core.databas
 )
 from core.database.predicates import (  # noqa: F401  -- re-exports for core.database.*
     clip_has_detected_speech,
+    clip_label_done,
+    clip_needs_label,
     clip_needs_speech_detection,
     clip_needs_speech_translation,
     clip_used_in_analysis,

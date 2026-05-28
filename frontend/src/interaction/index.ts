@@ -10,3 +10,4 @@ export { useCrossfadeSlots, type CrossfadeSlot } from "./useCrossfadeSlots";
 export { useEasedScalar } from "./useEasedScalar";
 export { useVersionTransition } from "./useVersionTransition";
 export { useIntroAnimation } from "./useIntroAnimation";
+export { useCaseSwitchOrchestrator } from "./useCaseSwitchOrchestrator";

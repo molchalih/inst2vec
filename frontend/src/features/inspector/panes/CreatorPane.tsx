@@ -3,14 +3,27 @@ import { useAtomValue, useSetAtom } from "jotai";
 import {
   activeRunAtom, creatorDetailFor, ensureCreatorDetailAtom,
 } from "@/state";
+import type { ClusterLabel, EmbeddingCase } from "@/data";
 import { tokens } from "@/ui/tokens";
-import { SectionSound } from "../ui/SectionSound";
-import { SectionCharacter } from "../ui/SectionCharacter";
 import { SectionAudience } from "../ui/SectionAudience";
-import { SectionWhereItSits } from "../ui/SectionWhereItSits";
+import { SectionMusical } from "../ui/SectionMusical";
+import { SectionSpoken } from "../ui/SectionSpoken";
+import { SectionTextual } from "../ui/SectionTextual";
+import { SectionVisual } from "../ui/SectionVisual";
 import { PaneHeader } from "../ui/PaneHeader";
 import { PaneBody } from "../ui/PaneBody";
 import { PaneUnavailable } from "../ui/PaneUnavailable";
+
+// Map the embedding case keyed on the run to the modality string that drives
+// SectionVisual's section heading. Without this, the creator pane (which has
+// no cluster context) would render every per-clip section titled "Visual"
+// regardless of the active case.
+const MODALITY_FOR_CASE: Record<EmbeddingCase, ClusterLabel["modality"]> = {
+  video: "visual",
+  sandwich: "multimodal",
+  audio: "audio",
+  maest: "music",
+};
 
 type Props = { creatorId: number };
 
@@ -56,35 +69,41 @@ export const CreatorPane = ({ creatorId }: Props) => {
   }
 
   const d = slot.data;
+  const modality = MODALITY_FOR_CASE[run.meta.case];
   return (
     <PaneBody fill>
       <PaneHeader name={name} meta={meta} />
       {d ? (
         <>
-          <SectionSound
+          <SectionAudience
             index="01"
             loaded={{
+              follower_bucket: d.follower_bucket,
+              posting: d.posting,
+            }}
+          />
+          <SectionMusical
+            index="02"
+            loaded={{
               audio: d.audio,
+              mood: d.mood_shares,
+              timbre: d.timbre_shares,
               genreTop: d.genre_top,
               instrumentTop: d.instrument_top,
               distinctiveness: d.distinctiveness,
             }}
           />
-          <SectionCharacter index="02" loaded={{ mood: d.mood_shares, timbre: d.timbre_shares }} />
-          <SectionAudience index="03" loaded={{
-            follower_bucket: d.follower_bucket,
-            posting: d.posting,
-            speech: d.speech,
-            caption: d.caption,
-          }} />
-          <SectionWhereItSits index="04" kind="creator" loaded={{ nearest_other_cluster: d.spatial.nearest_other_cluster }} />
+          <SectionSpoken  index="03" loaded={d.speech} />
+          <SectionTextual index="04" loaded={d.caption} />
+          <SectionVisual  index="05" clips={d.clips} modality={modality} />
         </>
       ) : (
         <>
-          <SectionSound index="01" />
-          <SectionCharacter index="02" />
-          <SectionAudience index="03" />
-          <SectionWhereItSits index="04" kind="creator" />
+          <SectionAudience index="01" />
+          <SectionMusical  index="02" />
+          <SectionSpoken   index="03" />
+          <SectionTextual  index="04" />
+          <SectionVisual   index="05" clips={[]} modality={modality} />
         </>
       )}
     </PaneBody>

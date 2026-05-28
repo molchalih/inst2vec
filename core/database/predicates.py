@@ -4,9 +4,10 @@ Each helper returns a tuple of SQLAlchemy clause elements consumed by
 `query.filter(*…)`. No engine, no session, no side effects.
 """
 
+from sqlalchemy import or_
 from sqlalchemy.sql import func
 
-from core.database.models import Clip
+from core.database.models import Clip, ClipLabel
 from core.lang import sql_is_english
 
 
@@ -102,3 +103,23 @@ def needs_caption_translation():
         ~sql_is_english(Clip.caption_language),
         (Clip.caption_translation.is_(None)) | (Clip.caption_translation == ""),
     )
+
+
+def clip_needs_label():
+    """Selected, downloaded clips with no successful label row yet.
+
+    Caller must `.outerjoin(ClipLabel, ClipLabel.clip_id == Clip.id)` before
+    applying these clauses.
+    """
+    return (
+        *clip_used_in_analysis(),
+        or_(ClipLabel.clip_id.is_(None), ClipLabel.status == "pending"),
+    )
+
+
+def clip_label_done():
+    """Selected, downloaded clips with a successful ``ClipLabel`` row.
+
+    Caller must join ``ClipLabel`` on ``ClipLabel.clip_id == Clip.id``.
+    """
+    return (*clip_used_in_analysis(), ClipLabel.status == "success")

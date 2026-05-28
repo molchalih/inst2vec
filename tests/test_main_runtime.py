@@ -134,6 +134,7 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
     monkeypatch.setattr(
         main.clustering, "run_assign", lambda s, k, c: calls.append("cluster:assign")
     )
+    monkeypatch.setattr(main.labels, "run", lambda s, k: calls.append("labels:run"))
     monkeypatch.setattr(
         main.visualization, "run", lambda s, k, c: calls.append("visualization:run")
     )

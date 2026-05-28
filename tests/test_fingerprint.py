@@ -7,6 +7,7 @@ import pytest
 from core.database import Base, StageState, get_engine, get_session
 from core.fingerprint import (
     Fingerprint,
+    compose_hashes,
     describe_diff,
     hash_rows,
     hash_text,
@@ -403,6 +404,62 @@ def test_gate_dependency_match_does_not_trigger_when_flag_set(fresh_state):
     assert called["n"] == 0
 
 
+def test_gate_data_drift_ignored_by_default(fresh_state):
+    """Without check_data, data mismatch does NOT call on_drift."""
+    from core import fingerprint as fp
+    from core.database import StageState
+
+    session = fresh_state
+    session.merge(
+        StageState(
+            stage_name="t",
+            scope_key="s",
+            data_hash="old-data",
+            config_hash="c",
+            dependency_hash="d",
+        )
+    )
+    session.commit()
+
+    current = fp.Fingerprint(data="new-data", config="c", dependency="d")
+    called = {"n": 0}
+
+    def on_drift(_s):
+        called["n"] += 1
+
+    _gate_in_scope(session, "t", "s", current, on_drift)
+    assert called["n"] == 0
+
+
+def test_gate_data_drift_triggers_when_flag_set(fresh_state):
+    """With check_data=True, data mismatch calls on_drift — guards against
+    silent re-sealing of stale outputs when source files (e.g. per-clip video)
+    are replaced under a stage that fingerprints its inputs directly."""
+    from core import fingerprint as fp
+    from core.database import StageState
+
+    session = fresh_state
+    session.merge(
+        StageState(
+            stage_name="t",
+            scope_key="s",
+            data_hash="old-data",
+            config_hash="c",
+            dependency_hash="d",
+        )
+    )
+    session.commit()
+
+    current = fp.Fingerprint(data="new-data", config="c", dependency="d")
+    called = {"n": 0}
+
+    def on_drift(_s):
+        called["n"] += 1
+
+    _gate_in_scope(session, "t", "s", current, on_drift, check_data=True)
+    assert called["n"] == 1
+
+
 # ── stable_subset_payload ─────────────────────────────────────────────────────
 
 
@@ -437,3 +494,14 @@ def test_stable_subset_payload_serializes_unknown_types_via_str():
 
     out = stable_subset_payload(M(), ("p",))
     assert json.loads(out) == {"p": "/tmp/x"}
+
+
+# ── compose_hashes ───────────────────────────────────────────────────────────
+
+
+def test_compose_hashes_is_order_sensitive() -> None:
+    assert compose_hashes("a", "b") != compose_hashes("b", "a")
+
+
+def test_compose_hashes_empty_matches_hash_empty() -> None:
+    assert compose_hashes() == hash_text("")

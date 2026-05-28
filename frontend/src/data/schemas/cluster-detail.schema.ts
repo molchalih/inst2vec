@@ -50,12 +50,16 @@ const ellipseSchema = z.object({
   angle: z.number(),
 }).strict();
 
-const speechSchema = z.object({
+export const speechSchema = z.object({
   detected_share: z.number(),
   top_langs: z.array(langShareSchema),
 }).strict();
 
-const captionSchema = z.object({
+export const captionSchema = z.object({
+  // Fraction of clips in the slice that carry a caption at all.
+  // Optional for back-compat with pre-v4-caption-share fixtures; falls
+  // back to the sum of `top_langs` shares when absent.
+  detected_share: z.number().optional(),
   top_langs: z.array(langShareSchema),
 }).strict();
 
@@ -77,10 +81,53 @@ const spatialClusterSchema = z.object({
   nearest_clusters: z.array(nearestClusterSchema),
 }).strict();
 
+// Treat confidence as a free string so warn-status payloads (SC5)
+// still parse on the frontend — mirrors the per-clip strategy.
+const clusterConfidenceSchema = z.string();
+
+const repertoireEntrySchema = z.object({
+  tag: z.string(),
+  description: z.string(),
+  recurrence: z.enum(["dominant", "frequent", "occasional"]),
+}).strict();
+
+const aestheticLogicEntrySchema = z.object({
+  tag: z.string(),
+  grounded_in: z.array(z.string()),
+  description: z.string(),
+}).strict();
+
+const cautiousBlockSchema = z.object({
+  label: z.string(),
+  description: z.string(),
+  confidence: clusterConfidenceSchema,
+}).strict();
+
+const internalVariationSchema = z.object({
+  variation: z.string(),
+  description: z.string(),
+}).strict();
+
+export const clusterLabelSchema = z.object({
+  label: z.string(),
+  summary: z.string(),
+  modality: z.enum(["visual", "audio", "music", "multimodal"]),
+  repertoire: z.array(repertoireEntrySchema),
+  aesthetic_logic: z.array(aestheticLogicEntrySchema),
+  taste_signalling: cautiousBlockSchema,
+  visibility_orientation: cautiousBlockSchema,
+  internal_variations: z.array(internalVariationSchema),
+  boundary_notes: z.string(),
+  tool_tags: z.array(z.string()),
+  validation: z.enum(["ok", "warn"]),
+  warnings: z.array(z.string()),
+}).strict();
+
+export type ClusterLabel = z.infer<typeof clusterLabelSchema>;
+
 export const clusterDetailSchema = z.object({
   version: z.literal(SCHEMA_VERSION),
   cluster_id: z.number().int(),
-  label: z.string(),
   size: z.number().int().nonnegative(),
   ellipse: ellipseSchema,
   audio: audioScoresSchema,
@@ -95,6 +142,7 @@ export const clusterDetailSchema = z.object({
   activity_span_months: z.number().int(),
   distinctiveness: z.array(distinctivenessEntrySchema),
   spatial: spatialClusterSchema,
+  label: clusterLabelSchema.optional(),
 }).strict();
 
 export type ClusterDetail = z.infer<typeof clusterDetailSchema>;

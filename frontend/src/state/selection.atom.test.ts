@@ -21,7 +21,7 @@ const runWith = (hasDetail: boolean): AtlasRun => ({
 });
 
 const manifestWith = (details: boolean): Manifest => ({
-  version: 3,
+  version: 6,
   default_run_id: "video-1",
   runs: [{ id: "video-1", case: "video", label: "v", size: 2, details_available: details }],
 });
@@ -32,13 +32,11 @@ const seed = (store: ReturnType<typeof createStore>, details: boolean) => {
 };
 
 describe("selection.atom — selectDotAtom", () => {
-  // TODO: restore creator selection once per-creator data is ready
-  // (the creator path in selectDotAtom is commented out for now).
-  it("details on + has_detail true → cluster selection (creator path disabled)", () => {
+  it("details on + has_detail true → creator selection", () => {
     const store = createStore();
     seed(store, true);
     store.set(selectDotAtom, 1);
-    expect(store.get(selectionAtom)).toEqual({ kind: "cluster", clusterId: 5 });
+    expect(store.get(selectionAtom)).toEqual({ kind: "creator", creatorId: 1 });
   });
 
   it("details on + has_detail false → cluster fallback", () => {

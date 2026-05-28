@@ -6,6 +6,32 @@ Leading underscore ensures pytest does not collect this file as a test module
 
 from types import SimpleNamespace
 
+from sqlalchemy.orm import Session
+
+
+def seed_audio_mir(
+    session: Session, *, clip_id: int, is_music_detected: bool = True
+) -> None:
+    """Seed a minimal ``AudioMIR`` row sufficient for ``verbalize_mir``.
+
+    Writes the smallest field set that yields a non-empty verbalization:
+    genre/mood/instrument label strings and the ``is_music_detected`` flag.
+    Read by both the audio-case input adapter (``build_audio_text``) and
+    the sandwich case (``build_sandwich_text``).
+    """
+    from core.database import AudioMIR
+
+    session.add(
+        AudioMIR(
+            clip_id=clip_id,
+            is_music_detected=is_music_detected,
+            genre_labels="lofi, downtempo",
+            moodtheme_labels="relaxed, mellow",
+            instrument_labels="piano",
+        )
+    )
+    session.commit()
+
 
 def _seed_search_dataset(n_users: int = 30, case: str = "video") -> None:
     """Seed Users + selected/downloaded Clips + UserEmbeddings."""

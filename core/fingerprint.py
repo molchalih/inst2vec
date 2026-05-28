@@ -69,6 +69,11 @@ def hash_text(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
 
 
+def compose_hashes(*hashes: str) -> str:
+    """Stable, order-preserving composition of N hash strings."""
+    return hash_text("".join(hashes))
+
+
 def stable_subset_payload(obj: object, fields: tuple[str, ...] | list[str]) -> str:
     """Stable JSON string over a fixed allowlist of fields.
 
@@ -145,9 +150,10 @@ def gate(
     log_scope: str = "",
     drift_msg: str = "",
     check_dependency: bool = False,
+    check_data: bool = False,
 ) -> None:
-    """Reset stage outputs on config (or optionally dependency) drift; emit the
-    standard 3-state log line.
+    """Reset stage outputs on config (or optionally dependency / data) drift;
+    emit the standard 3-state log line.
 
     Replaces the per-stage ``stored = session.get(...)`` / compare /
     log-and-reset boilerplate. Caller commits.
@@ -155,6 +161,12 @@ def gate(
     ``check_dependency=True`` extends the drift check to dependency_hash for
     stages whose outputs depend on an upstream stage state. Default False
     preserves the original config-only semantics for existing callers.
+
+    ``check_data=True`` extends the drift check to data_hash for stages that
+    fingerprint their input rows directly (e.g. labels hashing the per-clip
+    video file stat) — without this opt-in, replacing the source data would
+    leave stale outputs and then ``mark_complete`` would seal the new
+    data_hash, hiding the drift forever.
 
     ``log_scope`` and ``drift_msg`` are accepted for backward compatibility
     but unused — log lines pick up the active scope from the caller's ContextVar.
@@ -166,7 +178,8 @@ def gate(
         return
     config_changed = stored.config_hash != current.config
     dep_changed = check_dependency and stored.dependency_hash != current.dependency
-    if config_changed or dep_changed:
+    data_changed = check_data and stored.data_hash != current.data
+    if config_changed or dep_changed or data_changed:
         diff = describe_diff(session, stage, scope, current)
         event("SCAN", "fingerprint", stats={"diff": diff})
         on_drift(session)

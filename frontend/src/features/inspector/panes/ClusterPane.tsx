@@ -4,10 +4,11 @@ import {
   activeRunAtom, clusterDetailFor, ensureClusterDetailAtom,
 } from "@/state";
 import { tokens } from "@/ui/tokens";
-import { SectionSound } from "../ui/SectionSound";
-import { SectionCharacter } from "../ui/SectionCharacter";
 import { SectionAudience } from "../ui/SectionAudience";
-import { SectionWhereItSits } from "../ui/SectionWhereItSits";
+import { SectionMusical } from "../ui/SectionMusical";
+import { SectionSpoken } from "../ui/SectionSpoken";
+import { SectionTextual } from "../ui/SectionTextual";
+import { SectionVisual } from "../ui/SectionVisual";
 import { PaneHeader } from "../ui/PaneHeader";
 import { PaneBody } from "../ui/PaneBody";
 import { PaneUnavailable } from "../ui/PaneUnavailable";
@@ -37,9 +38,12 @@ export const ClusterPane = ({ clusterId }: Props) => {
   const total = run.clusters.reduce((s, c) => s + (c.id >= 0 ? c.size : 0), 0);
   const pct = total > 0 ? (cluster.size / total) * 100 : 0;
 
-  const meta = slot.data
-    ? `${cluster.size.toLocaleString()} creators · ${pct.toFixed(1)}% of run · ${slot.data.activity_span_months} months active`
-    : `${cluster.size.toLocaleString()} creators · ${pct.toFixed(1)}% of run`;
+  const baseMeta = slot.data
+    ? `${cluster.size.toLocaleString()} creators · ${pct.toFixed(1)}% of case · ${slot.data.activity_span_months} months active`
+    : `${cluster.size.toLocaleString()} creators · ${pct.toFixed(1)}% of case`;
+  const meta = slot.data?.label?.summary
+    ? `${baseMeta} · ${slot.data.label.summary}`
+    : baseMeta;
 
   if (!detailAvailable) {
     return (
@@ -65,30 +69,37 @@ export const ClusterPane = ({ clusterId }: Props) => {
       <PaneHeader name={cluster.label} meta={meta} />
       {d ? (
         <>
-          <SectionSound
+          <SectionAudience
             index="01"
             loaded={{
+              follower_bucket: d.follower_bucket,
+              posting: d.posting,
+            }}
+          />
+          <SectionMusical
+            index="02"
+            loaded={{
               audio: d.audio,
+              mood: d.mood_shares,
+              timbre: d.timbre_shares,
               genreTop: d.genre_top,
               instrumentTop: d.instrument_top,
               distinctiveness: d.distinctiveness,
             }}
           />
-          <SectionCharacter index="02" loaded={{ mood: d.mood_shares, timbre: d.timbre_shares }} />
-          <SectionAudience index="03" loaded={{
-            follower_bucket: d.follower_bucket,
-            posting: d.posting,
-            speech: d.speech,
-            caption: d.caption,
-          }} />
-          <SectionWhereItSits index="04" kind="cluster" loaded={{ nearest_clusters: d.spatial.nearest_clusters }} />
+          <SectionSpoken  index="03" loaded={d.speech} />
+          <SectionTextual index="04" loaded={d.caption} />
+          {d.label
+            ? <SectionVisual index="05" cluster={d.label} />
+            : <SectionVisual index="05" />}
         </>
       ) : (
         <>
-          <SectionSound index="01" />
-          <SectionCharacter index="02" />
-          <SectionAudience index="03" />
-          <SectionWhereItSits index="04" kind="cluster" />
+          <SectionAudience index="01" />
+          <SectionMusical  index="02" />
+          <SectionSpoken   index="03" />
+          <SectionTextual  index="04" />
+          <SectionVisual   index="05" />
         </>
       )}
     </PaneBody>
