@@ -21,6 +21,7 @@ def upsert_success(
     payload: dict,
     warnings: list[str],
     extras: dict[str, Any] | None = None,
+    generation_seed: int | None = None,
 ) -> None:
     extras = extras or {}
     existing = session.get(model_cls, key)
@@ -35,6 +36,7 @@ def upsert_success(
             warnings=warnings,
             error=None,
             attempts=1,
+            generation_seed=generation_seed,
             **extras,
         )
         session.add(model_cls(**kwargs))
@@ -45,6 +47,8 @@ def upsert_success(
     existing.warnings = warnings
     existing.error = None
     existing.attempts = (existing.attempts or 0) + 1
+    if generation_seed is not None:
+        existing.generation_seed = generation_seed
     for k, v in extras.items():
         setattr(existing, k, v)
 
@@ -56,6 +60,7 @@ def bump_failure(
     key: Any,
     error: str,
     max_attempts: int,
+    generation_seed: int | None = None,
 ) -> None:
     existing = session.get(model_cls, key)
     if existing is None:
@@ -70,6 +75,8 @@ def bump_failure(
     existing.payload = None
     existing.warnings = None
     existing.validation = None
+    if generation_seed is not None:
+        existing.generation_seed = generation_seed
     if existing.attempts >= max_attempts:
         existing.status = "failed"
     else:

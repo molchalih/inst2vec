@@ -20,6 +20,8 @@ _CLUSTER_WARNING_LABELS: dict[str, str] = {
     "SC5": "invalid_confidence",
     "SC6": "sentence_length_out_of_range",
     "SC7": "invalid_tool_tags",
+    "SC8": "summary_length_out_of_band",
+    "SC9": "connector_word_in_tag",
 }
 
 

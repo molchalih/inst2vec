@@ -6,8 +6,9 @@ Wipe-and-recompute on stale; commit a single transaction per case.
 
 Fingerprint is deliberately data-only: config_hash is hash_text("")
 because there are no settings knobs to track. dependency_hash chains
-to Stage.CLUSTER_ASSIGN so the stage flags drift even when row content
-happens to repeat.
+to Stage.CLUSTER_ASSIGN (layout/rows) and the cluster_labels stage (the
+embedded per-cluster label block) so the stage flags drift even when the
+UserCluster rows happen to repeat — e.g. after a pure re-labelling run.
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ from core.database import (
 from core.log import event, scope
 from core.pipeline import Stage
 from modules.embeddings.cases import CASE_REGISTRY
+from modules.labels.state import STAGE_CLUSTER_LABELS, cluster_scope_for
 from modules.visualization.compute import build_case_payload
 
 STAGE = Stage.VISUALIZATION
@@ -47,7 +49,16 @@ def _fingerprint(session, case: str) -> fp.Fingerprint:
     return fp.Fingerprint(
         data=fp.hash_rows(rows),
         config=fp.hash_text(""),
-        dependency=fp.stage_dependency_hash(session, Stage.CLUSTER_ASSIGN, case),
+        # Chain to CLUSTER_ASSIGN (the UMAP layout / cluster rows) AND
+        # CLUSTER_LABELS (the per-cluster label block the atlas embeds), so
+        # re-labelling drifts this stage and forces a fresh export instead of
+        # publishing a stale label.
+        dependency=fp.compose_hashes(
+            fp.stage_dependency_hash(session, Stage.CLUSTER_ASSIGN, case),
+            fp.stage_dependency_hash(
+                session, STAGE_CLUSTER_LABELS, cluster_scope_for(case)
+            ),
+        ),
     )
 
 

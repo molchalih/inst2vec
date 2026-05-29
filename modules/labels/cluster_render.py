@@ -15,11 +15,18 @@ from typing import Protocol
 
 @dataclass(frozen=True)
 class ClipCandidate:
-    """One clip's stage-1 payload, ready to be rendered into the prompt."""
+    """One clip's evidence, ready to be rendered into the cluster prompt.
+
+    ``payload`` is the case-shaped per-clip blob the cluster prompt consumes:
+    a ``dict`` for stage-1-backed cases (the validated ``ClipLabel.payload``)
+    or a ``str`` for stage-1-skipped cases (raw caption / speech / MIR text,
+    optionally prefixed with the upstream video ClipLabel JSON for
+    sandwich/gemini). ``json.dumps`` in ``render_prompt_body`` handles both.
+    """
 
     clip_id: int
     warning_count: int
-    payload: dict
+    payload: dict | str
 
 
 class _Member(Protocol):

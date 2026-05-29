@@ -34,14 +34,53 @@ class _FakeGen:
 
     payloads_by_call: list[str]
     calls: list[tuple[str, int]] = None  # (prompt suffix, max_new_tokens)
+    last_schema: dict | None = None
 
     def __post_init__(self) -> None:
         if self.calls is None:
             self.calls = []
 
-    def run_text(self, prompt: str, *, max_new_tokens: int) -> str:
+    def run_text(
+        self,
+        prompt: str,
+        *,
+        max_new_tokens: int,
+        seed: int | None = None,
+        do_sample: bool = False,
+        temperature: float = 1.0,
+        top_p: float = 1.0,
+        schema: dict | None = None,
+    ) -> str:
+        self.last_schema = schema
         self.calls.append((prompt[-32:], max_new_tokens))
         return self.payloads_by_call.pop(0)
+
+    def run_text_batch(
+        self,
+        prompts,
+        *,
+        max_new_tokens,
+        seeds,
+        do_sample=False,
+        temperature=1.0,
+        top_p=1.0,
+        schema=None,
+    ) -> list[str]:
+        return [
+            self.run_text(
+                p,
+                max_new_tokens=max_new_tokens,
+                seed=s,
+                do_sample=do_sample,
+                temperature=temperature,
+                top_p=top_p,
+                schema=schema,
+            )
+            for p, s in zip(prompts, seeds, strict=True)
+        ]
+
+    def reclaim_memory(self) -> None:  # pragma: no cover - test stub
+        pass
 
 
 @dataclass
@@ -55,15 +94,52 @@ class _RecordingGen:
         if self.prompts is None:
             self.prompts = []
 
-    def run_text(self, prompt: str, *, max_new_tokens: int) -> str:
+    def run_text(
+        self,
+        prompt: str,
+        *,
+        max_new_tokens: int,
+        seed: int | None = None,
+        do_sample: bool = False,
+        temperature: float = 1.0,
+        top_p: float = 1.0,
+        schema: dict | None = None,
+    ) -> str:
         self.prompts.append(prompt)
         return self.payloads_by_call.pop(0)
+
+    def run_text_batch(
+        self,
+        prompts,
+        *,
+        max_new_tokens,
+        seeds,
+        do_sample=False,
+        temperature=1.0,
+        top_p=1.0,
+        schema=None,
+    ) -> list[str]:
+        return [
+            self.run_text(
+                p,
+                max_new_tokens=max_new_tokens,
+                seed=s,
+                do_sample=do_sample,
+                temperature=temperature,
+                top_p=top_p,
+                schema=schema,
+            )
+            for p, s in zip(prompts, seeds, strict=True)
+        ]
+
+    def reclaim_memory(self) -> None:  # pragma: no cover - test stub
+        pass
 
 
 def _clean_cluster_json() -> dict:
     return {
         "cluster_label": "soft domestic vignette",
-        "cluster_summary": "tight handheld kitchen scenes with warm tones",
+        "cluster_summary": "tight handheld kitchen scenes with warm tungsten tones and shallow focus; domestic intimacy expressed through close framing and a muted personal register",
         "dominant_visual_repertoire": [
             {
                 "tag": "warm kitchen",
@@ -181,6 +257,7 @@ def test_cluster_pass_writes_success_row(monkeypatch) -> None:
             generator=fake,
             cases=("video",),
         )
+    assert fake.last_schema is not None
     with Session(eng) as s:
         row = s.get(ClusterLabel, ("video", 0))
         assert row is not None
@@ -189,16 +266,20 @@ def test_cluster_pass_writes_success_row(monkeypatch) -> None:
         assert isinstance(row.sampled_clip_ids, list) and len(row.sampled_clip_ids) > 0
 
 
-def test_cluster_pass_retries_then_fails(monkeypatch) -> None:
-    """Retry semantics are per-pipeline-run: each ``run_all_cases`` call
-    consumes at most one attempt per cluster; the row transitions to
-    ``failed`` once ``attempts`` reaches ``cluster_max_attempts``.
+def test_cluster_hard_validation_fail_retries_with_varying_seed_then_goes_terminal(
+    monkeypatch,
+) -> None:
+    """Cluster-side validation hard-fails (HC1/HC2/HC3) now go through
+    ``bump_failure`` because per-attempt seed variation means a retry CAN
+    change the output. Each attempt N uses seed ``base + N - 1``. The
+    row stays ``pending`` until ``attempts == cluster_max_attempts``,
+    then transitions to terminal ``failed``.
     """
     eng = _engine()
     _seed(eng)
-    fake = _FakeGen(payloads_by_call=["not json", "not json", "not json"])
-    labels = _labels(cluster_max_attempts=3)
-    for _ in range(3):
+    fake = _FakeGen(payloads_by_call=["not json"] * 3)
+    labels = _labels(cluster_max_attempts=3, generation_seed=42)
+    for _ in range(4):
         with Session(eng) as s:
             run_all_cases(
                 session=s,
@@ -206,10 +287,16 @@ def test_cluster_pass_retries_then_fails(monkeypatch) -> None:
                 generator=fake,
                 cases=("video",),
             )
+    # 3 model calls (one per attempt up to max); the 4th pipeline run
+    # finds no pending row (terminal failed) and short-circuits.
+    assert len(fake.calls) == 3
     with Session(eng) as s:
         row = s.get(ClusterLabel, ("video", 0))
         assert row is not None
-        assert row.status == "failed" and row.attempts == 3
+        assert row.status == "failed"
+        assert row.attempts == labels.cluster_max_attempts
+        # Final attempt's seed lands on the row: base + (max - 1) = 42 + 2.
+        assert row.generation_seed == 44
 
 
 def test_cluster_pass_skips_clusters_with_no_input() -> None:
@@ -249,19 +336,32 @@ def _clean_audio_cluster_json() -> dict:
     return payload
 
 
-def test_cluster_pass_audio_consumes_audio_clip_labels() -> None:
-    """Stage-2 for ``case='audio'`` must read ``ClipLabel(label_case='audio')``
-    rows, not the video-case rows. The prompt body the generator sees must
-    embed the audio payload's distinctive substring.
+def test_cluster_pass_audio_consumes_raw_speech_signals() -> None:
+    """Stage-2 for ``case='audio'`` skips the per-clip pass and synthesises
+    directly from each member clip's raw speech transcription (and MIR, when
+    music is detected). The prompt body the generator sees must embed the
+    speech transcript and must NOT carry the video-case ``ClipLabel`` payload
+    that this branch deliberately ignores.
     """
     eng = _engine()
-    audio_marker = "speechy-podcast-clip-marker"
+    speech_marker = "speechy-podcast-clip-marker"
     with Session(eng) as s:
         s.add(User(id=1, is_selected=True))
         s.add(User(id=2, is_selected=True))
         for cid, uid in [(10, 1), (11, 1), (20, 2)]:
-            s.add(Clip(id=cid, user_id=uid, is_selected=True, is_downloaded=True))
-            # A visual row that MUST NOT leak into the audio cluster prompt.
+            s.add(
+                Clip(
+                    id=cid,
+                    user_id=uid,
+                    is_selected=True,
+                    is_downloaded=True,
+                    is_speech_detected=True,
+                    speech_transcription=f"hi this is {speech_marker} talking",
+                    speech_language="en",
+                )
+            )
+            # A visual ClipLabel row that MUST NOT leak into the audio
+            # cluster prompt — the audio case does not consume video labels.
             s.add(
                 ClipLabel(
                     clip_id=cid,
@@ -276,25 +376,6 @@ def test_cluster_pass_audio_consumes_audio_clip_labels() -> None:
                         "aesthetic_tags": [],
                         "community_signalling_tags": [],
                         "one_sentence_visual_reading": "ok",
-                    },
-                    attempts=1,
-                )
-            )
-            # The audio-case row that SHOULD appear in the audio prompt.
-            s.add(
-                ClipLabel(
-                    clip_id=cid,
-                    label_case="audio",
-                    status="success",
-                    validation="ok",
-                    warnings=[],
-                    payload={
-                        "observable_audio_tags": [
-                            {"tag": audio_marker, "evidence": "speech track"}
-                        ],
-                        "aesthetic_tags": [],
-                        "community_signalling_tags": [],
-                        "one_sentence_audio_reading": "spoken voice over",
                     },
                     attempts=1,
                 )
@@ -323,8 +404,8 @@ def test_cluster_pass_audio_consumes_audio_clip_labels() -> None:
 
     assert len(fake.prompts) == 1, "expected exactly one cluster prompt for audio case"
     prompt = fake.prompts[0]
-    assert audio_marker in prompt, (
-        "audio cluster prompt must include the audio ClipLabel payload"
+    assert speech_marker in prompt, (
+        "audio cluster prompt must include each member clip's speech transcript"
     )
     assert "visual-only-tag" not in prompt, (
         "audio cluster prompt must NOT include video-case clip labels"
@@ -421,3 +502,74 @@ def test_cluster_pass_wipes_orphan_rows_when_stage_state_missing() -> None:
     # Generator was actually invoked — proves the row was treated as
     # pending, not as a pre-existing success that the gate would seal.
     assert len(fake.calls) == 1
+
+
+def _seed_n_clusters(eng, n: int) -> None:
+    with Session(eng) as s:
+        for cid in range(n):
+            uid, clip_id = 100 + cid, 200 + cid
+            s.add(User(id=uid, is_selected=True))
+            s.add(Clip(id=clip_id, user_id=uid, is_selected=True, is_downloaded=True))
+            s.add(
+                ClipLabel(
+                    clip_id=clip_id,
+                    label_case="video",
+                    status="success",
+                    validation="ok",
+                    warnings=[],
+                    attempts=1,
+                    payload={
+                        "observable_visual_tags": [{"tag": "x", "evidence": "y"}],
+                        "aesthetic_tags": [],
+                        "community_signalling_tags": [],
+                        "one_sentence_visual_reading": "ok",
+                    },
+                )
+            )
+            s.add(
+                UserCluster(
+                    user_id=uid,
+                    embedding_case="video",
+                    cluster_id=cid,
+                    umap_x=0.0,
+                    umap_y=0.0,
+                    centrality=0.9,
+                )
+            )
+        s.commit()
+
+
+def test_cluster_pass_enforces_unique_labels_within_case() -> None:
+    # Generator always returns the same cluster_label; the LLM dedup rounds
+    # therefore can't disambiguate, so the deterministic fallback must still
+    # yield distinct labels for all three clusters.
+    eng = _engine()
+    _seed_n_clusters(eng, 3)
+    shared = dict(_clean_cluster_json())
+    shared["cluster_label"] = "Shared Name"
+    fake = _FakeGen(payloads_by_call=[json.dumps(shared) for _ in range(15)])
+    with Session(eng) as s:
+        run_all_cases(session=s, labels=_labels(), generator=fake, cases=("video",))
+    with Session(eng) as s:
+        rows = [s.get(ClusterLabel, ("video", cid)) for cid in range(3)]
+        assert all(r is not None and r.status == "success" for r in rows)
+        norm = [r.payload["cluster_label"].strip().lower() for r in rows]
+        assert len(set(norm)) == 3, f"labels not unique: {norm}"
+
+
+def test_cluster_pass_dedup_preserves_suffix_for_near_cap_labels() -> None:
+    # A shared label already at the 40-char cap: slicing AFTER appending the
+    # disambiguating suffix would chop the suffix and re-collide. The fallback
+    # must reserve room for the suffix so all labels stay distinct and capped.
+    eng = _engine()
+    _seed_n_clusters(eng, 3)
+    shared = dict(_clean_cluster_json())
+    shared["cluster_label"] = "A" * 40
+    fake = _FakeGen(payloads_by_call=[json.dumps(shared) for _ in range(15)])
+    with Session(eng) as s:
+        run_all_cases(session=s, labels=_labels(), generator=fake, cases=("video",))
+    with Session(eng) as s:
+        rows = [s.get(ClusterLabel, ("video", cid)) for cid in range(3)]
+        labels = [r.payload["cluster_label"] for r in rows]
+        assert len(set(lab.strip().lower() for lab in labels)) == 3, labels
+        assert all(len(lab) <= 40 for lab in labels), labels

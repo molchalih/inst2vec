@@ -69,7 +69,17 @@ class _FakeGen:
     def run_many(self, video_paths, prompt: str) -> list[str]:
         return [self.run(vp, prompt) for vp in video_paths]
 
-    def run_text(self, prompt: str, *, max_new_tokens: int) -> str:
+    def run_text(
+        self,
+        prompt: str,
+        *,
+        max_new_tokens: int,
+        seed: int | None = None,
+        do_sample: bool = False,
+        temperature: float = 1.0,
+        top_p: float = 1.0,
+        schema: dict | None = None,
+    ) -> str:
         self.text_calls.append((prompt, max_new_tokens))
         return self.response
 

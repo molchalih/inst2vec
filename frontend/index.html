@@ -72,9 +72,15 @@
         min-height: 0;
         display: flex;
         flex-direction: column;
-        overflow: hidden;
+        /* X clip for the slide animation; Y scrolls so per-clip tag
+           rows below the fold remain reachable. Hide the scrollbar so
+           the editorial column stays chromeless. */
+        overflow-x: hidden;
+        overflow-y: auto;
+        scrollbar-width: none;
         will-change: transform, opacity;
       }
+      .inspector-content::-webkit-scrollbar { display: none; }
       .inspector-content--in {
         animation: inspector-content-in
                    var(--content-slide-ms, 420ms)

@@ -24,9 +24,12 @@ export const PaneShell = ({ onClose, children }: PaneShellProps) => {
         }}
       >×</button>
       <div style={{
-        flex: 1, minHeight: 0, overflowY: "auto",
-        // No left padding: PaneBody owns the left margin so it lines up
-        // with the panel edge rather than being inset by scroll padding.
+        flex: 1, minHeight: 0,
+        // Scrolling lives on the inner `.inspector-content` wrapper so
+        // it survives the slide-in transform; this frame just owns the
+        // padding gutter. No left padding: PaneBody owns the left
+        // margin so it lines up with the panel edge rather than being
+        // inset by scroll padding.
         padding: `${panel.paddingY}px ${panel.paddingX}px ${panel.paddingY}px 0`,
         display: "flex", flexDirection: "column",
       }}>

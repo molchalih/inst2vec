@@ -60,6 +60,17 @@ _CLUSTER_LABELS_CONFIG_FIELDS: tuple[str, ...] = (
     "cluster_max_sentence_chars",
     "min_tag_chars",
     "max_tag_chars",
+    # Cluster-pass generator/schema knobs. ``cluster_model_path`` is the 30B
+    # generator; the tag/summary length caps drive the grammar + validation
+    # (HC4/HC5/SC8), so changing any of them changes generated output or the
+    # recorded validation warnings — they must drift the fingerprint.
+    "cluster_model_path",
+    "cluster_tag_max_chars",
+    "cluster_tag_max_words",
+    "cluster_summary_max_chars",
+    "cluster_summary_target_min",
+    "cluster_summary_target_max",
+    "cluster_dedup_max_rounds",
 )
 
 

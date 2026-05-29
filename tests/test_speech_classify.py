@@ -69,11 +69,34 @@ def _kwargs(video_dir: Path):
     )
 
 
+def _fake_transcribe_result(transcribe_result):
+    """Translate the legacy openai-whisper dict shape used in these tests
+    into faster-whisper's ``(segments_iter, info)`` pair so the existing
+    fixtures keep documenting their original intent (same text + segment
+    stats), and only the seam shape changes."""
+    text = transcribe_result.get("text") or ""
+    language = transcribe_result.get("language") or ""
+    seg_dicts = transcribe_result.get("segments") or []
+    fw_segments = [
+        SimpleNamespace(
+            text=text if i == 0 else "",
+            no_speech_prob=sd.get("no_speech_prob", 0.0),
+            avg_logprob=sd.get("avg_logprob", 0.0),
+            compression_ratio=sd.get("compression_ratio", 0.0),
+        )
+        for i, sd in enumerate(seg_dicts)
+    ]
+    info = SimpleNamespace(language=language, language_probability=1.0, duration=1.0)
+    return iter(fw_segments), info
+
+
 def _stub_whisper(monkeypatch, transcribe_result):
     fake_model = MagicMock()
-    fake_model.transcribe.return_value = transcribe_result
-    fake_whisper = SimpleNamespace(load_model=lambda _name: fake_model, Whisper=object)
-    monkeypatch.setattr("modules.speech.classify.whisper", fake_whisper)
+    fake_model.transcribe.return_value = _fake_transcribe_result(transcribe_result)
+    monkeypatch.setattr(
+        "modules.speech.classify.WhisperModel",
+        lambda *_a, **_k: fake_model,
+    )
     return fake_model
 
 
@@ -205,8 +228,9 @@ def test_classify_whisper_exception_leaves_null(db_session, monkeypatch):
     s, tmp_path = db_session
     fake_model = MagicMock()
     fake_model.transcribe.side_effect = RuntimeError("OOM")
-    fake_whisper = SimpleNamespace(load_model=lambda _: fake_model, Whisper=object)
-    monkeypatch.setattr("modules.speech.classify.whisper", fake_whisper)
+    monkeypatch.setattr(
+        "modules.speech.classify.WhisperModel", lambda *_a, **_k: fake_model
+    )
 
     classify_speech(
         speech_audio_dir=str(tmp_path / "audio"),
@@ -224,11 +248,8 @@ def test_classify_skips_already_resolved_clips(db_session, monkeypatch):
     s.query(Clip).filter_by(id=10).update({"is_speech_detected": True})
     s.commit()
 
-    fake_model = MagicMock(side_effect=AssertionError("must not be called"))
-    monkeypatch.setattr(
-        "modules.speech.classify.whisper",
-        SimpleNamespace(load_model=lambda _: fake_model, Whisper=object),
-    )
+    factory = MagicMock(side_effect=AssertionError("WhisperModel must not load"))
+    monkeypatch.setattr("modules.speech.classify.WhisperModel", factory)
 
     classify_speech(
         speech_audio_dir=str(tmp_path / "audio"),
@@ -242,16 +263,17 @@ def test_classify_passes_hallucination_control_kwargs(db_session, monkeypatch):
     """Whisper must be called with condition_on_previous_text=False, beam_size=1, temperature=0."""
     _, tmp_path = db_session
     fake_model = MagicMock()
-    fake_model.transcribe.return_value = {
-        "text": "hello there",
-        "language": "en",
-        "segments": [
-            {"no_speech_prob": 0.1, "avg_logprob": -0.3, "compression_ratio": 1.5}
-        ],
-    }
+    fake_model.transcribe.return_value = _fake_transcribe_result(
+        {
+            "text": "hello there",
+            "language": "en",
+            "segments": [
+                {"no_speech_prob": 0.1, "avg_logprob": -0.3, "compression_ratio": 1.5}
+            ],
+        }
+    )
     monkeypatch.setattr(
-        "modules.speech.classify.whisper",
-        SimpleNamespace(load_model=lambda _: fake_model, Whisper=object),
+        "modules.speech.classify.WhisperModel", lambda *_a, **_k: fake_model
     )
 
     classify_speech(
@@ -429,11 +451,8 @@ def test_vad_no_speech_skips_whisper_and_sets_false(db_session, monkeypatch):
         monkeypatch,
         VadResult(is_speech_detected=False, speech_audio_path=None),
     )
-    fake_whisper = SimpleNamespace(
-        load_model=MagicMock(side_effect=AssertionError("Whisper must not load")),
-        Whisper=object,
-    )
-    monkeypatch.setattr("modules.speech.classify.whisper", fake_whisper)
+    factory = MagicMock(side_effect=AssertionError("WhisperModel must not load"))
+    monkeypatch.setattr("modules.speech.classify.WhisperModel", factory)
 
     classify_speech(
         speech_audio_dir=str(tmp_path / "audio"),

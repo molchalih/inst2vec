@@ -146,6 +146,22 @@ def test_cluster_payload_drifts_on_cluster_param() -> None:
         ) != cluster_labels_config_payload(drifted, case="video"), k
 
 
+def test_cluster_payload_drifts_on_cluster_generation_param() -> None:
+    base = _labels()
+    for k, v in [
+        ("cluster_model_path", "./models/other-30b"),
+        ("cluster_tag_max_chars", 99),
+        ("cluster_tag_max_words", 7),
+        ("cluster_summary_max_chars", 999),
+        ("cluster_summary_target_min", 1),
+        ("cluster_summary_target_max", 999),
+    ]:
+        drifted = _labels(**{k: v})
+        assert cluster_labels_config_payload(
+            base, case="video"
+        ) != cluster_labels_config_payload(drifted, case="video"), k
+
+
 def test_cluster_payload_stable_for_runtime_or_unrelated_changes() -> None:
     base = _labels(cluster_max_attempts=3, parallelism=1)
     drifted = _labels(cluster_max_attempts=10, parallelism=4)

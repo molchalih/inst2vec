@@ -90,5 +90,7 @@ def run_pod(host: str, video_root: str) -> None:
         inflight=settings.embeddings.inflight,
         served_only=True,
         unreachable_exit_s=settings.embeddings.pod_idle_ttl_s,
+        batch_size=getattr(settings.embeddings, "embed_batch_size", 1),
+        batch_fill_ms=getattr(settings.embeddings, "embed_batch_fill_ms", 0),
         log_tag="embed:pod",
     )

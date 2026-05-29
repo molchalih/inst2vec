@@ -7,6 +7,11 @@ data hash via ``_data_hash_for_video`` / ``_data_hash_for_text``, but
 purge, dropping a user from ``data.csv`` or unselecting a clip leaves
 inert ``clip_labels`` / ``cluster_labels`` rows behind forever.
 
+``purge_orphans`` also drops ``ClipLabel`` rows + the matching
+``LABELS`` ``StageState`` scope for cases whose spec opts out of stage 1
+(``spec.runs_clip_pass=False``). Those rows are dead weight after the
+cluster pass started synthesising from raw signals instead.
+
 ``purge_orphans`` runs as the first thing ``pipeline.run`` does, before
 any fingerprint compute. Caller owns the commit.
 """
@@ -16,7 +21,9 @@ from __future__ import annotations
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from core.database import Clip, ClipLabel, ClusterLabel, UserCluster
+from core.database import Clip, ClipLabel, ClusterLabel, StageState, UserCluster
+from modules.labels.cases import REGISTRY
+from modules.labels.state import STAGE_LABELS, clip_scope_for
 
 
 def purge_orphans(session: Session) -> tuple[int, int]:
@@ -26,6 +33,24 @@ def purge_orphans(session: Session) -> tuple[int, int]:
     ``(clip_rows_deleted, cluster_rows_deleted)``. Idempotent:
     re-running on a clean DB returns ``(0, 0)``.
     """
+    skipped_cases = [name for name, spec in REGISTRY.items() if not spec.runs_clip_pass]
+    skipped_rows_deleted = 0
+    if skipped_cases:
+        skipped_result = session.execute(
+            delete(ClipLabel).where(ClipLabel.label_case.in_(skipped_cases))
+        )
+        skipped_rows_deleted = int(skipped_result.rowcount or 0)
+        # Drop the matching LABELS stage_state scopes so a future flip back
+        # to runs_clip_pass=True correctly re-seals from scratch instead of
+        # inheriting a stale fingerprint.
+        for case in skipped_cases:
+            session.execute(
+                delete(StageState).where(
+                    StageState.stage_name == STAGE_LABELS,
+                    StageState.scope_key == clip_scope_for(case),
+                )
+            )
+
     selected_ids = set(
         session.execute(select(Clip.id).where(Clip.is_selected.is_(True)))
         .scalars()
@@ -61,4 +86,7 @@ def purge_orphans(session: Session) -> tuple[int, int]:
         )
         cluster_rows_deleted += int(result.rowcount or 0)
 
-    return int(clip_result.rowcount or 0), cluster_rows_deleted
+    return (
+        int(clip_result.rowcount or 0) + skipped_rows_deleted,
+        cluster_rows_deleted,
+    )

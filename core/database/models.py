@@ -429,6 +429,12 @@ class ClipLabel(Base):
     warnings: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    # Seed used by ``torch.manual_seed`` for the row's current state
+    # (the call that produced the success payload, or the latest failed
+    # attempt). Per-attempt seed variation gives validation hard fails a
+    # real chance at recovery — same prompt with a different seed
+    # produces different greedy paths.
+    generation_seed: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # Stable digest of the case's input text (audio / sandwich / maest).
     # ``None`` for the video case — frames are fingerprinted by file-stat
     # upstream, not by a per-row source string. Mirrors
@@ -455,6 +461,9 @@ class ClusterLabel(Base):
     warnings: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    # Seed used by ``torch.manual_seed`` for the row's current state.
+    # See ``ClipLabel.generation_seed`` for rationale.
+    generation_seed: Mapped[int | None] = mapped_column(Integer, nullable=True)
     sampled_clip_ids: Mapped[list[int] | None] = mapped_column(JSON, nullable=True)
     updated_at: Mapped[DateTime] = mapped_column(
         DateTime(timezone=True),

@@ -168,6 +168,23 @@ class LabelsSettings(BaseModel):
     cluster_min_sentence_chars: int = 20
     cluster_max_sentence_chars: int = 320
     cluster_max_attempts: int = 3
+    cluster_model_path: str = "./models/Qwen3-30B-A3B-GPTQ-Int4"
+    cluster_tag_max_chars: int = 28
+    cluster_tag_max_words: int = 5
+    cluster_summary_target_min: int = 120
+    cluster_summary_target_max: int = 160
+    cluster_summary_max_chars: int = 200
+    # Stage-2 vLLM engine knobs (the cluster pass runs the 30B in-process via
+    # vLLM's offline ``LLM`` with structured-output JSON decoding).
+    # ``cluster_max_model_len`` must cover the largest cluster prompt
+    # (bounded by ``cluster_sample_token_budget``) plus ``cluster_max_new_tokens``.
+    cluster_gpu_memory_utilization: float = 0.90
+    cluster_max_model_len: int = 20480
+    cluster_enforce_eager: bool = True
+    # Within-case label uniqueness: after labelling a case, colliding cluster
+    # names are regenerated (with the used names injected into the prompt) for
+    # this many rounds before a deterministic distinct-suffix fallback.
+    cluster_dedup_max_rounds: int = 2
 
     @model_validator(mode="before")
     @classmethod
@@ -277,6 +294,12 @@ class EmbeddingsSettings(BaseModel):
     adaptive_max_frames: int
     adaptive_default_fps: float
     inflight: int = 1
+    # Per-lane cross-clip GPU coalescing for the local Qwen embedder. When
+    # >1, the worker leases up to ``embed_batch_size`` same-case jobs (with
+    # ``embed_batch_fill_ms`` opportunistic wait) and runs them in a single
+    # padded forward. Throughput-only — not in ``case_config_identity``.
+    embed_batch_size: int = 1
+    embed_batch_fill_ms: int = 50
     # ── distributed coordinator / worker ──
     coordinator_bind_host: str = "0.0.0.0"
     coordinator_bind_port: int = 8765
@@ -306,6 +329,8 @@ class EmbeddingsSettings(BaseModel):
 
     @field_validator(
         "inflight",
+        "embed_batch_size",
+        "embed_batch_fill_ms",
         "coordinator_bind_port",
         "lease_ttl_s",
         "max_attempts",

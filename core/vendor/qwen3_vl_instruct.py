@@ -71,15 +71,24 @@ class Qwen3VLInstructGenerator:
     ) -> "Qwen3VLInstructGenerator":
         if cls._loaded is None:
             device = "cuda" if torch.cuda.is_available() else "cpu"
+            if device == "cuda":
+                # Enable TF32 for the fp32 matmuls (norm/rotary). Cheap, no
+                # numerical surprises at this scale.
+                torch.set_float32_matmul_precision("high")
+                torch.backends.cuda.matmul.allow_tf32 = True
+                torch.backends.cudnn.allow_tf32 = True
             model_path = _ensure_local_model(model_path)
             processor = AutoProcessor.from_pretrained(model_path)
             # Qwen3-VL is image-text-to-text (vision-language conditional
             # generation); AutoModelForCausalLM does not register a class
             # for the `qwen3_vl` config in transformers>=5.8.
+            # FA2 only on CUDA + bf16/fp16; fall back to SDPA on CPU.
+            attn_impl = "flash_attention_2" if device == "cuda" else "sdpa"
             model = (
                 AutoModelForImageTextToText.from_pretrained(
                     model_path,
                     dtype=torch.bfloat16 if device == "cuda" else torch.float32,
+                    attn_implementation=attn_impl,
                 )
                 .to(device)
                 .eval()
@@ -98,10 +107,43 @@ class Qwen3VLInstructGenerator:
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
-    def run_text(self, prompt: str, *, max_new_tokens: int) -> str:
-        """Text-only generation — no vision branch, no `process_vision_info`."""
+    @classmethod
+    def reclaim_memory(cls) -> None:
+        """Release cached allocator blocks without unloading weights.
+
+        Cluster-pass generations build up large KV caches and prefill
+        tensors. After each generation the tensors are freed but the
+        CUDA allocator holds the blocks, fragmenting VRAM over the
+        course of a per-case loop. Call between generations to give the
+        allocator back contiguous space.
+        """
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+    def run_text(
+        self,
+        prompt: str,
+        *,
+        max_new_tokens: int,
+        seed: int | None = None,
+        do_sample: bool = False,
+        temperature: float = 1.0,
+        top_p: float = 1.0,
+    ) -> str:
+        """Text-only generation — no vision branch, no `process_vision_info`.
+
+        ``seed`` overrides the instance's default ``generation_seed``
+        for this single call. ``do_sample=True`` switches from greedy
+        to nucleus sampling — required for ``seed`` to actually affect
+        the output (greedy decoding never consults the RNG, so different
+        seeds produce identical outputs). The cluster pass uses
+        sampling so per-attempt seed variation can recover from
+        validation failures; everything else stays greedy for full
+        determinism.
+        """
         assert self._loaded is not None, "load_once must be called first"
-        torch.manual_seed(self.generation_seed)
+        torch.manual_seed(seed if seed is not None else self.generation_seed)
         messages = [
             {
                 "role": "user",
@@ -116,12 +158,23 @@ class Qwen3VLInstructGenerator:
             padding=True,
             return_tensors="pt",
         ).to(self._loaded.device)
+        gen_kwargs: dict = {
+            "max_new_tokens": max_new_tokens,
+            "do_sample": do_sample,
+            # Greedy decoding on long structured JSON outputs is prone
+            # to repetition loops (the model emits near-identical array
+            # entries until ``max_new_tokens`` is hit). Block any
+            # 10-gram from appearing twice. Vision branches (``run`` /
+            # ``run_many``) keep plain greedy because their outputs are
+            # short and the n-gram block can hurt observable-tag arrays
+            # where short repeats are valid.
+            "no_repeat_ngram_size": 10,
+        }
+        if do_sample:
+            gen_kwargs["temperature"] = temperature
+            gen_kwargs["top_p"] = top_p
         with torch.inference_mode():
-            out = self._loaded.model.generate(
-                **inputs,
-                max_new_tokens=max_new_tokens,
-                do_sample=False,
-            )
+            out = self._loaded.model.generate(**inputs, **gen_kwargs)
         trimmed = out[:, inputs["input_ids"].shape[1]:]
         return self._loaded.processor.batch_decode(
             trimmed,
@@ -171,19 +224,15 @@ class Qwen3VLInstructGenerator:
         )[0]
         return decoded
 
-    def run_many(self, video_paths: list[str], prompt: str) -> list[str]:
-        """Batched video generation. Same prompt, N video paths.
-
-        Returns the decoded strings aligned with ``video_paths``. Greedy
-        decoding (``do_sample=False``), left-padding for autoregressive
-        decoder compatibility. Output is NOT byte-identical to per-clip
-        ``run`` results — bf16 numerical noise diverges greedy paths once
-        logits get close — but JSON-schema validity is unaffected.
+    def prepare_many(self, video_paths: list[str], prompt: str):
+        """CPU-only batch prep: decode frames, tokenize, pad. Returns a
+        processor BatchFeature on CPU (or ``None`` for an empty input).
+        Split off from ``run_many`` so callers can overlap this on a
+        background thread while the GPU runs the previous batch.
         """
         assert self._loaded is not None, "load_once must be called first"
         if not video_paths:
-            return []
-        torch.manual_seed(self.generation_seed)
+            return None
         all_messages = [
             [
                 {
@@ -216,13 +265,21 @@ class Qwen3VLInstructGenerator:
         # leaves padding tokens between the prefill and the generation
         # head, corrupting the attention pattern.
         self._loaded.processor.tokenizer.padding_side = "left"
-        inputs = self._loaded.processor(
+        return self._loaded.processor(
             text=texts,
             images=None,
             videos=flat_videos,
             padding=True,
             return_tensors="pt",
-        ).to(self._loaded.device)
+        )
+
+    def generate_from_inputs(self, inputs) -> list[str]:
+        """GPU half of ``run_many``. Pairs with ``prepare_many``."""
+        assert self._loaded is not None, "load_once must be called first"
+        if inputs is None:
+            return []
+        torch.manual_seed(self.generation_seed)
+        inputs = inputs.to(self._loaded.device)
         with torch.inference_mode():
             out = self._loaded.model.generate(
                 **inputs,
@@ -237,3 +294,14 @@ class Qwen3VLInstructGenerator:
             clean_up_tokenization_spaces=False,
         )
         return list(decoded)
+
+    def run_many(self, video_paths: list[str], prompt: str) -> list[str]:
+        """Batched video generation. Same prompt, N video paths.
+
+        Returns the decoded strings aligned with ``video_paths``. Greedy
+        decoding (``do_sample=False``), left-padding for autoregressive
+        decoder compatibility. Output is NOT byte-identical to per-clip
+        ``run`` results — bf16 numerical noise diverges greedy paths once
+        logits get close — but JSON-schema validity is unaffected.
+        """
+        return self.generate_from_inputs(self.prepare_many(video_paths, prompt))

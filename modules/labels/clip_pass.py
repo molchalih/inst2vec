@@ -35,8 +35,8 @@ from modules.labels.state import (
     clip_labels_config_payload,
     clip_scope_for,
 )
-from modules.labels.store import bump_failure, upsert_success
-from modules.labels.validation import validate
+from modules.labels.store import bump_failure, upsert_success, upsert_terminal_failure
+from modules.labels.validation import format_failure_error, validate
 
 
 def _selected_clip_ids(session: Session) -> list[int]:
@@ -247,35 +247,82 @@ def _process_video_batches(
     decoded string per clip. On a batch-wide generator exception every
     clip in the batch is marked failed; per-clip JSON-validation failures
     are isolated by ``_store_result``.
+
+    CPU/GPU pipelining: the next batch's frame decode + tokenize runs on a
+    single-slot background thread while the current batch generates on the
+    GPU. ``torchcodec`` + HF tokenizer both release the GIL, so the worker
+    progresses in parallel; the GPU side stays on the main thread to keep
+    CUDA call ordering deterministic.
     """
-    for start in range(0, len(pending), batch_size):
-        chunk = pending[start : start + batch_size]
-        video_paths = [paths.video_for(cid) for cid in chunk]
-        labels_for_log = ",".join(f"clip_{cid}" for cid in chunk)
-        with item("EXTRACT", f"{spec.name}/batch[{labels_for_log}]"):
-            try:
-                raws = generator.run_many(video_paths, prompt_body)
-            except Exception as exc:
-                for cid in chunk:
-                    bump_failure(
-                        session,
-                        ClipLabel,
-                        key=(cid, spec.name),
-                        error=f"runtime:{exc}",
-                        max_attempts=labels.max_attempts,
-                    )
-                session.commit()
-                continue
-            for cid, raw in zip(chunk, raws, strict=True):
-                _store_result(
-                    session,
-                    raw=raw,
-                    key=(cid, spec.name),
-                    labels=labels,
-                    spec=spec,
-                    source_text=None,
-                )
-            session.commit()
+    from concurrent.futures import ThreadPoolExecutor
+
+    chunks = [pending[i : i + batch_size] for i in range(0, len(pending), batch_size)]
+    if not chunks:
+        return
+    paths_for: list[list] = [
+        [paths.video_for(cid) for cid in chunk] for chunk in chunks
+    ]
+
+    def _fail_chunk(chunk: list[int], exc: BaseException) -> None:
+        for cid in chunk:
+            bump_failure(
+                session,
+                ClipLabel,
+                key=(cid, spec.name),
+                error=f"runtime:{exc}",
+                max_attempts=labels.max_attempts,
+            )
+        session.commit()
+
+    def _store_chunk(chunk: list[int], raws: list[str]) -> None:
+        for cid, raw in zip(chunk, raws, strict=True):
+            _store_result(
+                session,
+                raw=raw,
+                key=(cid, spec.name),
+                labels=labels,
+                spec=spec,
+                source_text=None,
+            )
+        session.commit()
+
+    # Prefetch path needs both halves of the split interface. Fakes/older
+    # generators that only expose ``run_many`` fall back to the synchronous
+    # in-line call (no CPU/GPU overlap, same throughput floor as before).
+    prepare = getattr(generator, "prepare_many", None)
+    generate = getattr(generator, "generate_from_inputs", None)
+    if prepare is None or generate is None:
+        for chunk, video_paths in zip(chunks, paths_for, strict=True):
+            labels_for_log = ",".join(f"clip_{cid}" for cid in chunk)
+            with item("EXTRACT", f"{spec.name}/batch[{labels_for_log}]"):
+                try:
+                    raws = generator.run_many(video_paths, prompt_body)
+                except Exception as exc:
+                    _fail_chunk(chunk, exc)
+                    continue
+                _store_chunk(chunk, raws)
+        return
+
+    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="labels-prep") as ex:
+        prep_fut = ex.submit(prepare, paths_for[0], prompt_body)
+        for i, chunk in enumerate(chunks):
+            labels_for_log = ",".join(f"clip_{cid}" for cid in chunk)
+            with item("EXTRACT", f"{spec.name}/batch[{labels_for_log}]"):
+                try:
+                    inputs = prep_fut.result()
+                except Exception as exc:
+                    if i + 1 < len(chunks):
+                        prep_fut = ex.submit(prepare, paths_for[i + 1], prompt_body)
+                    _fail_chunk(chunk, exc)
+                    continue
+                if i + 1 < len(chunks):
+                    prep_fut = ex.submit(prepare, paths_for[i + 1], prompt_body)
+                try:
+                    raws = generate(inputs)
+                except Exception as exc:
+                    _fail_chunk(chunk, exc)
+                    continue
+                _store_chunk(chunk, raws)
 
 
 def _process_one(
@@ -359,12 +406,18 @@ def _store_result(
 ) -> None:
     payload, status, warnings = validate(raw, labels, case=spec.name)
     if status == "failed":
-        bump_failure(
+        # Hard validation fails (H1=non-JSON, H2=wrong key set, H3=wrong shape)
+        # are deterministic under the seeded generator — retrying the same
+        # prompt with the same seed cannot change the output. Skip the retry
+        # budget and write a terminal failure directly; runtime errors above
+        # still go through ``bump_failure`` because they CAN be transient.
+        code = warnings[0] if warnings else "validation"
+        upsert_terminal_failure(
             session,
             ClipLabel,
             key=key,
-            error=warnings[0] if warnings else "validation",
-            max_attempts=labels.max_attempts,
+            error=format_failure_error(code, raw),
+            attempts=labels.max_attempts,
         )
         return
     assert payload is not None

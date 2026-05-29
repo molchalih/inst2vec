@@ -1,3 +1,4 @@
+import contextlib
 import json
 from unittest.mock import patch
 
@@ -106,6 +107,21 @@ def _clean_json() -> str:
     )
 
 
+def _fake_prepare_many(self, video_paths, prompt):
+    """Test-shim: short-circuits the CPU prep half of the labels generator.
+
+    Returns the inputs verbatim so the paired ``_fake_generate_from_inputs``
+    can dispatch through ``self.run_many`` (the patch site's source of
+    truth), bypassing real frame decoding + tokenization in tests.
+    """
+    return (list(video_paths), prompt)
+
+
+def _fake_generate_from_inputs(self, inputs):
+    video_paths, prompt = inputs
+    return self.run_many(video_paths, prompt)
+
+
 def _patch_generator(text_or_callable):
     """Patch ``LabelsGenerator.run`` (video case) and stub ``run_text``.
 
@@ -131,7 +147,17 @@ def _patch_generator(text_or_callable):
     def fake_run_many(self, video_paths, prompt):
         return [fake_run(self, vp, prompt) for vp in video_paths]
 
-    def fake_run_text(self, prompt, *, max_new_tokens):
+    def fake_run_text(
+        self,
+        prompt,
+        *,
+        max_new_tokens,
+        seed=None,
+        do_sample=False,
+        temperature=1.0,
+        top_p=1.0,
+        schema=None,
+    ):
         if callable(text_or_callable):
             return text_or_callable(None, prompt)
         return text_or_callable
@@ -140,6 +166,8 @@ def _patch_generator(text_or_callable):
         LabelsGenerator,
         run=fake_run,
         run_many=fake_run_many,
+        prepare_many=_fake_prepare_many,
+        generate_from_inputs=_fake_generate_from_inputs,
         run_text=fake_run_text,
         unload=lambda self: None,
     )
@@ -180,7 +208,17 @@ def test_idempotent_rerun_makes_no_model_calls(db_engine):
     def fake_run_many(self, video_paths, prompt):
         return [fake_run(self, vp, prompt) for vp in video_paths]
 
-    def fake_run_text(self, prompt, *, max_new_tokens):
+    def fake_run_text(
+        self,
+        prompt,
+        *,
+        max_new_tokens,
+        seed=None,
+        do_sample=False,
+        temperature=1.0,
+        top_p=1.0,
+        schema=None,
+    ):
         text_calls.append(prompt)
         return _clean_json()  # video-shaped → validation failure for other cases
 
@@ -190,6 +228,8 @@ def test_idempotent_rerun_makes_no_model_calls(db_engine):
         LabelsGenerator,
         run=fake_run,
         run_many=fake_run_many,
+        prepare_many=_fake_prepare_many,
+        generate_from_inputs=_fake_generate_from_inputs,
         run_text=fake_run_text,
         unload=lambda self: None,
     ):
@@ -206,22 +246,28 @@ def test_idempotent_rerun_makes_no_model_calls(db_engine):
     assert len(first_video) == 2
 
 
-def test_hard_fail_retries_until_max_attempts(db_engine):
+def test_hard_validation_fail_goes_terminal_on_first_attempt(db_engine):
+    """Validation hard-fails (H1/H2/H3) are deterministic under the seeded
+    generator and short-circuit the retry budget — one attempt and the row
+    is terminally ``failed``. Subsequent pipeline runs see no pending rows
+    and issue no further model calls.
+    """
     _seed(db_engine, n_selected=1)
     s = _settings(max_attempts=3)
     with _patch_generator("not json"):
         from modules.labels import run as run_labels
 
+        # Three runs: only the first should reach the model — the H1
+        # terminal write removes the row from ``_pending_clip_ids`` after
+        # one attempt.
         for _ in range(3):
             run_labels(s, _secrets())
     with Session(db_engine) as sess:
         row = sess.get(ClipLabel, (1, "video"))
         assert row is not None
-        assert row.attempts == 3
         assert row.status == "failed"
-        assert row.error == "H1"
-        # Other cases lack speech/MIR ⇒ adapter-level failure, never reach
-        # validation. We only assert on the video case here.
+        assert row.attempts == s.labels.max_attempts
+        assert row.error.startswith("H1 ")
 
 
 def test_soft_fail_kept_as_warn(db_engine):
@@ -282,14 +328,14 @@ def test_selection_growth_adds_rows_without_wiping(db_engine):
         assert ids == [1, 2]
 
 
-def test_run_loops_all_default_cases_and_calls_run_text_for_non_video(db_engine):
-    """``run`` dispatches the video case via ``run`` and non-video cases via
-    ``run_text`` — the exact split depends on which adapters yield input.
+def test_run_runs_stage1_for_video_only_and_skips_non_video_clip_pass(db_engine):
+    """Only the video case runs the per-clip stage-1 pass.
 
-    With a bare clip (no speech, no MIR), the non-video cases break down:
-    - audio: no speech, no music ⇒ adapter returns ``None`` ⇒ no model call
-    - sandwich: visual payload exists (video case ran first) ⇒ ``run_text``
-    - maest: no MIR ⇒ adapter returns ``None`` ⇒ no model call
+    Non-video cases (sandwich/audio/maest) are stage-1-skipped by spec —
+    their cluster pass synthesises from raw signals directly. With no
+    ``UserCluster`` rows seeded, the cluster pass for every case finds
+    no candidates and never calls ``run_text``. The only model calls in
+    this run are the video case's stage-1 ``run`` invocations.
     """
     _seed(db_engine, n_selected=2)
     s = _settings(max_attempts=1)
@@ -303,7 +349,17 @@ def test_run_loops_all_default_cases_and_calls_run_text_for_non_video(db_engine)
     def fake_run_many(self, video_paths, prompt):
         return [fake_run(self, vp, prompt) for vp in video_paths]
 
-    def fake_run_text(self, prompt, *, max_new_tokens):
+    def fake_run_text(
+        self,
+        prompt,
+        *,
+        max_new_tokens,
+        seed=None,
+        do_sample=False,
+        temperature=1.0,
+        top_p=1.0,
+        schema=None,
+    ):
         text_calls.append((prompt, max_new_tokens))
         return _clean_json()  # validates as video-shape only
 
@@ -313,6 +369,8 @@ def test_run_loops_all_default_cases_and_calls_run_text_for_non_video(db_engine)
         LabelsGenerator,
         run=fake_run,
         run_many=fake_run_many,
+        prepare_many=_fake_prepare_many,
+        generate_from_inputs=_fake_generate_from_inputs,
         run_text=fake_run_text,
         unload=lambda self: None,
     ):
@@ -320,16 +378,11 @@ def test_run_loops_all_default_cases_and_calls_run_text_for_non_video(db_engine)
 
         run_labels(s, _secrets())
 
-    # One ``run`` (video) per selected clip.
+    # One ``run`` (video stage 1) per selected clip; non-video stage 1 is
+    # skipped by spec, and the cluster pass has no UserCluster rows to
+    # sample, so ``run_text`` is never reached.
     assert len(video_calls) == 2
-    # Sandwich is the only non-video case where the adapter yields a
-    # non-``None`` input under this minimal seed ⇒ exactly two ``run_text``
-    # invocations, one per clip.
-    assert len(text_calls) == 2
-    # The sandwich prompts must NOT be the video prompt body.
-    video_prompt = s.labels.case_prompts["video"]
-    for prompt, _max in text_calls:
-        assert not prompt.startswith(video_prompt + "\n\n")
+    assert text_calls == []
 
 
 # ---------------------------------------------------------------------------
@@ -420,25 +473,30 @@ def _cluster_payload_for_case(case: str) -> dict:
         for k in spec.cluster_required_keys
         if k.startswith("dominant_") and k.endswith("_repertoire")
     )
+    # Tags use "{case}-" prefix so the stub can dispatch by prompt content;
+    # no connector words (with/for/and/of/to/in/on/the/a/an/&), ≤ 3 words,
+    # ≤ 28 chars — HC5-clean.
+    tag_one = f"{case}-primary"
+    tag_two = f"{case}-secondary"
     return {
         "cluster_label": f"{case} cluster label",
         "cluster_summary": f"{case} cluster summary",
         repertoire_key: [
             {
-                "tag": f"{case} repertoire a",
-                "description": "recurring strand a",
+                "tag": tag_one,
+                "description": "recurring strand primary",
                 "recurrence": "dominant",
             },
             {
-                "tag": f"{case} repertoire b",
-                "description": "recurring strand b",
+                "tag": tag_two,
+                "description": "recurring strand secondary",
                 "recurrence": "frequent",
             },
         ],
         "dominant_aesthetic_logic": [
             {
-                "tag": f"{case} logic",
-                "grounded_in": [f"{case} repertoire a"],
+                "tag": f"{case}-logic",
+                "grounded_in": [tag_one],
                 "description": "how the strands cohere",
             }
         ],
@@ -513,31 +571,110 @@ class _DispatchingGen:
         self.video_calls.append((str(video_path), prompt))
         return self._dispatch_clip(prompt)
 
-    def run_text(self, prompt, *, max_new_tokens):
+    def run_text(
+        self,
+        prompt,
+        *,
+        max_new_tokens,
+        seed=None,
+        do_sample=False,
+        temperature=1.0,
+        top_p=1.0,
+        schema=None,
+    ):
         self.text_calls.append((prompt, max_new_tokens))
         cluster = self._dispatch_cluster(prompt)
         if cluster is not None:
             return cluster
         return self._dispatch_clip(prompt)
 
+    def run_text_batch(
+        self,
+        prompts,
+        *,
+        max_new_tokens,
+        seeds,
+        do_sample=False,
+        temperature=1.0,
+        top_p=1.0,
+        schema=None,
+    ):
+        return [
+            self.run_text(
+                p,
+                max_new_tokens=max_new_tokens,
+                seed=s,
+                do_sample=do_sample,
+                temperature=temperature,
+                top_p=top_p,
+                schema=schema,
+            )
+            for p, s in zip(prompts, seeds, strict=True)
+        ]
+
     def unload(self) -> None:
         return None
 
 
+@contextlib.contextmanager
 def _patch_dispatching(gen: _DispatchingGen):
-    from modules.labels.models import LabelsGenerator
+    from modules.labels.models import ClusterLabelsGenerator, LabelsGenerator
 
-    return patch.multiple(
-        LabelsGenerator,
-        run=lambda self, video_path, prompt: gen.run(video_path, prompt),
-        run_many=lambda self, video_paths, prompt: [
-            gen.run(vp, prompt) for vp in video_paths
-        ],
-        run_text=lambda self, prompt, *, max_new_tokens: gen.run_text(
-            prompt, max_new_tokens=max_new_tokens
+    def _run_text(
+        self,
+        prompt,
+        *,
+        max_new_tokens,
+        seed=None,
+        do_sample=False,
+        temperature=1.0,
+        top_p=1.0,
+        schema=None,
+    ):
+        return gen.run_text(prompt, max_new_tokens=max_new_tokens)
+
+    def _run_text_batch(
+        self,
+        prompts,
+        *,
+        max_new_tokens,
+        seeds,
+        do_sample=False,
+        temperature=1.0,
+        top_p=1.0,
+        schema=None,
+    ):
+        return gen.run_text_batch(
+            prompts,
+            max_new_tokens=max_new_tokens,
+            seeds=seeds,
+            do_sample=do_sample,
+            temperature=temperature,
+            top_p=top_p,
+            schema=schema,
+        )
+
+    with (
+        patch.multiple(
+            LabelsGenerator,
+            run=lambda self, video_path, prompt: gen.run(video_path, prompt),
+            run_many=lambda self, video_paths, prompt: [
+                gen.run(vp, prompt) for vp in video_paths
+            ],
+            prepare_many=_fake_prepare_many,
+            generate_from_inputs=_fake_generate_from_inputs,
+            run_text=_run_text,
+            unload=lambda self: None,
         ),
-        unload=lambda self: None,
-    )
+        patch.multiple(
+            ClusterLabelsGenerator,
+            run_text=_run_text,
+            run_text_batch=_run_text_batch,
+            unload=lambda self: None,
+            reclaim_memory=lambda self: None,
+        ),
+    ):
+        yield
 
 
 def _seed_full_clip(eng, *, tmp_path) -> None:
@@ -570,7 +707,14 @@ def _full_settings(tmp_path):
     return s
 
 
-def test_full_run_writes_one_clip_label_per_case_per_clip(db_engine, tmp_path):
+def test_full_run_writes_clip_labels_only_for_stage1_backed_cases(db_engine, tmp_path):
+    """Stage 1 only runs for cases with ``spec.runs_clip_pass=True``.
+
+    Currently only the video case opts in — sandwich/audio/maest skip
+    stage 1 and let the cluster pass synthesise from raw signals — so a
+    full pipeline run writes exactly one ``ClipLabel`` row per selected
+    clip per stage-1-backed case.
+    """
     _seed_full_clip(db_engine, tmp_path=tmp_path)
     settings = _full_settings(tmp_path)
     gen = _DispatchingGen()
@@ -579,19 +723,14 @@ def test_full_run_writes_one_clip_label_per_case_per_clip(db_engine, tmp_path):
 
         run_labels(settings, _secrets())
 
-    expected_cases = set(default_cases(settings))
+    expected_cases = {c for c in default_cases(settings) if REGISTRY[c].runs_clip_pass}
     with Session(db_engine) as sess:
         rows = sess.query(ClipLabel).filter(ClipLabel.clip_id == 1).all()
         cases_present = {r.label_case for r in rows}
         assert cases_present == expected_cases
-        by_case = {r.label_case: r for r in rows}
-        # With the full seed (speech + MIR + video file + video ClipLabel
-        # from the video case running first) every default case has a
-        # non-None adapter output → every row is ``status='success'``.
-        for case in expected_cases:
-            row = by_case[case]
+        for row in rows:
             assert row.status == "success", (
-                f"case={case} status={row.status} error={row.error!r}"
+                f"case={row.label_case} status={row.status} error={row.error!r}"
             )
             assert row.validation in ("ok", "warn")
             assert row.payload is not None
@@ -670,3 +809,43 @@ def test_idempotent_full_rerun(db_engine, tmp_path):
     assert len(gen.text_calls) == first_text, (
         f"text calls grew: {first_text} → {len(gen.text_calls)}"
     )
+
+
+def test_vl_unloads_before_cluster_generator_loads(db_engine, monkeypatch):
+    """The VL-8B generator must be unloaded before the 30B cluster generator
+    is constructed, and the cluster pass must run on the cluster generator.
+    """
+    from modules.labels import pipeline as pl
+
+    events: list[str] = []
+
+    class _FakeVL:
+        def unload(self):
+            events.append("vl_unload")
+
+    class _FakeCluster:
+        def unload(self):
+            events.append("cluster_unload")
+
+    monkeypatch.setattr(
+        pl.LabelsGenerator, "lazy", classmethod(lambda cls, labels: _FakeVL())
+    )
+    monkeypatch.setattr(
+        pl.ClusterLabelsGenerator,
+        "lazy",
+        classmethod(lambda cls, labels: _FakeCluster()),
+    )
+    monkeypatch.setattr(pl, "purge_orphans", lambda session: None)
+    monkeypatch.setattr(pl.clip_pass, "run_case", lambda **kw: events.append("clip"))
+    monkeypatch.setattr(
+        pl.cluster_pass, "run_all_cases", lambda **kw: events.append("cluster_pass")
+    )
+
+    pl.run(_settings(), _secrets())
+
+    assert "cluster_pass" in events
+    assert events.index("clip") < events.index("vl_unload")
+    # First VL unload happens before the cluster pass runs.
+    assert events.index("vl_unload") < events.index("cluster_pass")
+    # Cluster generator is unloaded only after the cluster pass.
+    assert events.index("cluster_pass") < events.index("cluster_unload")

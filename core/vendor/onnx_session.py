@@ -27,9 +27,22 @@ def make_session(onnx_path: Path):
         ort.preload_dlls()
     except Exception:
         pass
+    # EXHAUSTIVE cuDNN conv autotune picks the best kernel for the fixed
+    # MAEST/EffNet patch shapes; the search cost is paid once at the first
+    # forward. ``do_copy_in_default_stream=1`` keeps host↔device transfers on
+    # the compute stream so they don't race with kernel launches. Both are
+    # numerics-safe; the predictions are bit-stable across algos.
+    provider_options: list[dict] = [
+        {
+            "cudnn_conv_algo_search": "EXHAUSTIVE",
+            "do_copy_in_default_stream": "1",
+        },
+        {},
+    ]
     return ort.InferenceSession(
         str(onnx_path),
         providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
+        provider_options=provider_options,
     )
 
 

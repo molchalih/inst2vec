@@ -17,15 +17,18 @@ classifiers = [
     "Topic :: Scientific/Engineering",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
-requires-python = ">=3.12"
+# Capped below 3.13: the GPU cluster-label stack (vllm + the cuml/cudf `gpu`
+# extra) only co-resolves on the 3.12 the box and prod images run.
+requires-python = ">=3.12,<3.13"
 dependencies = [
     "hdbscan>=0.8.42",
     "hikerapi>=1.7.9",
     "httpx>=0.28.1",
     "huggingface-hub>=1.14.0",
+    "json-repair>=0.30",
     "lingua-language-detector>=2.2.0",
     "matplotlib>=3.10.9",
-    "openai-whisper>=20250625",
+    "faster-whisper>=1.2.0",
     "pydantic>=2.0",
     "python-dotenv>=1.2.2",
     "qwen-vl-utils>=0.0.14",
@@ -53,6 +56,11 @@ dependencies = [
     "nvidia-cufft-cu12; sys_platform == 'linux'",
     "nvidia-curand-cu12; sys_platform == 'linux'",
     "runpod>=1.9.0",
+    # Cluster-label generation (Qwen3-30B-A3B-GPTQ-Int4 + schema-constrained
+    # JSON decoding) runs in-process via vLLM's offline LLM on the Linux GPU
+    # host; the labels stage lazy-imports it so the arm64 dev box never needs
+    # it. vLLM brings its own structured-output (xgrammar) + GPTQ MoE kernels.
+    "vllm>=0.21; sys_platform == 'linux'",
 ]
 
 [project.urls]
@@ -77,13 +85,6 @@ gpu = [
     "ninja>=1.13.0",
     "flash-attn>=2.8.3",
     "cython",
-    # RAPIDS / cuML for ad-hoc GPU UMAP + HDBSCAN benchmarking against the CPU
-    # path in modules/clustering/core. Linux-only (no PyPI wheels for darwin/win32);
-    # uv sync would otherwise drop them on WSL.
-    "cuml-cu12>=25.0; sys_platform == 'linux'",
-    "cupy-cuda12x>=13.3; sys_platform == 'linux'",
-    "raft-dask-cu12>=25.0; sys_platform == 'linux'",
-    "rmm-cu12>=25.0; sys_platform == 'linux'",
 ]
 gemini = [
     "google-genai>=1.0",
@@ -102,7 +103,6 @@ packages = ["core", "modules", "scripts"]
 no-build-isolation-package = ["flash-attn"]
 
 [tool.uv.extra-build-dependencies]
-openai-whisper = ["setuptools"]
 hdbscan = ["setuptools", "cython"]
 flash-attn = ["torch", "ninja"]
 

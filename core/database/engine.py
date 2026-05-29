@@ -23,6 +23,8 @@ from core.log import event, scope
 _LATE_ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("user_clusters", "centrality", "FLOAT"),
     ("visualization_users", "centrality", "FLOAT"),
+    ("clip_labels", "generation_seed", "INTEGER"),
+    ("cluster_labels", "generation_seed", "INTEGER"),
 )
 
 

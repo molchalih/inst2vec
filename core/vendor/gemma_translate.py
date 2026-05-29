@@ -21,13 +21,22 @@ class GemmaTranslator:
     def __init__(self, model_id: str = DEFAULT_MODEL_ID) -> None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
         dtype = torch.bfloat16 if device == "cuda" else torch.float32
+        if device == "cuda":
+            torch.set_float32_matmul_precision("high")
+            torch.backends.cuda.matmul.allow_tf32 = True
+            torch.backends.cudnn.allow_tf32 = True
 
         self.model_id = model_id
+        # FA2 is bf16/fp16-only and CUDA-only; SDPA on CPU dev.
+        model_kwargs = (
+            {"attn_implementation": "flash_attention_2"} if device == "cuda" else {}
+        )
         self.pipe = pipeline(
             "image-text-to-text",
             model=model_id,
             device=device,
             dtype=dtype,
+            model_kwargs=model_kwargs,
         )
 
         # Keep generation config compatible with explicit max_new_tokens usage.

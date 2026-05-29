@@ -5,7 +5,8 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-import whisper
+import torch
+from faster_whisper import WhisperModel
 from sqlalchemy import or_
 
 from core.console import progress
@@ -28,29 +29,29 @@ from modules.speech.state import (
 from modules.speech.vad import VadConfig, prepare_for_whisper
 
 
-def _transcribe(model, path: str) -> tuple[str, str, float, float, float]:
+def _transcribe(model: WhisperModel, path: str) -> tuple[str, str, float, float, float]:
     """Return (text, language, speech_confidence, avg_logprob, compression_ratio).
 
     Whisper is called with ``condition_on_previous_text=False``, ``beam_size=1``
     and ``temperature=0`` to suppress long-context drift, beam-search loop
-    collapse, and sampling-induced hallucinations.
+    collapse, and sampling-induced hallucinations. Backed by CTranslate2 via
+    ``faster-whisper``; ``transcribe`` returns a (generator, info) pair so the
+    segment iterator is drained eagerly here.
     """
-    result = model.transcribe(
+    segments_iter, info = model.transcribe(
         path,
         condition_on_previous_text=False,
         beam_size=1,
         temperature=0,
     )
-    text = (result.get("text") or "").strip()
-    language = result.get("language") or ""
-    segs = result.get("segments") or []
+    segs = list(segments_iter)
+    text = " ".join((s.text or "").strip() for s in segs).strip()
+    language = info.language or ""
     if segs:
-        mean_no_speech = sum(s.get("no_speech_prob", 0.0) for s in segs) / len(segs)
+        mean_no_speech = sum(s.no_speech_prob for s in segs) / len(segs)
         confidence = max(0.0, min(1.0, 1.0 - mean_no_speech))
-        avg_logprob = sum(s.get("avg_logprob", 0.0) for s in segs) / len(segs)
-        compression_ratio = sum(s.get("compression_ratio", 0.0) for s in segs) / len(
-            segs
-        )
+        avg_logprob = sum(s.avg_logprob for s in segs) / len(segs)
+        compression_ratio = sum(s.compression_ratio for s in segs) / len(segs)
     else:
         confidence = avg_logprob = compression_ratio = 0.0
     return text, language, confidence, avg_logprob, compression_ratio
@@ -96,7 +97,7 @@ def classify_speech(
     speech_out.mkdir(parents=True, exist_ok=True)
 
     event("SCAN", "clips", stats={"todo": len(clips)})
-    model: whisper.Whisper | None = None
+    model: WhisperModel | None = None
     detected = no_speech_vad = no_speech = missing = errored = 0
 
     with progress(len(clips), "Transcribing") as advance:
@@ -172,7 +173,17 @@ def classify_speech(
             )  # guaranteed by VadResult invariant
             if model is None:
                 t_load = time.perf_counter()
-                model = whisper.load_model(whisper_model)
+                # CTranslate2 backend; ``compute_type="float16"`` on GPU,
+                # ``int8`` on CPU dev (CT2 has no fp16 CPU kernels). Same
+                # model-name strings as the openai-whisper CLI, so the
+                # ``whisper_model`` config value remains the source of truth.
+                if torch.cuda.is_available():
+                    device, compute_type = "cuda", "float16"
+                else:
+                    device, compute_type = "cpu", "int8"
+                model = WhisperModel(
+                    whisper_model, device=device, compute_type=compute_type
+                )
                 event(
                     "LOAD", whisper_model, stats={"time": time.perf_counter() - t_load}
                 )

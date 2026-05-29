@@ -89,6 +89,8 @@ class StageEmbedder:
                     inflight=emb.inflight,
                     served_only=False,
                     poll_idle_s=emb.drain_poll_s,
+                    batch_size=getattr(emb, "embed_batch_size", 1),
+                    batch_fill_ms=getattr(emb, "embed_batch_fill_ms", 0),
                     log_tag="embed:local",
                 ),
                 daemon=True,

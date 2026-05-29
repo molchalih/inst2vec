@@ -1,7 +1,12 @@
 import json
 
 from core.config import LabelsSettings
-from modules.labels.validation import validate, validate_cluster
+from modules.labels.validation import (
+    _balance_brackets,
+    _parse,
+    validate,
+    validate_cluster,
+)
 
 
 def _labels(**overrides) -> LabelsSettings:
@@ -232,6 +237,22 @@ def test_multiple_soft_fails_are_collected() -> None:
     assert "S8" in warnings
 
 
+def test_parse_recovers_fenced_block_with_trailing_comma() -> None:
+    # A markdown-fenced object with a trailing comma: strict json.loads
+    # rejects it and the bracket-balancer leaves it unchanged, so recovery
+    # depends entirely on the json-repair fallback being importable.
+    raw = '```json\n{"a": 1, "b": 2,}\n```'
+    assert json.loads is not None
+    try:
+        json.loads(raw)
+        raise AssertionError("expected strict json.loads to reject the fenced block")
+    except (ValueError, TypeError):
+        pass
+    # Bracket-balancer must NOT be the thing that fixes it.
+    assert _balance_brackets(raw) == raw
+    assert _parse(raw) == {"a": 1, "b": 2}
+
+
 # ---------------------------------------------------------------------------
 # Cluster validator tests
 # ---------------------------------------------------------------------------
@@ -240,7 +261,7 @@ def test_multiple_soft_fails_are_collected() -> None:
 def _clean_cluster_payload() -> dict:
     return {
         "cluster_label": "soft domestic vignette",
-        "cluster_summary": "tight handheld kitchen scenes with warm tones and shallow focus",
+        "cluster_summary": "tight handheld kitchen scenes with warm tungsten tones and shallow bokeh focus; domestic intimacy expressed through close framing and muted personal register",
         "dominant_visual_repertoire": [
             {
                 "tag": "warm kitchen interiors",
@@ -248,7 +269,7 @@ def _clean_cluster_payload() -> dict:
                 "recurrence": "dominant",
             },
             {
-                "tag": "shallow depth of field",
+                "tag": "shallow bokeh",
                 "description": "blurred backgrounds isolate hands and faces consistently",
                 "recurrence": "frequent",
             },
@@ -266,7 +287,7 @@ def _clean_cluster_payload() -> dict:
             },
             {
                 "tag": "softly tactile palette",
-                "grounded_in": ["warm kitchen interiors", "shallow depth of field"],
+                "grounded_in": ["warm kitchen interiors", "shallow bokeh"],
                 "description": "warmth and blur combine into a tactile near-haptic surface treatment",
             },
             {
@@ -354,6 +375,29 @@ def test_cluster_sc2_tag_length_out_of_range() -> None:
     bad["dominant_visual_repertoire"][0]["tag"] = "ab"
     _payload, status, warnings = validate_cluster(
         json.dumps(bad), _cluster_labels(), case="video"
+    )
+    assert status == "warn" and "SC2" in warnings
+
+
+def test_cluster_sc2_tag_over_cluster_cap_but_under_max_tag_chars() -> None:
+    # vLLM does not enforce the schema's maxLength, so a tag longer than
+    # cluster_tag_max_chars (but within the looser legacy max_tag_chars) must
+    # still warn — otherwise over-long tags pass silently.
+    bad = _clean_cluster_payload()
+    bad["dominant_visual_repertoire"][0]["tag"] = "x" * 40
+    _payload, status, warnings = validate_cluster(
+        json.dumps(bad),
+        _cluster_labels(cluster_tag_max_chars=28, max_tag_chars=60),
+        case="video",
+    )
+    assert status == "warn" and "SC2" in warnings
+
+
+def test_cluster_sc2_covers_tool_tags() -> None:
+    bad = _clean_cluster_payload()
+    bad["tool_tags"] = ["x" * 40]
+    _payload, status, warnings = validate_cluster(
+        json.dumps(bad), _cluster_labels(cluster_tag_max_chars=28), case="video"
     )
     assert status == "warn" and "SC2" in warnings
 

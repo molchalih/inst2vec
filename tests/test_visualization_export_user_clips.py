@@ -1,12 +1,15 @@
 """Tests for the per-user ``clips`` JSON block in ``export_visualization_json``.
 
-Regression coverage for the per-case ``ClipLabel`` fan-out fix: the
-``_render_user_clips_block`` helper must filter ``ClipLabel`` by
-``label_case == case`` (otherwise a clip with N modality-specific label
-rows would appear N times in the export) and must read the
-case-appropriate ``observable_*_tags`` / ``one_sentence_*_reading``
-payload keys (the case-agnostic ``aesthetic_tags`` /
-``community_signalling_tags`` keys are stable per SPEC).
+Covers two behaviours of ``_render_user_clips_block``:
+
+* Per-case fan-out: ``ClipLabel`` rows are joined by ``label_case`` so a
+  clip with N modality-specific rows does not appear N times.
+* Cross-case fallback: the visual ``ClipLabel`` payload is
+  case-agnostic content (it describes the clip's frames), so for
+  stage-1-skipped cases (audio/sandwich/maest/gemini) the per-clip
+  block falls back to ``label_case="video"`` rows rather than
+  returning empty — the creator pane shows the same per-clip tags in
+  every run.
 """
 
 from __future__ import annotations
@@ -212,13 +215,20 @@ def _audio_payload(sentence: str = "audio reading") -> dict:
     }
 
 
-def test_user_clips_block_for_audio_case_filters_by_label_case(tmp_path):
-    """Seeding both a video and an audio ClipLabel row for the same clip
-    must yield exactly one clip entry in the audio export, sourced from
-    the audio payload (no 2× fan-out, no visual-key leakage)."""
+def test_user_clips_block_falls_back_to_video_for_stage1_skipped_case(tmp_path):
+    """Audio is stage-1-skipped — the cluster pass synthesises directly
+    from raw signals and the pipeline writes no per-clip audio
+    ``ClipLabel`` rows. But the per-clip visual tags describe the
+    clip's frames regardless of which embedding case is being viewed,
+    so the audio export must surface the video ``ClipLabel`` payload
+    in the per-clip block. Any stray audio ``ClipLabel`` row is
+    ignored — only the video reading is shown.
+    """
     _clear()
     _seed_one_user_one_clip("audio", clip_id=100)
-    _add_clip_label(clip_id=100, label_case="video", payload=_video_payload())
+    _add_clip_label(
+        clip_id=100, label_case="video", payload=_video_payload("the video one")
+    )
     _add_clip_label(
         clip_id=100,
         label_case="audio",
@@ -233,8 +243,8 @@ def test_user_clips_block_for_audio_case_filters_by_label_case(tmp_path):
     clips = detail["clips"]
     assert len(clips) == 1
     assert clips[0]["clip_id"] == 100
-    assert clips[0]["sentence"] == "the audio one"
-    assert clips[0]["tags"]["observable"] == [{"tag": "kick", "evidence": "0:01"}]
+    assert clips[0]["sentence"] == "the video one"
+    assert clips[0]["tags"]["observable"] == [{"tag": "lamp", "evidence": "frame 1"}]
 
 
 def test_user_clips_block_for_video_case_remains_unchanged(tmp_path):
@@ -259,20 +269,22 @@ def test_user_clips_block_for_video_case_remains_unchanged(tmp_path):
     assert clips[0]["tags"]["observable"] == [{"tag": "lamp", "evidence": "frame 1"}]
 
 
-def test_user_clips_block_skips_clip_with_no_label_for_this_case(tmp_path):
-    """A clip with only a video ClipLabel must be OMITTED from the audio
-    export — the join is inner on label_case, not outer."""
+def test_user_clips_block_omits_clip_with_no_video_label_for_stage1_skipped_case(
+    tmp_path,
+):
+    """For a stage-1-skipped case, the per-clip block falls back to
+    the video ``ClipLabel``. A clip with no video label at all must be
+    omitted (inner join on ``label_case``, no outer fallback to other
+    cases)."""
     _clear()
     _seed_one_user_one_clip("audio", clip_id=100)
-    _add_clip_label(clip_id=100, label_case="video", payload=_video_payload())
+    # Only an audio ClipLabel exists; there is no video label to fall
+    # back to, so the per-case block must be empty.
+    _add_clip_label(clip_id=100, label_case="audio", payload=_audio_payload())
 
     export_visualization_json(
         _settings(tmp_path, default_case="audio"), cases=("audio",)
     )
 
-    # The user detail file is still written (MIR-backed clip is present in
-    # ``self_member.clips``), but the per-case ``clips`` block must be
-    # EMPTY: the video-only label row must not bleed into the audio export
-    # via an outer join, confirming inner-join semantics on label_case.
     detail = json.loads((tmp_path / "runs" / "audio" / "users" / "0.json").read_text())
     assert detail["clips"] == []

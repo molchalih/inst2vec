@@ -57,6 +57,16 @@ class LocalQwenProvider:
         """Process a single payload and return the model's output list."""
         return self._model.process([payload])
 
+    def embed_batch(self, payloads: list[dict]):
+        """Coalesced multi-payload forward. Returns a (N, dim) embeddings
+        tensor aligned with ``payloads``. The Qwen3VLEmbedder already
+        accepts a list of payloads natively (left-padded across the batch
+        with the right padding side for attention-mask-aware pooling);
+        this just exposes that path to the worker. Caller must ensure all
+        payloads route through this same provider (one case = one
+        provider, enforced by the worker grouping)."""
+        return self._model.process(payloads)
+
 
 class ProviderRouter:
     """Provider that dispatches ``embed(payload)`` to a per-case backend.
@@ -71,8 +81,7 @@ class ProviderRouter:
         self._instances: dict[str, Provider] = {}
         self._lock = threading.Lock()
 
-    def embed(self, payload: dict):
-        case = payload["case"]
+    def _resolve(self, case: str) -> Provider:
         prov = self._instances.get(case)
         if prov is None:
             with self._lock:
@@ -80,4 +89,23 @@ class ProviderRouter:
                 if prov is None:
                     prov = self._factories[case]()
                     self._instances[case] = prov
-        return prov.embed(payload)
+        return prov
+
+    def embed(self, payload: dict):
+        return self._resolve(payload["case"]).embed(payload)
+
+    def embed_batch(self, payloads: list[dict]):
+        if not payloads:
+            return []
+        case = payloads[0]["case"]
+        assert all(p["case"] == case for p in payloads), (
+            "ProviderRouter.embed_batch requires a single shared case"
+        )
+        prov = self._resolve(case)
+        fn = getattr(prov, "embed_batch", None)
+        if fn is None:
+            # Backend doesn't expose a batched path (e.g. HTTP/ONNX); fall
+            # back to single-payload calls. Result shape stays aligned with
+            # ``payloads`` so the worker can index by position.
+            return [prov.embed(p)[0] for p in payloads]
+        return fn(payloads)

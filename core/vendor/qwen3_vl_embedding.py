@@ -171,6 +171,10 @@ class Qwen3VLEmbedder():
         **kwargs
     ):
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        if device.type == "cuda":
+            torch.set_float32_matmul_precision("high")
+            torch.backends.cuda.matmul.allow_tf32 = True
+            torch.backends.cudnn.allow_tf32 = True
 
         self.max_length = max_length
         self.min_pixels = min_pixels
@@ -181,6 +185,14 @@ class Qwen3VLEmbedder():
 
         self.default_instruction = default_instruction
 
+        if device.type == "cuda":
+            # FA2 requires fp16/bf16; the default from_pretrained dtype is
+            # fp32, which would fail at the first forward. Pin bf16 unless
+            # the caller already supplied a dtype.
+            if "dtype" not in kwargs:
+                kwargs["dtype"] = torch.bfloat16
+            if "attn_implementation" not in kwargs:
+                kwargs["attn_implementation"] = "flash_attention_2"
         self.model = Qwen3VLForEmbedding.from_pretrained(
             model_name_or_path, trust_remote_code=True, **kwargs
         ).to(device)

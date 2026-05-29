@@ -184,6 +184,39 @@ def test_run_visualization_re_exports_when_upstream_row_mutates():
     assert new_x == 9999.0
 
 
+def test_visualization_fingerprint_tracks_cluster_labels():
+    # The atlas embeds the cluster_label block, so re-labelling (a change to the
+    # cluster_labels stage state) must drift the visualization dependency and
+    # force a re-export — otherwise the published atlas shows stale labels.
+    from modules.labels.state import STAGE_CLUSTER_LABELS, cluster_scope_for
+    from modules.visualization.pipeline import _fingerprint
+
+    _clear()
+    _seed_user_clusters("video", n_per_cluster=2, n_clusters=2, noise=1)
+    session = get_session()
+    try:
+        fp.mark_complete(
+            session,
+            STAGE_CLUSTER_LABELS,
+            cluster_scope_for("video"),
+            fp.Fingerprint(data="labels-v1", config="c", dependency="x"),
+        )
+        session.commit()
+        dep1 = _fingerprint(session, "video").dependency
+        # Simulate a re-labelling run sealing a new cluster_labels fingerprint.
+        fp.mark_complete(
+            session,
+            STAGE_CLUSTER_LABELS,
+            cluster_scope_for("video"),
+            fp.Fingerprint(data="labels-v2", config="c", dependency="x"),
+        )
+        session.commit()
+        dep2 = _fingerprint(session, "video").dependency
+    finally:
+        session.close()
+    assert dep1 != dep2
+
+
 def test_run_visualization_handles_empty_case():
     """Upstream sealed but no UserCluster rows → size=0 Visualization row."""
     _clear()
