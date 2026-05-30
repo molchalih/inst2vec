@@ -102,7 +102,7 @@ def _render_user_clips_block(
     case-agnostic ``aesthetic_tags`` / ``community_signalling_tags``
     payload keys are stable per SPEC.
 
-    Stage-1-skipped cases (sandwich/audio/maest/gemini) carry no
+    Stage-1-skipped cases (sandwich/auditory/spoken/textual) carry no
     ``ClipLabel`` rows of their own. Their per-clip visual tag block
     falls back to the case-agnostic video labels (same clip, same
     frames) so the creator pane shows tags in every run, not only in

@@ -27,7 +27,7 @@ from modules.speech.state import SCOPE_SPEECH
 
 # Stage-1 input adapter contract. Receives ``(clip, mir_row, visual_payload)``
 # — ``visual_payload`` is the ``ClipLabel(label_case="video")`` payload dict
-# for sandwich/gemini (and ``None`` for every other case). Returns the
+# for sandwich (and ``None`` for every other case). Returns the
 # textual input the generator will see, or ``None`` to signal the runner to
 # mark ``status="failed"`` with the case-specific error string.
 ClipInputBuilder = Callable[[object, object, dict | None], str | None]
@@ -75,8 +75,8 @@ class LabelCaseSpec:
     # ``ClipLabel`` rows). The visual case (video) must, because it is the
     # only place frames are reduced to text — the cluster pass has no other
     # access to frame data. The text rephrasing cases (sandwich, spoken,
-    # textual, auditory, gemini) skip stage 1 and consume their raw signals
-    # (captions, speech, MIR, plus the video ClipLabel for sandwich/gemini)
+    # textual, auditory) skip stage 1 and consume their raw signals
+    # (captions, speech, MIR, plus the video ClipLabel for sandwich)
     # directly in the cluster pass. Stage-1-skipped cases keep ``clip_input`` as the
     # adapter producing one cluster-pass per-clip text block.
     runs_clip_pass: bool = True
@@ -239,30 +239,10 @@ AUDITORY_CASE = LabelCaseSpec(
     runs_clip_pass=False,
 )
 
-GEMINI_CASE = LabelCaseSpec(
-    name="gemini",
-    modality="multimodal",
-    clip_input=sandwich_input,
-    clip_uses_video=False,
-    clip_required_keys=_SANDWICH_CLIP_KEYS,
-    cluster_required_keys=_cluster_keys("dominant_multimodal_repertoire"),
-    clip_prompt_key="gemini",
-    cluster_prompt_key="gemini",
-    stage1_dependency_stages=(_CAPTIONS_DEP, _SPEECH_DEP, _MIR_DEP),
-    observable_key="observable_multimodal_tags",
-    sentence_key="one_sentence_multimodal_reading",
-    repertoire_key="dominant_multimodal_repertoire",
-    consumes_label_cases=("video",),
-    none_input_error="missing_video_label",
-    runs_clip_pass=False,
-)
-
-
 REGISTRY: dict[str, LabelCaseSpec] = {
     "video": VIDEO_CASE,
     "sandwich": SANDWICH_CASE,
     "auditory": AUDITORY_CASE,
-    "gemini": GEMINI_CASE,
     "spoken": SPOKEN_CASE,
     "textual": TEXTUAL_CASE,
 }

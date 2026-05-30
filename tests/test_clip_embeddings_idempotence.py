@@ -80,23 +80,14 @@ class _FakeProvider:
 
 @dataclass
 class _FakeSecrets:
-    """Carries only the fields the distributed orchestrator reads.
-
-    ``embedder_token`` is intentionally empty: a blank token tells
-    ``StageEmbedder`` to skip binding the uvicorn coordinator (these
-    tests drain entirely through the in-process worker), shaving ~1s
-    of HTTP-server boot+teardown off every test in this file.
-    Coordinator-auth coverage lives in ``test_coordinator.py``.
-    """
-
-    embedder_token: str = ""
-    gemini_api_key: str | None = None
+    """Placeholder secrets object. Local embedding ignores it entirely; it
+    is passed positionally only to exercise the call-compat signature."""
 
 
 _FAKE_SECRETS = _FakeSecrets()
 
 
-def _fake_factory(_settings, _secrets):
+def _fake_factory(_settings):
     return _FakeProvider()
 
 
@@ -151,14 +142,7 @@ class _EmbeddingsStub:
     embed_max_length: int = 1024
     adaptive_max_frames: int = 8
     adaptive_default_fps: float = 1.0
-    inflight: int = 1
-    provider: str = "local"
-    lease_ttl_s: int = 600
-    max_attempts: int = 3
-    coordinator_bind_host: str = "127.0.0.1"
-    coordinator_bind_port: int = 0
-    pod_drain_grace_s: float = 0.0
-    drain_poll_s: float = 0.01
+    embed_batch_size: int = 1
 
 
 @dataclass
@@ -384,17 +368,15 @@ def test_partial_failure_does_not_seal_stage(db_session, stub_providers, monkeyp
     is_stale returns False, and the missing ClipEmbedding row is never retried.
     """
     settings = _settings(stub_providers)
-    # max_attempts=1 makes a single raise terminal so clip 11's first-attempt
-    # failure is not requeued/retried within the same run (the broker's
-    # intra-run retry would otherwise let it succeed and seal the stage).
-    settings.embeddings.max_attempts = 1
+    # The local embedder makes a single deterministic attempt per clip, so
+    # clip 11's raise is terminal: the stage must stay unsealed.
     _seed(
         db_session,
         settings,
         clips=[dict(id=10, user_id=1), dict(id=11, user_id=1)],
     )
 
-    from modules.embeddings import worker as worker_mod
+    from modules.embeddings import local as worker_mod
 
     original = worker_mod.embed_with_token_fallback
     call_log: list[int] = []
@@ -446,7 +428,7 @@ def test_adding_new_candidate_only_embeds_the_new_one(
     _seed(db_session, settings, clips=[dict(id=10, user_id=1)])
     embed_clip_embeddings(settings, _FAKE_SECRETS, cases=["video"])
 
-    from modules.embeddings import worker as worker_mod
+    from modules.embeddings import local as worker_mod
 
     original = worker_mod.embed_with_token_fallback
     call_log: list[int] = []
@@ -487,7 +469,7 @@ def test_caption_change_reembeds_only_changed_clip_for_sandwich(
     )
     embed_clip_embeddings(settings, _FAKE_SECRETS, cases=["sandwich"])
 
-    from modules.embeddings import worker as worker_mod
+    from modules.embeddings import local as worker_mod
 
     original = worker_mod.embed_with_token_fallback
     call_log: list[int] = []
@@ -600,7 +582,7 @@ def test_config_change_still_wipes(db_session, stub_providers, monkeypatch):
     embed_clip_embeddings(settings, _FAKE_SECRETS)
     db_session.expire_all()
 
-    from modules.embeddings import worker as worker_mod
+    from modules.embeddings import local as worker_mod
 
     original = worker_mod.embed_with_token_fallback
     call_log: list[tuple[str, int]] = []
@@ -713,7 +695,7 @@ def test_reselecting_a_clip_after_orphan_sweep_reembeds_it(
         is None
     )
 
-    from modules.embeddings import worker as worker_mod
+    from modules.embeddings import local as worker_mod
 
     original = worker_mod.embed_with_token_fallback
     call_log: list[int] = []
@@ -881,65 +863,18 @@ def test_audio_mir_row_descriptor_change_invalidates_sandwich_only(
     assert after["spoken"] == before["spoken"]  # spoken has no MIR dependency
 
 
-def test_preflight_warns_when_pods_set_but_no_bucket(
-    db_session, stub_providers, monkeypatch
-):
-    from dataclasses import dataclass
-
-    @dataclass
-    class _Storage:
-        bucket: str = ""
-
-    settings = _settings(stub_providers)
-    settings.storage = _Storage(bucket="")  # type: ignore[attr-defined]
-    _seed(db_session, settings, clips=[dict(id=10, user_id=1)])
-
-    import core.log as log_mod
-
-    logged = []
-    real_render = log_mod._render
-
-    def _spy(*a, **kw):
-        logged.append((a, kw))
-        real_render(*a, **kw)
-
-    monkeypatch.setattr(log_mod, "_render", _spy)
-
-    from core.log import scope as log_scope
-
-    @log_scope("embed")
-    def _run():
-        embed_clip_embeddings(
-            settings, _FakeSecrets(embedder_token="t"), cases=["video"]
-        )
-
-    _run()
-    assert any("pods" in str(a) for a, _ in logged), "missing pod-starvation warning"
-
-
-def test_local_only_run_skips_coordinator(db_session, stub_providers, monkeypatch):
-    """Blank embedder token = documented local-only mode: the HTTP
-    coordinator must not be built. The in-process worker drains every job
-    via LocalJobSource, so a local run needs neither the bound port nor the
-    optional embedder deps. Patching build_app/serve_in_thread to raise
-    proves the coordinator path is never entered while rows still land."""
-    from modules.embeddings import coordinator as coordinator_mod
-
-    def _must_not_run(*args, **kwargs):
-        raise AssertionError("coordinator must not start in local-only mode")
-
-    monkeypatch.setattr(coordinator_mod, "build_app", _must_not_run)
-    monkeypatch.setattr(coordinator_mod, "serve_in_thread", _must_not_run)
-
+def test_local_run_embeds_without_credentials(db_session, stub_providers):
+    """Clip embedding runs entirely in-process on the local GPU: a row lands
+    for every job and the case seals, with no credentials threaded through."""
     settings = _settings(stub_providers)
     _seed(db_session, settings, clips=[dict(id=10, user_id=1)])
 
-    embed_clip_embeddings(settings, _FakeSecrets(embedder_token=""), cases=["video"])
+    embed_clip_embeddings(settings, cases=["video"])
     db_session.expire_all()
 
     rows = {
         r.clip_id
         for r in db_session.query(ClipEmbedding).filter_by(embedding_case="video")
     }
-    assert rows == {10}, "local worker must drain all jobs without a coordinator"
+    assert rows == {10}
     assert db_session.get(StageState, ("clip_embeddings", "video")) is not None

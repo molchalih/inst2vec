@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from modules.embeddings import cases as cases_mod
-from modules.embeddings.cases import build_provider_router, remote_served_cases
+from modules.embeddings.cases import build_provider_router
 from modules.embeddings.providers import ProviderRouter
 
 
@@ -40,12 +40,12 @@ def test_router_builds_each_backend_once():
 def test_build_router_shares_one_qwen_instance_lazily(monkeypatch):
     built = {"n": 0}
 
-    def fake_qwen(settings, secrets, *, with_frames):
+    def fake_qwen(settings, *, with_frames):
         built["n"] += 1
         return _Rec("qwen")
 
     monkeypatch.setattr(cases_mod, "qwen_provider", fake_qwen)
-    router = build_provider_router(object(), None, ["video", "sandwich", "spoken"])
+    router = build_provider_router(object(), ["video", "sandwich", "spoken"])
     # Lazy: nothing built until first embed.
     assert built["n"] == 0
     router.embed({"case": "video"})
@@ -53,11 +53,3 @@ def test_build_router_shares_one_qwen_instance_lazily(monkeypatch):
     router.embed({"case": "spoken"})
     # All three Qwen-backbone cases share ONE instance.
     assert built["n"] == 1
-
-
-def test_remote_served_cases_excludes_local_only():
-    served = remote_served_cases()
-    assert "video" in served and "sandwich" in served
-    # spoken / textual / auditory / gemini are all local-only.
-    assert "spoken" not in served and "textual" not in served
-    assert "auditory" not in served and "gemini" not in served

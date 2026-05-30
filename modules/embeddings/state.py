@@ -63,9 +63,7 @@ def get_clip_embedding_candidates(
     session: Session, exclude_disqualified_users: bool
 ) -> list[Clip]:
     """Eligible clips (selected + downloaded), optionally restricted to
-    users marked is_eligible. Upload state is no longer a candidate filter:
-    un-uploaded clips are still embeddable by the local worker; the producer
-    marks each job's ``remote_eligible`` from ``Clip.is_uploaded`` instead."""
+    users marked is_eligible."""
     q = session.query(Clip).filter(*clip_used_in_analysis())
     if exclude_disqualified_users:
         q = q.join(User, Clip.user_id == User.id).filter(User.is_eligible.is_(True))

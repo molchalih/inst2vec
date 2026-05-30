@@ -65,12 +65,10 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
             embed_max_length=32768,
             adaptive_max_frames=96,
             adaptive_default_fps=2.0,
-            gemini_enabled=False,
         ),
         search=SimpleNamespace(),
         validation=SimpleNamespace(plateau_drop_threshold=0.05),
         visualization=SimpleNamespace(),
-        storage=SimpleNamespace(bucket=""),
         overrides=SimpleNamespace(video="", sandwich="", audio=""),
     )
 
@@ -79,11 +77,6 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
         identity_db_url="sqlite:///:memory:",
         hiker_api_key="hiker",
         huggingface_token="hf",
-        gemini_api_key=None,
-        embedder_token="",
-        object_store_endpoint="",
-        object_store_access_key="",
-        object_store_secret_key="",
     )
 
     monkeypatch.setattr(main, "load_runtime_config", lambda: (settings, secrets))
@@ -105,7 +98,6 @@ def test_run_pipeline_loads_config_once_and_wires_stages(monkeypatch):
     monkeypatch.setattr(
         main.ingest, "run_download", lambda s, k: calls.append("download")
     )
-    monkeypatch.setattr(main.upload, "run", lambda s, k: calls.append("upload"))
     monkeypatch.setattr(
         main.ingest, "run_audio", lambda s, k: calls.append("audio:extract")
     )

@@ -51,7 +51,7 @@ def run(settings: Settings, secrets: Secrets) -> None:
 
         cases = tuple(case_run_order(default_cases(settings), registry=REGISTRY))
         # Stage 1 only runs for cases that need a per-clip Qwen pass. The
-        # rephrasing cases (sandwich/audio/maest/gemini) skip stage 1 entirely
+        # rephrasing cases (sandwich/auditory/spoken/textual) skip stage 1 entirely
         # and let the cluster pass synthesise from raw caption/speech/MIR
         # signals — for those cases ``ClipLabel`` rows are dead weight and
         # are purged by ``purge_orphans`` above.

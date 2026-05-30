@@ -293,52 +293,12 @@ class EmbeddingsSettings(BaseModel):
     embed_max_length: int
     adaptive_max_frames: int
     adaptive_default_fps: float
-    inflight: int = 1
-    # Per-lane cross-clip GPU coalescing for the local Qwen embedder. When
-    # >1, the worker leases up to ``embed_batch_size`` same-case jobs (with
-    # ``embed_batch_fill_ms`` opportunistic wait) and runs them in a single
+    # Cross-clip GPU coalescing for the local Qwen embedder. When >1, the
+    # embedder runs up to ``embed_batch_size`` same-case clips in a single
     # padded forward. Throughput-only — not in ``case_config_identity``.
     embed_batch_size: int = 1
-    embed_batch_fill_ms: int = 50
-    # ── distributed coordinator / worker ──
-    coordinator_bind_host: str = "0.0.0.0"
-    coordinator_bind_port: int = 8765
-    lease_ttl_s: int = 600
-    max_attempts: int = 3
-    worker_request_timeout_s: int = 120
-    worker_max_retries: int = 3
-    pod_connect_timeout_s: int = 600
-    # Seconds the coordinator keeps serving after the queue drains so pods
-    # polling /lease observe HTTP 410 instead of a connection error on shutdown.
-    pod_drain_grace_s: float = 10.0
-    # Per-iteration timeout for the orchestrator drain loop's queue.get().
-    # Production default is fine; tests override to ~0.01 to avoid stacking
-    # half-second blocks when the fake-provider work is sub-millisecond.
-    drain_poll_s: float = 0.5
-    # Seconds a pod tolerates an unreachable coordinator before exiting cleanly
-    # (crash backstop so a dead orchestrator doesn't leave GPUs billing).
-    pod_idle_ttl_s: int = 300
-    # ── Gemini Embedding 2 case ──
-    gemini_enabled: bool = False
-    gemini_model: str = "gemini-embedding-2-preview"
-    gemini_output_dim: int = 3072
-    gemini_max_video_seconds: int = 120
-    gemini_max_audio_seconds: int = 80
-    gemini_request_timeout_s: int = 60
-    gemini_max_retries: int = 5
 
-    @field_validator(
-        "inflight",
-        "embed_batch_size",
-        "embed_batch_fill_ms",
-        "coordinator_bind_port",
-        "lease_ttl_s",
-        "max_attempts",
-        "worker_request_timeout_s",
-        "worker_max_retries",
-        "pod_connect_timeout_s",
-        "pod_idle_ttl_s",
-    )
+    @field_validator("embed_batch_size")
     @classmethod
     def _positive(cls, v: int) -> int:
         if v <= 0:
@@ -378,55 +338,6 @@ class ValidationSettings(BaseModel):
     max_dominance: float = 1.0
 
 
-class StorageSettings(BaseModel):
-    backend: str = "s3"
-    bucket: str = ""
-    prefix: str = "videos/"
-    # SigV4 region. Required for RunPod's S3 endpoint (= the datacenter id, e.g.
-    # "EU-RO-1"), else SignatureDoesNotMatch. Empty for AWS/R2 default.
-    region: str = ""
-    # Thread-pool width for the upload stage's verify+upload scan. Every rerun
-    # HEADs every selected clip to keep the bucket authoritative; these are tiny
-    # network calls, so a wide pool keeps reruns fast. Independent of download
-    # concurrency (which throttles HikerAPI/CDN pulls, not S3 HEADs).
-    verify_concurrency: int = 64
-    # How many actual video uploads (store.put) may run at once. Held well below
-    # verify_concurrency so a cold/mismatched bucket cannot turn the wide HEAD
-    # pool into a verify-width burst of multi-MB PUTs that throttles the endpoint.
-    upload_concurrency: int = 8
-
-    @field_validator("verify_concurrency", "upload_concurrency")
-    @classmethod
-    def _positive(cls, v: int) -> int:
-        if v <= 0:
-            raise ValueError("must be > 0")
-        return v
-
-
-class RunpodSettings(BaseModel):
-    image: str = ""
-    gpu_type_id: str = ""
-    data_center_id: str = ""
-    network_volume_id: str = ""
-    volume_mount_path: str = "/runpod-volume"
-    container_disk_in_gb: int = 20
-    pod_video_root: str = "/runpod-volume/videos"
-    pod_model_path: str = "/runpod-volume/models/Qwen3-VL-Embedding-8B"
-    reconcile_path: str = ".runpod_fleet.json"
-    # RunPod template id to launch from when the image is in a private registry
-    # (the template holds the pull credential). Empty -> deploy from `image`.
-    template_id: str = ""
-    # GPU selection. Pin gpu_type_id to force one type; leave it empty to
-    # auto-fetch in-stock types in the volume's data_center_id that meet the
-    # VRAM/RAM floors and sit under the price cap, tried cheapest-first.
-    gpu_max_price_hr: float = 0.80
-    gpu_min_vram_gb: int = 24
-    gpu_min_ram_gb: int = 30
-    # Background top-up: re-fetch availability and deploy any shortfall every
-    # this many seconds, for the whole embedding stage, until the pod count is met.
-    gpu_poll_interval_s: float = 30.0
-
-
 class VisualizationSettings(BaseModel):
     export_dir: Path
     default_case: str
@@ -453,8 +364,6 @@ class Settings(BaseModel):
     )
     search: SearchSettings
     validation: ValidationSettings
-    storage: StorageSettings = Field(default_factory=StorageSettings)
-    runpod: RunpodSettings = Field(default_factory=RunpodSettings)
     visualization: VisualizationSettings
 
 
@@ -467,13 +376,6 @@ class Secrets(BaseModel):
     serving_database_url: str = "sqlite:///data/serving.db"
     hiker_api_key: str
     huggingface_token: str
-    embedder_token: str = ""
-    object_store_endpoint: str = ""
-    object_store_access_key: str = ""
-    object_store_secret_key: str = ""
-    gemini_api_key: str | None = None
-    runpod_api_key: str = ""
-    coordinator_public_host: str = ""
 
 
 def _load_settings() -> Settings:
@@ -493,94 +395,12 @@ def _load_settings() -> Settings:
         audio_extraction=AudioExtractionSettings(**raw.get("audio_extraction", {})),
         search=SearchSettings(**raw.get("search", {})),
         validation=ValidationSettings(**raw["validation"]),
-        storage=StorageSettings(**raw.get("storage", {})),
-        runpod=RunpodSettings(**raw.get("runpod", {})),
         visualization=VisualizationSettings(**raw["visualization"]),
     )
 
 
-def load_pod_config() -> Settings:
-    """Settings for an embedding pod — no pipeline secrets required.
-
-    A pod only embeds: it leases jobs over HTTP, runs the local Qwen model
-    on its own GPU, and reports vectors back. It never touches the DB or
-    ingest APIs, so it must not require DATABASE_URL / IDENTITY_DB_URL /
-    HIKER_API_KEY the way load_runtime_config does. Embedding tunables come
-    from config.toml (shipped in the image) so they match the orchestrator;
-    MODEL_PATH overrides the model location for the pod's mounted volume.
-    """
-    settings = _load_settings()
-    model_path = os.environ.get("MODEL_PATH")
-    if model_path:
-        settings.paths.model_path = model_path
-    hf_token = os.environ.get("HUGGINGFACE_TOKEN")
-    if hf_token:
-        os.environ["HF_TOKEN"] = hf_token
-    return settings
-
-
-def _apply_deployment_env_overrides(settings: Settings) -> None:
-    """Override deployment-specific RunPod/storage fields from the environment.
-
-    These values are account/run-specific (volume id, datacenter, GPU pick), so
-    they belong in .env rather than the tracked config.toml. Each var is
-    optional and only overrides when set; bucket and region default to the
-    network volume id and its datacenter so .env need only state them once.
-    """
-    rp = settings.runpod
-    for attr, env in (
-        ("image", "RUNPOD_IMAGE"),
-        ("template_id", "RUNPOD_TEMPLATE_ID"),
-        ("gpu_type_id", "RUNPOD_GPU_TYPE_ID"),
-        ("data_center_id", "RUNPOD_DATA_CENTER_ID"),
-        ("network_volume_id", "RUNPOD_NETWORK_VOLUME_ID"),
-    ):
-        val = os.environ.get(env)
-        if val:
-            setattr(rp, attr, val)
-    if os.environ.get("RUNPOD_GPU_MAX_PRICE_HR"):
-        rp.gpu_max_price_hr = float(os.environ["RUNPOD_GPU_MAX_PRICE_HR"])
-    if os.environ.get("RUNPOD_GPU_MIN_VRAM_GB"):
-        rp.gpu_min_vram_gb = int(os.environ["RUNPOD_GPU_MIN_VRAM_GB"])
-    if os.environ.get("RUNPOD_GPU_MIN_RAM_GB"):
-        rp.gpu_min_ram_gb = int(os.environ["RUNPOD_GPU_MIN_RAM_GB"])
-
-    st = settings.storage
-    if os.environ.get("STORAGE_BUCKET"):
-        st.bucket = os.environ["STORAGE_BUCKET"]
-    if os.environ.get("STORAGE_REGION"):
-        st.region = os.environ["STORAGE_REGION"]
-    # The bucket *is* the network volume and the region *is* its datacenter.
-    if not st.bucket and rp.network_volume_id:
-        st.bucket = rp.network_volume_id
-    if not st.region and rp.data_center_id:
-        st.region = rp.data_center_id
-
-
-def load_runpod_config() -> tuple[Settings, str]:
-    """Settings + RUNPOD_API_KEY for RunPod-only helpers (e.g. GPU listing).
-
-    Loads non-secret settings, applies the deployment env overrides (so the
-    network volume / datacenter pulled from .env are present), and returns the
-    RunPod API key — without requiring pipeline secrets (DB / Hiker /
-    HuggingFace) or running Gemini validation the way load_runtime_config does.
-    Lets an operator list GPU availability from a minimal RunPod-only env.
-    """
-    settings = _load_settings()
-    _apply_deployment_env_overrides(settings)
-    return settings, os.environ.get("RUNPOD_API_KEY", "")
-
-
 def load_runtime_config() -> tuple[Settings, Secrets]:
     settings = _load_settings()
-    _apply_deployment_env_overrides(settings)
-
-    gemini_enabled = settings.embeddings.gemini_enabled
-    gemini_api_key = os.environ.get("GEMINI_API_KEY")
-    if gemini_enabled and not gemini_api_key:
-        raise RuntimeError(
-            "embeddings.gemini_enabled=true but GEMINI_API_KEY is not set"
-        )
 
     serving_database_url = os.environ.get("SERVING_DATABASE_URL")
     secrets = Secrets(
@@ -593,13 +413,6 @@ def load_runtime_config() -> tuple[Settings, Secrets]:
         ),
         hiker_api_key=os.environ["HIKER_API_KEY"],
         huggingface_token=os.environ["HUGGINGFACE_TOKEN"],
-        embedder_token=os.environ.get("EMBEDDER_TOKEN", ""),
-        object_store_endpoint=os.environ.get("OBJECT_STORE_ENDPOINT", ""),
-        object_store_access_key=os.environ.get("OBJECT_STORE_ACCESS_KEY", ""),
-        object_store_secret_key=os.environ.get("OBJECT_STORE_SECRET_KEY", ""),
-        gemini_api_key=gemini_api_key if gemini_enabled else None,
-        runpod_api_key=os.environ.get("RUNPOD_API_KEY", ""),
-        coordinator_public_host=os.environ.get("COORDINATOR_PUBLIC_HOST", ""),
     )
 
     # huggingface_hub reads HF_TOKEN, not HUGGINGFACE_TOKEN — propagate so gated

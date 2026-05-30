@@ -111,10 +111,9 @@ def test_load_grid_combo_count():
     assert len(combos) == 12
 
 
-def test_load_grid_iterates_gemini_when_enabled():
-    """Regression: when gemini is included in cases, _load_grid emits
-    combos for it. Previously the clustering loops hardcoded the three-case
-    literal so gemini embeddings were produced but never clustered."""
+def test_load_grid_iterates_all_requested_cases():
+    """_load_grid emits combos for every case in ``cases``, not a hardcoded
+    literal — so any configured case is actually clustered."""
     from types import SimpleNamespace
 
     from modules.clustering.search import _load_grid
@@ -132,9 +131,10 @@ def test_load_grid_iterates_gemini_when_enabled():
         hdbscan_selection=["eom"],
         random_state=42,
     )
-    combos = _load_grid(settings, cases=("video", "sandwich", "audio", "gemini"))
+    requested = ("video", "sandwich", "auditory", "spoken")
+    combos = _load_grid(settings, cases=requested)
     case_set = {c["embedding_case"] for c in combos}
-    assert case_set == {"video", "sandwich", "audio", "gemini"}
+    assert case_set == set(requested)
 
 
 def test_load_grid_ignores_hdbscan_metric_env_dimension():

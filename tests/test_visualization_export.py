@@ -248,12 +248,12 @@ def test_export_writes_manifest_users_clusters_for_exposed_case(tmp_path):
 def test_export_filters_hidden_cases(tmp_path):
     _clear()
     _seed_visualization("video", "Visual")
-    _seed_visualization("gemini", "Gemini")
-    export_visualization_json(_settings(tmp_path), cases=("video", "gemini"))
+    _seed_visualization("hidden", "Hidden")
+    export_visualization_json(_settings(tmp_path), cases=("video", "hidden"))
 
     manifest = json.loads((tmp_path / "manifest.json").read_text())
     assert [r["case"] for r in manifest["runs"]] == ["video"]
-    assert not (tmp_path / "runs" / "gemini").exists()
+    assert not (tmp_path / "runs" / "hidden").exists()
 
 
 def test_export_skips_cases_with_no_db_row(tmp_path):
@@ -269,8 +269,8 @@ def test_export_skips_cases_with_no_db_row(tmp_path):
 
 def test_export_no_visible_runs_skips_manifest(tmp_path):
     _clear()
-    _seed_visualization("gemini", "Gemini")  # hidden-only
-    export_visualization_json(_settings(tmp_path), cases=("gemini",))
+    _seed_visualization("hidden", "Hidden")  # hidden-only
+    export_visualization_json(_settings(tmp_path), cases=("hidden",))
 
     assert not (tmp_path / "manifest.json").exists()
 

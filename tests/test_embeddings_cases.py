@@ -57,13 +57,6 @@ def test_textual_case_shape():
     assert "caption_clean" in spec.dependency_columns
 
 
-def test_gemini_case_shape():
-    from modules.embeddings.cases import GEMINI_CASE
-
-    assert GEMINI_CASE.recipe_version == "gemini_v2"
-    assert "is_speech_detected" in GEMINI_CASE.dependency_columns
-
-
 def _identity_settings() -> SimpleNamespace:
     """Minimal settings stub satisfying case_config_identity's reads."""
     return SimpleNamespace(
@@ -112,15 +105,12 @@ def test_auditory_case_registered_with_expected_shape():
     assert AUDITORY_CASE.dependency_columns == ("_audio_file_stat",)
     assert AUDITORY_CASE.recipe_version == "maest_v1"
     assert AUDITORY_CASE.requires == ()
-    assert AUDITORY_CASE.served_remotely is False
 
 
 def test_default_cases_includes_auditory():
     from modules.embeddings.cases import default_cases
 
-    settings_stub = types.SimpleNamespace(
-        embeddings=types.SimpleNamespace(gemini_enabled=False)
-    )
+    settings_stub = types.SimpleNamespace(embeddings=types.SimpleNamespace())
     assert "auditory" in default_cases(settings_stub)
 
 

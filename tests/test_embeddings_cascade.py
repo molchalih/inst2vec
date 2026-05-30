@@ -100,20 +100,14 @@ class _FakeProvider:
 
 @dataclass
 class _FakeSecrets:
-    """Carries only the fields the distributed orchestrator reads.
-
-    ``embedder_token`` is blank so ``StageEmbedder`` skips binding the
-    uvicorn coordinator; this run drains through the in-process worker.
-    """
-
-    embedder_token: str = ""
-    gemini_api_key: str | None = None
+    """Placeholder secrets. Local embedding ignores it; passed positionally
+    only to exercise the call-compat signature."""
 
 
 _FAKE_SECRETS = _FakeSecrets()
 
 
-def _fake_factory(_settings, _secrets):
+def _fake_factory(_settings):
     return _FakeProvider()
 
 
@@ -139,14 +133,7 @@ class _EmbeddingsStub:
     embed_max_length: int = 1024
     adaptive_max_frames: int = 8
     adaptive_default_fps: float = 1.0
-    inflight: int = 1
-    provider: str = "local"
-    lease_ttl_s: int = 600
-    max_attempts: int = 3
-    coordinator_bind_host: str = "127.0.0.1"
-    coordinator_bind_port: int = 0
-    pod_drain_grace_s: float = 0.0
-    drain_poll_s: float = 0.01
+    embed_batch_size: int = 1
 
 
 @dataclass

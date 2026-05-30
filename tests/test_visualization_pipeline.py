@@ -245,20 +245,31 @@ def test_run_visualization_handles_empty_case():
         session.close()
 
 
-def test_run_visualization_writes_db_rows_even_when_case_hidden():
+def test_run_visualization_writes_db_rows_even_when_case_hidden(monkeypatch):
     """expose_to_viewer=False does not skip the DB write (only the export)."""
+    import dataclasses
+
+    from modules.embeddings.cases import CASE_REGISTRY
+    from modules.visualization import pipeline as pipeline_mod
+
+    hidden_registry = dict(CASE_REGISTRY)
+    hidden_registry["auditory"] = dataclasses.replace(
+        CASE_REGISTRY["auditory"], expose_to_viewer=False
+    )
+    monkeypatch.setattr(pipeline_mod, "CASE_REGISTRY", hidden_registry)
+
     _clear()
-    _seed_user_clusters("gemini", n_per_cluster=4, n_clusters=2, noise=1)
-    run_visualization(cases=("gemini",))
+    _seed_user_clusters("auditory", n_per_cluster=4, n_clusters=2, noise=1)
+    run_visualization(cases=("auditory",))
     session = get_session()
     try:
-        viz = session.get(Visualization, "gemini")
+        viz = session.get(Visualization, "auditory")
         assert viz is not None
-        assert viz.label == "Gemini"
+        assert viz.label == "Auditory"
         assert viz.size == 9
         assert (
             session.query(VisualizationCluster)
-            .filter_by(embedding_case="gemini")
+            .filter_by(embedding_case="auditory")
             .count()
             == 2
         )

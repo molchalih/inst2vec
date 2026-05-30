@@ -7,7 +7,7 @@ Public API (pipeline entrypoints):
 
 Direct (non-pipeline) callers:
 
-    embed_clip_embeddings(settings, secrets=None, cases=None)
+    embed_clip_embeddings(settings, cases=None)
     embed_user_embeddings(settings, cases=None)
 
 Adding a new embedding case generally only requires:
@@ -18,12 +18,11 @@ Adding a new embedding case generally only requires:
 """
 
 from core.config import Secrets, Settings
-from modules.embeddings.cases import EmbeddingSecrets, default_cases
+from modules.embeddings.cases import default_cases
 from modules.embeddings.runner import embed_clip_embeddings, run_clip
 from modules.embeddings.users import embed_user_embeddings
 
 __all__ = [
-    "EmbeddingSecrets",
     "embed_clip_embeddings",
     "embed_user_embeddings",
     "run_clip",

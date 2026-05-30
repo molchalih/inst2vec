@@ -1,33 +1,28 @@
 """Regression tests: a failed Qwen3-VL vision-processing step must NOT
 silently produce a constant 'NULL' embedding. The exception must
-propagate through the provider into the worker, which marks the clip as
-failed (``source.fail``) so the broker counts it and the runner refuses
-to seal.
+propagate through the provider into the local embedder, which marks the
+clip as a failure and refuses to seal — and logs a structured ERR line.
 
 See ``core/vendor/qwen3_vl_embedding.py::_preprocess_inputs`` and
-``modules/embeddings/worker.py::_process_one``.
+``modules/embeddings/local.py::LocalEmbedder``.
 """
 
 from __future__ import annotations
 
 import logging  # noqa: F401
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from modules.embeddings.broker import JobBroker, make_job
-from modules.embeddings.worker import (
-    LocalJobSource,
-    embed_with_token_fallback,
-    run_worker,
-)
+from modules.embeddings.local import LocalEmbedder, embed_with_token_fallback
 
 
-def test_worker_converts_embed_exception_to_failure(monkeypatch):
-    """A provider that raises must be reported as a terminal broker failure
-    (not propagate, not silently succeed) and logged as a structured ERR
-    line. This guarantees that when the vendor stops swallowing
-    ``process_vision_info`` errors, the worker's machinery catches them.
+def test_local_embedder_converts_embed_exception_to_failure(monkeypatch):
+    """A provider that raises must be reported as a per-clip failure (not
+    propagate, not silently succeed) and logged as a structured ERR line.
+    This guarantees that when the vendor stops swallowing
+    ``process_vision_info`` errors, the embedder's machinery catches them.
     """
 
     class _FlakyProvider:
@@ -36,20 +31,30 @@ def test_worker_converts_embed_exception_to_failure(monkeypatch):
                 raise RuntimeError("vision processing failed: bad frame")
             return [[1.0, 2.0]]
 
-    b = JobBroker(lease_ttl_s=600, max_attempts=1)
-    for cid in (101, 102, 103):
-        b.add(
-            make_job(
-                clip_id=cid,
-                case="spoken",
-                text="x",
-                video_key=None,
-                fps=None,
-                max_frames=None,
-                remote_eligible=False,
-            )
-        )
-    b.producer_done()
+    settings = SimpleNamespace(
+        paths=SimpleNamespace(video_dir="/x", audio_dir="/x"),
+        embeddings=SimpleNamespace(embed_batch_size=1),
+    )
+    embedder = LocalEmbedder(settings, [])
+    # Inject the flaky provider directly so no Qwen model loads.
+    embedder._router = _FlakyProvider()
+
+    from modules.embeddings.cases import CASE_REGISTRY
+
+    spec = CASE_REGISTRY["spoken"]
+    jobs = [
+        {
+            "clip_id": cid,
+            "case": "spoken",
+            "text": "x",
+            "video_key": None,
+            "audio_key": None,
+            "fps": None,
+            "max_frames": None,
+        }
+        for cid in (101, 102, 103)
+    ]
+    per_clip = {101: "h1", 102: "h2", 103: "h3"}
 
     log_calls: list[tuple[tuple, dict]] = []
 
@@ -58,21 +63,24 @@ def test_worker_converts_embed_exception_to_failure(monkeypatch):
 
     monkeypatch.setattr("core.log._render", _capture_log)
 
-    run_worker(
-        LocalJobSource(b),
-        provider=_FlakyProvider(),
-        video_root="/x",
-        inflight=1,
-        served_only=False,
-        poll_idle_s=0.01,
-    )
+    class _Session:
+        def merge(self, *a, **k):
+            return None
 
-    got = {}
-    while not b.completions.empty():
-        c = b.completions.get_nowait()
-        got[c.clip_id] = c.ok
-    assert got == {101: True, 102: False, 103: True}
-    # The worker logs the failure as a structured ERR line so operators see
+        def commit(self):
+            return None
+
+    from core.log import _scope_var
+
+    # embed_case logs under the caller's @scope; the runner sets it via
+    # ``@scope("embed:{case}")`` — establish one for this direct call.
+    token = _scope_var.set("embed:spoken")
+    try:
+        succeeded, failures = embedder.embed_case(_Session(), spec, jobs, per_clip)
+    finally:
+        _scope_var.reset(token)
+    assert (succeeded, failures) == (2, 1)
+    # The embedder logs the failure as a structured ERR line so operators see
     # the real exception cause.
     assert any(
         len(args) >= 4

@@ -96,7 +96,7 @@ class _PathsStub:
 
 @dataclass
 class _EmbeddingsStub:
-    gemini_enabled: bool = False
+    embed_batch_size: int = 1
 
 
 @dataclass
@@ -119,12 +119,10 @@ class _SettingsStub:
     download: _DownloadStub
 
 
-def _make_settings(
-    *, audio_dir, enabled: bool, video_dir, concurrency: int = 2
-) -> _SettingsStub:
+def _make_settings(*, audio_dir, video_dir, concurrency: int = 2) -> _SettingsStub:
     return _SettingsStub(
         paths=_PathsStub(video_dir=str(video_dir), audio_dir=str(audio_dir)),
-        embeddings=_EmbeddingsStub(gemini_enabled=enabled),
+        embeddings=_EmbeddingsStub(),
         audio_extraction=_AudioExtractionStub(),
         download=_DownloadStub(concurrency=concurrency),
     )
@@ -144,9 +142,8 @@ def db_session():
     session.close()
 
 
-def test_runs_when_gemini_disabled(tmp_path, sample_mp4_with_audio, db_session):
-    """Stage runs regardless of embeddings.gemini_enabled; the flag only gates
-    the downstream gemini embedding case, not audio extraction itself."""
+def test_runs_and_seals(tmp_path, sample_mp4_with_audio, db_session):
+    """Audio extraction runs over downloaded selected clips and seals."""
     from modules.ingest.audio import extract_audio_stage
 
     vid_dir = tmp_path / "video"
@@ -158,7 +155,7 @@ def test_runs_when_gemini_disabled(tmp_path, sample_mp4_with_audio, db_session):
     db_session.commit()
 
     audio_dir = tmp_path / "audio"
-    settings = _make_settings(audio_dir=audio_dir, enabled=False, video_dir=vid_dir)
+    settings = _make_settings(audio_dir=audio_dir, video_dir=vid_dir)
 
     extract_audio_stage(settings)
 
@@ -179,7 +176,7 @@ def test_stage_fingerprint_seals(tmp_path, sample_mp4_with_audio, db_session):
     db_session.commit()
 
     audio_dir = tmp_path / "audio"
-    settings = _make_settings(audio_dir=audio_dir, enabled=True, video_dir=vid_dir)
+    settings = _make_settings(audio_dir=audio_dir, video_dir=vid_dir)
     extract_audio_stage(settings)
 
     assert (audio_dir / "1.mp3").exists()
@@ -209,9 +206,7 @@ def test_extract_audio_stage_dispatches_through_thread_pool(
     db_session.commit()
 
     audio_dir = tmp_path / "audio"
-    settings = _make_settings(
-        audio_dir=audio_dir, enabled=True, video_dir=vid_dir, concurrency=4
-    )
+    settings = _make_settings(audio_dir=audio_dir, video_dir=vid_dir, concurrency=4)
 
     with patch.object(
         audio_mod, "ThreadPoolExecutor", wraps=audio_mod.ThreadPoolExecutor
@@ -264,7 +259,7 @@ def test_stage_skips_clips_without_audio_stream_and_seals(
     db_session.commit()
 
     audio_dir = tmp_path / "audio"
-    settings = _make_settings(audio_dir=audio_dir, enabled=True, video_dir=vid_dir)
+    settings = _make_settings(audio_dir=audio_dir, video_dir=vid_dir)
 
     extract_audio_stage(settings)
 
@@ -294,7 +289,7 @@ def test_stage_does_not_retry_silent_clips_on_second_run(
     db_session.commit()
 
     audio_dir = tmp_path / "audio"
-    settings = _make_settings(audio_dir=audio_dir, enabled=True, video_dir=vid_dir)
+    settings = _make_settings(audio_dir=audio_dir, video_dir=vid_dir)
 
     # First run seals.
     extract_audio_stage(settings)
@@ -332,7 +327,7 @@ def test_stage_skips_already_extracted_clips_without_reprobing(
     db_session.commit()
 
     audio_dir = tmp_path / "audio"
-    settings = _make_settings(audio_dir=audio_dir, enabled=True, video_dir=vid_dir)
+    settings = _make_settings(audio_dir=audio_dir, video_dir=vid_dir)
 
     # First run extracts clip 1 and seals.
     extract_audio_stage(settings)

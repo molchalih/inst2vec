@@ -13,7 +13,7 @@ def test_registry_membership():
     assert "auditory" in REGISTRY and "maest" not in REGISTRY
     assert "spoken" in REGISTRY and "audio" not in REGISTRY
     assert "textual" in REGISTRY
-    assert {"video", "sandwich", "gemini"} <= set(REGISTRY)
+    assert set(REGISTRY) == {"video", "sandwich", "auditory", "spoken", "textual"}
 
 
 def test_modalities():

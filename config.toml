@@ -70,36 +70,15 @@ exclude_disqualified_users = true
 embed_max_length = 32768
 adaptive_max_frames = 96
 adaptive_default_fps = 2.0
-# Concurrent embed lanes per worker. Two lanes overlap CPU frame-decode +
-# tokenize of one clip with GPU forward of another; serializes on CUDA but
-# closes the inter-clip gap. Throughput-only, not fingerprinted.
-inflight = 2
-# Per-lane cross-clip GPU coalescing: each lane leases up to N same-case
-# jobs and packs them into one padded forward. Default 1 (no coalescing).
-# Measured: at adaptive_max_frames=96 the embedder is a single long-context
-# forward (~24k visual tokens per clip), so batch=2 ≈ 49k-token forward
-# delivered ~0.90× per-clip throughput vs batch=1 with +56% peak memory —
-# the embedder has no per-step amortization to recover (unlike the labels
-# decoder). Keep at 1 for the configured frame count; only raise if you
+# Cross-clip GPU coalescing: pack up to N same-case clips into one padded
+# forward. Default 1 (no coalescing). Measured: at adaptive_max_frames=96 the
+# embedder is a single long-context forward (~24k visual tokens per clip), so
+# batch=2 ≈ 49k-token forward delivered ~0.90× per-clip throughput vs batch=1
+# with +56% peak memory — no per-step amortization to recover (unlike the
+# labels decoder). Keep at 1 for the configured frame count; only raise if you
 # benchmark a shorter-frame case and confirm a gain. Throughput-only, not
 # fingerprinted.
 embed_batch_size = 1
-embed_batch_fill_ms = 50
-# ── distributed coordinator / worker ──
-coordinator_bind_host = "0.0.0.0"
-coordinator_bind_port = 8765
-lease_ttl_s = 600
-max_attempts = 3
-worker_request_timeout_s = 120
-worker_max_retries = 3
-# ── Gemini Embedding 2 case ──
-gemini_enabled           = false
-gemini_model             = "gemini-embedding-2-preview"
-gemini_output_dim        = 3072
-gemini_max_video_seconds = 120
-gemini_max_audio_seconds = 80
-gemini_request_timeout_s = 60
-gemini_max_retries       = 5
 
 [audio_extraction]
 audio_bitrate_kbps       = 128
@@ -153,54 +132,6 @@ max_clusters = 20
 # more than 40% of assigned users. Complements the eom max_cluster_frac cap and
 # also guards leaf runs.
 max_dominance = 0.4
-
-[storage]
-backend = "s3"
-# bucket + region are account-specific: set them in .env (STORAGE_BUCKET,
-# STORAGE_REGION) — they default to RUNPOD_NETWORK_VOLUME_ID and
-# RUNPOD_DATA_CENTER_ID, since the bucket is the volume and region is its DC.
-bucket = ""
-prefix = "videos/"
-region = ""
-# Thread-pool width for the upload stage's verify+upload scan. Every rerun HEADs
-# every selected clip (bucket is authoritative); these are tiny calls, so a wide
-# pool keeps reruns fast.
-verify_concurrency = 64
-# How many real video uploads run at once. Kept well below verify_concurrency so
-# a cold bucket can't fire a verify-width burst of multi-MB PUTs at the endpoint.
-upload_concurrency = 8
-
-[runpod]
-# Container image the pods run (push services/embedder/Dockerfile to a registry).
-# For a PUBLIC image, set this. For a PRIVATE image, leave it blank and set
-# template_id below (the SDK cannot pass registry auth on a bare image).
-image = ""
-# RunPod template id carrying the private-registry pull credential. When set,
-# pods launch from this template's image; `image` above is ignored.
-template_id = ""
-# Account-specific values live in .env (RUNPOD_DATA_CENTER_ID,
-# RUNPOD_NETWORK_VOLUME_ID, RUNPOD_TEMPLATE_ID, RUNPOD_IMAGE) so this tracked
-# file carries none. GPU selection: leave RUNPOD_GPU_TYPE_ID empty to auto-fetch
-# in-stock types in the DC under the price cap, meeting the floors below, tried
-# cheapest-first; or pin one (e.g. "NVIDIA RTX PRO 4500 Blackwell"). The
-# defaults below are the fallback when the matching .env var is unset.
-gpu_type_id = ""
-gpu_max_price_hr = 0.80
-gpu_min_vram_gb = 24
-gpu_min_ram_gb = 30
-# Re-fetch GPU availability and deploy any shortfall every N seconds during the
-# embedding stage, until RUNPOD_POD_COUNT pods are up (thin stock keeps retrying).
-gpu_poll_interval_s = 30.0
-data_center_id = ""
-network_volume_id = ""
-volume_mount_path = "/runpod-volume"
-container_disk_in_gb = 20
-# Where pods read clip videos on the mounted volume. Must mirror the upload
-# target: [storage].bucket over S3 lands at <volume_mount_path>/<[storage].prefix>,
-# so pod_video_root has to equal that path or pods see an empty videos dir.
-pod_video_root = "/runpod-volume/videos"
-pod_model_path = "/runpod-volume/models/Qwen3-VL-Embedding-8B"
-reconcile_path = ".runpod_fleet.json"
 
 [mir]
 binary_threshold = 0.5

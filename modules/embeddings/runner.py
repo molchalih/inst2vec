@@ -14,12 +14,10 @@ Per case the stage:
      leaves the stage unsealed so the next run retries only the missing ones.
 
 Per-clip failures (e.g. ``process_vision_info`` raising on a corrupt
-video, or a network error from a remote provider) are caught by the
-worker, logged as a structured ERR line, and reported back to the broker
-as a terminal failure once ``max_attempts`` is exhausted. The orchestrator
-in ``modules/embeddings/distributed.py`` counts those failures so the
-runner refuses to seal — the next run retries just those clips. Failed
-clips are NOT replaced with placeholder embeddings.
+video) are caught by the ``LocalEmbedder`` in
+``modules/embeddings/local.py``, logged as a structured ERR line, and
+counted so the runner refuses to seal — the next run retries just those
+clips. Failed clips are NOT replaced with placeholder embeddings.
 """
 
 from __future__ import annotations
@@ -37,11 +35,9 @@ from core.database import (
 )
 from core.log import StageResult, event, scope, stage
 from core.pipeline import Stage
-from modules.embeddings.broker import make_job
 from modules.embeddings.cases import (
     CASE_REGISTRY,
     EmbeddingCaseSpec,
-    EmbeddingSecrets,
     case_config_identity,
     default_cases,
 )
@@ -58,71 +54,31 @@ from modules.embeddings.state import (
 STAGE = Stage.CLIP_EMBEDDINGS
 
 
-def _preflight_warn_pods(settings, secrets) -> None:
-    """Warn if pods are configured but no clip can be remote-eligible.
-
-    remote_eligible mirrors Clip.is_uploaded; with no object-store bucket the
-    upload stage is a no-op, so every job stays local and connected pods get
-    no work. Guarded on the storage attribute so settings stubs are exempt."""
-    storage = getattr(settings, "storage", None)
-    if secrets.embedder_token and storage is not None and not storage.bucket:
-        event(
-            "SCAN",
-            "pods",
-            result="WARN",
-            stats={
-                "msg": "EMBEDDER_TOKEN set but storage.bucket empty: no clip is "
-                "remote-eligible, so connected pods receive no work — set "
-                "storage.bucket, or unset EMBEDDER_TOKEN for local-only embedding"
-            },
-        )
-
-
 @stage("embed")
 def run_clip(settings: Settings, secrets: Secrets) -> StageResult:
     """Clip-level embeddings across all configured cases."""
-    emb_secrets = EmbeddingSecrets(
-        gemini_api_key=secrets.gemini_api_key,
-        embedder_token=secrets.embedder_token,
-        runpod_api_key=secrets.runpod_api_key,
-        coordinator_public_host=secrets.coordinator_public_host,
-        huggingface_token=secrets.huggingface_token,
-    )
-    embed_clip_embeddings(settings, emb_secrets)
+    del secrets  # local embedding needs no credentials
+    embed_clip_embeddings(settings)
     return StageResult()
 
 
 def embed_clip_embeddings(
     settings,
-    secrets: EmbeddingSecrets | None = None,
+    secrets=None,  # retained for positional call-compat; embedding is local
     cases: list[str] | None = None,
 ) -> None:
     """Embed clips for the given cases (default: result of default_cases(settings)).
 
-    Opens ONE StageEmbedder for the whole stage so a single coordinator +
-    local worker span every case; pods stay connected across cases and exit
-    only when the stage closes. ``secrets`` carries provider credentials +
-    the embedder token; defaults to an empty ``EmbeddingSecrets()``."""
-    if secrets is None:
-        secrets = EmbeddingSecrets()
+    Opens ONE ``LocalEmbedder`` for the whole stage so the Qwen-backbone cases
+    share a single in-process model instance across cases."""
+    del secrets
     case_names = list(cases) if cases is not None else list(default_cases(settings))
-    for name in case_names:
-        if name == "gemini" and not settings.embeddings.gemini_enabled:
-            raise RuntimeError(
-                "gemini case requested but embeddings.gemini_enabled=false"
-            )
 
-    _preflight_warn_pods(settings, secrets)
+    from modules.embeddings.local import LocalEmbedder
 
-    from modules.embeddings.distributed import StageEmbedder
-    from modules.embeddings.fleet import pod_fleet
-
-    with (
-        pod_fleet(settings, secrets) as fleet,
-        StageEmbedder(settings, secrets, case_names, fleet=fleet) as stage_emb,
-    ):
+    with LocalEmbedder(settings, case_names) as embedder:
         for name in case_names:
-            _run_case(settings, secrets, name, stage_emb)
+            _run_case(settings, name, embedder)
 
 
 def _video_path(clip_id: int, video_dir: str) -> str:
@@ -138,11 +94,10 @@ def build_jobs_for_case(
     adaptive_max_frames: int,
     adaptive_default_fps: float,
 ) -> list[dict]:
-    """One Job per clip. Probes the LOCAL video for fps/max_frames so pods
-    don't have to. ``texts`` is the prebuilt text per clip. Clips with no
-    local video file are skipped for video cases. ``audio_key`` is set for
-    cases whose dependency columns include ``_audio_file_stat`` (maest /
-    gemini); only the local worker leases those (served_remotely=False)."""
+    """One job dict per clip. Probes the local video for fps/max_frames.
+    ``texts`` is the prebuilt text per clip. Clips with no local video file are
+    skipped for video cases. ``audio_key`` is set for cases whose dependency
+    columns include ``_audio_file_stat`` (auditory)."""
     needs_audio = "_audio_file_stat" in spec.dependency_columns
     jobs: list[dict] = []
     for clip in clips:
@@ -156,18 +111,16 @@ def build_jobs_for_case(
             video_key = f"{clip.id}.mp4"
         else:
             fps, max_frames, video_key = None, None, None
-        audio_key = f"{clip.id}.mp3" if needs_audio else None
         jobs.append(
-            make_job(
-                clip_id=clip.id,
-                case=spec.name,
-                text=texts.get(clip.id),
-                video_key=video_key,
-                fps=fps,
-                max_frames=max_frames,
-                remote_eligible=bool(getattr(clip, "is_uploaded", False)),
-                audio_key=audio_key,
-            )
+            {
+                "clip_id": clip.id,
+                "case": spec.name,
+                "text": texts.get(clip.id),
+                "video_key": video_key,
+                "audio_key": f"{clip.id}.mp3" if needs_audio else None,
+                "fps": fps,
+                "max_frames": max_frames,
+            }
         )
     return jobs
 
@@ -196,9 +149,8 @@ def _wipe_case(session, case: str) -> None:
 @scope("embed:{case}")
 def _run_case(
     settings,
-    secrets,  # retained for positional compat with test_embeddings_backwards_compat.py; unused by body
     case: str,
-    stage_emb=None,  # None on the direct-call test path; body returns before stage_emb.drain_case when fp matches
+    embedder=None,  # None on the direct-call test path; body returns before embed_case when fp matches
 ) -> tuple[int, int]:
     spec = CASE_REGISTRY[case]
     session = get_session()
@@ -251,7 +203,7 @@ def _run_case(
             per_clip,
             embedded,
             current,
-            stage_emb,
+            embedder,
         )
     finally:
         session.close()
@@ -266,7 +218,7 @@ def _embed_targets(
     per_clip: dict[int, str],
     embedded: dict[int, str | None],
     current: fp.Fingerprint,
-    stage_emb,
+    embedder,
 ) -> tuple[int, int]:
     """Embed the subset of ``candidates`` whose ids are in ``target_ids``."""
     targets = [c for c in candidates if c.id in target_ids]
@@ -342,9 +294,6 @@ def _embed_targets(
         )
         return 0, 0
 
-    # Pass active scope string as log_tag so distributed.py (pre-T24) can
-    # emit its per-clip lines under the correct scope prefix.
-    log_tag = f"embed:{spec.name}"
     case_jobs = build_jobs_for_case(
         spec,
         targets_built,
@@ -353,9 +302,7 @@ def _embed_targets(
         adaptive_max_frames=settings.embeddings.adaptive_max_frames,
         adaptive_default_fps=settings.embeddings.adaptive_default_fps,
     )
-    succeeded, failures = stage_emb.drain_case(
-        session, spec, case_jobs, per_clip, log_tag
-    )
+    succeeded, failures = embedder.embed_case(session, spec, case_jobs, per_clip)
 
     if failures or stale_skipped:
         event(

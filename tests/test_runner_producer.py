@@ -1,5 +1,5 @@
-"""The producer builds one Job per (case, target clip) with remote_eligible
-mirroring Clip.is_uploaded and fps/max_frames probed from the local file."""
+"""The producer builds one job per (case, target clip) with the video_key,
+audio_key, and fps/max_frames probed from the local file."""
 
 from __future__ import annotations
 
@@ -8,14 +8,14 @@ from types import SimpleNamespace
 from modules.embeddings.runner import build_jobs_for_case
 
 
-def test_build_jobs_sets_remote_eligible_from_is_uploaded(monkeypatch):
+def test_build_jobs_sets_video_key_and_sampling(monkeypatch):
     monkeypatch.setattr(
         "modules.embeddings.runner.adaptive_sampling", lambda *a: (2.0, 96)
     )
     monkeypatch.setattr("modules.embeddings.runner.os.path.exists", lambda p: True)
     clips = [
-        SimpleNamespace(id=1, is_uploaded=True),
-        SimpleNamespace(id=2, is_uploaded=False),
+        SimpleNamespace(id=1),
+        SimpleNamespace(id=2),
     ]
     from modules.embeddings.cases import CASE_REGISTRY
 
@@ -28,15 +28,14 @@ def test_build_jobs_sets_remote_eligible_from_is_uploaded(monkeypatch):
         adaptive_default_fps=2.0,
     )
     by_id = {j["clip_id"]: j for j in jobs}
-    assert by_id[1]["remote_eligible"] is True
-    assert by_id[2]["remote_eligible"] is False
     assert by_id[1]["video_key"] == "1.mp4"
+    assert by_id[2]["video_key"] == "2.mp4"
     assert by_id[1]["fps"] == 2.0 and by_id[1]["max_frames"] == 96
 
 
 def test_build_jobs_sets_audio_key_for_audio_dependent_case(monkeypatch):
     monkeypatch.setattr("modules.embeddings.runner.os.path.exists", lambda p: True)
-    clips = [SimpleNamespace(id=7, is_uploaded=False)]
+    clips = [SimpleNamespace(id=7)]
     from modules.embeddings.cases import CASE_REGISTRY
 
     jobs = build_jobs_for_case(

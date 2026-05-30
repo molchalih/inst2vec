@@ -24,14 +24,13 @@ from modules.embeddings.providers import (
     ProviderRouter,
 )
 from modules.embeddings.text import (
-    build_gemini_text,
     build_sandwich_text,
     build_spoken_text,
     build_textual_text,
 )
 
-# audio_path is only consumed by the gemini case; every other builder
-# accepts it and ignores it so the runner can pass it uniformly without
+# Every payload builder accepts ``audio_path`` and ignores it unless its case
+# reads audio (auditory), so the runner can pass it uniformly without
 # branching by case name.
 
 SPOKEN_INSTRUCTION = (
@@ -44,31 +43,11 @@ TEXTUAL_INSTRUCTION = (
 
 
 @dataclass(frozen=True)
-class EmbeddingSecrets:
-    """Secret bag threaded through the embedding stage.
-
-    The Gemini provider reads ``gemini_api_key``; local providers ignore it.
-    ``embedder_token`` gates the coordinator + pods. The remaining fields feed
-    the RunPod pod fleet: ``runpod_api_key`` + ``coordinator_public_host`` gate
-    auto-deploy (``fleet_enabled``) and ``huggingface_token`` is forwarded into
-    each pod's env. Every field defaults to ``""``/``None`` so
-    ``EmbeddingSecrets()`` is a valid no-arg call for tests / pipelines that
-    don't need credentials.
-    """
-
-    gemini_api_key: str | None = None
-    embedder_token: str = ""
-    runpod_api_key: str = ""
-    coordinator_public_host: str = ""
-    huggingface_token: str = ""
-
-
-@dataclass(frozen=True)
 class EmbeddingCaseSpec:
     name: str
     text_builder: Callable[[object, object], str | None] | None
     requires_video: bool
-    provider_factory: Callable[[object, object], Provider]
+    provider_factory: Callable[[object], Provider]
     payload_builder: Callable[
         [object, str | None, str | None, str | None, float | None, int | None], dict
     ]
@@ -84,9 +63,6 @@ class EmbeddingCaseSpec:
     # ``settings.embeddings`` bool attrs that all must be truthy for the
     # case to appear in ``default_cases``. Empty tuple means always-on.
     requires: tuple[str, ...] = field(default_factory=tuple)
-    # When False, the embedder pod excludes this case from SERVED_CASES.
-    # Default True so new cases must opt out of remote serving explicitly.
-    served_remotely: bool = True
     # Human-readable name shown in the frontend case picker.
     display_label: str = ""
     # When False, the visualization stage still writes DB rows for this
@@ -103,7 +79,7 @@ class EmbeddingCaseSpec:
 # ── provider factories ───────────────────────────────────────────────────────
 
 
-def qwen_provider(settings, secrets, *, with_frames: bool) -> Provider:
+def qwen_provider(settings, *, with_frames: bool) -> Provider:
     if with_frames:
         return LocalQwenProvider(
             model_path=settings.paths.model_path,
@@ -118,8 +94,8 @@ def qwen_provider(settings, secrets, *, with_frames: bool) -> Provider:
 
 
 def _make_qwen_factory(*, with_frames: bool, name: str):
-    def factory(settings, secrets):
-        return qwen_provider(settings, secrets, with_frames=with_frames)
+    def factory(settings):
+        return qwen_provider(settings, with_frames=with_frames)
 
     factory.__name__ = name
     return factory
@@ -206,7 +182,6 @@ SPOKEN_CASE = EmbeddingCaseSpec(
         "speech_translation",
     ),
     recipe_version="spoken_v1",
-    served_remotely=False,
     display_label="Spoken",
     backbone="qwen",
 )
@@ -225,70 +200,12 @@ TEXTUAL_CASE = EmbeddingCaseSpec(
         "caption_translation",
     ),
     recipe_version="textual_v1",
-    served_remotely=False,
     display_label="Textual",
     backbone="qwen",
 )
 
 
-def _gemini_factory(settings, secrets) -> Provider:
-    from modules.embeddings.gemini import GeminiMultimodalProvider
-
-    if secrets is None or getattr(secrets, "gemini_api_key", None) is None:
-        raise RuntimeError(
-            "gemini provider requires secrets.gemini_api_key; "
-            "set GEMINI_API_KEY and embeddings.gemini_enabled=true"
-        )
-    return GeminiMultimodalProvider(
-        api_key=secrets.gemini_api_key,
-        model=settings.embeddings.gemini_model,
-        output_dim=settings.embeddings.gemini_output_dim,
-        max_video_seconds=settings.embeddings.gemini_max_video_seconds,
-        max_audio_seconds=settings.embeddings.gemini_max_audio_seconds,
-        request_timeout_s=settings.embeddings.gemini_request_timeout_s,
-        max_retries=settings.embeddings.gemini_max_retries,
-    )
-
-
-def _gemini_payload(clip, text, video_path, audio_path, fps, max_frames) -> dict:
-    if audio_path is None:
-        raise ValueError(
-            "gemini payload requires audio_path; the runner must compute it "
-            "from settings.paths.audio_dir, not reload config.toml"
-        )
-    return {"video_path": video_path, "audio_path": audio_path, "text": text}
-
-
-GEMINI_CASE = EmbeddingCaseSpec(
-    name="gemini",
-    text_builder=build_gemini_text,
-    requires_video=True,
-    provider_factory=_gemini_factory,
-    payload_builder=_gemini_payload,
-    apply_video_token_fallback=False,
-    # build_gemini_text feeds caption + speech text into the payload; the
-    # file-stat sentinels alone don't notice translations / transcripts
-    # changing, so include the same Clip columns the builder reads.
-    dependency_columns=(
-        "_video_file_stat",
-        "_audio_file_stat",
-        "caption_clean",
-        "caption_language",
-        "caption_translation",
-        "is_speech_detected",
-        "speech_transcription",
-        "speech_language",
-        "speech_translation",
-    ),
-    recipe_version="gemini_v2",
-    requires=("gemini_enabled",),
-    served_remotely=False,
-    display_label="Gemini",
-    expose_to_viewer=False,
-)
-
-
-def _maest_factory(settings, secrets) -> Provider:
+def _maest_factory(settings) -> Provider:
     from pathlib import Path
 
     from modules.embeddings.maest import MaestProvider
@@ -320,7 +237,6 @@ AUDITORY_CASE = EmbeddingCaseSpec(
     dependency_columns=("_audio_file_stat",),
     recipe_version="maest_v1",
     requires=(),
-    served_remotely=False,
     display_label="Auditory",
 )
 
@@ -329,7 +245,6 @@ CASE_REGISTRY: dict[str, EmbeddingCaseSpec] = {
     "video": VIDEO_CASE,
     "sandwich": SANDWICH_CASE,
     "auditory": AUDITORY_CASE,
-    "gemini": GEMINI_CASE,
     "spoken": SPOKEN_CASE,
     "textual": TEXTUAL_CASE,
 }
@@ -338,9 +253,8 @@ CASE_REGISTRY: dict[str, EmbeddingCaseSpec] = {
 def default_cases(settings) -> tuple[str, ...]:
     """Return the set of cases whose ``requires`` gates all evaluate truthy.
 
-    A case with ``requires=()`` is always returned; a case with
-    ``requires=("gemini_enabled",)`` is returned only when
-    ``settings.embeddings.gemini_enabled`` is truthy.
+    A case with ``requires=()`` is always returned; a case gated on a
+    ``settings.embeddings`` flag is returned only when that flag is truthy.
     """
     cases: list[str] = []
     for name, spec in CASE_REGISTRY.items():
@@ -374,18 +288,6 @@ def case_config_identity(spec: EmbeddingCaseSpec, settings) -> str:
         parts.append(f"instruction={SPOKEN_INSTRUCTION}")
     if spec.name == "textual":
         parts.append(f"instruction={TEXTUAL_INSTRUCTION}")
-    if spec.name == "gemini":
-        # The common ``model=`` field above is the Qwen path and does not
-        # distinguish Gemini model versions; include the real Gemini model
-        # so operators changing gemini_model invalidate the config hash.
-        parts.append(f"gemini_model={settings.embeddings.gemini_model}")
-        parts.append(f"output_dim={settings.embeddings.gemini_output_dim}")
-        parts.append(f"audio_bitrate={settings.audio_extraction.audio_bitrate_kbps}")
-        parts.append(
-            f"audio_sample_rate={settings.audio_extraction.audio_sample_rate_hz}"
-        )
-        parts.append(f"max_video_s={settings.embeddings.gemini_max_video_seconds}")
-        parts.append(f"max_audio_s={settings.embeddings.gemini_max_audio_seconds}")
     if spec.name == "auditory":
         mir = settings.mir
         pb_path = Path(mir.model_dir) / mir.maest_checkpoint
@@ -410,12 +312,7 @@ def case_config_identity(spec: EmbeddingCaseSpec, settings) -> str:
     return "|".join(parts)
 
 
-def remote_served_cases() -> tuple[str, ...]:
-    """Case names a pod may be handed (served_remotely=True)."""
-    return tuple(n for n, s in CASE_REGISTRY.items() if s.served_remotely)
-
-
-def build_provider_router(settings, secrets, cases) -> ProviderRouter:
+def build_provider_router(settings, cases) -> ProviderRouter:
     """Build a ProviderRouter over ``cases``.
 
     Cases with backbone="qwen" whose ``provider_factory`` is one of the
@@ -433,7 +330,7 @@ def build_provider_router(settings, secrets, cases) -> ProviderRouter:
 
     def _qwen() -> Provider:
         if "qwen" not in instances:
-            instances["qwen"] = qwen_provider(settings, secrets, with_frames=True)
+            instances["qwen"] = qwen_provider(settings, with_frames=True)
         return instances["qwen"]
 
     factories: dict[str, Callable[[], Provider]] = {}
@@ -442,5 +339,5 @@ def build_provider_router(settings, secrets, cases) -> ProviderRouter:
         if spec.backbone == "qwen" and spec.provider_factory in _QWEN_FACTORIES:
             factories[name] = _qwen
         else:
-            factories[name] = partial(spec.provider_factory, settings, secrets)
+            factories[name] = partial(spec.provider_factory, settings)
     return ProviderRouter(factories)

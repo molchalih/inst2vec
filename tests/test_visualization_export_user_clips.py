@@ -6,7 +6,7 @@ Covers two behaviours of ``_render_user_clips_block``:
   clip with N modality-specific rows does not appear N times.
 * Cross-case fallback: the visual ``ClipLabel`` payload is
   case-agnostic content (it describes the clip's frames), so for
-  stage-1-skipped cases (spoken/sandwich/auditory/gemini) the per-clip
+  stage-1-skipped cases (spoken/sandwich/auditory/textual) the per-clip
   block falls back to ``label_case="video"`` rows rather than
   returning empty — the creator pane shows the same per-clip tags in
   every run.

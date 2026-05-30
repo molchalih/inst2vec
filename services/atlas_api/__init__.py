@@ -6,6 +6,6 @@ serves it byte-identically to what ``modules.visualization.export`` writes to
 disk. Reads ONLY the serving DB — never the pipeline main or identity DBs.
 
 ``build_app`` lives in ``services.atlas_api.app`` (imports FastAPI, an optional
-dependency from the ``embedder`` group); ``reconstruct`` / ``serialize`` are
+dependency from the ``serving`` group); ``reconstruct`` / ``serialize`` are
 dependency-free so they can be imported without FastAPI installed.
 """

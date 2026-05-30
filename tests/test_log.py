@@ -138,16 +138,16 @@ def test_event_outside_scope_raises() -> None:
 def test_warn_renders_as_warn_result_with_err_repr(
     captured: list[tuple[Any, ...]],
 ) -> None:
-    cl._scope_var.set("embed:fleet")
-    exc = ConnectionError("coordinator down")
-    cl.warn("SCAN", "topup", err=exc)
+    cl._scope_var.set("embed:local")
+    exc = ConnectionError("service down")
+    cl.warn("SCAN", "probe", err=exc)
     assert captured == [
         (
-            "embed:fleet",
+            "embed:local",
             "SCAN",
-            "topup",
+            "probe",
             "WARN",
-            {"err": "ConnectionError('coordinator down')"},
+            {"err": "ConnectionError('service down')"},
         ),
     ]
 

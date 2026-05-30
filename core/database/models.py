@@ -416,8 +416,8 @@ class ClipLabel(Base):
         BigInteger, ForeignKey("clips.id"), primary_key=True
     )
     # Per-case discriminator mirroring ``ClipEmbedding.embedding_case`` so a
-    # single clip can carry one stage-1 label row per modality (video / audio
-    # / sandwich / maest / gemini). The ``server_default="video"`` is the
+    # single clip can carry one stage-1 label row per modality (video /
+    # sandwich / auditory / spoken / textual). The ``server_default="video"`` is the
     # in-place backfill mechanism for sqlite (no Alembic); pre-existing rows
     # come back as ``label_case="video"`` on the next ``init_db`` run.
     label_case: Mapped[str] = mapped_column(

@@ -17,9 +17,8 @@ def probe_duration_seconds(path: str, *, strict: bool = False) -> float | None:
 
     strict=False (default): swallow all errors and return None when the
     duration cannot be determined.
-    strict=True: re-raise the underlying exception (matches the
-    previous gemini-side behavior — used for the gemini upload path
-    where a missing duration is fatal).
+    strict=True: re-raise the underlying exception, for callers where a
+    missing duration is fatal.
     """
     try:
         result = subprocess.run(

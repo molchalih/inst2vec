@@ -162,41 +162,6 @@ def build_sandwich_text(clip, mir_row) -> str | None:
     return " | ".join(parts) if parts else None
 
 
-def build_gemini_text(clip, _mir_row) -> str | None:
-    """Caption + transcript for the gemini case.
-
-    Music is NOT verbalized — the model gets the raw audio track
-    separately. ``_mir_row`` is accepted to keep the text_builder
-    signature uniform with the other cases and is intentionally ignored.
-    Returns ``None`` when both caption and transcript are empty.
-    """
-    cap = (
-        clip.caption_translation
-        if _is_non_english(clip.caption_language)
-        and clip.caption_translation
-        and clip.caption_translation.strip()
-        else (clip.caption_clean or clip.caption_text or "")
-    )
-    speech = ""
-    if clip.is_speech_detected is True:
-        speech = (
-            clip.speech_translation
-            if _is_non_english(clip.speech_language)
-            and clip.speech_translation
-            and clip.speech_translation.strip()
-            else (clip.speech_transcription or "")
-        )
-
-    parts = []
-    if cap and cap.strip():
-        parts.append(cap.strip())
-    if speech and speech.strip():
-        parts.append(speech.strip())
-    if not parts:
-        return None
-    return "\n\n---\n\n".join(parts)
-
-
 def build_audio_text(clip, mir_row) -> str | None:
     """Speech + MIR music text, joined by '` | `'. Captions excluded.
 

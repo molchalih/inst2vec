@@ -9,7 +9,7 @@ from modules.labels.cases import REGISTRY, LabelCaseSpec
 
 
 def test_registry_has_all_default_cases() -> None:
-    expected = {"video", "spoken", "sandwich", "auditory", "gemini", "textual"}
+    expected = {"video", "spoken", "sandwich", "auditory", "textual"}
     assert set(REGISTRY) == expected
     for name, spec in REGISTRY.items():
         assert isinstance(spec, LabelCaseSpec)
@@ -49,15 +49,12 @@ def test_each_case_has_required_clip_keys_and_cluster_keys() -> None:
             "one_sentence_textual_reading",
         },
     }
-    # gemini follows the sandwich recipe.
-    expected_clip["gemini"] = expected_clip["sandwich"]
 
     expected_repertoire = {
         "video": "dominant_visual_repertoire",
         "spoken": "dominant_audio_repertoire",
         "sandwich": "dominant_multimodal_repertoire",
         "auditory": "dominant_music_repertoire",
-        "gemini": "dominant_multimodal_repertoire",
         "textual": "dominant_textual_repertoire",
     }
     common = {
@@ -95,7 +92,6 @@ def test_stage1_dependency_stages_match_spec() -> None:
         "spoken": (speech,),
         "sandwich": (captions, speech, mir),
         "auditory": (mir,),
-        "gemini": (captions, speech, mir),
         "textual": (captions,),
     }
     for case, stages in expected.items():

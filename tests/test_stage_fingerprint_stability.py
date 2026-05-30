@@ -1,14 +1,12 @@
-"""Fingerprint-stability guards for the download and upload stages.
+"""Fingerprint-stability guard for the download stage.
 
-Neither stage owns a fingerprint seal: both rely purely on row-level DB
-state (``Clip.is_downloaded`` / ``Clip.is_uploaded``) for idempotence and
-write no ``StageState`` row. These tests pin that contract so a perf change
-cannot silently introduce — or drift — a stage fingerprint.
+The download stage owns no fingerprint seal: it relies purely on row-level
+DB state (``Clip.is_downloaded``) for idempotence and writes no
+``StageState`` row. This test pins that contract so a perf change cannot
+silently introduce — or drift — a stage fingerprint.
 """
 
 from __future__ import annotations
-
-import os
 
 import httpx
 import pytest
@@ -16,7 +14,6 @@ import pytest
 from core.config import DownloadSettings, PathsSettings
 from core.database import Clip, StageState, User, get_session, init_db
 from modules.ingest import download as dl_mod
-from modules.upload import upload_videos
 
 
 @pytest.fixture
@@ -88,86 +85,5 @@ def test_download_stage_writes_no_fingerprint_row(tmp_path, monkeypatch, isolate
         max_attempts=1, retry_delay=0, retry_jitter=0, concurrency=2
     )
     dl_mod.download_files(download, _paths(tmp_path))
-
-    assert _stage_rows() == []
-
-
-def _upload_settings(tmp_path, *, bucket: str):
-    from unittest.mock import MagicMock
-
-    settings = MagicMock()
-    settings.storage.bucket = bucket
-    settings.storage.prefix = "videos/"
-    settings.storage.backend = "s3"
-    settings.storage.region = ""
-    settings.storage.verify_concurrency = 4
-    settings.storage.upload_concurrency = 2
-    settings.paths.video_dir = str(tmp_path / "videos")
-    settings.embeddings.gemini_enabled = False
-    return settings
-
-
-def _upload_secrets(*, embedder_token: str = "tok"):
-    from core.config import Secrets
-
-    return Secrets(
-        database_url=os.environ.get("DATABASE_URL", "sqlite:///:memory:"),
-        identity_db_url=os.environ.get("IDENTITY_DB_URL", "sqlite:///:memory:"),
-        hiker_api_key="x",
-        huggingface_token="x",
-        embedder_token=embedder_token,
-        object_store_endpoint="",
-        object_store_access_key="t",
-        object_store_secret_key="t",
-    )
-
-
-def test_upload_stage_skip_path_writes_no_fingerprint_row(tmp_path, isolated_db):
-    """Bucket unset → skip; must not seal a fingerprint row."""
-    session = get_session()
-    if not session.get(User, 1):
-        session.add(User(id=1))
-    session.add(Clip(id=1, user_id=1, is_selected=True, is_downloaded=True))
-    session.commit()
-    session.close()
-
-    settings = _upload_settings(tmp_path, bucket="")
-    upload_videos(settings, _upload_secrets())
-
-    assert _stage_rows() == []
-
-
-def test_upload_stage_run_path_writes_no_fingerprint_row(tmp_path, isolated_db):
-    """Remote active + bucket set → stage runs (verify+upload) yet still seals
-    no fingerprint row; idempotence stays row-level (Clip.is_uploaded)."""
-    moto = pytest.importorskip("moto")
-
-    from core.config import StorageSettings
-    from core.storage import ObjectStore
-
-    with moto.mock_aws():
-        store = ObjectStore(
-            settings=StorageSettings(
-                backend="s3", bucket="test-bucket", prefix="videos/"
-            ),
-            endpoint_url=None,
-            access_key="t",
-            secret_key="t",
-        )
-        store.client.create_bucket(Bucket="test-bucket")
-
-        video_dir = tmp_path / "videos"
-        video_dir.mkdir()
-        (video_dir / "1.mp4").write_bytes(b"\x00" * 256)
-
-        session = get_session()
-        if not session.get(User, 1):
-            session.add(User(id=1))
-        session.add(Clip(id=1, user_id=1, is_selected=True, is_downloaded=True))
-        session.commit()
-        session.close()
-
-        settings = _upload_settings(tmp_path, bucket="test-bucket")
-        upload_videos(settings, _upload_secrets())
 
     assert _stage_rows() == []

@@ -22,17 +22,16 @@
 ## Quickstart
 
 ```bash
-cp .env.example .env                          # fill HIKER_API_KEY, HUGGINGFACE_TOKEN, …
+cp .env.example .env             # fill HIKER_API_KEY, HUGGINGFACE_TOKEN, …
 
-uv sync --no-dev --group gpu --group embedder # GPU pipeline + coordinator deps
-uv run --env-file .env main.py                # run the pipeline
+uv sync --no-dev --group gpu     # GPU pipeline deps
+uv run --env-file .env main.py   # run the pipeline
 ```
 
 Alternative:
 
 ```bash
-scripts/start.sh                # orchestrator (default)
-scripts/start.sh --pod          # GPU pull-worker, needs ORCHESTRATOR_HOST + EMBEDDER_TOKEN
+scripts/start.sh                # sync GPU deps + run the pipeline
 ```
 
 ## Pipeline
@@ -43,24 +42,24 @@ Stages run top-to-bottom from `main.py`. Each one is a single public `run()` per
 |---|-------|--------------|
 | 1 | **Ingest** | Seed usernames from CSV → HikerAPI profiles + Reels → download MP4 + thumbnails → extract MP3 (speech & MIR rates). |
 | 2 | **Filter** | Flag ineligible users/clips, sample a per-user clip pool (`is_selected`). |
-| 3 | **Upload** | Push selected videos to S3-compatible storage for the remote embedder. No-op without `storage.bucket`. |
-| 4 | **MIR** | MAEST + EffNet-Discogs ONNX inference → genre / mood / instrument descriptors (+ raw 2304-d MAEST vector). |
-| 5 | **Speech** | Silero VAD → Whisper → Gemma translation → hallucination & quality guards. |
-| 6 | **Captions** | Clean, language-detect, translate Reels captions. |
-| 7 | **Clip embeddings** | `Qwen3-VL-Embedding-8B` over per-clip cases (`video`, `sandwich`, `audio`, optional `maest` / `gemini`). Local GPU + auto-scaling RunPod pull-workers via the HTTP coordinator. |
-| 8 | **User embeddings** | Mean-pool clip vectors per user, per case. |
-| 9 | **Cluster search** | Grid sweep over UMAP + HDBSCAN hyperparameters. |
-| 10 | **Cluster validation** | DBCV + silhouette, plateau detection. |
-| 11 | **Clustering** | Two-pass UMAP (nD → 2D) + HDBSCAN; writes `UserCluster` + HDBSCAN soft-membership **centrality**. |
+| 3 | **MIR** | MAEST + EffNet-Discogs ONNX inference → genre / mood / instrument descriptors (+ raw 2304-d MAEST vector). |
+| 4 | **Speech** | Silero VAD → Whisper → Gemma translation → hallucination & quality guards. |
+| 5 | **Captions** | Clean, language-detect, translate Reels captions. |
+| 6 | **Clip embeddings** | `Qwen3-VL-Embedding-8B` over per-clip cases (`video`, `sandwich`, `spoken`, `textual`, `auditory`), run locally on the GPU host. |
+| 7 | **User embeddings** | Mean-pool clip vectors per user, per case. |
+| 8 | **Cluster search** | Grid sweep over UMAP + HDBSCAN hyperparameters. |
+| 9 | **Cluster validation** | DBCV + silhouette, plateau detection. |
+| 10 | **Clustering** | Two-pass UMAP (nD → 2D) + HDBSCAN; writes `UserCluster` + HDBSCAN soft-membership **centrality**. |
+| 11 | **Visual labels** | Two-pass Qwen3-VL labelling of clips and clusters. |
 | 12 | **Visualization** | Per-case 2D layouts, cluster ellipses, atlas rows for the frontend viewer. |
 
 ## Layout
 
 | Path | Role |
 |------|------|
-| `core/` | Cross-cutting infra: config, **two-DB** schema (anon main + PII identity), storage, ffmpeg, fingerprint, logging, vendored model wrappers. |
+| `core/` | Cross-cutting infra: config, **two-DB** schema (anon main + PII identity), ffmpeg, fingerprint, logging, vendored model wrappers. |
 | `modules/<stage>/` | One subpackage per pipeline stage; `run(settings, secrets)` entry point. |
-| `services/embedder/` | Container image for the GPU pull-worker pod (Dockerfile + compose). |
+| `services/atlas_api/` | Read-only FastAPI service over the serving DB for the frontend viewer. |
 | `scripts/` | Orchestration only — `start.sh`, `publish_visualization.py`, `analyze.py`, `cluster_analysis/`. |
 | `docs/` | Quarto paper + paper-facing tables/plots in `docs/reporting/`. |
 | `frontend/` | Static atlas viewer (Vite + Bun). See [`frontend/README.md`](frontend/README.md). |
@@ -70,7 +69,7 @@ Stages run top-to-bottom from `main.py`. Each one is a single public `run()` per
 | Source | Holds | Loader |
 |--------|-------|--------|
 | `config.toml` | Non-secret tunables — paths, per-stage hyperparameters, embedding cases, search/validation knobs. | `Settings` (Pydantic) |
-| `.env` | Secrets — `HIKER_API_KEY`, `HUGGINGFACE_TOKEN`, `EMBEDDER_TOKEN`, `DATABASE_URL`, `IDENTITY_DB_URL`, `OBJECT_STORE_*`, `RUNPOD_*`. | `Secrets` (Pydantic) |
+| `.env` | Secrets — `HIKER_API_KEY`, `HUGGINGFACE_TOKEN`, `DATABASE_URL`, `IDENTITY_DB_URL`, `SERVING_DATABASE_URL`. | `Secrets` (Pydantic) |
 
 Each stage takes a typed slice of both.
 

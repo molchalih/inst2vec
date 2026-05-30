@@ -400,7 +400,6 @@ _CLIP_PROMPT_TOKENS: dict[str, str] = {
     "sandwich": "observable_multimodal_tags",
     "auditory": "observable_music_tags",
     "textual": "observable_textual_tags",
-    "gemini": "observable_multimodal_tags",
 }
 
 # Cluster prompts mention ``dominant_*_repertoire`` keys uniquely per case.
@@ -410,7 +409,6 @@ _CLUSTER_PROMPT_TOKENS: dict[str, str] = {
     "sandwich": "dominant_multimodal_repertoire",
     "auditory": "dominant_music_repertoire",
     "textual": "dominant_textual_repertoire",
-    "gemini": "dominant_multimodal_repertoire",
 }
 
 

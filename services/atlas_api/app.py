@@ -1,7 +1,7 @@
 """Read-only FastAPI app serving the version-6 contract from the serving DB.
 
-Mirrors ``modules.embeddings.coordinator`` conventions: an app factory, an
-optional Bearer-token dependency (D7), and CORS restricted to the Pages origin.
+An app factory with an optional Bearer-token dependency (D7) and CORS
+restricted to the Pages origin.
 Handlers reconstruct each payload from the serving rows and return RAW bytes via
 ``Response`` (NOT ``JSONResponse``) using the exporter's exact serializer, so
 endpoint bodies equal the static JSON files byte-for-byte.

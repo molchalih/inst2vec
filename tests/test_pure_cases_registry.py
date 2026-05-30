@@ -18,10 +18,14 @@ def test_registry_membership():
     assert "spoken" in CASE_REGISTRY
     assert "audio" not in CASE_REGISTRY
     assert "textual" in CASE_REGISTRY
-    # frozen + gated-off unchanged
-    assert "video" in CASE_REGISTRY
-    assert "sandwich" in CASE_REGISTRY
-    assert "gemini" in CASE_REGISTRY
+    # frozen cases unchanged; the full set is exactly these five
+    assert set(CASE_REGISTRY) == {
+        "video",
+        "sandwich",
+        "auditory",
+        "spoken",
+        "textual",
+    }
 
 
 def test_default_cases():
@@ -35,7 +39,6 @@ def test_spoken_is_text_only_speech_deps():
     spec = CASE_REGISTRY["spoken"]
     assert spec.requires_video is False
     assert spec.backbone == "qwen"
-    assert spec.served_remotely is False
     assert spec.display_label == "Spoken"
     assert "_audio_mir_row" not in spec.dependency_columns
     assert "_audio_file_stat" not in spec.dependency_columns
@@ -49,7 +52,6 @@ def test_textual_is_text_only_caption_deps():
     spec = CASE_REGISTRY["textual"]
     assert spec.requires_video is False
     assert spec.backbone == "qwen"
-    assert spec.served_remotely is False
     assert spec.display_label == "Textual"
     assert "_audio_mir_row" not in spec.dependency_columns
     assert "caption_clean" in spec.dependency_columns

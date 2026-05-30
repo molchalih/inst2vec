@@ -7,7 +7,6 @@ import pytest
 from modules.embeddings.text import (
     _is_non_english,
     build_audio_text,
-    build_gemini_text,
     build_sandwich_text,
     verbalize_mir,
 )
@@ -304,33 +303,3 @@ def test_audio_excludes_music_when_not_detected(is_music):
     mir = _mir(genre_labels="Pop", is_music_detected=is_music)
     clip = _clip(is_speech_detected=False)
     assert build_audio_text(clip, mir) is None
-
-
-# ── build_gemini_text (regression — no behavior change) ───────────────────────
-
-
-def test_gemini_returns_none_when_no_caption_no_speech():
-    assert build_gemini_text(_clip(), None) is None
-
-
-def test_gemini_includes_caption_and_speech_when_present():
-    clip = _clip(
-        caption_clean="cap",
-        is_speech_detected=True,
-        speech_transcription="speech",
-        speech_language="en",
-    )
-    out = build_gemini_text(clip, None) or ""
-    assert "cap" in out and "speech" in out
-    assert "Music:" not in out
-
-
-def test_gemini_ignores_mir_row():
-    """build_gemini_text must not verbalize music, regardless of mir_row."""
-    clip = _clip(
-        caption_clean="cap",
-        is_speech_detected=False,
-    )
-    mir = _mir(genre_labels="Pop", is_music_detected=True)
-    out = build_gemini_text(clip, mir) or ""
-    assert "Music:" not in out

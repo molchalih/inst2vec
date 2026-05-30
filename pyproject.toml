@@ -44,7 +44,6 @@ dependencies = [
     "transformers>=5.8.0",
     "umap-learn>=0.5.12",
     "setuptools",
-    "boto3>=1.43.9",
     "essentia-tensorflow>=2.1b6.dev1389,<2.1b6.dev1438",
     "onnxruntime-gpu>=1.17,<2; sys_platform == 'linux'",
     "onnxruntime>=1.17,<2; sys_platform == 'darwin'",
@@ -57,7 +56,6 @@ dependencies = [
     "nvidia-cuda-nvrtc-cu12; sys_platform == 'linux'",
     "nvidia-cufft-cu12; sys_platform == 'linux'",
     "nvidia-curand-cu12; sys_platform == 'linux'",
-    "runpod>=1.9.0",
     # Cluster-label generation (Qwen3-30B-A3B-GPTQ-Int4 + schema-constrained
     # JSON decoding) runs in-process via vLLM's offline LLM on the Linux GPU
     # host; the labels stage lazy-imports it so the arm64 dev box never needs
@@ -73,13 +71,12 @@ Issues = "https://github.com/molchalih/inst2vec/issues"
 [dependency-groups]
 dev = [
     "autoflake>=2.3.3",
-    "moto[s3]>=5.2.1",
     "pytest>=9.0.3",
     "radon>=6.0.1",
     "ruff>=0.15.12",
     "ty>=0.0.35",
 ]
-embedder = [
+serving = [
     "fastapi>=0.136.1",
     "uvicorn[standard]>=0.47.0",
 ]
@@ -87,9 +84,6 @@ gpu = [
     "ninja>=1.13.0",
     "flash-attn>=2.8.3",
     "cython",
-]
-gemini = [
-    "google-genai>=1.0",
 ]
 analysis = [
     "pandas>=2.2",
@@ -139,7 +133,7 @@ ignore = [
 
 [tool.ty.src]
 include = ["core", "modules", "scripts"]
-exclude = ["core/vendor", "modules/embeddings/gemini.py"]
+exclude = ["core/vendor"]
 
 [tool.ty.analysis]
 replace-imports-with-any = ["sqlalchemy.*", "sqlalchemy.orm.*"]

@@ -21,7 +21,7 @@ class ClipCandidate:
     a ``dict`` for stage-1-backed cases (the validated ``ClipLabel.payload``)
     or a ``str`` for stage-1-skipped cases (raw caption / speech / MIR text,
     optionally prefixed with the upstream video ClipLabel JSON for
-    sandwich/gemini). ``json.dumps`` in ``render_prompt_body`` handles both.
+    sandwich). ``json.dumps`` in ``render_prompt_body`` handles both.
     """
 
     clip_id: int

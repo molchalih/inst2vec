@@ -6,10 +6,9 @@ from modules.labels.cases import REGISTRY
 from modules.labels.ordering import CycleError, case_run_order
 
 
-def test_default_registry_orders_video_before_sandwich_and_gemini() -> None:
+def test_default_registry_orders_video_before_sandwich() -> None:
     order = case_run_order(REGISTRY.keys(), registry=REGISTRY)
     assert order.index("video") < order.index("sandwich")
-    assert order.index("video") < order.index("gemini")
 
 
 def test_subset_orders_are_dependency_consistent() -> None:

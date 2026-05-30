@@ -11,11 +11,11 @@ Two evidence-loading paths share the same downstream sampling / prompt
 * stage-1-backed cases (currently only ``video``) — join
   ``Clip ⋈ ClipLabel`` for the case and use the validated
   ``ClipLabel.payload`` dict as each member clip's evidence;
-* stage-1-skipped cases (sandwich, audio, maest, gemini) — call
+* stage-1-skipped cases (sandwich, auditory, spoken, textual) — call
   ``spec.clip_input(clip, mir_row, visual_payload)`` per member clip and
   use the returned raw-evidence string directly. The cluster prompt for
   these cases synthesises straight from caption / speech / MIR text
-  (plus the upstream video ``ClipLabel`` JSON for sandwich/gemini).
+  (plus the upstream video ``ClipLabel`` JSON for sandwich).
 """
 
 from __future__ import annotations
@@ -78,7 +78,7 @@ def _cluster_dependency_hash(session: Session, *, spec: LabelCaseSpec) -> str:
     stage state (sealed by ``clip_pass.run_case``). Stage-1-skipped cases
     hash the raw upstream stages directly (captions / speech / MIR) plus
     any ``consumes_label_cases`` ``LABELS`` rows (the video case for
-    sandwich/gemini). ``CLUSTER_ASSIGN`` is always included.
+    sandwich). ``CLUSTER_ASSIGN`` is always included.
     """
     parts: list[str] = []
     if spec.runs_clip_pass:
@@ -186,7 +186,7 @@ def _populate_from_raw_signals(
     """Build raw per-clip evidence strings via ``spec.clip_input``.
 
     Clips whose adapter returns ``None`` (e.g. missing video ClipLabel for
-    sandwich/gemini, no music detected for maest) are silently dropped —
+    sandwich, no music detected for auditory) are silently dropped —
     the same clip is dropped from every cluster the user belongs to, and
     a cluster left with zero usable clips later fails with ``no_input``
     in ``_prepare_request``.
