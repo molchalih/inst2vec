@@ -15,8 +15,7 @@ import httpx
 
 from core.config import MirSettings
 from core.console import log
-
-_LOG_CKPT = "mir:checkpoint"
+from core.log import event, scope
 
 _MAEST_BASE = "https://essentia.upf.edu/models/feature-extractors/maest"
 _EFFNET_BASE = "https://essentia.upf.edu/models/feature-extractors/discogs-effnet"
@@ -82,6 +81,7 @@ def _make_client(timeout: float) -> httpx.Client:
     return httpx.Client(timeout=timeout)
 
 
+@scope("mir:checkpoints")
 def ensure_checkpoints(mir: MirSettings) -> None:
     """Download every required model file into ``mir.model_dir``.
 
@@ -92,11 +92,11 @@ def ensure_checkpoints(mir: MirSettings) -> None:
     items = _manifest(mir)
     missing = [(u, p) for (u, p) in items if not p.exists()]
     if not missing:
-        log(_LOG_CKPT, "SCAN", "checkpoints", "ok", stats={"missing": 0})
+        event("SCAN", "checkpoints", stats={"missing": 0})
         validate_checkpoint_sidecars(mir)
         return
 
-    log(_LOG_CKPT, "SCAN", "checkpoints", "ok", stats={"missing": len(missing)})
+    event("SCAN", "checkpoints", stats={"missing": len(missing)})
     os.makedirs(mir.model_dir, exist_ok=True)
     errors: list[str] = []
     errors_lock = threading.Lock()
@@ -113,7 +113,7 @@ def ensure_checkpoints(mir: MirSettings) -> None:
                             f.write(chunk)
                 os.replace(tmp, target)
                 log(
-                    "mir:checkpoint",
+                    "mir:checkpoints",
                     "GET",
                     target.name,
                     "ok",
@@ -129,7 +129,7 @@ def ensure_checkpoints(mir: MirSettings) -> None:
         with errors_lock:
             errors.append(f"{target.name}: {last_err}")
         log(
-            "mir:checkpoint",
+            "mir:checkpoints",
             "GET",
             target.name,
             "ERR",
@@ -145,9 +145,9 @@ def ensure_checkpoints(mir: MirSettings) -> None:
             fut.result()
 
     if errors:
-        log(_LOG_CKPT, "SEAL", "checkpoints", "ERR", stats={"err": len(errors)})
+        event("SEAL", "checkpoints", result="ERR", stats={"err": len(errors)})
         raise RuntimeError("ensure_checkpoints failed:\n  " + "\n  ".join(errors))
-    log(_LOG_CKPT, "SEAL", "checkpoints", "ok", stats={"got": len(missing)})
+    event("SEAL", "checkpoints", stats={"got": len(missing)})
     validate_checkpoint_sidecars(mir)
 
 

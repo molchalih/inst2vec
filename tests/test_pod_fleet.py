@@ -357,6 +357,7 @@ def test_run_clip_forwards_fleet_secrets(monkeypatch):
     """run_clip must thread the RunPod fleet secrets through to the fleet hook;
     dropping them silently disables auto-deploy on every pipeline run."""
     import modules.embeddings as embeddings
+    import modules.embeddings.runner as runner_mod
     from modules.embeddings.cases import EmbeddingSecrets
 
     captured: dict = {}
@@ -364,7 +365,8 @@ def test_run_clip_forwards_fleet_secrets(monkeypatch):
     def _capture(settings, secrets, cases=None):
         captured["secrets"] = secrets
 
-    monkeypatch.setattr(embeddings, "embed_clip_embeddings", _capture)
+    # run_clip is in runner.py and calls embed_clip_embeddings from that module.
+    monkeypatch.setattr(runner_mod, "embed_clip_embeddings", _capture)
 
     class _Secrets:
         gemini_api_key = "g"

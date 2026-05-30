@@ -94,9 +94,9 @@ def _checkpoint_digests(mir: MirSettings) -> dict[str, str]:
 
     Only the Essentia ``.pb`` graphs are tracked. The ``.onnx`` models are
     excluded because the ONNX MIR path is numerically equivalent to the ``.pb``
-    path (verified by scripts/mir_onnx_parity.py); fingerprinting them would
-    drift the seal and force a needless full re-extraction when MIR switches to
-    ONNX. The ``.json`` companions are excluded as documentation-only.
+    path; fingerprinting them would drift the seal and force a needless full
+    re-extraction when MIR switches to ONNX. The ``.json`` companions are
+    excluded as documentation-only.
     """
     from modules.mir.checkpoints import _UNTRACKED_SUFFIXES, _manifest, _sidecar_path
 

@@ -6,6 +6,12 @@ export type JoinedUser = {
   toXY: [number, number] | null;
   fromCluster: number | null;
   toCluster: number | null;
+  // HDBSCAN soft membership on each side. 0 when the user is absent on
+  // that side; consumers fall back to the present-side value so the
+  // aesthetic centrality scale never collapses to noise during fade-in
+  // or fade-out.
+  fromCentrality: number;
+  toCentrality: number;
 };
 
 export type JoinedCluster = {
@@ -14,10 +20,12 @@ export type JoinedCluster = {
   to: Omit<CoreClusterShape, "id" | "label" | "size" | "has_detail"> | null;
 };
 
-const userMap = (run: CoreAtlasRun): Map<number, { xy: [number, number]; cluster: number }> => {
-  const m = new Map<number, { xy: [number, number]; cluster: number }>();
-  for (const [id, x, y, clusterId] of run.users) {
-    m.set(id, { xy: [x, y], cluster: clusterId });
+type UserRow = { xy: [number, number]; cluster: number; centrality: number };
+
+const userMap = (run: CoreAtlasRun): Map<number, UserRow> => {
+  const m = new Map<number, UserRow>();
+  for (const [id, x, y, clusterId, , centrality] of run.users) {
+    m.set(id, { xy: [x, y], cluster: clusterId, centrality });
   }
   return m;
 };
@@ -36,6 +44,8 @@ export const joinUsersByCreator = (from: CoreAtlasRun, to: CoreAtlasRun): Joined
       toXY: t?.xy ?? null,
       fromCluster: f?.cluster ?? null,
       toCluster: t?.cluster ?? null,
+      fromCentrality: f?.centrality ?? 0,
+      toCentrality: t?.centrality ?? 0,
     });
   }
   return out;

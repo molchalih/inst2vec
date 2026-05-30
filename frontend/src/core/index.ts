@@ -46,3 +46,6 @@ export { computeWaveDelays, waveProgress, scalePop } from "./morph/wave";
 export { formatCompact } from "./format/compact";
 
 export { phraseFor, type Phrase } from "./distinctiveness/phrase";
+
+export type { CentralityScaleParams } from "./dot/centrality";
+export { centralityRadiusScale } from "./dot/centrality";

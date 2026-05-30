@@ -1,17 +1,15 @@
 import csv
 import os
-import time
 from urllib.parse import urlparse
 
-from core.console import log
+from core.config import Secrets, Settings
 from core.database import User, allocate_user_identity, get_session
+from core.log import StageResult, event, stage
 
 
 def load_usernames_from_csv(csv_path: str = "data/data.csv"):
-    t0 = time.perf_counter()
     if not os.path.exists(csv_path):
-        log("seed", "LOAD", csv_path, "none")
-        return
+        return None
 
     with open(csv_path) as f:
         reader = csv.reader(f)
@@ -27,7 +25,6 @@ def load_usernames_from_csv(csv_path: str = "data/data.csv"):
 
     total = len(urls)
     unique = len(usernames)
-    log("seed", "LOAD", csv_path, "ok", stats={"rows": total, "unique": unique})
 
     session = get_session()
     loaded = 0
@@ -38,17 +35,30 @@ def load_usernames_from_csv(csv_path: str = "data/data.csv"):
             session.add(User(id=user_id))
             session.commit()
             loaded += 1
+    session.close()
+    return total, unique, loaded
+
+
+@stage("seed")
+def run_seed(settings: Settings, secrets: Secrets) -> StageResult | None:
+    csv_path = settings.paths.data_csv_path
+    if not os.path.exists(csv_path):
+        event("LOAD", str(csv_path), stats={"rows": 0})
+        return None
+    result = load_usernames_from_csv(csv_path=str(csv_path))
+    if result is None:
+        event("LOAD", str(csv_path), stats={"rows": 0})
+        return None
+    total, unique, loaded = result
+    event("LOAD", str(csv_path), stats={"rows": total, "unique": unique})
     already_in_db = unique - loaded
-    log(
-        "seed",
+    event(
         "WRITE",
         "users",
-        "ok",
         stats={
             "new": loaded,
             "skipped_db": already_in_db,
             "duplicates_csv": total - unique,
-            "time": time.perf_counter() - t0,
         },
     )
-    session.close()
+    return StageResult(loaded=total, unique=unique)

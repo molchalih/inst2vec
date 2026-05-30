@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import time
 from pathlib import Path
 from queue import Queue
 from threading import Thread
@@ -13,8 +12,9 @@ from sqlalchemy.orm import Session
 
 from core import fingerprint as fp
 from core.config import MirSettings, Settings
-from core.console import log, progress
+from core.console import progress
 from core.database import AudioMIR, Clip, clip_used_in_analysis, get_session
+from core.log import StageResult, event, item, stage, warn
 from modules.mir.checkpoints import ensure_checkpoints, validate_checkpoint_sidecars
 from modules.mir.descriptors import load_labels, topk_csv
 from modules.mir.models import build_effnet, build_maest
@@ -30,9 +30,6 @@ from modules.mir.state import (
 
 _LABELS_DIR = Path(__file__).resolve().parent / "labels"
 _SENTINEL = object()
-_LOG = "mir"
-_LOG_LOAD = "mir:load"
-_LOG_INFER = "mir:infer"
 
 
 def _load_audio(path: str, sr: int) -> np.ndarray:
@@ -134,7 +131,8 @@ def _upsert(session: Session, row: AudioMIR) -> None:
         setattr(existing, col, getattr(row, col))
 
 
-def run_mir(settings: Settings, secrets=None) -> None:
+@stage("mir")
+def run_mir(settings: Settings, secrets=None) -> StageResult:
     """Per-clip MIR descriptors via MAEST + EffNet-Discogs."""
     mir = settings.mir
     paths = settings.paths
@@ -163,7 +161,7 @@ def run_mir(settings: Settings, secrets=None) -> None:
             SCOPE_MIR,
             current,
             reset_audio_mir,
-            log_scope=_LOG,
+            log_scope="mir",
             drift_msg="resetting MIR outputs",
         )
 
@@ -171,7 +169,7 @@ def run_mir(settings: Settings, secrets=None) -> None:
         if not eligible:
             fp.mark_complete(session, STAGE_MIR, SCOPE_MIR, current)
             session.commit()
-            return
+            return StageResult(done=0, failed=0)
 
         ensure_checkpoints(mir)
         # Recompute now that sidecars are guaranteed fresh post-download.
@@ -181,8 +179,9 @@ def run_mir(settings: Settings, secrets=None) -> None:
         labels_moodtheme = load_labels(_LABELS_DIR / "mtg_jamendo_moodtheme.json")
         labels_instrument = load_labels(_LABELS_DIR / "mtg_jamendo_instrument.json")
 
-        log(_LOG_LOAD, "GET", "maest+effnet", "ok", stats={"clips": len(eligible)})
-        t_stage = time.perf_counter()
+        event("GET", "maest+effnet", stats={"clips": len(eligible)})
+        done = 0
+        failed = 0
         with build_maest(mir) as maest, build_effnet(mir) as effnet:
             queue: Queue = Queue(maxsize=mir.prefetch_queue_size)
 
@@ -208,46 +207,38 @@ def run_mir(settings: Settings, secrets=None) -> None:
             with progress(len(eligible), "MIR inference") as advance:
                 processed = 0
                 while True:
-                    item = queue.get()
-                    if item is _SENTINEL:
+                    msg = queue.get()
+                    if msg is _SENTINEL:
                         break
-                    cid, audio, prefetch_err = item
+                    cid, audio, prefetch_err = msg
+                    row: AudioMIR
                     if prefetch_err is not None:
                         row = _terminal_failure(cid, prefetch_err)
-                        log(
-                            _LOG_INFER,
-                            "PUT",
-                            f"clip_{cid}",
-                            "ERR",
-                            stats={"err": prefetch_err},
-                        )
+                        with item("EXTRACT", f"clip_{cid}") as t_item:
+                            raise RuntimeError(prefetch_err)
                     else:
-                        row = _infer_with_error_attribution(
-                            cid,
-                            audio,
-                            maest,
-                            effnet,
-                            mir,
-                            labels_genre,
-                            labels_moodtheme,
-                            labels_instrument,
-                        )
-                        if row.is_mir_extracted:
-                            log(
-                                _LOG_INFER,
-                                "PUT",
-                                f"clip_{cid}",
-                                "ok",
-                                stats={"time": row.inference_time_ms / 1000.0},
+                        with item("EXTRACT", f"clip_{cid}") as t_item:
+                            row = _infer_with_error_attribution(
+                                cid,
+                                audio,
+                                maest,
+                                effnet,
+                                mir,
+                                labels_genre,
+                                labels_moodtheme,
+                                labels_instrument,
                             )
-                        else:
-                            log(
-                                _LOG_INFER,
-                                "PUT",
-                                f"clip_{cid}",
-                                "ERR",
-                                stats={"err": row.mir_error},
+                            if not row.is_mir_extracted:
+                                raise RuntimeError(row.mir_error)
+                            t_item.stats(
+                                tags=len(row.genre_labels.split(","))
+                                if row.genre_labels
+                                else 0
                             )
+                    if t_item.failed:
+                        failed += 1
+                    else:
+                        done += 1
                     _upsert(session, row)
                     processed += 1
                     advance(detail=f"clip_{cid}")
@@ -255,17 +246,11 @@ def run_mir(settings: Settings, secrets=None) -> None:
                         session.commit()
             t.join(timeout=1.0)
             if t.is_alive():
-                log(_LOG, "GET", "prefetch", "timeout")
+                warn("GET", "prefetch", err="timeout")
 
         session.commit()
         fp.mark_complete(session, STAGE_MIR, SCOPE_MIR, current)
         session.commit()
-        log(
-            _LOG,
-            "SEAL",
-            "mir",
-            "ok",
-            stats={"done": len(eligible), "time": time.perf_counter() - t_stage},
-        )
+        return StageResult(done=done, failed=failed)
     finally:
         session.close()

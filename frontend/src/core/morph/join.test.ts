@@ -19,37 +19,43 @@ const run = (
 
 describe("joinUsersByCreator", () => {
   it("emits one entry per unique creator id across both runs", () => {
-    const from = run("a", [[0, 0, 0, 0, false], [1, 1, 1, 0, false]]);
-    const to = run("b", [[1, 2, 2, 1, false], [2, 3, 3, 1, false]]);
+    const from = run("a", [[0, 0, 0, 0, false, 0], [1, 1, 1, 0, false, 0]]);
+    const to = run("b", [[1, 2, 2, 1, false, 0], [2, 3, 3, 1, false, 0]]);
     const j = joinUsersByCreator(from, to);
     const ids = j.map((e) => e.id).sort((a, b) => a - b);
     expect(ids).toEqual([0, 1, 2]);
   });
 
   it("populates fromXY and toXY independently", () => {
-    const from = run("a", [[1, 1, 1, 0, false]]);
-    const to = run("b", [[1, 4, 5, 2, false]]);
+    const from = run("a", [[1, 1, 1, 0, false, 0.2]]);
+    const to = run("b", [[1, 4, 5, 2, false, 0.8]]);
     const [entry] = joinUsersByCreator(from, to);
     expect(entry!.fromXY).toEqual([1, 1]);
     expect(entry!.toXY).toEqual([4, 5]);
     expect(entry!.fromCluster).toBe(0);
     expect(entry!.toCluster).toBe(2);
+    expect(entry!.fromCentrality).toBeCloseTo(0.2, 6);
+    expect(entry!.toCentrality).toBeCloseTo(0.8, 6);
   });
 
-  it("leaves fromXY null when the creator is only in `to`", () => {
+  it("leaves fromXY null and fromCentrality 0 when the creator is only in `to`", () => {
     const from = run("a", []);
-    const to = run("b", [[9, 1, 2, 0, false]]);
+    const to = run("b", [[9, 1, 2, 0, false, 0.7]]);
     const [entry] = joinUsersByCreator(from, to);
     expect(entry!.fromXY).toBeNull();
     expect(entry!.toXY).toEqual([1, 2]);
+    expect(entry!.fromCentrality).toBe(0);
+    expect(entry!.toCentrality).toBeCloseTo(0.7, 6);
   });
 
-  it("leaves toXY null when the creator is only in `from`", () => {
-    const from = run("a", [[9, 1, 2, 0, false]]);
+  it("leaves toXY null and toCentrality 0 when the creator is only in `from`", () => {
+    const from = run("a", [[9, 1, 2, 0, false, 0.6]]);
     const to = run("b", []);
     const [entry] = joinUsersByCreator(from, to);
     expect(entry!.toXY).toBeNull();
     expect(entry!.fromXY).toEqual([1, 2]);
+    expect(entry!.fromCentrality).toBeCloseTo(0.6, 6);
+    expect(entry!.toCentrality).toBe(0);
   });
 });
 

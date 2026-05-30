@@ -1,6 +1,14 @@
-"""Tests for sweep_orphans() in core/database/identity.py."""
+"""Tests for sweep_orphans() and the allocate_*_identity context managers.
+
+Both surfaces share the same invariant: identity rows must not survive
+without a matching main-DB counterpart. ``sweep_orphans`` is the periodic
+janitor; ``allocate_*_identity`` is the transactional safety net that
+rolls back when the with-block raises.
+"""
 
 from __future__ import annotations
+
+import pytest
 
 from core.database import Base, Clip, User, get_engine, get_session
 from core.database.engine import get_identity_engine, get_identity_session
@@ -8,6 +16,8 @@ from core.database.identity import (
     ClipIdentity,
     IdentityBase,
     UserIdentity,
+    allocate_clip_identity,
+    allocate_user_identity,
     sweep_orphans,
 )
 
@@ -143,3 +153,66 @@ def test_init_db_calls_sweep_orphans(monkeypatch, tmp_path) -> None:
     init_db(db_url, id_url)
 
     assert calls == ["called"]
+
+
+# ── allocate_*_identity transactional safety ────────────────────────────
+
+
+def test_allocate_clip_identity_rolls_back_on_exception() -> None:
+    _ensure_schemas()
+    _clear_tables()
+
+    api_pk = 12345
+    with (
+        pytest.raises(RuntimeError, match="boom"),
+        allocate_clip_identity(api_pk) as cid,
+    ):
+        assert isinstance(cid, int) and cid > 0
+        raise RuntimeError("boom")
+
+    with get_identity_session() as s:
+        row = s.query(ClipIdentity).filter_by(api_pk=api_pk).first()
+        assert row is None, "orphan ClipIdentity row left behind"
+
+
+def test_allocate_clip_identity_commits_on_clean_exit() -> None:
+    _ensure_schemas()
+    _clear_tables()
+
+    api_pk = 67890
+    with allocate_clip_identity(api_pk) as cid:
+        first_id = cid
+
+    with get_identity_session() as s:
+        row = s.query(ClipIdentity).filter_by(api_pk=api_pk).first()
+        assert row is not None
+        assert row.id == first_id
+
+
+def test_allocate_clip_identity_idempotent_on_existing() -> None:
+    _ensure_schemas()
+    _clear_tables()
+
+    api_pk = 222
+    with allocate_clip_identity(api_pk) as cid_a:
+        pass
+    with allocate_clip_identity(api_pk) as cid_b:
+        pass
+    assert cid_a == cid_b
+
+
+def test_allocate_user_identity_rolls_back_on_exception() -> None:
+    _ensure_schemas()
+    _clear_tables()
+
+    username = "rollback_user"
+    with (
+        pytest.raises(RuntimeError, match="nope"),
+        allocate_user_identity(username) as uid,
+    ):
+        assert isinstance(uid, int) and uid > 0
+        raise RuntimeError("nope")
+
+    with get_identity_session() as s:
+        row = s.query(UserIdentity).filter_by(username=username).first()
+        assert row is None

@@ -19,8 +19,8 @@ import queue
 import threading
 import time
 
-from core.console import log
 from core.database import ClipEmbedding
+from core.log import item as log_item
 from modules.embeddings.broker import JobBroker
 from modules.embeddings.cases import build_provider_router
 from modules.embeddings.worker import LocalJobSource, run_worker
@@ -108,7 +108,10 @@ class StageEmbedder:
         count is zero. Cases are drained strictly sequentially, so the shared
         completion queue only ever holds this case's items while we drain it.
         The caller must invoke ``drain_case`` from a single thread, never
-        concurrently for two cases, since they share one completion queue."""
+        concurrently for two cases, since they share one completion queue.
+        ``log_tag`` is retained for call-site compatibility; log_item reads
+        the active scope from the ContextVar set by the caller's @scope."""
+        del log_tag  # no longer used directly; scope drives log_item
         if not jobs:
             return 0, 0
         # A pod can lease a job only when the case is served_remotely AND the clip
@@ -132,7 +135,7 @@ class StageEmbedder:
             and self._broker.completions.empty()
         ):
             try:
-                item = self._broker.completions.get(timeout=0.5)
+                item_result = self._broker.completions.get(timeout=0.5)
             except queue.Empty:
                 if (
                     self._worker is not None
@@ -147,25 +150,25 @@ class StageEmbedder:
                     ) from None
                 continue
             last_progress = time.monotonic()
-            if item.ok and item.blob is not None:
-                session.merge(
-                    ClipEmbedding(
-                        clip_id=item.clip_id,
-                        embedding_case=item.case,
-                        embedding=item.blob,
-                        source_hash=per_clip[item.clip_id],
+            if item_result.ok and item_result.blob is not None:
+                with log_item("EXTRACT", f"clip_{item_result.clip_id}") as t:
+                    session.merge(
+                        ClipEmbedding(
+                            clip_id=item_result.clip_id,
+                            embedding_case=item_result.case,
+                            embedding=item_result.blob,
+                            source_hash=per_clip[item_result.clip_id],
+                        )
                     )
-                )
-                session.commit()
-                succeeded += 1
-                log(
-                    log_tag,
-                    "EMB",
-                    f"clip_{item.clip_id}",
-                    "ok",
-                    stats={"dim": len(item.blob) // 4},
-                )
+                    session.commit()
+                    t.stats(dim=len(item_result.blob) // 4)
+                if t.failed:
+                    failures += 1
+                else:
+                    succeeded += 1
             else:
+                with log_item("EXTRACT", f"clip_{item_result.clip_id}") as t:
+                    raise RuntimeError(item_result.err or "no blob returned")
                 failures += 1
         return succeeded, failures
 

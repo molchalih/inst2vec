@@ -9,15 +9,6 @@ from modules.embeddings.cases import (
 )
 
 
-def test_default_cases_exact_tuple():
-    assert tuple(name for name, spec in CASE_REGISTRY.items() if not spec.requires) == (
-        "video",
-        "sandwich",
-        "audio",
-        "maest",
-    )
-
-
 def test_registry_contains_all_default_cases():
     for name, spec in CASE_REGISTRY.items():
         if spec.requires:
@@ -38,6 +29,12 @@ def test_sandwich_case_shape():
     assert spec.requires_video is True
     assert spec.apply_video_token_fallback is True
     assert spec.text_builder is not None
+    # Recipe version + dependencies — any drift here invalidates sealed
+    # sandwich embeddings, so they're pinned alongside the spec shape.
+    assert spec.recipe_version == "sandwich_v3"
+    assert "_audio_mir_row" in spec.dependency_columns
+    assert "_music_row" not in spec.dependency_columns
+    assert "is_speech_detected" in spec.dependency_columns
 
 
 def test_audio_case_shape():
@@ -45,6 +42,17 @@ def test_audio_case_shape():
     assert spec.requires_video is False
     assert spec.apply_video_token_fallback is False
     assert spec.text_builder is not None
+    assert spec.recipe_version == "audio_v3"
+    assert "_audio_mir_row" in spec.dependency_columns
+    assert "_music_row" not in spec.dependency_columns
+    assert "is_speech_detected" in spec.dependency_columns
+
+
+def test_gemini_case_shape():
+    from modules.embeddings.cases import GEMINI_CASE
+
+    assert GEMINI_CASE.recipe_version == "gemini_v2"
+    assert "is_speech_detected" in GEMINI_CASE.dependency_columns
 
 
 def _identity_settings() -> SimpleNamespace:

@@ -1,9 +1,7 @@
 """Atomic JSON writer for the atlas export contract.
 
-Both Phase 1's synthetic fixture generator (`scripts/gen_atlas_fixture.py`)
-and Phase 3's real DB-backed exporter (`scripts/export_atlas.py`) call
-into this module. There is exactly one writer for these JSON files —
-the SSOT for the contract.
+There is exactly one writer for these JSON files — the SSOT for the
+contract.
 """
 
 from __future__ import annotations

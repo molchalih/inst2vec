@@ -155,6 +155,7 @@ def build_case_payload(
             x=float(r.umap_x),
             y=float(r.umap_y),
             cluster_id=int(r.cluster_id),
+            centrality=float(r.centrality) if r.centrality is not None else 0.0,
         )
         for r in user_rows
     ]

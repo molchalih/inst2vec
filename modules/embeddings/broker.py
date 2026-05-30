@@ -58,6 +58,7 @@ class Completion:
     case: str
     blob: bytes | None
     ok: bool
+    err: str | None = None
 
 
 @dataclass

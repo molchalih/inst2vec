@@ -25,7 +25,7 @@ describe("stretchRun", () => {
   it("produces finite output when raw bounds collapse along one axis", () => {
     const run = makeRun(
       { minX: 5, maxX: 5, minY: 0, maxY: 10 },
-      [[0, 5, 5, 0, false]],
+      [[0, 5, 5, 0, false, 0.5]],
       [{ id: 0, label: "thin", cx: 5, cy: 5, rx: 0, ry: 1, angle: 0, size: 1, has_detail: false }],
     );
     const out = stretchRun(run, 200, 200);
@@ -39,7 +39,7 @@ describe("stretchRun", () => {
   it("centers stretched bounds on the origin and matches the viewport size", () => {
     const run = makeRun(
       { minX: -1, maxX: 1, minY: -2, maxY: 2 },
-      [[0, 1, 2, 0, false]],
+      [[0, 1, 2, 0, false, 0.5]],
       [],
     );
     const out = stretchRun(run, 800, 600);
@@ -49,7 +49,7 @@ describe("stretchRun", () => {
   it("maps the run's max corner to the stretched-bounds max corner", () => {
     const run = makeRun(
       { minX: -1, maxX: 1, minY: -2, maxY: 2 },
-      [[0, 1, 2, 0, false]],
+      [[0, 1, 2, 0, false, 0.5]],
       [],
     );
     const out = stretchRun(run, 800, 600);
@@ -81,7 +81,7 @@ describe("stretchRun", () => {
   it("preserves the user tuple ids and cluster ids", () => {
     const run = makeRun(
       { minX: 0, maxX: 10, minY: 0, maxY: 10 },
-      [[42, 5, 5, 7, false]],
+      [[42, 5, 5, 7, false, 0.5]],
       [{ id: 7, label: "lucky", cx: 5, cy: 5, rx: 1, ry: 1, angle: 0, size: 1, has_detail: false }],
     );
     const out = stretchRun(run, 100, 100);

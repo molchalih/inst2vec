@@ -9,7 +9,7 @@ import type { ApiClient, CreatorDetail, Manifest } from "@/data";
 import { ApiUnavailableError } from "@/data";
 
 const manifest = (defaultRunId: string, runIds: string[]): Manifest => ({
-  version: 2,
+  version: 3,
   default_run_id: defaultRunId,
   runs: runIds.map((id) => ({
     id, case: "video", label: id, size: 1, details_available: true,
@@ -30,7 +30,7 @@ const defer = <T>(): Deferred<T> => {
 };
 
 const fakeDetail = (id: number): CreatorDetail => ({
-  version: 2, user_id: id, cluster_id: 1, x: 0, y: 0, n_clips: 1,
+  version: 3, user_id: id, cluster_id: 1, x: 0, y: 0, n_clips: 1,
   audio: { approachability: 0.5, engagement: 0.5, danceability: 0.5 },
   mood_shares: { happy: 0, sad: 0, relaxed: 0, aggressive: 0, party: 0 },
   timbre_shares: { acoustic: 0, electronic: 0, instrumental: 0, female_voice: 0, bright: 0, tonal: 0 },

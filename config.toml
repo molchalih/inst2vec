@@ -126,7 +126,6 @@ hdbscan_max_cluster_frac = 0.225
 # sandwich/video benefit from full z-scoring; audio clusters best raw.
 embedding_preprocess = { maest = "center", sandwich = "standardize", video = "standardize", audio = "none" }
 random_state = 42
-clustering_grid_workers = 1
 
 [validation]
 plateau_drop_threshold = 0.05

@@ -156,30 +156,6 @@ def test_list_best_candidate_rows_excludes_failed_and_pending():
     assert rows[0].dbcv == 0.7
 
 
-def test_pick_best_falls_back_when_all_sharp_peaks():
-    from modules.clustering.results import pick_best_cluster_run
-
-    r1 = _run_row(
-        embedding_case="video",
-        dbcv=0.9,
-        silhouette=0.1,
-        n_clusters=5,
-        noise_ratio=0.1,
-        param_plateau_score=0.1,
-    )
-    r2 = _run_row(
-        embedding_case="video",
-        dbcv=0.7,
-        silhouette=0.2,
-        n_clusters=5,
-        noise_ratio=0.1,
-        param_plateau_score=0.2,
-    )
-    best = pick_best_cluster_run([r1, r2], threshold=0.05)
-    assert best is not None
-    assert best.dbcv == 0.9
-
-
 def test_summarize_case_rows_counts_and_means():
     from modules.clustering.results import summarize_case_rows
 

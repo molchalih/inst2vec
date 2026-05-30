@@ -102,3 +102,5 @@ frontend/public/data/runs/*/users/
 
 # One-off research graph generator (scratch)
 scripts/make_research_graphs.py
+
+**/*.quarto_ipynb

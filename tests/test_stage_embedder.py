@@ -7,13 +7,25 @@ no Qwen model and no DB are needed. Token is blank → no coordinator server.
 from __future__ import annotations
 
 import time
+from collections.abc import Iterator
 from dataclasses import dataclass
 
+import pytest
+
 import modules.embeddings.distributed as dist
+from core import log as cl
 from modules.embeddings.broker import make_job
 from modules.embeddings.cases import CASE_REGISTRY
 from modules.embeddings.distributed import StageEmbedder
 from modules.embeddings.providers import ProviderRouter
+
+
+@pytest.fixture(autouse=True)
+def _reset_scope() -> Iterator[None]:
+    """Ensure each test starts with no stale scope."""
+    token = cl._scope_var.set(None)
+    yield
+    cl._scope_var.reset(token)
 
 
 class _FakeSession:
@@ -98,6 +110,7 @@ def test_drains_single_case(monkeypatch):
     _patch_router(monkeypatch)
     settings = _Settings(_Emb(), _Paths())
     sess = _FakeSession()
+    cl._scope_var.set("embed:video")
     with StageEmbedder(settings, _Secrets(), ["video"]) as stage:
         ok, fail = stage.drain_case(
             sess,
@@ -117,9 +130,11 @@ def test_one_worker_persists_across_two_cases(monkeypatch):
     sess = _FakeSession()
     with StageEmbedder(settings, _Secrets(), ["video", "maest"]) as stage:
         worker_before = stage._worker
+        cl._scope_var.set("embed:video")
         ok1, _ = stage.drain_case(
             sess, CASE_REGISTRY["video"], [_video_job(1)], {1: "h"}, "embed:video"
         )
+        cl._scope_var.set("embed:maest")
         ok2, _ = stage.drain_case(
             sess, CASE_REGISTRY["maest"], [_maest_job(3)], {3: "h"}, "embed:maest"
         )
@@ -221,6 +236,7 @@ def test_fleet_started_only_for_remote_leaseable_jobs(monkeypatch):
     settings = _Settings(_Emb(), _Paths())
     sess = _FakeSession()
     fleet = _SpyFleet()
+    cl._scope_var.set("embed:maest")
     with StageEmbedder(settings, _Secrets(), ["video", "maest"], fleet=fleet) as stage:
         # local-only case (maest is served_remotely=False) -> no deploy
         stage.drain_case(sess, CASE_REGISTRY["maest"], [_maest_job(1)], {1: "h"}, "t")
@@ -235,6 +251,7 @@ def test_fleet_started_only_for_remote_leaseable_jobs(monkeypatch):
             max_frames=32,
             remote_eligible=False,
         )
+        cl._scope_var.set("embed:video")
         stage.drain_case(sess, CASE_REGISTRY["video"], [local_video], {2: "h"}, "t")
         assert fleet.started == 0
         # video case with an uploaded clip -> a pod can lease it -> deploy

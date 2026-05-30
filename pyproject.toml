@@ -65,6 +65,7 @@ dev = [
     "autoflake>=2.3.3",
     "moto[s3]>=5.2.1",
     "pytest>=9.0.3",
+    "pytest-xdist>=3.6.1",
     "radon>=6.0.1",
     "ruff>=0.15.12",
     "ty>=0.0.35",
@@ -77,6 +78,13 @@ gpu = [
     "ninja>=1.13.0",
     "flash-attn>=2.8.3",
     "cython",
+    # RAPIDS / cuML for ad-hoc GPU UMAP + HDBSCAN benchmarking against the CPU
+    # path in modules/clustering/core. Linux-only (no PyPI wheels for darwin/win32);
+    # uv sync would otherwise drop them on WSL.
+    "cuml-cu12>=25.0; sys_platform == 'linux'",
+    "cupy-cuda12x>=13.3; sys_platform == 'linux'",
+    "raft-dask-cu12>=25.0; sys_platform == 'linux'",
+    "rmm-cu12>=25.0; sys_platform == 'linux'",
 ]
 gemini = [
     "google-genai>=1.0",
@@ -98,6 +106,14 @@ no-build-isolation-package = ["flash-attn"]
 openai-whisper = ["setuptools"]
 hdbscan = ["setuptools", "cython"]
 flash-attn = ["torch", "ninja"]
+
+[tool.pytest.ini_options]
+filterwarnings = [
+    "ignore:websockets.legacy is deprecated:DeprecationWarning",
+    "ignore:websockets.server.WebSocketServerProtocol is deprecated:DeprecationWarning",
+    "ignore:`torch.jit.load` is deprecated:DeprecationWarning",
+    "ignore::PendingDeprecationWarning:seaborn.categorical",
+]
 
 [tool.ruff]
 exclude = ["core/vendor"]

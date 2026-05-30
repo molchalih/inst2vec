@@ -259,6 +259,32 @@ def test_download_files_rerun_skips_failed(tmp_path, monkeypatch, isolated_db):
     assert calls["n"] == 0  # False clip is terminal
 
 
+def test_download_files_retry_failed_picks_up_false_rows(
+    tmp_path, monkeypatch, isolated_db
+):
+    """retry_failed=True must re-attempt clips left at is_downloaded=False."""
+    session = get_session()
+    _seed(session, 1, 100, True, False, "https://x/v.mp4", None)  # failed
+    session.close()
+
+    calls = {"n": 0}
+
+    def counting_get(*a, **kw):
+        calls["n"] += 1
+        return _make_response(200, b"x" * 1024)
+
+    monkeypatch.setattr(dl_mod, "get_profile_pic_url", lambda uid: None)
+    monkeypatch.setattr(httpx, "get", counting_get)
+    monkeypatch.setattr(dl_mod.time, "sleep", lambda _: None)
+
+    dl_mod.download_files(*_dl(tmp_path), retry_failed=True)
+
+    assert calls["n"] >= 1
+    session = get_session()
+    assert session.get(Clip, 100).is_downloaded is True
+    session.close()
+
+
 def test_download_files_missing_video_url_marks_failed(
     tmp_path, monkeypatch, isolated_db
 ):

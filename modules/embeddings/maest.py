@@ -11,8 +11,7 @@ Audio is decoded with Essentia's ``MonoLoader`` at 16 kHz (the only remaining
 Essentia use here, for resample parity with the MIR audio path). The mel +
 transformer run through ``core.vendor.maest.MaestTokens`` on the GPU. This
 replaces the previous Essentia ``TensorflowPredictMAEST`` (.pb) backend; the
-2304-d output vector is numerically equivalent (see
-scripts/maest_embedding_parity.py).
+2304-d output vector is numerically equivalent.
 """
 
 from __future__ import annotations

@@ -21,7 +21,7 @@ import time
 from collections.abc import Callable
 from contextlib import contextmanager, suppress
 
-from core.console import log
+from core.log import event, scope, warn
 from core.runpod import PodSpec, RunPodClient
 
 
@@ -58,6 +58,7 @@ def pod_count_from_env() -> int:
         return 0
 
 
+@scope("embed:fleet")
 def resolve_gpu_candidates(settings, client) -> tuple[str, ...]:
     """Ordered GPU types the fleet will try, cheapest-first.
 
@@ -77,11 +78,10 @@ def resolve_gpu_candidates(settings, client) -> tuple[str, ...]:
         for o in offers
         if o.price_hr is not None and o.price_hr <= rp.gpu_max_price_hr
     )
-    log(
-        "fleet",
+    event(
         "SCAN",
         "gpu",
-        "ok" if candidates else "none",
+        result="ok" if candidates else "WARN",
         stats={
             "dc": rp.data_center_id,
             "candidates": len(candidates),
@@ -152,10 +152,11 @@ class PodFleet:
         other's ids. Caller holds ``self._lock``."""
         return self._ids + self._orphans
 
+    @scope("embed:fleet")
     def __enter__(self) -> PodFleet:
         orphans = read_reconcile(self._path)
         if orphans:
-            log("fleet", "SWEEP", "reconcile", "ok", stats={"orphans": len(orphans)})
+            event("DELETE", "orphan_pods", stats={"count": len(orphans)})
             # Reaping a prior run's orphans STOPS billing, so it is unconditional.
             # Any we cannot confirm dead stay tracked (as orphans) for teardown.
             with self._lock:
@@ -172,6 +173,7 @@ class PodFleet:
             signal.signal(signal.SIGTERM, self._on_signal)
         return self
 
+    @scope("embed:fleet")
     def ensure_started(self) -> None:
         """Begin deploying pods; idempotent. Deferred until the stage finds
         remote-leaseable work so a sealed or all-local rerun never deploys a pod
@@ -187,14 +189,14 @@ class PodFleet:
                 with self._lock:
                     self._ids.extend(new)
                     write_reconcile(self._path, self._all_ids())
-            log("fleet", "SEAL", "deploy", "ok", stats={"pods": len(self._ids)})
+            event("SEAL", "deploy", stats={"pods": len(self._ids)})
         else:
             # Background top-up: the local worker starts immediately while pods
             # join as stock appears. The thread stops on teardown / once full.
             self._stop = threading.Event()
             self._thread = threading.Thread(target=self._topup_loop, daemon=True)
             self._thread.start()
-            log("fleet", "SEAL", "deploy", "async", stats={"target": self._count})
+            event("SEAL", "deploy", stats={"target": self._count, "deploying": True})
 
     def __exit__(self, *exc) -> bool:
         self._teardown()
@@ -241,17 +243,18 @@ class PodFleet:
                     write_reconcile(self._path, self._all_ids())
                 self._deploying = False
 
+    @scope("embed:fleet")
     def _topup_loop(self) -> None:
         assert self._stop is not None
         while not self._stop.is_set():
             try:
                 self._topup_once()
             except Exception as exc:  # never let the daemon thread die
-                log("fleet", "SCAN", "topup", "WARN", stats={"err": repr(exc)})
+                warn("SCAN", "topup", err=exc)
             with self._lock:
                 full = len(self._ids) >= self._count
             if full:
-                log("fleet", "SEAL", "deploy", "ok", stats={"pods": len(self._ids)})
+                event("SEAL", "deploy", stats={"pods": len(self._ids)})
                 return
             self._stop.wait(self._poll_s)
 
@@ -297,22 +300,28 @@ class PodFleet:
 @contextmanager
 def pod_fleet(settings, secrets):
     """Yield an active ``PodFleet`` when enabled, else ``None`` (no-op)."""
-    count = pod_count_from_env()
-    if not fleet_enabled(settings, secrets, count):
-        log("fleet", "SKIP", "fleet", "disabled")
-        yield None
-        return
-    client = RunPodClient(api_key=secrets.runpod_api_key)
-    # The background top-up re-resolves candidates each poll, so the spec starts
-    # with an empty list; refill fills it (and re-fetches when stock is thin).
-    spec = build_spec(settings, secrets, gpu_type_ids=())
-    fleet = PodFleet(
-        client=client,
-        spec=spec,
-        count=count,
-        reconcile_path=settings.runpod.reconcile_path,
-        refill=lambda: resolve_gpu_candidates(settings, client),
-        poll_s=settings.runpod.gpu_poll_interval_s,
-    )
-    with fleet:
-        yield fleet
+    from core.log import _scope_var
+
+    token = _scope_var.set("embed:fleet")
+    try:
+        count = pod_count_from_env()
+        if not fleet_enabled(settings, secrets, count):
+            event("SKIP", "fleet")
+            yield None
+            return
+        client = RunPodClient(api_key=secrets.runpod_api_key)
+        # The background top-up re-resolves candidates each poll, so the spec starts
+        # with an empty list; refill fills it (and re-fetches when stock is thin).
+        spec = build_spec(settings, secrets, gpu_type_ids=())
+        fleet = PodFleet(
+            client=client,
+            spec=spec,
+            count=count,
+            reconcile_path=settings.runpod.reconcile_path,
+            refill=lambda: resolve_gpu_candidates(settings, client),
+            poll_s=settings.runpod.gpu_poll_interval_s,
+        )
+        with fleet:
+            yield fleet
+    finally:
+        _scope_var.reset(token)

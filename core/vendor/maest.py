@@ -24,9 +24,9 @@ _GENRE_CLASSES = 519
 # tensor is named "layer_4_tokens": the runtime graph names the twelve block
 # outputs layer_0..11_tokens, and the .pb output-slot numbering is NOT linear,
 # so this mapping was confirmed empirically by parity (cos=1.0, max-abs=5e-6 vs
-# the .pb tensor), not by index — see scripts/maest_embedding_parity.py. Bind by
-# exact name: the ONNX declares these outputs with rank-1 {-1} shape metadata,
-# so last-dim matching cannot disambiguate them.
+# the .pb tensor), not by index. Bind by exact name: the ONNX declares these
+# outputs with rank-1 {-1} shape metadata, so last-dim matching cannot
+# disambiguate them.
 _TOKEN_OUTPUT = "layer_4_tokens"
 
 # Essentia's TensorflowPredictMAEST standardizes the MusiCNN mel before the

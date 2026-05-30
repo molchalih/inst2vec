@@ -14,8 +14,11 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from core.console import log, progress
+from core.console import log as _log
+from core.console import progress
 from core.lang import is_english
+from core.log import _scope_var as _log_scope_var
+from core.log import event
 from core.vendor.gemma_translate import GemmaTranslator
 
 
@@ -24,8 +27,8 @@ def _translate_singly(
     chunk: list[tuple[Any, str, str]],
     target_lang: str,
     max_new_tokens: int,
-    log_scope: str,
     log_tag_prefix: str,
+    mt_scope: str,
 ) -> list[str | None]:
     """Fallback for a failed batch: translate each row on its own.
 
@@ -45,12 +48,12 @@ def _translate_singly(
                 )
             )
         except Exception as exc:
-            log(
-                log_scope,
-                "MT",
+            _log(
+                mt_scope,
+                "EXTRACT",
                 f"{log_tag_prefix}_{row.id}",
                 "ERR",
-                stats={"err": f"translator: {exc!r}"},
+                stats={"err": repr(exc)},
             )
             results.append(None)
     return results
@@ -72,7 +75,7 @@ def translate_rows(
     log_tag_prefix: str,
     seal_label: str,
     batch_size: int = 16,
-    log_scope: str = "gemma",
+    log_scope: str = "",
 ) -> None:
     """Translate ``rows`` whose source is non-empty and non-English.
 
@@ -83,19 +86,21 @@ def translate_rows(
     ``batch_size`` is the GPU decode batch width; it affects only throughput,
     not the per-row outputs, so it is intentionally excluded from the speech /
     captions config fingerprints.
+
+    ``log_scope`` is accepted for backward compatibility but unused — log lines
+    pick up the active scope from the caller's ContextVar.
     """
+    del log_scope  # unused; scope comes from caller's ContextVar
     total = len(rows)
     if total == 0:
         return
 
-    log(log_scope, "SCAN", progress_label, "ok", stats={"todo": total})
+    event("SCAN", progress_label, stats={"todo": total})
     t_load = time.perf_counter()
     translator = GemmaTranslator(model_id=model_id)
-    log(
-        log_scope,
+    event(
         "LOAD",
         translator.model_id,
-        "ok",
         stats={
             "time": time.perf_counter() - t_load,
             "device": str(translator.device),
@@ -123,6 +128,9 @@ def translate_rows(
     translated = 0
     since_commit = 0
     t_stage = time.perf_counter()
+    # Capture the active log scope once; translate.py goes through the raw
+    # _log escape hatch as it runs outside a @scope/@stage context.
+    _mt_scope = _log_scope_var.get() or "translate"
 
     with progress(total, progress_label) as advance:
         if skipped:
@@ -145,8 +153,8 @@ def translate_rows(
                     chunk,
                     target_lang,
                     max_new_tokens,
-                    log_scope,
                     log_tag_prefix,
+                    _mt_scope,
                 )
 
             batch_ok = 0
@@ -158,15 +166,15 @@ def translate_rows(
                     advance()
                     continue
                 if not translation:
-                    log(log_scope, "MT", tag, "none", stats={"src": source_lang})
+                    _log(_mt_scope, "EXTRACT", tag, "WARN", stats={"src": source_lang})
                     advance()
                     continue
                 set_translation(row, translation)
                 translated += 1
                 batch_ok += 1
-                log(
-                    log_scope,
-                    "MT",
+                _log(
+                    _mt_scope,
+                    "EXTRACT",
                     tag,
                     "ok",
                     stats={"src": source_lang, "dst": target_lang},
@@ -175,9 +183,9 @@ def translate_rows(
                 tr_preview = translation[:45] + ("…" if len(translation) > 45 else "")
                 advance(detail=f'{row.id}: "{src_preview}" → "{tr_preview}"')
 
-            log(
-                log_scope,
-                "MT",
+            _log(
+                _mt_scope,
+                "EXTRACT",
                 "batch",
                 "ok",
                 stats={
@@ -192,11 +200,9 @@ def translate_rows(
                 session.commit()
                 since_commit = 0
 
-    log(
-        log_scope,
+    event(
         "SEAL",
         seal_label,
-        "ok",
         stats={
             "translated": translated,
             "of": total,

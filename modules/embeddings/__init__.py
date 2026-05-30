@@ -19,7 +19,7 @@ Adding a new embedding case generally only requires:
 
 from core.config import Secrets, Settings
 from modules.embeddings.cases import EmbeddingSecrets, default_cases
-from modules.embeddings.runner import embed_clip_embeddings
+from modules.embeddings.runner import embed_clip_embeddings, run_clip
 from modules.embeddings.users import embed_user_embeddings
 
 __all__ = [
@@ -29,20 +29,6 @@ __all__ = [
     "run_clip",
     "run_users",
 ]
-
-
-def run_clip(settings: Settings, secrets: Secrets) -> None:
-    """Clip-level embeddings across all configured cases."""
-    embed_clip_embeddings(
-        settings,
-        EmbeddingSecrets(
-            gemini_api_key=secrets.gemini_api_key,
-            embedder_token=secrets.embedder_token,
-            runpod_api_key=secrets.runpod_api_key,
-            coordinator_public_host=secrets.coordinator_public_host,
-            huggingface_token=secrets.huggingface_token,
-        ),
-    )
 
 
 def run_users(settings: Settings, secrets: Secrets) -> None:

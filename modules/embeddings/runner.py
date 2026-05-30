@@ -28,13 +28,14 @@ import os
 import time
 
 from core import fingerprint as fp
-from core.console import log
+from core.config import Secrets, Settings
 from core.database import (
     Clip,
     ClipEmbedding,
     StageState,
     get_session,
 )
+from core.log import StageResult, event, scope, stage
 from core.pipeline import Stage
 from modules.embeddings.broker import make_job
 from modules.embeddings.cases import (
@@ -65,17 +66,30 @@ def _preflight_warn_pods(settings, secrets) -> None:
     no work. Guarded on the storage attribute so settings stubs are exempt."""
     storage = getattr(settings, "storage", None)
     if secrets.embedder_token and storage is not None and not storage.bucket:
-        log(
-            "embed",
+        event(
             "SCAN",
             "pods",
-            "WARN",
+            result="WARN",
             stats={
                 "msg": "EMBEDDER_TOKEN set but storage.bucket empty: no clip is "
                 "remote-eligible, so connected pods receive no work — set "
                 "storage.bucket, or unset EMBEDDER_TOKEN for local-only embedding"
             },
         )
+
+
+@stage("embed")
+def run_clip(settings: Settings, secrets: Secrets) -> StageResult:
+    """Clip-level embeddings across all configured cases."""
+    emb_secrets = EmbeddingSecrets(
+        gemini_api_key=secrets.gemini_api_key,
+        embedder_token=secrets.embedder_token,
+        runpod_api_key=secrets.runpod_api_key,
+        coordinator_public_host=secrets.coordinator_public_host,
+        huggingface_token=secrets.huggingface_token,
+    )
+    embed_clip_embeddings(settings, emb_secrets)
+    return StageResult()
 
 
 def embed_clip_embeddings(
@@ -105,10 +119,10 @@ def embed_clip_embeddings(
 
     with (
         pod_fleet(settings, secrets) as fleet,
-        StageEmbedder(settings, secrets, case_names, fleet=fleet) as stage,
+        StageEmbedder(settings, secrets, case_names, fleet=fleet) as stage_emb,
     ):
         for name in case_names:
-            _run_case(settings, secrets, CASE_REGISTRY[name], stage)
+            _run_case(settings, secrets, name, stage_emb)
 
 
 def _video_path(clip_id: int, video_dir: str) -> str:
@@ -179,13 +193,14 @@ def _wipe_case(session, case: str) -> None:
     session.commit()
 
 
+@scope("embed:{case}")
 def _run_case(
     settings,
     secrets,  # retained for positional compat with test_embeddings_backwards_compat.py; unused by body
-    spec: EmbeddingCaseSpec,
-    stage=None,  # None on the direct-call test path; body returns before stage.drain_case when fp matches
-) -> None:
-    log_tag = f"embed:{spec.name}"
+    case: str,
+    stage_emb=None,  # None on the direct-call test path; body returns before stage_emb.drain_case when fp matches
+) -> tuple[int, int]:
+    spec = CASE_REGISTRY[case]
     session = get_session()
     try:
         candidates = get_clip_embedding_candidates(
@@ -208,36 +223,35 @@ def _run_case(
             )
             if deleted:
                 session.commit()
-                log(log_tag, "WRITE", "orphans", "ok", stats={"deleted": deleted})
+                event("DELETE", "orphans", stats={"count": deleted})
 
         current, per_clip = _compute_fingerprint_and_per_clip(
             session, spec, settings, candidates
         )
         if not fp.is_stale(session, STAGE, spec.name, current):
-            log(log_tag, "SKIP", "fingerprint", "ok")
-            return
+            event("SKIP", "fingerprint")
+            return 0, 0
 
         stored = session.get(StageState, (STAGE, spec.name))
         if stored is not None and stored.config_hash != current.config:
             diff = fp.describe_diff(session, STAGE, spec.name, current)
-            log(log_tag, "SCAN", "fingerprint", "stale", stats={"diff": diff})
+            event("SCAN", "fingerprint", result="WARN", stats={"diff": diff})
             _wipe_case(session, spec.name)
 
         embedded = get_embedded_source_hashes(session, spec.name)
         target_ids = fp.row_diff(per_clip, embedded)
-        log(log_tag, "SCAN", "jobs", "ok", stats={"todo": len(target_ids)})
+        event("SCAN", "clips", stats={"todo": len(target_ids)})
 
-        _embed_targets(
+        return _embed_targets(
             session,
             spec,
             settings,
-            log_tag,
             candidates,
             target_ids,
             per_clip,
             embedded,
             current,
-            stage,
+            stage_emb,
         )
     finally:
         session.close()
@@ -247,14 +261,13 @@ def _embed_targets(
     session,
     spec: EmbeddingCaseSpec,
     settings,
-    log_tag: str,
     candidates: list[Clip],
     target_ids: set[int],
     per_clip: dict[int, str],
     embedded: dict[int, str | None],
     current: fp.Fingerprint,
-    stage,
-) -> None:
+    stage_emb,
+) -> tuple[int, int]:
     """Embed the subset of ``candidates`` whose ids are in ``target_ids``."""
     targets = [c for c in candidates if c.id in target_ids]
 
@@ -305,45 +318,33 @@ def _embed_targets(
             ClipEmbedding.clip_id.in_(stale_skipped),
         ).delete(synchronize_session=False)
         session.commit()
-        log(
-            log_tag,
-            "WRITE",
-            "stale_rows",
-            "ok",
-            stats={"dropped": len(stale_skipped)},
-        )
+        event("DELETE", "stale_rows", stats={"count": len(stale_skipped)})
 
     t_stage = time.perf_counter()
 
     if not targets_built:
         if stale_skipped:
-            log(
-                log_tag,
+            event(
                 "SEAL",
                 "embed",
-                "stale",
+                result="WARN",
                 stats={"stale": len(stale_skipped)},
             )
-            return  # do not seal — un-buildable stale targets remain unresolved
+            return 0, 0  # do not seal — un-buildable stale targets remain unresolved
         if fresh_skipped:
-            log(
-                log_tag,
-                "SCAN",
-                "candidates",
-                "ok",
-                stats={"non_embeddable": fresh_skipped},
-            )
+            event("SCAN", "candidates", stats={"non_embeddable": fresh_skipped})
         fp.mark_complete(session, STAGE, spec.name, current)
         session.commit()
-        log(
-            log_tag,
+        event(
             "SEAL",
             "embed",
-            "ok",
             stats={"done": 0, "time": time.perf_counter() - t_stage},
         )
-        return
+        return 0, 0
 
+    # Pass active scope string as log_tag so distributed.py (pre-T24) can
+    # emit its per-clip lines under the correct scope prefix.
+    log_tag = f"embed:{spec.name}"
     case_jobs = build_jobs_for_case(
         spec,
         targets_built,
@@ -352,14 +353,15 @@ def _embed_targets(
         adaptive_max_frames=settings.embeddings.adaptive_max_frames,
         adaptive_default_fps=settings.embeddings.adaptive_default_fps,
     )
-    succeeded, failures = stage.drain_case(session, spec, case_jobs, per_clip, log_tag)
+    succeeded, failures = stage_emb.drain_case(
+        session, spec, case_jobs, per_clip, log_tag
+    )
 
     if failures or stale_skipped:
-        log(
-            log_tag,
+        event(
             "SEAL",
             "embed",
-            "stale",
+            result="WARN",
             stats={
                 "done": succeeded,
                 "err": failures,
@@ -370,13 +372,12 @@ def _embed_targets(
     else:
         fp.mark_complete(session, STAGE, spec.name, current)
         session.commit()
-        log(
-            log_tag,
+        event(
             "SEAL",
             "embed",
-            "ok",
             stats={
                 "done": succeeded,
                 "time": time.perf_counter() - t_stage,
             },
         )
+    return succeeded, failures

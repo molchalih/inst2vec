@@ -82,12 +82,14 @@ class _FakeProvider:
 class _FakeSecrets:
     """Carries only the fields the distributed orchestrator reads.
 
-    The fake provider factory ignores ``_secrets`` entirely, but
-    ``StageEmbedder`` reads ``embedder_token`` to bind the
-    coordinator's auth, so it must be a non-empty string.
+    ``embedder_token`` is intentionally empty: a blank token tells
+    ``StageEmbedder`` to skip binding the uvicorn coordinator (these
+    tests drain entirely through the in-process worker), shaving ~1s
+    of HTTP-server boot+teardown off every test in this file.
+    Coordinator-auth coverage lives in ``test_coordinator.py``.
     """
 
-    embedder_token: str = "test-token"
+    embedder_token: str = ""
     gemini_api_key: str | None = None
 
 
@@ -864,8 +866,6 @@ def test_preflight_warns_when_pods_set_but_no_bucket(
 ):
     from dataclasses import dataclass
 
-    from modules.embeddings import runner as runner_mod
-
     @dataclass
     class _Storage:
         bucket: str = ""
@@ -874,17 +874,27 @@ def test_preflight_warns_when_pods_set_but_no_bucket(
     settings.storage = _Storage(bucket="")  # type: ignore[attr-defined]
     _seed(db_session, settings, clips=[dict(id=10, user_id=1)])
 
+    import core.log as log_mod
+
     logged = []
-    real_log = runner_mod.log
+    real_render = log_mod._render
 
     def _spy(*a, **kw):
         logged.append((a, kw))
-        real_log(*a, **kw)
+        real_render(*a, **kw)
 
-    monkeypatch.setattr(runner_mod, "log", _spy)
+    monkeypatch.setattr(log_mod, "_render", _spy)
 
-    embed_clip_embeddings(settings, _FakeSecrets(embedder_token="t"), cases=["video"])
-    assert any("pods" in a for a, _ in logged), "missing pod-starvation warning"
+    from core.log import scope as log_scope
+
+    @log_scope("embed")
+    def _run():
+        embed_clip_embeddings(
+            settings, _FakeSecrets(embedder_token="t"), cases=["video"]
+        )
+
+    _run()
+    assert any("pods" in str(a) for a, _ in logged), "missing pod-starvation warning"
 
 
 def test_local_only_run_skips_coordinator(db_session, stub_providers, monkeypatch):

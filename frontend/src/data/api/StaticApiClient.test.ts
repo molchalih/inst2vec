@@ -9,7 +9,7 @@ const notFound = () =>
   Promise.resolve(new Response("missing", { status: 404 }));
 
 const clusterDetailFixture = {
-  version: 2,
+  version: 3,
   cluster_id: 7,
   label: "Cluster 8",
   size: 1,
@@ -29,7 +29,7 @@ const clusterDetailFixture = {
 };
 
 const creatorDetailFixture = {
-  version: 2,
+  version: 3,
   user_id: 42,
   cluster_id: 7,
   x: 0, y: 0,

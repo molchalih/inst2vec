@@ -8,8 +8,9 @@ import os
 from collections.abc import Callable
 
 from core.config import Secrets, Settings, load_runtime_config
-from core.console import phase, pipeline
+from core.console import pipeline
 from core.database import init_db
+from core.log import stage
 from modules import (
     captions,
     clustering,
@@ -24,6 +25,7 @@ from modules import (
 from modules.embeddings.cases import default_cases
 
 
+@stage("db")
 def _init_db_stage(_settings: Settings, secrets: Secrets) -> None:
     init_db(secrets.database_url, secrets.identity_db_url)
 
@@ -76,8 +78,7 @@ def run_pipeline() -> None:
     cases = default_cases(settings)
     stages = _stages(cases)
     with pipeline(total_stages=len(stages)):
-        for name, fn in stages:
-            phase(name)
+        for _name, fn in stages:
             fn(settings, secrets)
 
 

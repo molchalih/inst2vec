@@ -13,15 +13,15 @@ const runWith = (hasDetail: boolean): AtlasRun => ({
   meta: { id: "video-1", case: "video", label: "v", size: 2, details_available: hasDetail },
   bounds: { minX: -1, maxX: 1, minY: -1, maxY: 1 },
   users: [
-    [1, 0, 0, 5, hasDetail],
-    [2, 1, 1, -1, false],
-    [3, 0.5, 0.5, 5, false],  // dot in cluster, but its row has no detail
+    [1, 0, 0, 5, hasDetail, 0.7],
+    [2, 1, 1, -1, false, 0],
+    [3, 0.5, 0.5, 5, false, 0.5],  // dot in cluster, but its row has no detail
   ],
   clusters: [],
 });
 
 const manifestWith = (details: boolean): Manifest => ({
-  version: 2,
+  version: 3,
   default_run_id: "video-1",
   runs: [{ id: "video-1", case: "video", label: "v", size: 2, details_available: details }],
 });

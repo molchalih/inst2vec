@@ -220,10 +220,10 @@ def test_validate_clustering_phase_order(monkeypatch):
 
     original_compute_updates = validation_mod._compute_updates
 
-    def spy_compute_updates(case, matrix, settings, workers=1, max_cluster_frac=0.0):
+    def spy_compute_updates(case, matrix, settings, max_cluster_frac=0.0):
         sequence.append(("compute_updates", case))
         return original_compute_updates(
-            case, matrix, settings, workers, max_cluster_frac=max_cluster_frac
+            case, matrix, settings, max_cluster_frac=max_cluster_frac
         )
 
     monkeypatch.setattr(
@@ -343,14 +343,20 @@ def test_list_best_candidate_rows_filters_by_passes_validation():
 
 
 def _seed_validate_dataset() -> object:
-    """Seed Users/Clips/UserEmbeddings, run cluster_search, return full settings."""
+    """Seed Users/Clips/UserEmbeddings, run cluster_search, return full settings.
+
+    The four ``test_validate_*`` tests below call this in setup. ``n_users``
+    is intentionally just large enough for UMAP (n_neighbors=5) and HDBSCAN
+    (min_cluster_size=5) to converge — bigger seeds add real UMAP+HDBSCAN
+    work that dominates this file's wall time without changing what's tested.
+    """
     from modules.clustering import run_cluster_search
     from tests._clustering_helpers import (
         _make_minimal_search_settings,
         _seed_search_dataset,
     )
 
-    _seed_search_dataset()
+    _seed_search_dataset(n_users=12)
     search_settings = _make_minimal_search_settings()
     run_cluster_search(search_settings, cases=("video",))
     return SimpleNamespace(

@@ -3,7 +3,6 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
@@ -16,16 +15,7 @@ from core.database import (
 )
 from core.database import engine as engine_mod
 
-# fetch_profiles tests updated in Task 5 (parse.py now reads username from identity DB)
-
-
-@pytest.mark.skip(reason="modules.filter not yet implemented (Task 3+)")
-def test_finalize_unresolved_for_non_success_parse_status(monkeypatch):  # type: ignore[misc]
-    """Test postponed pending filter module implementation."""
-    pass
-
-
-# ── Task 5: fetch_profiles tests ──────────────────────────────────────────
+# ── fetch_profiles tests ──────────────────────────────────────────
 
 
 def _make_identity_engine():

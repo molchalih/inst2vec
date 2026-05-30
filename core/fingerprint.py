@@ -37,8 +37,8 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from core.console import log
 from core.database import StageState
+from core.log import event
 
 
 @dataclass(frozen=True)
@@ -142,8 +142,8 @@ def gate(
     current: Fingerprint,
     on_drift: Callable[[Session], None],
     *,
-    log_scope: str,
-    drift_msg: str,
+    log_scope: str = "",
+    drift_msg: str = "",
     check_dependency: bool = False,
 ) -> None:
     """Reset stage outputs on config (or optionally dependency) drift; emit the
@@ -155,19 +155,23 @@ def gate(
     ``check_dependency=True`` extends the drift check to dependency_hash for
     stages whose outputs depend on an upstream stage state. Default False
     preserves the original config-only semantics for existing callers.
+
+    ``log_scope`` and ``drift_msg`` are accepted for backward compatibility
+    but unused — log lines pick up the active scope from the caller's ContextVar.
     """
+    del log_scope, drift_msg  # unused; scope comes from caller's ContextVar
     stored = session.get(StageState, (stage, scope))
     if stored is None:
-        log(log_scope, "SCAN", "fingerprint", "none")
+        event("SCAN", "fingerprint")
         return
     config_changed = stored.config_hash != current.config
     dep_changed = check_dependency and stored.dependency_hash != current.dependency
     if config_changed or dep_changed:
         diff = describe_diff(session, stage, scope, current)
-        log(log_scope, "SCAN", "fingerprint", "stale", stats={"diff": diff})
+        event("SCAN", "fingerprint", stats={"diff": diff})
         on_drift(session)
     else:
-        log(log_scope, "SKIP", "fingerprint", "ok")
+        event("SKIP", "fingerprint")
 
 
 def describe_diff(

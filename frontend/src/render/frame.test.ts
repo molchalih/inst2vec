@@ -27,7 +27,7 @@ describe("runToDotsFrame", () => {
 
   it("maps each user row to a drawable, with signal alpha tokens.dot.alpha and a non-empty color", () => {
     const run = makeRun(
-      [[0, 1, 2, 0, false], [1, 3, 4, 1, false]],
+      [[0, 1, 2, 0, false, 0.5], [1, 3, 4, 1, false, 0.5]],
       [],
     );
     const f = runToDotsFrame(run);
@@ -39,11 +39,29 @@ describe("runToDotsFrame", () => {
   });
 
   it("resolves noise users to the noise color + dimmed alpha", () => {
-    const run = makeRun([[0, 0, 0, 0, false], [1, 0, 0, -1, false]], []);
+    const run = makeRun([[0, 0, 0, 0, false, 0.5], [1, 0, 0, -1, false, 0]], []);
     const f = runToDotsFrame(run);
     expect(f.users[0]!.alpha).toBe(tokens.dot.alpha);
     expect(f.users[1]!.alpha).toBeLessThan(f.users[0]!.alpha);
     expect(f.users[1]!.color).not.toBe(f.users[0]!.color);
+  });
+
+  it("encodes centrality into radiusScale, scaling between tokens.dot.centrality bounds", () => {
+    const run = makeRun(
+      [
+        [0, 0, 0, 0, false, 1],    // core
+        [1, 0, 0, 0, false, 0],    // periphery
+        [2, 0, 0, 0, false, 0.5],  // mid → curved below linear midpoint
+        [3, 0, 0, -1, false, 0],   // noise → bypass
+      ],
+      [],
+    );
+    const f = runToDotsFrame(run);
+    const { min, max, gamma } = tokens.dot.centrality;
+    expect(f.users[0]!.radiusScale).toBeCloseTo(max, 5);
+    expect(f.users[1]!.radiusScale).toBeCloseTo(min, 5);
+    expect(f.users[2]!.radiusScale).toBeCloseTo(min + (max - min) * Math.pow(0.5, gamma), 5);
+    expect(f.users[3]!.radiusScale).toBe(1);
   });
 });
 
@@ -79,7 +97,7 @@ describe("runToIntroDotsFrame", () => {
   });
 
   it("stacks every dot at centerWorld during the fade phase", () => {
-    const run = makeRun([[0, 1, 2, 0, false], [1, 3, 4, 1, false]], []);
+    const run = makeRun([[0, 1, 2, 0, false, 0.5], [1, 3, 4, 1, false, 0.5]], []);
     const f = runToIntroDotsFrame(run, center, 0, 0.5);
     for (const u of f.users) {
       expect(u.x).toBeCloseTo(center.x, 5);
@@ -88,14 +106,14 @@ describe("runToIntroDotsFrame", () => {
   });
 
   it("places every dot at its true position once flight completes (phase 2)", () => {
-    const run = makeRun([[0, 1, 2, 0, false], [1, 3, 4, 1, false]], []);
+    const run = makeRun([[0, 1, 2, 0, false, 0.5], [1, 3, 4, 1, false, 0.5]], []);
     const f = runToIntroDotsFrame(run, center, 2, 1);
     expect(f.users[0]).toMatchObject({ x: 1, y: 2 });
     expect(f.users[1]).toMatchObject({ x: 3, y: 4 });
   });
 
   it("fades dot alpha in during the fade phase", () => {
-    const run = makeRun([[0, 1, 2, 0, false]], []);
+    const run = makeRun([[0, 1, 2, 0, false, 0.5]], []);
     const mid = runToIntroDotsFrame(run, center, 0, 0.5);
     expect(mid.users[0]!.alpha).toBeCloseTo(tokens.dot.alpha * 0.5, 5);
   });

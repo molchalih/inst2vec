@@ -11,7 +11,8 @@ import uuid
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from core.console import log
+from core.console import log as _log
+from core.log import event, scope, warn
 
 
 @dataclass
@@ -169,13 +170,14 @@ class RunPodClient:
         offers.sort(key=lambda o: (o.price_hr is None, o.price_hr or 0.0))
         return offers
 
+    @scope("embed:fleet")
     def deploy(self, n: int, spec: PodSpec) -> list[str]:
         ids: list[str] = []
         for _ in range(n):
             pod = self._create_one(spec)
             if pod is not None:
                 ids.append(pod["id"])
-                log("fleet", "PUT", pod["id"], "deployed")
+                event("PUT", pod["id"])
         return ids
 
     def _create_one(self, spec: PodSpec) -> dict | None:
@@ -204,17 +206,12 @@ class RunPodClient:
             try:
                 return self._backend.create_pod(gpu_type_id=gpu_type_id, **common)
             except Exception as exc:  # out of stock / transient — try the next type
-                log(
-                    "fleet",
-                    "PUT",
-                    gpu_type_id,
-                    "WARN",
-                    stats={"deploy_err": repr(exc)},
-                )
+                warn("PUT", gpu_type_id, err=exc)
         if spec.gpu_type_ids:
-            log("fleet", "PUT", "-", "FAIL", stats={"tried": len(spec.gpu_type_ids)})
+            warn("PUT", "-", stats={"tried": len(spec.gpu_type_ids)})
         return None
 
+    @scope("embed:fleet")
     def terminate(self, pod_ids: Iterable[str]) -> list[str]:
         """Terminate each pod; return the IDs whose termination was NOT confirmed.
 
@@ -226,11 +223,15 @@ class RunPodClient:
         for pod_id in pod_ids:
             try:
                 self._backend.terminate_pod(pod_id)
-                log("fleet", "SWEEP", pod_id, "terminated")
+                _log("embed:fleet", "DELETE", pod_id, "ok")
             except Exception as exc:  # already-gone or transient — never block teardown
                 failed.append(pod_id)
-                log(
-                    "fleet", "SWEEP", pod_id, "WARN", stats={"terminate_err": repr(exc)}
+                _log(
+                    "embed:fleet",
+                    "DELETE",
+                    pod_id,
+                    "WARN",
+                    stats={"terminate_err": repr(exc)},
                 )
         return failed
 

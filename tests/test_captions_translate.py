@@ -98,7 +98,7 @@ def test_translate_logs_failure_and_continues(session, monkeypatch):
     _stub_translator(monkeypatch, translate_fn=fail_first)
     logged: list[tuple] = []
     monkeypatch.setattr(
-        "core.translate.log",
+        "core.translate._log",
         lambda *args, **kwargs: logged.append((args, kwargs)),
     )
     translate_captions(_cfg(), engine=eng)
@@ -106,9 +106,10 @@ def test_translate_logs_failure_and_continues(session, monkeypatch):
     row2 = s.query(Clip).filter_by(id=2).one()
     assert row1.caption_translation is None
     assert row2.caption_translation == "hello"
+    # _log(scope, "EXTRACT", "cap_1", "ERR", stats={"err": ...}) on fallback failure
     assert any(
         len(args) >= 4
-        and args[1] == "MT"
+        and args[1] == "EXTRACT"
         and args[2] == "cap_1"
         and args[3] == "ERR"
         and "boom" in str(kwargs.get("stats", {}).get("err", ""))

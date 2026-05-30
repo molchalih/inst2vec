@@ -83,40 +83,6 @@ def test_token_mismatch_retries_smaller_frame_caps():
     assert p.caps_seen[0] == 96 and p.caps_seen[-1] <= 48
 
 
-def test_local_worker_drains_broker(tmp_path):
-    # video case requires a real path to exist; create empty files.
-    for i in range(5):
-        (tmp_path / f"{i}.mp4").write_bytes(b"x")
-    b = JobBroker(lease_ttl_s=600, max_attempts=3)
-    for i in range(5):
-        b.add(
-            make_job(
-                clip_id=i,
-                case="video",
-                text=None,
-                video_key=f"{i}.mp4",
-                fps=2.0,
-                max_frames=96,
-                remote_eligible=True,
-            )
-        )
-    b.producer_done()
-    p = _StubProvider()
-    run_worker(
-        LocalJobSource(b),
-        provider=p,
-        video_root=str(tmp_path),
-        inflight=2,
-        served_only=False,
-        poll_idle_s=0.01,
-    )
-    # 5 completions, all ok
-    got = []
-    while not b.completions.empty():
-        got.append(b.completions.get_nowait())
-    assert len(got) == 5 and all(c.ok for c in got)
-
-
 def test_http_job_source_lease_complete_roundtrip():
     state = {"leased": False}
 

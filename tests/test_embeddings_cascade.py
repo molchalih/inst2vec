@@ -102,12 +102,11 @@ class _FakeProvider:
 class _FakeSecrets:
     """Carries only the fields the distributed orchestrator reads.
 
-    The fake provider factory ignores ``_secrets`` entirely, but
-    ``StageEmbedder`` reads ``embedder_token`` to bind the
-    coordinator's auth.
+    ``embedder_token`` is blank so ``StageEmbedder`` skips binding the
+    uvicorn coordinator; this run drains through the in-process worker.
     """
 
-    embedder_token: str = "test-token"
+    embedder_token: str = ""
     gemini_api_key: str | None = None
 
 

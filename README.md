@@ -3,76 +3,77 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/colored/logo-light.svg">
-    <img src="docs/assets/colored/logo.svg" alt="inst2vec" width="320">
+    <img src="docs/assets/colored/logo.svg" alt="inst2vec" width="100%">
   </picture>
 </p>
 
-<!-- <p align="center">
-  Parse Instagram Reels accounts. Embed their video, audio, and text. Cluster the users.
-</p> -->
+`inst2vec` turns a CSV of Instagram usernames into a flat **user → cluster** table and ships an interactive **atlas viewer** — a static, pannable 2D map where every dot is a creator, colored by cluster and sized by how central they are inside it.
+
+**Concepts:** `Semantic map` · `Latent representations` · `Unsupervised clustering` · `Platform vernaculars`
 
 <p align="center">
-  <a href="https://github.com/molchalih/inst2vec/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/molchalih/inst2vec/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="https://github.com/molchalih/inst2vec/actions/workflows/quarto.yml"><img alt="Quarto" src="https://github.com/molchalih/inst2vec/actions/workflows/quarto.yml/badge.svg"></a>
-  <a href="https://www.python.org/downloads/release/python-3120/"><img alt="Python" src="https://img.shields.io/badge/python-3.12+-blue.svg"></a>
-  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-green.svg"></a>
-  <a href="https://github.com/astral-sh/uv"><img alt="uv" src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json"></a>
-  <a href="https://huggingface.co/Qwen/Qwen3-VL-Embedding-8B"><img alt="Qwen3-VL" src="https://img.shields.io/badge/Qwen3--VL--8B-purple"></a>
+  <img src="https://img.shields.io/badge/uv-%23DE5FE9.svg?style=for-the-badge&logo=uv&logoColor=white" alt="uv">
+  <img src="https://img.shields.io/badge/Bun-%23000000.svg?style=for-the-badge&logo=bun&logoColor=white" alt="Bun">
+  <img src="https://img.shields.io/badge/vite-%23646CFF.svg?style=for-the-badge&logo=vite&logoColor=white" alt="Vite">
+  <img src="https://img.shields.io/badge/Qwen-6950EF?style=for-the-badge&logo=qwen&logoColor=white" alt="Qwen">
+  <a href="./LICENSE"><img src="https://img.shields.io/github/license/molchalih/inst2vec?style=for-the-badge" alt="Licence"></a>
 </p>
-
-## Overview
-
-`inst2vec` is a modular pipeline for clustering *Instagram creators* based on their *Reels* content-similarity. It parses profiles, embeds videos, audio (music + speech); averages each user's clip vectors, and clusters the creators. While each stage provides it's own output, the final results is a flat user-to-cluster table.
-
-**Key concepts:** `Semantic map`, `Latent Representations`, `Unsupervised Clustering`, `Platform Vernaculars`.
-
-## Pipeline
-
-The 11 stages execute in order from `main.py`:
-
-1. **Ingest** — seed accounts from CSV, pull profiles + Reels metadata via HikerAPI, download videos, extract MP3 audio.
-2. **Filter** — flag ineligible users and clips, randomly select a per-user clip pool.
-3. **Upload** — push selected videos to S3-compatible storage (no-op if `storage.bucket` is unset).
-4. **MIR** — extract music descriptors (Discogs taxonomy, mood, danceability, …) from the audio waveform via MAEST + Discogs-EffNet.
-5. **Speech** — Silero VAD → Whisper transcription → translation → post-clean.
-6. **Captions** — clean, detect language, translate clip captions.
-7. **Clip embeddings** — Qwen3-VL-Embedding-8B across cases per clip: `video`, `sandwich` (video + MIR-derived music text), `audio` (speech + MIR text); plus a `maest` case storing a raw 2304-d MAEST representation per clip. Runs locally or on a remote GPU pod.
-8. **User embeddings** — average each user's clip vectors per case.
-9. **Cluster search** — grid search over UMAP + HDBSCAN hyperparameters.
-10. **Cluster validation** — DBCV + silhouette scoring, plateau detection.
-11. **Clustering** — assign final labels and write `UserCluster` rows.
 
 ## Quickstart
 
 ```bash
-# 1. Install
-uv sync
+cp .env.example .env                          # fill HIKER_API_KEY, HUGGINGFACE_TOKEN, …
 
-# 2. Configure
-cp .env.example .env
-# fill in HIKER_API_KEY, HUGGINGFACE_TOKEN
-
-# 3. Run
-uv run python main.py
+uv sync --no-dev --group gpu --group embedder # GPU pipeline + coordinator deps
+uv run --env-file .env main.py                # run the pipeline
 ```
 
-For local clip embeddings, Qwen3-VL weights are downloaded at `./models/Qwen3-VL-Embedding-8B`. For remote inference, point `EMBEDDER_REMOTE_URL` at a `services/embedder/` pod and the pipeline will offload there.
+Alternative:
 
-## Architecture
+```bash
+scripts/start.sh                # orchestrator (default)
+scripts/start.sh --pod          # GPU pull-worker, needs ORCHESTRATOR_HOST + EMBEDDER_TOKEN
+```
 
-- `core/` — cross-cutting infra: config, database (two-DB design for PII isolation), storage, ffmpeg, fingerprint, console, third-party model wrappers.
-- `modules/<stage>/` — one subpackage per pipeline stage with a single public entry function.
-- `services/embedder/` — standalone GPU-pod service that serves Qwen3-VL embeddings remotely.
-- `scripts/` — orchestration only (migrations, retry helpers, dataset analysis).
-- `docs/` — the Quarto paper and reporting tables/plots.
+## Pipeline
 
-Configuration splits into `Settings` (tunables in `config.toml`) and `Secrets` (env / `.env`). Each stage takes its own typed slice of both.
+Stages run top-to-bottom from `main.py`. Each one is a single public `run()` per subpackage, idempotent, sealed by fingerprint.
+
+| # | Stage | What it does |
+|---|-------|--------------|
+| 1 | **Ingest** | Seed usernames from CSV → HikerAPI profiles + Reels → download MP4 + thumbnails → extract MP3 (speech & MIR rates). |
+| 2 | **Filter** | Flag ineligible users/clips, sample a per-user clip pool (`is_selected`). |
+| 3 | **Upload** | Push selected videos to S3-compatible storage for the remote embedder. No-op without `storage.bucket`. |
+| 4 | **MIR** | MAEST + EffNet-Discogs ONNX inference → genre / mood / instrument descriptors (+ raw 2304-d MAEST vector). |
+| 5 | **Speech** | Silero VAD → Whisper → Gemma translation → hallucination & quality guards. |
+| 6 | **Captions** | Clean, language-detect, translate Reels captions. |
+| 7 | **Clip embeddings** | `Qwen3-VL-Embedding-8B` over per-clip cases (`video`, `sandwich`, `audio`, optional `maest` / `gemini`). Local GPU + auto-scaling RunPod pull-workers via the HTTP coordinator. |
+| 8 | **User embeddings** | Mean-pool clip vectors per user, per case. |
+| 9 | **Cluster search** | Grid sweep over UMAP + HDBSCAN hyperparameters. |
+| 10 | **Cluster validation** | DBCV + silhouette, plateau detection. |
+| 11 | **Clustering** | Two-pass UMAP (nD → 2D) + HDBSCAN; writes `UserCluster` + HDBSCAN soft-membership **centrality**. |
+| 12 | **Visualization** | Per-case 2D layouts, cluster ellipses, atlas rows for the frontend viewer. |
+
+## Layout
+
+| Path | Role |
+|------|------|
+| `core/` | Cross-cutting infra: config, **two-DB** schema (anon main + PII identity), storage, ffmpeg, fingerprint, logging, vendored model wrappers. |
+| `modules/<stage>/` | One subpackage per pipeline stage; `run(settings, secrets)` entry point. |
+| `services/embedder/` | Container image for the GPU pull-worker pod (Dockerfile + compose). |
+| `scripts/` | Orchestration only — `start.sh`, `publish_visualization.py`, `analyze.py`, `cluster_analysis/`. |
+| `docs/` | Quarto paper + paper-facing tables/plots in `docs/reporting/`. |
+| `frontend/` | Static atlas viewer (Vite + Bun). See [`frontend/README.md`](frontend/README.md). |
+
+## Configuration
+
+| Source | Holds | Loader |
+|--------|-------|--------|
+| `config.toml` | Non-secret tunables — paths, per-stage hyperparameters, embedding cases, search/validation knobs. | `Settings` (Pydantic) |
+| `.env` | Secrets — `HIKER_API_KEY`, `HUGGINGFACE_TOKEN`, `EMBEDDER_TOKEN`, `DATABASE_URL`, `IDENTITY_DB_URL`, `OBJECT_STORE_*`, `RUNPOD_*`. | `Secrets` (Pydantic) |
+
+Each stage takes a typed slice of both.
 
 ## License
 
 Apache-2.0 — see [`LICENSE`](LICENSE).
-
-## Frontend
-
-A static atlas viewer lives in `frontend/`. See
-[`frontend/README.md`](frontend/README.md) for details.

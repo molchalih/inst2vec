@@ -3,7 +3,7 @@ import { computeWaveDelays, waveProgress, scalePop } from "./wave";
 import type { JoinedUser } from "./join";
 
 const ju = (id: number, fromXY: [number, number] | null, toXY: [number, number] | null): JoinedUser => ({
-  id, fromXY, toXY, fromCluster: 0, toCluster: 0,
+  id, fromXY, toXY, fromCluster: 0, toCluster: 0, fromCentrality: 0, toCentrality: 0,
 });
 
 describe("computeWaveDelays", () => {

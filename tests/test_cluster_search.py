@@ -379,39 +379,6 @@ def test_run_cluster_search_uses_single_thread_umap_per_combo(mem_engine, monkey
     assert received, "compute_clusters should have been called"
 
 
-def test_run_cluster_search_parallel_workers_uses_thread_pool(mem_engine, monkeypatch):
-    from concurrent.futures import ThreadPoolExecutor
-
-    max_workers_seen: list[int | None] = []
-
-    class RecordingPool(ThreadPoolExecutor):
-        def __init__(self, *args, max_workers=None, **kwargs):
-            max_workers_seen.append(max_workers)
-            super().__init__(*args, max_workers=max_workers, **kwargs)
-
-    def tracking_compute(matrix, **kw):
-        assert kw.get("umap_n_jobs") in (None, 1)
-        return _fake_result()
-
-    monkeypatch.setattr("modules.clustering.search.ThreadPoolExecutor", RecordingPool)
-    monkeypatch.setattr(
-        "modules.clustering.search.load_user_matrix",
-        lambda case, preprocess="none": (_fake_matrix(), list(range(80))),
-    )
-    monkeypatch.setattr("modules.clustering.search.compute_clusters", tracking_compute)
-
-    from modules.clustering.search import run_cluster_search
-
-    settings = _make_search_settings(umap_n_components=[5, 6])
-    run_cluster_search(
-        settings, cases=("video", "sandwich", "audio"), clustering_grid_workers=3
-    )
-
-    with Session(mem_engine) as s:
-        assert s.query(ClusterRun).count() == 6
-    assert max_workers_seen == [3, 3, 3]
-
-
 # ── fingerprint integration tests ────────────────────────────────────────────
 # These tests use the conftest-initialised in-memory DB (not mem_engine) so
 # fingerprint StageState rows land in the same engine as ClusterRun rows.

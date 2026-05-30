@@ -16,7 +16,7 @@ import time
 import httpx
 
 from core.config import load_pod_config
-from core.console import log
+from core.log import event, stage
 from modules.embeddings.cases import build_provider_router, remote_served_cases
 from modules.embeddings.worker import HttpJobSource, run_worker
 
@@ -65,13 +65,14 @@ def wait_for_coordinator(
             client.close()
 
 
+@stage("embed:pod")
 def run_pod(host: str, video_root: str) -> None:
     settings = load_pod_config()
     token = os.environ.get("EMBEDDER_TOKEN", "")
     if not token:
         raise SystemExit("EMBEDDER_TOKEN env var is required for --pod")
     base_url = _coordinator_base_url(host)
-    log("embed:pod", "SCAN", "coordinator", host)
+    event("INIT", "coordinator", stats={"host": host})
     wait_for_coordinator(base_url, timeout_s=settings.embeddings.pod_connect_timeout_s)
     # One ProviderRouter over the cases a pod may be handed; the shared Qwen
     # backbone covers video/sandwich/audio with a single model instance.

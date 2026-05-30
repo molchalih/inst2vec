@@ -93,13 +93,13 @@ def test_users_summary_to_markdown_renders_curated_metrics():
     out = users_summary_to_markdown(eng)
 
     assert out.startswith("| Metric | Value |")
-    assert r"| $N$ | 4 |" in out
-    assert r"| $N_{\mathrm{kept}}$ | 3 (75.0%) |" in out
-    assert r"| $\tilde{x}_{\mathrm{following}}$ | 100 |" in out
-    assert r"| $\mu_\mathrm{following}$ | 116.7 |" in out
-    assert r"| $[\min-max]_{\mathrm{following}}$ | 50-200 |" in out
-    assert r"| $\tilde{x}_{\mathrm{views}}$ | 21 |" in out
-    assert r"| $\mu_\mathrm{views}$ | 22.0 |" in out
+    assert "| total users | 4 |" in out
+    assert "| kept users | 3 (75.0%) |" in out
+    assert "| median following | 100 |" in out
+    assert "| mean following | 116.7 |" in out
+    assert "| min–max following | 50-200 |" in out
+    assert "| median views | 21 |" in out
+    assert "| mean views | 22.0 |" in out
 
 
 def test_users_summary_to_markdown_scopes_users_to_kept_rows():
@@ -141,12 +141,12 @@ def test_users_summary_to_markdown_scopes_users_to_kept_rows():
 
     out = users_summary_to_markdown(eng)
 
-    assert r"| $N_{\mathrm{kept}}$ | 2 (66.7%) |" in out
-    assert r"| $\tilde{x}_{\mathrm{following}}$ | 75 |" in out
-    assert r"| $\mu_\mathrm{following}$ | 75.0 |" in out
-    assert r"| $[\min-max]_{\mathrm{following}}$ | 50-100 |" in out
-    assert r"| $\tilde{x}_{\mathrm{views}}$ | 125 |" in out
-    assert r"| $\mu_\mathrm{views}$ | 125.0 |" in out
+    assert "| kept users | 2 (66.7%) |" in out
+    assert "| median following | 75 |" in out
+    assert "| mean following | 75.0 |" in out
+    assert "| min–max following | 50-100 |" in out
+    assert "| median views | 125 |" in out
+    assert "| mean views | 125.0 |" in out
 
 
 def test_users_summary_to_markdown_uses_dash_for_missing_numeric_values():
@@ -161,11 +161,11 @@ def test_users_summary_to_markdown_uses_dash_for_missing_numeric_values():
 
     out = users_summary_to_markdown(eng)
 
-    assert r"| $\tilde{x}_{\mathrm{following}}$ | - |" in out
-    assert r"| $\mu_\mathrm{following}$ | - |" in out
-    assert r"| $[\min-max]_{\mathrm{following}}$ | - |" in out
-    assert r"| $\tilde{x}_{\mathrm{views}}$ | - |" in out
-    assert r"| $\mu_\mathrm{views}$ | - |" in out
+    assert "| median following | - |" in out
+    assert "| mean following | - |" in out
+    assert "| min–max following | - |" in out
+    assert "| median views | - |" in out
+    assert "| mean views | - |" in out
 
 
 def test_render_users_summary_returns_markdown_object():

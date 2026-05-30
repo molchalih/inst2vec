@@ -11,19 +11,17 @@ from __future__ import annotations
 
 import os
 import threading
-import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import nullcontext
 
 from core.config import Secrets, Settings
-from core.console import log, progress
+from core.console import progress
 from core.database import Clip, get_session
+from core.log import StageResult, event, scope, stage
 from core.storage import get_object_store
 
 __all__ = ["run"]
-
-STAGE = "upload"
 
 # Heartbeat cadence: emit a running PUT summary line every N completed clips so
 # a long batch shows progress between SCAN and SEAL (mirrors other stages).
@@ -110,14 +108,15 @@ def run_uploads(
     return available
 
 
-def upload_videos(settings, secrets) -> None:
+@scope("upload")
+def upload_videos(settings, secrets) -> StageResult:
     """Verify selected+downloaded clips against the bucket and upload the
     missing/changed ones concurrently. The bucket is authoritative:
     ``Clip.is_uploaded`` is rewritten from the real post-verify state, so a
     deleted/half-uploaded object self-heals on the next run."""
     if not settings.storage.bucket:
-        log(STAGE, "SKIP", "bucket", "none")
-        return
+        event("SKIP", "bucket", stats={"reason": "unconfigured"})
+        return StageResult(done=0)
 
     store = get_object_store(settings, secrets)
     video_dir = settings.paths.video_dir
@@ -125,7 +124,6 @@ def upload_videos(settings, secrets) -> None:
     put_workers = settings.storage.upload_concurrency
 
     session = get_session()
-    t_stage = time.perf_counter()
     try:
         candidates = (
             session.query(Clip)
@@ -133,8 +131,8 @@ def upload_videos(settings, secrets) -> None:
             .all()
         )
         if not candidates:
-            return
-        log(STAGE, "SCAN", "clips", "ok", stats={"todo": len(candidates)})
+            return StageResult(done=0)
+        event("SCAN", "clips", stats={"todo": len(candidates)})
 
         clips = [(c.id, os.path.join(video_dir, f"{c.id}.mp4")) for c in candidates]
         key_for = store.key_for_clip
@@ -154,10 +152,10 @@ def upload_videos(settings, secrets) -> None:
                 else:  # missing | failed
                     counts["fail"] += 1
                     err = "no local file" if outcome == "missing" else "head/put failed"
-                    log(STAGE, "PUT", f"clips/{cid}.mp4", "ERR", stats={"err": err})
+                    event("PUT", f"clips/{cid}.mp4", result="ERR", stats={"err": err})
                 advance(1)
                 if done % _LOG_EVERY == 0:
-                    log(STAGE, "PUT", "clips", "ok", stats={"done": done, **counts})
+                    event("PUT", "clips", stats={"done": done, **counts})
 
             available = run_uploads(
                 store,
@@ -177,23 +175,15 @@ def upload_videos(settings, secrets) -> None:
                 uploaded += 1
             else:
                 absent += 1
+        failed = counts["fail"]
         session.commit()
     finally:
         session.close()
 
-    log(
-        STAGE,
-        "SEAL",
-        "upload",
-        "ok",
-        stats={
-            "available": uploaded,
-            "absent": absent,
-            "time": time.perf_counter() - t_stage,
-        },
-    )
+    return StageResult(available=uploaded, absent=absent, failed=failed)
 
 
-def run(settings: Settings, secrets: Secrets) -> None:
+@stage("upload")
+def run(settings: Settings, secrets: Secrets) -> StageResult:
     """Upload selected clip videos to the object store."""
-    upload_videos(settings, secrets)
+    return upload_videos(settings, secrets)

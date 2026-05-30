@@ -2,8 +2,8 @@
 
 Fingerprint-gated stage that materializes the selected best ClusterRun's
 parameters into UserCluster rows. Mirrors the user-embeddings stage
-pattern: fingerprint -> wipe scoped outputs on stale -> recompute in
-memory -> short write block (delete + bulk merge + mark_complete +
+pattern: fingerprint → wipe scoped outputs on stale → recompute in
+memory → short write block (delete + bulk merge + mark_complete +
 commit). Empty UserClusters is a valid stable output.
 """
 
@@ -15,13 +15,13 @@ import time
 
 from core import fingerprint as fp
 from core.config import Settings, ValidationSettings
-from core.console import log
 from core.database import (
     ClusterRun,
     StageState,
     UserCluster,
     get_session,
 )
+from core.log import event, stage, warn
 from core.pipeline import Stage
 from modules.clustering.core import (
     CLUSTER_PARAM_COLS,
@@ -32,9 +32,9 @@ from modules.clustering.results import select_best_cluster_run
 
 STAGE = Stage.CLUSTER_ASSIGN
 # Bump when assign-stage logic changes in a way the data/dependency
-# fingerprints would not detect (e.g., changing how labels are derived
-# from compute_clusters output).
-_CONFIG_IDENTITY = "assign=v1"
+# fingerprints would not detect (e.g., how labels are derived from
+# compute_clusters output).
+_CONFIG_IDENTITY = "assign=v2"
 
 
 def _best_params(best: ClusterRun) -> dict:
@@ -48,9 +48,8 @@ def _fingerprint(session, case: str, settings: ValidationSettings) -> fp.Fingerp
     if best is None:
         data_payload: list[tuple] = []
     else:
-        params = _best_params(best)
         params_hash = hashlib.sha256(
-            json.dumps(params, sort_keys=True, default=str).encode()
+            json.dumps(_best_params(best), sort_keys=True, default=str).encode()
         ).hexdigest()
         data_payload = [(best.id, params_hash)]
     config_payload = json.dumps(
@@ -67,112 +66,112 @@ def _fingerprint(session, case: str, settings: ValidationSettings) -> fp.Fingerp
     )
 
 
-def _assign_case(
-    case: str,
-    settings: ValidationSettings,
-    preprocess: str = "none",
-    max_cluster_frac: float = 0.0,
-) -> None:
-    scope = f"cluster:{case}"
-    t_stage = time.perf_counter()
-    # 1. gate on upstream validation state
+def _fit_user_clusters(
+    case: str, best: ClusterRun, max_cluster_frac: float, preprocess: str
+) -> list[UserCluster]:
+    """Run the champion's params on the user matrix; emit a UserCluster row per user."""
+    matrix, user_ids = load_user_matrix(case, preprocess=preprocess)
+    if matrix.shape[0] == 0:
+        return []
+    t_fit = time.perf_counter()
+    try:
+        result = compute_clusters(
+            matrix, hdbscan_max_cluster_frac=max_cluster_frac, **_best_params(best)
+        )
+    except ValueError as exc:
+        event(
+            "EXTRACT",
+            "champion",
+            result="ERR",
+            stats={"time": time.perf_counter() - t_fit, "err": str(exc)},
+        )
+        return []
+    event(
+        "EXTRACT",
+        "champion",
+        stats={
+            "time": time.perf_counter() - t_fit,
+            "k": result.n_clusters,
+            "noise": round(result.noise_ratio, 3),
+        },
+    )
+    centralities = result.centralities
+    has_centrality = centralities.size == len(user_ids)
+    return [
+        UserCluster(
+            user_id=user_ids[i],
+            embedding_case=case,
+            cluster_id=int(result.labels[i]),
+            umap_x=float(result.coords_2d[i, 0]),
+            umap_y=float(result.coords_2d[i, 1]),
+            centrality=float(centralities[i]) if has_centrality else 0.0,
+        )
+        for i in range(len(user_ids))
+    ]
+
+
+def _seal(case: str, current: fp.Fingerprint, rows: list[UserCluster]) -> None:
     session = get_session()
     try:
-        upstream = session.get(StageState, ("cluster_validation", case))
-        if upstream is None:
-            log(scope, "SKIP", "validation", "none")
-            return
+        session.query(UserCluster).filter_by(embedding_case=case).delete()
+        if rows:
+            session.bulk_save_objects(rows)
+        fp.mark_complete(session, STAGE, case, current)
+        session.commit()
+    finally:
+        session.close()
+
+
+def _check_fingerprint(
+    case: str, settings: ValidationSettings
+) -> tuple[fp.Fingerprint | None, bool, str, ClusterRun | None]:
+    """Returns (current, stale, diff, best). current is None when upstream
+    validation has not run for this case (then stale is False)."""
+    session = get_session()
+    try:
+        if session.get(StageState, ("cluster_validation", case)) is None:
+            return None, False, "", None
         current = _fingerprint(session, case, settings)
         stale = fp.is_stale(session, STAGE, case, current)
         diff = fp.describe_diff(session, STAGE, case, current) if stale else ""
         best = select_best_cluster_run(
             session, case, threshold=float(settings.plateau_drop_threshold)
         )
+        return current, stale, diff, best
     finally:
         session.close()
 
+
+def _assign_case(
+    case: str,
+    settings: ValidationSettings,
+    preprocess: str = "none",
+    max_cluster_frac: float = 0.0,
+) -> None:
+    current, stale, diff, best = _check_fingerprint(case, settings)
+
+    if current is None:
+        warn("SKIP", "validation")
+        return
     if not stale:
-        log(scope, "SKIP", "fingerprint", "ok")
+        event("SKIP", "fingerprint")
         return
 
-    log(scope, "SCAN", "fingerprint", "stale", stats={"diff": diff})
-
-    # 2. compute in memory (no DB lock)
-    new_user_clusters: list[UserCluster] = []
-    fit_stats: dict = {}
-    if best is not None:
-        matrix, user_ids = load_user_matrix(case, preprocess=preprocess)
-        if matrix.shape[0] > 0:
-            params = _best_params(best)
-            t_fit = time.perf_counter()
-            try:
-                result = compute_clusters(
-                    matrix, hdbscan_max_cluster_frac=max_cluster_frac, **params
-                )
-                new_user_clusters = [
-                    UserCluster(
-                        user_id=user_ids[i],
-                        embedding_case=case,
-                        cluster_id=int(result.labels[i]),
-                        umap_x=float(result.coords_2d[i, 0]),
-                        umap_y=float(result.coords_2d[i, 1]),
-                    )
-                    for i in range(len(user_ids))
-                ]
-                fit_stats = {
-                    "time": time.perf_counter() - t_fit,
-                    "k": result.n_clusters,
-                    "noise": round(result.noise_ratio, 3),
-                }
-                log(scope, "FIT", "champion", "ok", stats=fit_stats)
-            except ValueError as exc:
-                log(
-                    scope,
-                    "FIT",
-                    "champion",
-                    "ERR",
-                    stats={
-                        "time": time.perf_counter() - t_fit,
-                        "err": str(exc),
-                    },
-                )
-                new_user_clusters = []
-
-    # 3. short write section (open AFTER compute)
-    session = get_session()
-    try:
-        session.query(UserCluster).filter_by(embedding_case=case).delete()
-        if new_user_clusters:
-            session.bulk_save_objects(new_user_clusters)
-        fp.mark_complete(session, STAGE, case, current)
-        session.commit()
-    finally:
-        session.close()
-    log(
-        scope,
-        "WRITE",
-        "user_clusters",
-        "ok",
-        stats={"rows": len(new_user_clusters)},
+    warn("SCAN", "fingerprint", stats={"diff": diff})
+    rows = (
+        _fit_user_clusters(case, best, max_cluster_frac, preprocess)
+        if best is not None
+        else []
     )
-    log(
-        scope,
-        "SEAL",
-        "assign",
-        "ok",
-        stats={"time": time.perf_counter() - t_stage},
-    )
+    _seal(case, current, rows)
+    event("WRITE", "user_clusters", stats={"rows": len(rows)})
 
 
+@stage("clustering:assign")
 def assign_clusters(settings: Settings, cases: tuple[str, ...]) -> None:
-    """Per-case final clustering assignment, fingerprint-gated.
-
-    ``cases`` is the tuple of embedding case names to assign clusters for
-    (e.g. ``("video", "sandwich", "audio")``).  Best-run selection uses
-    ``settings.validation.plateau_drop_threshold``.
-    """
-    validation_settings = settings.validation
+    """Per-case final clustering assignment, fingerprint-gated."""
+    validation = settings.validation
     max_cluster_frac = float(settings.search.hdbscan_max_cluster_frac)
     for case in cases:
         preprocess = settings.search.embedding_preprocess.get(case, "none")
-        _assign_case(case, validation_settings, preprocess, max_cluster_frac)
+        _assign_case(case, validation, preprocess, max_cluster_frac)

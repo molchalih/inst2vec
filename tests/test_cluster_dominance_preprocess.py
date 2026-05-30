@@ -69,6 +69,7 @@ def test_compute_clusters_translates_frac_to_max_cluster_size(monkeypatch):
             captured.update(kw)
 
         def fit_predict(self, m):
+            self.probabilities_ = np.ones(m.shape[0], dtype=np.float32)
             return np.zeros(m.shape[0], dtype=int)
 
     monkeypatch.setattr(core, "UMAP", FakeUMAP)
@@ -143,7 +144,7 @@ def test_dominance_guard_rejects_dominant_run(monkeypatch):
         max_dominance=0.4,
     )
     matrix = np.ones((30, 6), dtype=np.float32)
-    updates = vmod._compute_updates("video", matrix, settings, workers=1)
+    updates = vmod._compute_updates("video", matrix, settings)
 
     assert updates[dominant_id]["passes_validation"] is False
     assert updates[balanced_id]["passes_validation"] is True
@@ -179,6 +180,6 @@ def test_dominance_guard_disabled_keeps_rounded_lone_cluster(monkeypatch):
         max_dominance=1.0,
     )
     matrix = np.ones((30, 6), dtype=np.float32)
-    updates = vmod._compute_updates("video", matrix, settings, workers=1)
+    updates = vmod._compute_updates("video", matrix, settings)
 
     assert updates[run_id]["passes_validation"] is True

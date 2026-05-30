@@ -78,15 +78,15 @@ def test_clips_summary_to_markdown_renders_curated_metrics():
     out = clips_summary_to_markdown(eng)
 
     assert out.startswith("| Metric | Value |")
-    assert r"| $N$ | 3 |" in out
-    assert r"| $N_{\mathrm{kept}}$ | 2 (66.7%) |" in out
-    assert r"| $N_{\mathrm{caption}}$ | 1 (50.0%) |" in out
-    assert r"| $N_{\mathrm{caption\_trans}}$ | 1 (50.0%) |" in out
-    assert r"| $N_{\mathrm{speech}}$ | 1 (50.0%) |" in out
-    assert r"| $N_{\mathrm{speech\_trans}}$ | 1 (50.0%) |" in out
-    assert r"| $\tilde{x}_{\mathrm{views}}$ | 150 |" in out
-    assert r"| $\mu_\mathrm{views}$ | 150.0 |" in out
-    assert r"| $[\min-max]_{\mathrm{views}}$ | 100-200 |" in out
+    assert "| total clips | 3 |" in out
+    assert "| kept clips | 2 (66.7%) |" in out
+    assert "| with caption | 1 (50.0%) |" in out
+    assert "| with caption translation | 1 (50.0%) |" in out
+    assert "| with speech | 1 (50.0%) |" in out
+    assert "| with speech translation | 1 (50.0%) |" in out
+    assert "| median views | 150 |" in out
+    assert "| mean views | 150.0 |" in out
+    assert "| min–max views | 100-200 |" in out
 
     assert "| Clips disqualified |" not in out
     assert "| Clips with caption language |" not in out
@@ -111,7 +111,7 @@ def test_clips_summary_to_markdown_uses_dash_for_missing_numeric_values():
 
     out = clips_summary_to_markdown(eng)
 
-    assert r"| $\tilde{x}_{\mathrm{views}}$ | - |" in out
+    assert "| median views | - |" in out
 
 
 def test_render_clips_summary_returns_markdown_object():

@@ -70,20 +70,16 @@ def _seed(session, *, is_speech_detected: bool | None = True) -> None:
     session.commit()
 
 
-def test_reset_speech_outputs_nulls_the_four_fields(db_session):
-    _seed(db_session)
-    reset_speech_outputs(db_session)
-
-    clip = db_session.query(Clip).filter_by(id=10).one()
-    assert clip.is_speech_detected is None
-    assert clip.speech_transcription is None
-    assert clip.speech_language is None
-    assert clip.speech_translation is None
-
-
 def test_reset_speech_outputs_also_clears_ineligible_clips(db_session):
     """Stale speech outputs on a currently-ineligible clip must be cleared
-    too so re-selection in a later run does not skip re-processing."""
+    too so re-selection in a later run does not skip re-processing.
+
+    Verifies all seven NULL'd columns: the four content columns plus the
+    three Whisper metric columns (speech_confidence, speech_avg_logprob,
+    speech_compression_ratio). Drift between this and
+    ``reset_speech_outputs`` itself silently leaks stale metrics across
+    config-drift resets — guard the full surface here.
+    """
     from core.database import User
 
     db_session.merge(User(id=2, is_selected=True, is_eligible=True))
@@ -97,6 +93,9 @@ def test_reset_speech_outputs_also_clears_ineligible_clips(db_session):
             speech_transcription="old",
             speech_language="en",
             speech_translation="old",
+            speech_confidence=0.9,
+            speech_avg_logprob=-0.3,
+            speech_compression_ratio=1.4,
         )
     )
     db_session.commit()
@@ -107,6 +106,9 @@ def test_reset_speech_outputs_also_clears_ineligible_clips(db_session):
     assert clip.speech_transcription is None
     assert clip.speech_language is None
     assert clip.speech_translation is None
+    assert clip.speech_confidence is None
+    assert clip.speech_avg_logprob is None
+    assert clip.speech_compression_ratio is None
 
 
 def test_first_run_seals_stage(monkeypatch, db_session):
@@ -114,9 +116,9 @@ def test_first_run_seals_stage(monkeypatch, db_session):
     no-ops here), and seals StageState."""
     from modules import speech as speech_pkg
 
-    monkeypatch.setattr(speech_pkg, "classify_speech", lambda **kw: None)
+    monkeypatch.setattr(speech_pkg, "classify_speech", lambda **kw: (0, 0))
     monkeypatch.setattr(speech_pkg, "translate_speech", lambda **kw: None)
-    monkeypatch.setattr(speech_pkg, "clean_speech", lambda: None)
+    monkeypatch.setattr(speech_pkg, "clean_speech", lambda: 0)
 
     _seed(db_session)
     process_speech(_SpeechCfg(), video_dir="/tmp", speech_audio_dir="/tmp")
@@ -128,9 +130,9 @@ def test_first_run_seals_stage(monkeypatch, db_session):
 def test_unchanged_config_does_not_reset(monkeypatch, db_session):
     from modules import speech as speech_pkg
 
-    monkeypatch.setattr(speech_pkg, "classify_speech", lambda **kw: None)
+    monkeypatch.setattr(speech_pkg, "classify_speech", lambda **kw: (0, 0))
     monkeypatch.setattr(speech_pkg, "translate_speech", lambda **kw: None)
-    monkeypatch.setattr(speech_pkg, "clean_speech", lambda: None)
+    monkeypatch.setattr(speech_pkg, "clean_speech", lambda: 0)
 
     _seed(db_session)
     cfg = _SpeechCfg()
@@ -145,9 +147,9 @@ def test_unchanged_config_does_not_reset(monkeypatch, db_session):
 def test_config_change_resets_speech_columns(monkeypatch, db_session):
     from modules import speech as speech_pkg
 
-    monkeypatch.setattr(speech_pkg, "classify_speech", lambda **kw: None)
+    monkeypatch.setattr(speech_pkg, "classify_speech", lambda **kw: (0, 0))
     monkeypatch.setattr(speech_pkg, "translate_speech", lambda **kw: None)
-    monkeypatch.setattr(speech_pkg, "clean_speech", lambda: None)
+    monkeypatch.setattr(speech_pkg, "clean_speech", lambda: 0)
 
     _seed(db_session)
     process_speech(_SpeechCfg(), video_dir="/tmp", speech_audio_dir="/tmp")

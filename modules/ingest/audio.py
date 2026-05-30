@@ -12,10 +12,11 @@ from typing import NamedTuple
 
 from core import fingerprint as fp
 from core.config import AudioExtractionSettings
-from core.console import log, progress
+from core.console import progress
 from core.database import Clip, StageState, clip_used_in_analysis, get_session
 from core.ffmpeg import has_audio_stream, run_ffmpeg
 from core.fingerprint import stable_subset_payload
+from core.log import StageResult, event, stage
 from core.pipeline import (
     AUDIO_EXTRACT_MIR_SCOPE,
     AUDIO_EXTRACT_MIR_STAGE,
@@ -24,7 +25,6 @@ from core.pipeline import (
 
 AUDIO_EXTRACT_STAGE = Stage.AUDIO_EXTRACT
 AUDIO_EXTRACT_SCOPE = "default"
-SCOPE = "audio"
 
 
 class ExtractResult(NamedTuple):
@@ -105,7 +105,8 @@ def extract_audio(
     )
 
 
-def extract_audio_stage(settings) -> None:
+@stage("ingest:audio")
+def extract_audio_stage(settings) -> StageResult:
     """Extract mp3 audio for every downloaded clip into ``paths.audio_dir``.
 
     Always runs. Idempotent via fingerprint seal + per-file mtime check.
@@ -119,7 +120,7 @@ def extract_audio_stage(settings) -> None:
             .all()
         )
         if not clips:
-            return
+            return StageResult(done=0)
 
         ids = [c.id for c in clips]
         paths = settings.paths
@@ -137,8 +138,8 @@ def extract_audio_stage(settings) -> None:
             ),
         )
         if not fp.is_stale(session, AUDIO_EXTRACT_STAGE, AUDIO_EXTRACT_SCOPE, current):
-            log(SCOPE, "SKIP", "fingerprint", "ok")
-            return
+            event("SKIP", "fingerprint")
+            return StageResult(done=0)
 
         failures = 0
         skipped = 0
@@ -157,11 +158,10 @@ def extract_audio_stage(settings) -> None:
                 audio_path = str(paths.audio_for(clip.id))
                 if not os.path.exists(video_path):
                     failures += 1
-                    log(
-                        SCOPE,
+                    event(
                         "EXTRACT",
-                        f"clip_{clip.id}.mp3",
-                        "ERR",
+                        f"clip_{clip.id}",
+                        result="ERR",
                         stats={"err": "no video on disk"},
                     )
                     advance(detail=f"✗ {clip.id} (no video)")
@@ -172,11 +172,9 @@ def extract_audio_stage(settings) -> None:
                     continue
                 if not has_audio_stream(video_path):
                     skipped += 1
-                    log(
-                        SCOPE,
+                    event(
                         "EXTRACT",
-                        f"clip_{clip.id}.mp3",
-                        "none",
+                        f"clip_{clip.id}",
                         stats={"reason": "no audio stream"},
                     )
                     advance(detail=f"⊘ {clip.id} (no audio)")
@@ -195,11 +193,9 @@ def extract_audio_stage(settings) -> None:
                 cid = future_to_id[fut]
                 result = fut.result()
                 if result.ok:
-                    log(
-                        SCOPE,
+                    event(
                         "EXTRACT",
-                        f"clip_{cid}.mp3",
-                        "ok",
+                        f"clip_{cid}",
                         stats={
                             "time": result.duration,
                             "size": result.size or 0,
@@ -208,11 +204,10 @@ def extract_audio_stage(settings) -> None:
                     advance(detail=f"✓ {cid}")
                 else:
                     failures += 1
-                    log(
-                        SCOPE,
+                    event(
                         "EXTRACT",
-                        f"clip_{cid}.mp3",
-                        "ERR",
+                        f"clip_{cid}",
+                        result="ERR",
                         stats={
                             "time": result.duration,
                             "err": result.err or "unknown",
@@ -223,37 +218,18 @@ def extract_audio_stage(settings) -> None:
         if failures == 0:
             fp.mark_complete(session, AUDIO_EXTRACT_STAGE, AUDIO_EXTRACT_SCOPE, current)
             session.commit()
-            log(
-                SCOPE,
-                "SEAL",
-                "audio",
-                "ok",
-                stats={
-                    "done": len(clips) - skipped - fresh,
-                    "cached": fresh,
-                    "skipped": skipped,
-                    "time": time.perf_counter() - t_stage,
-                },
-            )
-        else:
-            log(
-                SCOPE,
-                "SEAL",
-                "audio",
-                "stale",
-                stats={
-                    "done": len(clips) - failures - skipped - fresh,
-                    "cached": fresh,
-                    "skipped": skipped,
-                    "err": failures,
-                    "time": time.perf_counter() - t_stage,
-                },
-            )
+
+        done = len(clips) - skipped - fresh - failures
+        return StageResult(
+            done=done,
+            cached=fresh,
+            skipped=skipped,
+            failed=failures,
+            time=time.perf_counter() - t_stage,
+        )
     finally:
         session.close()
 
-
-LOG_SCOPE_MIR_AUDIO = "audio_mir"
 
 _MIR_EXTRACT_CONFIG_FIELDS: tuple[str, ...] = (
     "mir_codec",
@@ -351,7 +327,8 @@ def sweep_orphan_mir_wavs(
     return removed
 
 
-def extract_audio_mir_stage(settings) -> None:
+@stage("ingest:audio_mir")
+def extract_audio_mir_stage(settings) -> StageResult:
     """Extract high-quality WAV audio for every downloaded clip into ``paths.audio_mir_dir``.
 
     Sibling of ``extract_audio_stage``; runs after it in ``main.py``.
@@ -363,7 +340,7 @@ def extract_audio_mir_stage(settings) -> None:
             session.query(Clip).filter(*clip_used_in_analysis()).order_by(Clip.id).all()
         )
         if not clips:
-            return
+            return StageResult(done=0)
 
         ids = [c.id for c in clips]
         paths = settings.paths
@@ -380,8 +357,8 @@ def extract_audio_mir_stage(settings) -> None:
         if not fp.is_stale(
             session, AUDIO_EXTRACT_MIR_STAGE, AUDIO_EXTRACT_MIR_SCOPE, current
         ):
-            log(LOG_SCOPE_MIR_AUDIO, "SKIP", "fingerprint", "ok")
-            return
+            event("SKIP", "fingerprint")
+            return StageResult(done=0)
 
         stored = session.get(
             StageState, (AUDIO_EXTRACT_MIR_STAGE, AUDIO_EXTRACT_MIR_SCOPE)
@@ -401,13 +378,7 @@ def extract_audio_mir_stage(settings) -> None:
             expected_channels=ae.mir_channels,
         )
         if n_removed:
-            log(
-                LOG_SCOPE_MIR_AUDIO,
-                "SWEEP",
-                "audio_mir",
-                "ok",
-                stats={"removed": n_removed},
-            )
+            event("DELETE", "audio_mir", stats={"removed": n_removed})
 
         failures = 0
         skipped = 0
@@ -424,11 +395,10 @@ def extract_audio_mir_stage(settings) -> None:
                 audio_path = str(paths.audio_mir_for(clip.id))
                 if not os.path.exists(video_path):
                     failures += 1
-                    log(
-                        LOG_SCOPE_MIR_AUDIO,
+                    event(
                         "EXTRACT",
-                        f"clip_{clip.id}.wav",
-                        "ERR",
+                        f"clip_{clip.id}",
+                        result="ERR",
                         stats={"err": "no video on disk"},
                     )
                     advance(detail=f"✗ {clip.id} (no video)")
@@ -439,11 +409,9 @@ def extract_audio_mir_stage(settings) -> None:
                     continue
                 if not has_audio_stream(video_path):
                     skipped += 1
-                    log(
-                        LOG_SCOPE_MIR_AUDIO,
+                    event(
                         "EXTRACT",
-                        f"clip_{clip.id}.wav",
-                        "none",
+                        f"clip_{clip.id}",
                         stats={"reason": "no audio stream"},
                     )
                     advance(detail=f"⊘ {clip.id} (no audio)")
@@ -466,11 +434,9 @@ def extract_audio_mir_stage(settings) -> None:
                 cid = future_to_id[fut]
                 result = fut.result()
                 if result.ok:
-                    log(
-                        LOG_SCOPE_MIR_AUDIO,
+                    event(
                         "EXTRACT",
-                        f"clip_{cid}.wav",
-                        "ok",
+                        f"clip_{cid}",
                         stats={
                             "time": result.duration,
                             "size": result.size or 0,
@@ -479,11 +445,10 @@ def extract_audio_mir_stage(settings) -> None:
                     advance(detail=f"✓ {cid}")
                 else:
                     failures += 1
-                    log(
-                        LOG_SCOPE_MIR_AUDIO,
+                    event(
                         "EXTRACT",
-                        f"clip_{cid}.wav",
-                        "ERR",
+                        f"clip_{cid}",
+                        result="ERR",
                         stats={
                             "time": result.duration,
                             "err": result.err or "unknown",
@@ -496,31 +461,14 @@ def extract_audio_mir_stage(settings) -> None:
                 session, AUDIO_EXTRACT_MIR_STAGE, AUDIO_EXTRACT_MIR_SCOPE, current
             )
             session.commit()
-            log(
-                LOG_SCOPE_MIR_AUDIO,
-                "SEAL",
-                "audio_mir",
-                "ok",
-                stats={
-                    "done": len(clips) - skipped - fresh,
-                    "cached": fresh,
-                    "skipped": skipped,
-                    "time": time.perf_counter() - t_stage,
-                },
-            )
-        else:
-            log(
-                LOG_SCOPE_MIR_AUDIO,
-                "SEAL",
-                "audio_mir",
-                "stale",
-                stats={
-                    "done": len(clips) - failures - skipped - fresh,
-                    "cached": fresh,
-                    "skipped": skipped,
-                    "err": failures,
-                    "time": time.perf_counter() - t_stage,
-                },
-            )
+
+        done = len(clips) - skipped - fresh - failures
+        return StageResult(
+            done=done,
+            cached=fresh,
+            skipped=skipped,
+            failed=failures,
+            time=time.perf_counter() - t_stage,
+        )
     finally:
         session.close()

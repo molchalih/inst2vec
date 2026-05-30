@@ -41,6 +41,17 @@ export const tokens = {
     alpha: 0.7,
     strokeColorHover: "#ffffff",
     strokeWidthHover: 2,
+    // Aesthetic-centrality size encoding. HDBSCAN soft membership [0, 1]
+    // maps through a convex gamma curve to a per-user radius multiplier
+    // in [min, max]. The real distribution is heavily skewed near 1
+    // (median ≈ 0.95), so a linear map collapses every signal user to
+    // near-max; gamma > 1 spreads them out. Noise points bypass this
+    // mapping and stay at scale 1.
+    centrality: {
+      min: 0.6,
+      max: 1.5,
+      gamma: 3,
+    },
   },
   ellipse: {
     strokeWidth: 2,

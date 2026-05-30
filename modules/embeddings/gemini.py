@@ -11,7 +11,7 @@ import os
 import time
 from dataclasses import dataclass
 
-from core.console import log
+from core.log import event, scope, warn
 from modules.embeddings.sampling import probe_duration_seconds
 
 
@@ -78,6 +78,7 @@ class GeminiMultimodalProvider:
 
         self._client = genai.Client(api_key=api_key)
 
+    @scope("embed:gemini")
     def embed(self, payload: dict) -> list[list[float]]:
         """Embed one clip. Returns ``[vector]`` (single-element list)."""
         video_path = payload["video_path"]
@@ -124,11 +125,9 @@ class GeminiMultimodalProvider:
             try:
                 elapsed = time.time() - t0
                 bytes_up = os.path.getsize(video_path) + os.path.getsize(audio_path)
-                log(
-                    "gemini",
-                    "EMB",
+                event(
+                    "PUT",
                     os.path.basename(video_path),
-                    "ok",
                     stats={"time": elapsed, "size": bytes_up},
                 )
             except OSError:
@@ -140,13 +139,7 @@ class GeminiMultimodalProvider:
                 try:
                     self._client.files.delete(f.name)
                 except Exception as exc:
-                    log(
-                        "gemini",
-                        "WARN",
-                        f.name,
-                        "delete failed",
-                        stats={"err": str(exc)},
-                    )
+                    warn("PUT", f.name, err=str(exc))
 
     def _build_request(self, text, video_file, audio_file):
         from google.genai import types

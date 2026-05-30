@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { clusterDetailSchema } from "./cluster-detail.schema";
 
 const sample = {
-  version: 2,
+  version: 3,
   cluster_id: 7,
   label: "Cluster 8",
   size: 42,

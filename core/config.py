@@ -239,7 +239,6 @@ class SearchSettings(BaseModel):
     # (z-score). Cases absent from the map default to "none".
     embedding_preprocess: dict[str, str] = {}
     random_state: int = 42
-    clustering_grid_workers: int = 1
 
 
 class ValidationSettings(BaseModel):

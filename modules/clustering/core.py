@@ -44,6 +44,9 @@ class ClusterResult:
     coords_2d: np.ndarray
     n_clusters: int
     noise_ratio: float
+    # HDBSCAN soft membership in [0, 1] per point: 1 = core of its cluster,
+    # 0 = noise. Density-based, lives in matrix_nd space (not coords_2d).
+    centralities: np.ndarray = field(default_factory=lambda: np.empty(0, np.float32))
     cluster_sizes: list[int] = field(default_factory=list)
     matrix_nd: np.ndarray | None = None
 
@@ -126,6 +129,7 @@ def compute_clusters(
         max_cluster_size=max_cluster_size,
     )
     labels = clusterer.fit_predict(matrix_nd)
+    centralities = np.asarray(clusterer.probabilities_, dtype=np.float32)
 
     # Pass 2 — independent 2D reduction from the original matrix (not matrix_nd)
     reducer_2d = UMAP(
@@ -152,6 +156,7 @@ def compute_clusters(
         coords_2d=coords_2d.astype(np.float32),
         n_clusters=n_clusters,
         noise_ratio=noise_ratio,
+        centralities=centralities,
         cluster_sizes=cluster_sizes,
         matrix_nd=matrix_nd.astype(np.float32) if return_nd_matrix else None,
     )

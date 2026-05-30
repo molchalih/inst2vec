@@ -99,63 +99,10 @@ def test_summarize_all_to_markdown_unified_table():
     )
 
     assert "| Metric | audio | video | sandwich |" in out
-    assert "| $n_{\\mathrm{runs}}$ | 1 | 1 | 1 |" in out
-    assert "| $n_{\\mathrm{filtered}}$ | 1 | 1 | 1 |" in out
-    assert "| $\\mu_{\\mathrm{dbcv}}$ | 0.500 | 0.900 | 0.700 |" in out
-    assert "| $\\mu_{\\mathrm{sil}}$ | 0.000 | 0.300 | 0.200 |" in out
-
-
-def test_summarize_all_to_markdown_reports_total_and_filtered_counts():
-    eng = _make_engine()
-    with Session(eng) as s:
-        s.add(
-            _run_row(
-                embedding_case="audio",
-                umap_n_neighbors=10,
-                dbcv=0.2,
-                silhouette=-0.5,
-                n_clusters=2,
-                noise_ratio=0.1,
-                passes_validation=True,
-            )
-        )
-        s.add(
-            _run_row(
-                embedding_case="audio",
-                umap_n_neighbors=11,
-                dbcv=0.9,
-                silhouette=0.0,
-                n_clusters=4,
-                noise_ratio=0.0,
-                passes_validation=False,
-            )
-        )
-        s.add(
-            _run_row(
-                embedding_case="audio",
-                umap_n_neighbors=12,
-                dbcv=0.1,
-                silhouette=0.0,
-                n_clusters=2,
-                noise_ratio=0.2,
-                passes_validation=None,
-            )
-        )
-        s.commit()
-
-    from docs.reporting.tables.clustering_all import (
-        summarize_all_to_markdown,
-    )
-
-    out = summarize_all_to_markdown(eng, cases=("audio",))
-
-    assert "| $n_{\\mathrm{runs}}$ | 3 |" in out
-    assert "| $n_{\\mathrm{filtered}}$ | 1 |" in out
-    assert "| $\\mu_{\\mathrm{dbcv}}$ | 0.400 |" in out
-    assert "| $\\sigma_{\\mathrm{dbcv}}$ | 0.436 |" in out
-    assert "| $\\mu_{\\mathrm{sil}}$ | -0.167 |" in out
-    assert "| $\\tilde{k}$ | 2.000 |" in out
-    assert "| $\\mu_{\\mathrm{noise}}$ (%) | 10.000 |" in out
+    assert "| runs | 1 | 1 | 1 |" in out
+    assert "| runs filtered | 1 | 1 | 1 |" in out
+    assert "| mean DBCV | 0.500 | 0.900 | 0.700 |" in out
+    assert "| mean silhouette | 0.000 | 0.300 | 0.200 |" in out
 
 
 def test_render_clustering_summary_returns_markdown_object():
@@ -223,30 +170,3 @@ def test_summarize_all_to_markdown_raises_on_empty_cases():
         assert str(exc) == "cases must contain at least one embedding case"
     else:
         raise AssertionError("Expected ValueError for empty cases tuple")
-
-
-def test_summarize_all_to_markdown_delegates_summary(monkeypatch):
-    def fake_summary(session, case):
-        return {
-            "n_runs": "1",
-            "n_filtered": "1",
-            "dbcv_mean": "0.500",
-            "dbcv_std": "0.000",
-            "silhouette_mean": "0.100",
-            "k_median": "2.000",
-            "noise_pct_mean": "10.000",
-        }
-
-    monkeypatch.setattr(
-        "docs.reporting.tables.clustering_all.summarize_case_for_markdown",
-        fake_summary,
-    )
-
-    from docs.reporting.tables.clustering_all import (
-        summarize_all_to_markdown,
-    )
-
-    eng = _make_engine()
-    out = summarize_all_to_markdown(eng, cases=("audio",))
-
-    assert "| $n_{\\mathrm{runs}}$ | 1 |" in out

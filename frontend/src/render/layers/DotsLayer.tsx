@@ -6,7 +6,7 @@ import {
 import {
   joinUsersByCreator, interpolateUsers,
   computeWaveDelays, waveProgress, scalePop,
-  easeOutCubic,
+  easeOutCubic, centralityRadiusScale,
   type JoinedUser,
 } from "@/core";
 import { tokens } from "@/ui/tokens";
@@ -61,15 +61,32 @@ const morphFrame = (
     return waveProgress(pulseGlobal, delayNorm[i]!, spread, jitter, joined[i]!.id);
   };
 
+  // Per-id schedule entries: absolute alpha (token-space, not multiplier),
+  // and the lerped centrality scale * scalePop overlay. Lerping the
+  // centrality scale through the same wave-pulse progress as color makes
+  // each dot grow/shrink toward its new size *during* the wavefront —
+  // not snap to a base scale at switch-start nor only after the entire
+  // animation lands.
   const alphaById = new Map<number, number>();
-  const popById = new Map<number, number>();
+  const radiusById = new Map<number, number>();
+  const cParams = tokens.dot.centrality;
   for (let i = 0; i < joined.length; i++) {
     const j = joined[i]!;
     const p = pulseProgressFor(i);
     const fromAlpha = sideAlpha(j.fromCluster, j.toCluster);
     const toAlpha = sideAlpha(j.toCluster, j.fromCluster);
     alphaById.set(j.id, fromAlpha + (toAlpha - fromAlpha) * p);
-    popById.set(j.id, scalePop(p, scalePopPeak, scalePopUpFrac));
+
+    // Use the present-side centrality on both endpoints when one side
+    // is missing — a fade-in/out dot keeps a meaningful scale.
+    const fromC = j.fromCluster !== null ? j.fromCentrality : j.toCentrality;
+    const toC = j.toCluster !== null ? j.toCentrality : j.fromCentrality;
+    const fromCl = j.fromCluster ?? j.toCluster ?? -1;
+    const toCl = j.toCluster ?? j.fromCluster ?? -1;
+    const fromScale = centralityRadiusScale(fromCl, fromC, cParams);
+    const toScale = centralityRadiusScale(toCl, toC, cParams);
+    const lerpedScale = fromScale + (toScale - fromScale) * p;
+    radiusById.set(j.id, lerpedScale * scalePop(p, scalePopPeak, scalePopUpFrac));
   }
   const users: DrawableUser[] = interpolateUsers(
     joined, flightProgressFor, pulseProgressFor,
@@ -78,7 +95,7 @@ const morphFrame = (
     .map((u) => ({
       id: u.id, x: u.x, y: u.y, color: u.color,
       alpha: u.alpha * (alphaById.get(u.id) ?? tokens.dot.alpha),
-      radiusScale: popById.get(u.id) ?? 1,
+      radiusScale: radiusById.get(u.id) ?? 1,
     }));
   return { users, alphaScale: 1, radiusScale: 1 };
 };

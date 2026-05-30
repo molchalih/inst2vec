@@ -85,7 +85,7 @@ def test_cluster_plot_figure_for_case_returns_matplotlib_figure():
     fig = cluster_plot_figure_for_case(eng, "audio")
 
     assert isinstance(fig, Figure)
-    assert "audio" in fig.axes[0].get_title().lower()
+    assert "audio" in fig.axes[0].get_title(loc="left").lower()
     plt.close(fig)
 
 
@@ -123,7 +123,7 @@ def test_render_audio_cluster_plot_returns_figure():
     fig = render_audio_cluster_plot(eng=eng)
 
     assert isinstance(fig, Figure)
-    assert "audio" in fig.axes[0].get_title().lower()
+    assert "audio" in fig.axes[0].get_title(loc="left").lower()
     plt.close(fig)
 
 

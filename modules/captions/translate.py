@@ -7,9 +7,11 @@ from sqlalchemy.orm import Session
 
 from core.config import CaptionsSettings
 from core.database import Clip, get_engine, needs_caption_translation
+from core.log import scope
 from core.translate import translate_rows
 
 
+@scope("captions:translate")
 def translate_captions(cfg: CaptionsSettings, *, engine: Engine | None = None) -> None:
     """Translate non-English clean captions with missing caption_translation.
 

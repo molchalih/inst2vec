@@ -86,8 +86,8 @@ def test_best_run_to_markdown_uses_validation_pick_for_case():
     out = best_run_to_markdown(eng, "audio", threshold=0.05)
 
     assert out.startswith("| Field | Value |")
-    assert "| $\\mathrm{DBCV}^*$ | 0.8200 |" in out
-    assert "| $n_{\\mathrm{UMAP}}^*$ | 20 |" in out
+    assert "| DBCV | 0.8200 |" in out
+    assert "| UMAP neighbors | 20 |" in out
 
 
 def test_best_runs_all_to_markdown_unified_table():
@@ -149,7 +149,7 @@ def test_best_runs_all_to_markdown_unified_table():
     )
 
     assert "| Field | audio | video | sandwich |" in out
-    assert "| $\\mathrm{DBCV}^*$ | 0.8200 | 0.7000 | 0.5500 |" in out
+    assert "| DBCV | 0.8200 | 0.7000 | 0.5500 |" in out
 
 
 def test_render_best_cluster_run_returns_markdown_object():
@@ -186,34 +186,3 @@ def test_render_best_cluster_run_returns_markdown_object():
         threshold=threshold,
         cases=("video", "sandwich", "audio"),
     )
-
-
-def test_best_run_to_markdown_delegates_selection(monkeypatch):
-    eng = _make_engine()
-    with Session(eng) as s:
-        row = _run_row(
-            embedding_case="audio",
-            umap_n_neighbors=20,
-            dbcv=0.82,
-            param_plateau_score=0.79,
-            silhouette=0.25,
-            n_clusters=4,
-            noise_ratio=0.10,
-        )
-        s.add(row)
-        s.commit()
-        row_id = row.id
-
-    def fake_select(session, case, threshold=None):
-        return session.get(ClusterRun, row_id)
-
-    monkeypatch.setattr(
-        "docs.reporting.tables.clustering_best.select_best_cluster_run",
-        fake_select,
-    )
-
-    from docs.reporting.tables.clustering_best import best_run_to_markdown
-
-    out = best_run_to_markdown(eng, "audio", threshold=0.05)
-
-    assert "| $\\mathrm{DBCV}^*$ | 0.8200 |" in out

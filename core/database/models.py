@@ -271,6 +271,9 @@ class UserCluster(Base):
     cluster_id: Mapped[int] = mapped_column(Integer, nullable=False)
     umap_x: Mapped[float] = mapped_column(Float, nullable=False)
     umap_y: Mapped[float] = mapped_column(Float, nullable=False)
+    # HDBSCAN soft membership probability in [0, 1]: 1 = core, 0 = barely in /
+    # noise. Drives the size-by-centrality encoding in plots and the frontend.
+    centrality: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[DateTime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -383,6 +386,7 @@ class VisualizationUser(Base):
     x: Mapped[float] = mapped_column(Float, nullable=False)
     y: Mapped[float] = mapped_column(Float, nullable=False)
     cluster_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    centrality: Mapped[float | None] = mapped_column(Float, nullable=True)
 
 
 class VisualizationCluster(Base):

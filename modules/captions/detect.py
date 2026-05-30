@@ -9,10 +9,12 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
 from core.config import CaptionsSettings
-from core.console import log, progress
+from core.console import progress
 from core.database import Clip, get_engine, needs_caption_language_detection
+from core.log import event, scope, warn
 
 
+@scope("captions:detect")
 def detect_caption_language(
     cfg: CaptionsSettings, *, engine: Engine | None = None
 ) -> None:
@@ -30,7 +32,7 @@ def detect_caption_language(
             return
 
         total = len(clips)
-        log("captions:detect", "SCAN", "captions", "ok", stats={"todo": total})
+        event("SCAN", "captions", stats={"todo": total})
         detector = LanguageDetectorBuilder.from_all_languages().build()
         detected = 0
         t_stage = time.perf_counter()
@@ -46,12 +48,10 @@ def detect_caption_language(
                 iso = getattr(lang, "iso_code_639_1", None) if lang else None
                 if iso is None:
                     clip.caption_language = "und"
-                    log(
-                        "captions:detect",
-                        "ID",
+                    warn(
+                        "WRITE",
                         f"cap_{clip.id}",
-                        "und",
-                        stats={"time": time.perf_counter() - t0},
+                        stats={"lang": "und", "time": time.perf_counter() - t0},
                     )
                     advance(detail=f"{clip.id}: undetermined")
                     if i % cfg.commit_every == 0:
@@ -59,23 +59,22 @@ def detect_caption_language(
                     continue
                 clip.caption_language = iso.name.lower()
                 detected += 1
-                log(
-                    "captions:detect",
-                    "ID",
+                event(
+                    "WRITE",
                     f"cap_{clip.id}",
-                    clip.caption_language,
-                    stats={"time": time.perf_counter() - t0},
+                    stats={
+                        "lang": clip.caption_language,
+                        "time": time.perf_counter() - t0,
+                    },
                 )
                 advance(detail=f"{clip.id}: {clip.caption_language}")
 
                 if i % cfg.commit_every == 0:
                     session.commit()
         session.commit()
-        log(
-            "captions:detect",
+        event(
             "SEAL",
             "detect",
-            "ok",
             stats={
                 "detected": detected,
                 "of": total,

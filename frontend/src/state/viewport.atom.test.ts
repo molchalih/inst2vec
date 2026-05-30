@@ -8,7 +8,7 @@ import type { AtlasRun } from "@/data";
 const run: AtlasRun = {
   meta: { id: "video-1", case: "video", label: "v", size: 1, details_available: false },
   bounds: { minX: -1, maxX: 1, minY: -1, maxY: 1 },
-  users: [[1, 0, 0, 0, false]],
+  users: [[1, 0, 0, 0, false, 0.5]],
   clusters: [],
 };
 

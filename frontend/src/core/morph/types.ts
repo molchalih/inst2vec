@@ -16,6 +16,6 @@ export type CoreClusterShape = {
 export type CoreAtlasRun = {
   meta: { id: string; case: string; label: string; size: number; details_available: boolean };
   bounds: { minX: number; maxX: number; minY: number; maxY: number };
-  users: ReadonlyArray<readonly [number, number, number, number, boolean]>;
+  users: ReadonlyArray<readonly [number, number, number, number, boolean, number]>;
   clusters: CoreClusterShape[];
 };

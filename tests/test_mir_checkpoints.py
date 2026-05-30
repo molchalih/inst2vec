@@ -85,6 +85,13 @@ def test_failed_download_cleans_partfile_and_raises(monkeypatch, mir_settings):
         "_make_client",
         lambda timeout: httpx.Client(transport=_stub_transport(500, b"oops")),
     )
+    # Without these overrides the test runs the default 3-attempt retry loop
+    # with 2s exponential backoff across 22 files — ~66 seconds of real
+    # ``time.sleep`` that dominates the whole suite's wall time.
+    monkeypatch.setattr(checkpoints.time, "sleep", lambda _s: None)
+    mir_settings = mir_settings.model_copy(
+        update={"checkpoint_max_attempts": 1, "checkpoint_backoff_seconds": 0.0}
+    )
     with pytest.raises(RuntimeError):
         checkpoints.ensure_checkpoints(mir_settings)
 

@@ -7,6 +7,7 @@ export const userTupleSchema = z.tuple([
   z.number(),                     // y
   z.number().int(),               // cluster_id (-1 = noise)
   z.boolean(),                    // has_detail
+  z.number().min(0).max(1),       // centrality (HDBSCAN soft membership; 0 for noise)
 ]);
 
 export const usersFileSchema = z.object({

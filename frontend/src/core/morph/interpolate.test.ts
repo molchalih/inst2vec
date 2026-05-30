@@ -23,6 +23,7 @@ describe("interpolateUsers", () => {
       id: 1,
       fromXY: [0, 0], toXY: [10, 20],
       fromCluster: 0, toCluster: 0,
+      fromCentrality: 0, toCentrality: 0,
     }];
     const out = interpolateUsers(joined, () => 0.5, () => 0.5, palette, noise);
     expect(out[0]!.x).toBeCloseTo(5);
@@ -32,6 +33,7 @@ describe("interpolateUsers", () => {
     const joined: JoinedUser[] = [{
       id: 1, fromXY: [3, 4], toXY: null,
       fromCluster: 0, toCluster: null,
+      fromCentrality: 0, toCentrality: 0,
     }];
     const out = interpolateUsers(joined, () => 0.25, () => 0.25, palette, noise);
     expect(out[0]!.x).toBeCloseTo(3);
@@ -42,6 +44,7 @@ describe("interpolateUsers", () => {
     const joined: JoinedUser[] = [{
       id: 1, fromXY: null, toXY: [7, 8],
       fromCluster: null, toCluster: 0,
+      fromCentrality: 0, toCentrality: 0,
     }];
     const out = interpolateUsers(joined, () => 0.25, () => 0.25, palette, noise);
     expect(out[0]!.x).toBeCloseTo(7);
@@ -52,6 +55,7 @@ describe("interpolateUsers", () => {
     const joined: JoinedUser[] = [{
       id: 1, fromXY: [0, 0], toXY: [0, 0],
       fromCluster: 0, toCluster: 1,
+      fromCentrality: 0, toCentrality: 0,
     }];
     const start = interpolateUsers(joined, () => 0, () => 0, palette, noise)[0]!.color;
     const mid = interpolateUsers(joined, () => 0.5, () => 0.5, palette, noise)[0]!.color;
@@ -64,8 +68,8 @@ describe("interpolateUsers", () => {
   });
   it("evaluates progress per joined-user index", () => {
     const joined: JoinedUser[] = [
-      { id: 0, fromXY: [0, 0], toXY: [10, 0], fromCluster: 0, toCluster: 0 },
-      { id: 1, fromXY: [0, 0], toXY: [10, 0], fromCluster: 0, toCluster: 0 },
+      { id: 0, fromXY: [0, 0], toXY: [10, 0], fromCluster: 0, toCluster: 0, fromCentrality: 0, toCentrality: 0 },
+      { id: 1, fromXY: [0, 0], toXY: [10, 0], fromCluster: 0, toCluster: 0, fromCentrality: 0, toCentrality: 0 },
     ];
     const out = interpolateUsers(joined, (i) => i === 0 ? 0 : 1, (i) => i === 0 ? 0 : 1, palette, noise);
     expect(out[0]!.x).toBeCloseTo(0);
@@ -73,7 +77,7 @@ describe("interpolateUsers", () => {
   });
   it("evaluates motion and color progress independently", () => {
     const joined: JoinedUser[] = [
-      { id: 0, fromXY: [0, 0], toXY: [10, 0], fromCluster: 0, toCluster: 1 },
+      { id: 0, fromXY: [0, 0], toXY: [10, 0], fromCluster: 0, toCluster: 1, fromCentrality: 0, toCentrality: 0 },
     ];
     // motion=1 (fully arrived), color=0 (still from-color)
     const arrivedButFromColor = interpolateUsers(joined, () => 1, () => 0, palette, noise);

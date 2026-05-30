@@ -25,13 +25,16 @@ export const stretchRun = (
   const sx = viewportWidth / rawWidth;
   const sy = viewportHeight / rawHeight;
 
-  const users: AtlasRun["users"] = run.users.map(([id, x, y, clusterId, hasDetail]) => [
-    id,
-    (x - cx) * sx,
-    (y - cy) * sy,
-    clusterId,
-    hasDetail,
-  ]);
+  const users: AtlasRun["users"] = run.users.map(
+    ([id, x, y, clusterId, hasDetail, centrality]) => [
+      id,
+      (x - cx) * sx,
+      (y - cy) * sy,
+      clusterId,
+      hasDetail,
+      centrality,
+    ],
+  );
 
   const clusters = run.clusters.map((c) => {
     const stretched = stretchEllipse(

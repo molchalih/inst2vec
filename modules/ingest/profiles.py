@@ -5,8 +5,8 @@ from typing import Any, NamedTuple
 from hikerapi import Client
 
 from core.concurrency import retry_with_backoff
-from core.config import ParseSettings
-from core.console import log, progress
+from core.config import ParseSettings, Secrets, Settings
+from core.console import progress
 from core.database import (
     Clip,
     User,
@@ -15,8 +15,7 @@ from core.database import (
     get_username,
     update_user_identity,
 )
-
-SCOPE = "hiker"
+from core.log import StageResult, event, item, stage
 
 _MAX_CLIP_PAGES = 5
 
@@ -103,8 +102,8 @@ def _persist_profile(user: User, result: ProfileResult, session: Any) -> None:
     user.following_count = info.get("following_count")
     user.follower_count = info.get("follower_count")
 
-    for item in result.items:
-        m = item["media"]
+    for clip_item in result.items:
+        m = clip_item["media"]
         clip_api_pk = int(m["pk"])
         with allocate_clip_identity(clip_api_pk) as clip_id:
             if session.query(Clip).filter_by(id=clip_id).first():
@@ -131,12 +130,84 @@ def _persist_profile(user: User, result: ProfileResult, session: Any) -> None:
     user.parse_status = "success"
 
 
+@stage("ingest:profiles")
+def run_profiles(settings: Settings, secrets: Secrets) -> StageResult:
+    """Fetch Instagram profiles + clips metadata via HikerAPI."""
+    parse = settings.parse
+    hiker_api_key = secrets.hiker_api_key
+    cl = Client(token=hiker_api_key)
+    session = get_session()
+
+    users = session.query(User).filter(User.parse_status.is_(None)).all()
+    if not users:
+        session.close()
+        return StageResult(done=0, failed=0)
+
+    # Resolve usernames up front (only identity-DB reads before dispatch).
+    jobs = [(user.id, get_username(user.id)) for user in users]
+
+    total_users = len(jobs)
+    event("SCAN", "users", stats={"todo": total_users})
+
+    done = failed = 0
+
+    try:
+        with (
+            progress(total_users, "Fetching profiles") as advance,
+            ThreadPoolExecutor(max_workers=parse.concurrency) as pool,
+        ):
+            future_user = {
+                pool.submit(
+                    _fetch_profile,
+                    cl,
+                    username,
+                    max_attempts=parse.max_attempts,
+                    retry_delay=parse.retry_delay,
+                    retry_jitter=parse.retry_jitter,
+                ): user_id
+                for user_id, username in jobs
+            }
+
+            for fut in as_completed(future_user):
+                user_id = future_user[fut]
+                result = fut.result()
+                with item("GET", f"user_{user_id}") as t:
+                    if not result.ok:
+                        raise RuntimeError(result.err or "unknown")
+                    user = session.query(User).filter_by(id=user_id).one()
+                    _persist_profile(user, result, session)
+                    session.commit()
+                    t.stats(clips=len(result.items))
+                if t.failed:
+                    failed += 1
+                    # _persist_profile / commit may have left the session in a
+                    # failed-transaction state; rollback before re-querying so
+                    # we don't trip PendingRollbackError and lose the chance to
+                    # mark this user failed (legacy fetch_profiles did the same).
+                    session.rollback()
+                    try:
+                        user = session.query(User).filter_by(id=user_id).one()
+                        user.parse_status = "failed"
+                        session.commit()
+                    except Exception:
+                        session.rollback()
+                else:
+                    done += 1
+                advance(detail=f"{done}/{total_users} ({failed} failed)")
+    finally:
+        session.close()
+
+    return StageResult(done=done, failed=failed)
+
+
 def fetch_profiles(
     hiker_api_key: str,
     parse: ParseSettings | None = None,
 ) -> None:
+    """Backward-compatible shim used by tests and legacy callers."""
     if parse is None:
         parse = ParseSettings()
+
     cl = Client(token=hiker_api_key)
     session = get_session()
 
@@ -149,10 +220,6 @@ def fetch_profiles(
     jobs = [(user.id, get_username(user.id)) for user in users]
 
     total_users = len(jobs)
-    log(SCOPE, "SCAN", "users", "ok", stats={"todo": total_users})
-
-    parsed = failed = 0
-    t_stage = time.perf_counter()
 
     try:
         with (
@@ -179,30 +246,10 @@ def fetch_profiles(
                     if result.ok:
                         _persist_profile(user, result, session)
                         session.commit()
-                        parsed += 1
-                        log(
-                            SCOPE,
-                            "GET",
-                            f"user/{user_id}",
-                            "200",
-                            stats={"time": result.duration, "clips": len(result.items)},
-                        )
                     else:
                         user.parse_status = "failed"
                         session.commit()
-                        failed += 1
-                        log(
-                            SCOPE,
-                            "GET",
-                            f"user/{user_id}",
-                            "ERR",
-                            stats={
-                                "time": result.duration,
-                                "err": result.err or "unknown",
-                            },
-                        )
-                except Exception as e:
-                    # A main-thread DB failure for one user must not sink the batch.
+                except Exception:
                     session.rollback()
                     try:
                         user = session.query(User).filter_by(id=user_id).one()
@@ -210,22 +257,6 @@ def fetch_profiles(
                         session.commit()
                     except Exception:
                         session.rollback()
-                    failed += 1
-                    log(
-                        SCOPE,
-                        "GET",
-                        f"user/{user_id}",
-                        "ERR",
-                        stats={"err": repr(e)},
-                    )
-                advance(detail=f"{parsed}/{total_users} ({failed} failed)")
-
-        log(
-            SCOPE,
-            "SEAL",
-            "profiles",
-            "ok",
-            stats={"ok": parsed, "err": failed, "time": time.perf_counter() - t_stage},
-        )
+                advance()
     finally:
         session.close()

@@ -32,11 +32,11 @@ def _capture(fn) -> str:
 def test_log_minimal_emits_canonical_line() -> None:
     from core.console import log
 
-    out = _capture(lambda: log("hiker", "GET", "user_by_id/1", "200"))
+    out = _capture(lambda: log("hiker", "GET", "user_by_id/1", "ok"))
     # No [scope] prefix in body.
     assert "[hiker]" not in out
     # Body present.
-    assert "GET user_by_id/1 200" in out
+    assert "GET user_by_id/1 ok" in out
     # Scope appears on the right margin.
     assert "hiker" in out
 
@@ -49,11 +49,11 @@ def test_log_with_stats_renders_bracket_block() -> None:
             "hiker",
             "GET",
             "user_by_id/1",
-            "200",
+            "ok",
             stats={"time": 0.42, "size": 1234},
         )
     )
-    assert "GET user_by_id/1 200" in out
+    assert "GET user_by_id/1 ok" in out
     assert "time=0.42s" in out
     assert "size=1.2KB" in out
     assert "[hiker]" not in out
@@ -65,7 +65,7 @@ def test_log_stats_preserve_insertion_order() -> None:
     out = _capture(
         lambda: log(
             "embed:video",
-            "EMB",
+            "EXTRACT",
             "clip_8f3a",
             "ok",
             stats={"time": 0.18, "dim": 2048},
@@ -120,19 +120,26 @@ def test_log_err_emits_indented_err_line() -> None:
     out = _capture(
         lambda: log(
             "acr",
-            "ID",
+            "GET",
             "clip_1",
             "ERR",
             stats={"err": "quota exceeded"},
         )
     )
     assert "[acr]" not in out
-    assert "ID clip_1 ERR" in out
+    assert "GET clip_1 ERR" in out
     assert "acr" in out
     assert "err: quota exceeded" in out
 
 
 # ---------- verb validation ----------
+
+
+def test_log_delete_verb_accepted() -> None:
+    from core.console import log
+
+    out = _capture(lambda: log("embed:fleet", "DELETE", "pod_abc", "ok"))
+    assert "DELETE pod_abc ok" in out
 
 
 def test_log_rejects_unknown_verb() -> None:
@@ -164,7 +171,7 @@ def test_highlighter_regex_matches_canonical_form() -> None:
 
 def test_pipeline_advances_one_tick_per_phase() -> None:
     from core import console as c
-    from core.console import phase, pipeline
+    from core.console import _maybe_advance_phase, pipeline
 
     def _task():
         return next(
@@ -172,18 +179,18 @@ def test_pipeline_advances_one_tick_per_phase() -> None:
         )
 
     with pipeline(total_stages=2):
-        phase("a")
+        _maybe_advance_phase()
         assert _task().completed == 1
-        phase("b")
+        _maybe_advance_phase()
         assert _task().completed == 2
 
 
 def test_progress_inside_pipeline_creates_stage_task() -> None:
     from core import console as c
-    from core.console import phase, pipeline, progress
+    from core.console import _maybe_advance_phase, pipeline, progress
 
     with pipeline(total_stages=1):
-        phase("stage")
+        _maybe_advance_phase()
         with progress(10, "work") as advance:
             assert len(c._stage_progress.tasks) == 1
             assert c._stage_progress.tasks[0].total == 10
@@ -233,7 +240,7 @@ def test_log_consecutive_same_scope_dedupes_scope(monkeypatch) -> None:
         lambda: (
             log("hiker", "GET", "a", "ok"),
             log("hiker", "GET", "b", "ok"),
-            log("acr", "ID", "c", "ok"),
+            log("acr", "GET", "c", "ok"),
         )
     )
     # "hiker" appears once on the right (first line), then suppressed;
@@ -242,17 +249,17 @@ def test_log_consecutive_same_scope_dedupes_scope(monkeypatch) -> None:
     assert "acr" in out
 
 
-def test_phase_resets_scope_so_next_log_reprints(monkeypatch) -> None:
+def test_maybe_advance_phase_resets_scope_so_next_log_reprints(monkeypatch) -> None:
     from core import console as c
-    from core.console import log, phase
+    from core.console import _maybe_advance_phase, log
 
     c._render_state.last_time = ""
     c._render_state.last_scope = "hiker"  # pretend last line was hiker
 
     def _do():
-        phase("New Phase")
+        _maybe_advance_phase()
         log("hiker", "GET", "x", "ok")
 
     out = _capture(_do)
-    # After phase(), the scope state was reset, so hiker must appear.
+    # After _maybe_advance_phase(), scope state was reset, so hiker must appear.
     assert "hiker" in out

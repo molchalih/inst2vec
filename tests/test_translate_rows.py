@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from core.log import scope as _scope
+
 
 @dataclass
 class _Row:
@@ -79,6 +81,7 @@ class _FakeSession:
         self.commits += 1
 
 
+@_scope("translate")
 def _run(rows, translator, monkeypatch, **overrides):
     from core import translate as ct
 
@@ -185,22 +188,27 @@ def test_commits_during_processing(monkeypatch):
     monkeypatch.setattr(ct, "GemmaTranslator", lambda model_id: translator)
     rows = [_Row(id=i, source="x" * i, source_lang="es") for i in range(1, 6)]
     session = _FakeSession()
-    ct.translate_rows(
-        rows,
-        get_source=lambda r: r.source,
-        get_source_lang=lambda r: r.source_lang,
-        set_translation=lambda r, v: setattr(r, "translation", v),
-        model_id="fake",
-        target_lang="en",
-        max_chars=100,
-        max_new_tokens=64,
-        commit_every=2,
-        session=session,
-        progress_label="t",
-        log_tag_prefix="row",
-        seal_label="t-seal",
-        batch_size=2,
-    )
+
+    @_scope("translate")
+    def _do():
+        ct.translate_rows(
+            rows,
+            get_source=lambda r: r.source,
+            get_source_lang=lambda r: r.source_lang,
+            set_translation=lambda r, v: setattr(r, "translation", v),
+            model_id="fake",
+            target_lang="en",
+            max_chars=100,
+            max_new_tokens=64,
+            commit_every=2,
+            session=session,
+            progress_label="t",
+            log_tag_prefix="row",
+            seal_label="t-seal",
+            batch_size=2,
+        )
+
+    _do()
     assert session.commits >= 1
 
 

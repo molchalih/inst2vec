@@ -4,14 +4,13 @@ import hashlib
 import json
 import time
 from collections.abc import Iterable
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from itertools import product
 
 import numpy as np
 
 from core import fingerprint as fp
 from core.config import Settings
-from core.console import log, progress
+from core.console import progress
 from core.database import (
     Clip,
     ClusterRun,
@@ -19,10 +18,12 @@ from core.database import (
     clip_used_in_analysis,
     get_session,
 )
+from core.log import event, stage, warn
 from core.pipeline import Stage
 from modules.clustering.core import (
     CLUSTER_PARAM_COLS,
     DEFAULT_HDBSCAN_METRIC,
+    ClusterResult,
     compute_clusters,
     load_user_matrix,
 )
@@ -31,59 +32,41 @@ STAGE = Stage.CLUSTER_SEARCH
 
 
 def _load_grid(settings, cases: Iterable[str]) -> list[dict]:
-    """Build cartesian product of hyperparameter combos from settings.
+    """Cartesian product of hyperparameter combos × cases.
 
-    umap2d_n_neighbors and umap2d_min_dist are fixed scalars (not swept);
-    umap2d_metric is swept independently as a list.
-    HDBSCAN distance on pass-1 UMAP space is fixed (euclidean); not swept.
-    hdbscan_min_samples=None (HDBSCAN's default = min_cluster_size) is
-    used when the configured list is empty, preserving prior behavior.
+    umap2d_{n_neighbors,min_dist} are fixed scalars; umap2d_metric is swept.
+    HDBSCAN metric on pass-1 UMAP space is fixed (euclidean) and not swept.
+    Empty hdbscan_min_samples yields one combo with None (HDBSCAN's default).
     """
-    umap_n_components = list(settings.umap_n_components)
-    umap_n_neighbors = list(settings.umap_n_neighbors)
-    umap_min_dist = [float(x) for x in settings.umap_min_dist]
-    umap_metrics = list(settings.umap_metrics)
-    umap2d_n_neighbors = int(settings.umap2d_n_neighbors)
-    umap2d_min_dist = float(settings.umap2d_min_dist)
-    umap2d_metrics = list(settings.umap2d_metrics)
-    hdbscan_min_sizes = list(settings.hdbscan_min_cluster_size)
-    hdbscan_min_samples_list: list[int | None] = (
-        list(settings.hdbscan_min_samples) if settings.hdbscan_min_samples else [None]
-    )
-    hdbscan_selection = list(settings.hdbscan_selection)
-    random_state = int(settings.random_state)
-    cases_list = list(cases)
-
-    combos = []
-    for case, nc, nn, md, um, u2m, mcs, ms, sel in product(
-        cases_list,
-        umap_n_components,
-        umap_n_neighbors,
-        umap_min_dist,
-        umap_metrics,
-        umap2d_metrics,
-        hdbscan_min_sizes,
-        hdbscan_min_samples_list,
-        hdbscan_selection,
-    ):
-        combos.append(
-            dict(
-                embedding_case=case,
-                umap_n_components=nc,
-                umap_n_neighbors=nn,
-                umap_min_dist=md,
-                umap_metric=um,
-                umap2d_n_neighbors=umap2d_n_neighbors,
-                umap2d_min_dist=umap2d_min_dist,
-                umap2d_metric=u2m,
-                hdbscan_min_cluster_size=mcs,
-                hdbscan_min_samples=ms,
-                hdbscan_cluster_selection_method=sel,
-                hdbscan_metric=DEFAULT_HDBSCAN_METRIC,
-                random_state=random_state,
-            )
+    samples: list[int | None] = list(settings.hdbscan_min_samples) or [None]
+    return [
+        dict(
+            embedding_case=case,
+            umap_n_components=nc,
+            umap_n_neighbors=nn,
+            umap_min_dist=float(md),
+            umap_metric=um,
+            umap2d_n_neighbors=int(settings.umap2d_n_neighbors),
+            umap2d_min_dist=float(settings.umap2d_min_dist),
+            umap2d_metric=u2m,
+            hdbscan_min_cluster_size=mcs,
+            hdbscan_min_samples=ms,
+            hdbscan_cluster_selection_method=sel,
+            hdbscan_metric=DEFAULT_HDBSCAN_METRIC,
+            random_state=int(settings.random_state),
         )
-    return combos
+        for case, nc, nn, md, um, u2m, mcs, ms, sel in product(
+            list(cases),
+            list(settings.umap_n_components),
+            list(settings.umap_n_neighbors),
+            list(settings.umap_min_dist),
+            list(settings.umap_metrics),
+            list(settings.umap2d_metrics),
+            list(settings.hdbscan_min_cluster_size),
+            samples,
+            list(settings.hdbscan_selection),
+        )
+    ]
 
 
 def _fingerprint(
@@ -96,18 +79,14 @@ def _fingerprint(
     rows = (
         session.query(UserEmbedding.user_id, UserEmbedding.embedding)
         .join(Clip, Clip.user_id == UserEmbedding.user_id)
-        .filter(
-            UserEmbedding.embedding_case == case,
-            *clip_used_in_analysis(),
-        )
+        .filter(UserEmbedding.embedding_case == case, *clip_used_in_analysis())
         .distinct()
         .order_by(UserEmbedding.user_id)
         .all()
     )
     data = fp.hash_rows((uid, hashlib.sha256(blob).hexdigest()) for uid, blob in rows)
-    # preprocess + max_cluster_frac are applied at fit time (not stored as
-    # per-run columns), so they must enter the config hash explicitly to
-    # invalidate search when they change.
+    # preprocess + max_cluster_frac are applied at fit time (not stored on the
+    # row), so they must enter the config hash explicitly.
     config = fp.hash_text(
         json.dumps(
             {
@@ -126,7 +105,7 @@ def _fingerprint(
     return fp.Fingerprint(data=data, config=config, dependency=dependency)
 
 
-def _combo_to_row(combo: dict, result) -> ClusterRun:
+def _combo_to_row(combo: dict, result: ClusterResult) -> ClusterRun:
     sizes = result.cluster_sizes
     return ClusterRun(
         **combo,
@@ -138,169 +117,108 @@ def _combo_to_row(combo: dict, result) -> ClusterRun:
     )
 
 
-def run_cluster_search(
-    settings: Settings,
-    cases: tuple[str, ...],
-    clustering_grid_workers: int = 1,
-) -> None:
-    """Run grid search over hyperparameter combos per embedding case.
+def _short(combo: dict) -> str:
+    return (
+        f"nc={combo['umap_n_components']} "
+        f"nn={combo['umap_n_neighbors']} "
+        f"mcs={combo['hdbscan_min_cluster_size']}"
+    )
 
-    Idempotent via modules.fingerprint: fingerprint per case, wipe scoped
-    rows on stale, run full grid in memory, bulk-insert, mark_complete.
-    Long compute runs outside the write transaction.
 
-    ``cases`` is the tuple of embedding case names to search over (e.g.
-    ``("video", "sandwich", "audio")``).  Grid hyperparameters are read
-    from ``settings.search``.
-    """
-    combos = _load_grid(settings.search, cases=cases)
-    grid_workers = max(1, clustering_grid_workers)
-    max_cluster_frac = float(settings.search.hdbscan_max_cluster_frac)
+def _target(combo: dict) -> str:
+    return f"n={combo['umap_n_neighbors']},mcs={combo['hdbscan_min_cluster_size']}"
 
-    combos_by_case: dict[str, list[dict]] = {}
-    for combo in combos:
-        combos_by_case.setdefault(combo["embedding_case"], []).append(combo)
 
-    for case, case_combos in combos_by_case.items():
-        preprocess = settings.search.embedding_preprocess.get(case, "none")
-        # 1. fingerprint check (read-only session)
-        session = get_session()
-        try:
-            current = _fingerprint(
-                session, case, case_combos, preprocess, max_cluster_frac
-            )
-            stale = fp.is_stale(session, STAGE, case, current)
-            diff = fp.describe_diff(session, STAGE, case, current) if stale else ""
-        finally:
-            session.close()
-
-        scope = f"search:{case}"
-        if not stale:
-            log(scope, "SKIP", "fingerprint", "ok")
-            continue
-
-        log(scope, "SCAN", "fingerprint", "stale", stats={"diff": diff})
-
-        # 2. load inputs (read-only)
-        matrix, _ = load_user_matrix(case, preprocess=preprocess)
-
-        # 3. compute outside any write transaction
-        new_rows: list[ClusterRun] = []
-        t_stage = time.perf_counter()
-        if matrix.shape[0] > 0:
-            with progress(len(case_combos), f"cluster search · {case}") as advance:
-                if grid_workers == 1:
-                    for combo in case_combos:
-                        short = (
-                            f"nc={combo['umap_n_components']} "
-                            f"nn={combo['umap_n_neighbors']} "
-                            f"mcs={combo['hdbscan_min_cluster_size']}"
-                        )
-                        target = (
-                            f"n={combo['umap_n_neighbors']},"
-                            f"mcs={combo['hdbscan_min_cluster_size']}"
-                        )
-                        p = {k: v for k, v in combo.items() if k != "embedding_case"}
-                        t0 = time.perf_counter()
-                        try:
-                            result = compute_clusters(
-                                matrix, hdbscan_max_cluster_frac=max_cluster_frac, **p
-                            )
-                        except ValueError as exc:
-                            log(
-                                scope,
-                                "FIT",
-                                target,
-                                "ERR",
-                                stats={
-                                    "time": time.perf_counter() - t0,
-                                    "err": str(exc),
-                                },
-                            )
-                            advance(1, detail=f"{short} | skip {str(exc)[:48]}")
-                            continue
-                        new_rows.append(_combo_to_row(combo, result))
-                        log(
-                            scope,
-                            "FIT",
-                            target,
-                            "ok",
-                            stats={
-                                "time": time.perf_counter() - t0,
-                                "k": result.n_clusters,
-                                "noise": round(result.noise_ratio, 3),
-                            },
-                        )
-                        advance(1, detail=f"{short} | k={result.n_clusters}")
-                else:
-
-                    def run_one(c: dict, *, _matrix=matrix, _frac=max_cluster_frac):
-                        p = {k: v for k, v in c.items() if k != "embedding_case"}
-                        t = time.perf_counter()
-                        return (
-                            c,
-                            compute_clusters(
-                                _matrix, hdbscan_max_cluster_frac=_frac, **p
-                            ),
-                            time.perf_counter() - t,
-                        )
-
-                    with ThreadPoolExecutor(max_workers=grid_workers) as ex:
-                        futures = {ex.submit(run_one, c): c for c in case_combos}
-                        for fut in as_completed(futures):
-                            combo = futures[fut]
-                            short = (
-                                f"nc={combo['umap_n_components']} "
-                                f"nn={combo['umap_n_neighbors']} "
-                                f"mcs={combo['hdbscan_min_cluster_size']}"
-                            )
-                            target = (
-                                f"n={combo['umap_n_neighbors']},"
-                                f"mcs={combo['hdbscan_min_cluster_size']}"
-                            )
-                            try:
-                                c_done, result, duration = fut.result()
-                            except ValueError as exc:
-                                log(
-                                    scope,
-                                    "FIT",
-                                    target,
-                                    "ERR",
-                                    stats={"err": str(exc)},
-                                )
-                                advance(1, detail=f"{short} | skip {str(exc)[:48]}")
-                                continue
-                            new_rows.append(_combo_to_row(c_done, result))
-                            log(
-                                scope,
-                                "FIT",
-                                target,
-                                "ok",
-                                stats={
-                                    "time": duration,
-                                    "k": result.n_clusters,
-                                    "noise": round(result.noise_ratio, 3),
-                                },
-                            )
-                            advance(1, detail=f"{short} | k={result.n_clusters}")
-
-        # 4. short write section
-        session = get_session()
-        try:
-            session.query(ClusterRun).filter(ClusterRun.embedding_case == case).delete()
-            if new_rows:
-                session.bulk_save_objects(new_rows)
-            fp.mark_complete(session, STAGE, case, current)
-            session.commit()
-        finally:
-            session.close()
-        log(
-            scope,
-            "SEAL",
-            "search",
-            "ok",
-            stats={
-                "runs": len(new_rows),
-                "time": time.perf_counter() - t_stage,
-            },
+def _fit_one(
+    matrix: np.ndarray, combo: dict, max_cluster_frac: float
+) -> tuple[ClusterResult | None, float, str]:
+    """Run compute_clusters for one combo. Returns (result_or_None, elapsed, err)."""
+    params = {k: v for k, v in combo.items() if k != "embedding_case"}
+    t0 = time.perf_counter()
+    try:
+        result = compute_clusters(
+            matrix, hdbscan_max_cluster_frac=max_cluster_frac, **params
         )
+    except ValueError as exc:
+        return None, time.perf_counter() - t0, str(exc)
+    return result, time.perf_counter() - t0, ""
+
+
+def _check_fingerprint(
+    case: str, combos: list[dict], preprocess: str, max_cluster_frac: float
+) -> tuple[fp.Fingerprint, bool, str]:
+    session = get_session()
+    try:
+        current = _fingerprint(session, case, combos, preprocess, max_cluster_frac)
+        stale = fp.is_stale(session, STAGE, case, current)
+        diff = fp.describe_diff(session, STAGE, case, current) if stale else ""
+    finally:
+        session.close()
+    return current, stale, diff
+
+
+def _seal_case(case: str, current: fp.Fingerprint, rows: list[ClusterRun]) -> None:
+    session = get_session()
+    try:
+        session.query(ClusterRun).filter(ClusterRun.embedding_case == case).delete()
+        if rows:
+            session.bulk_save_objects(rows)
+        fp.mark_complete(session, STAGE, case, current)
+        session.commit()
+    finally:
+        session.close()
+
+
+@stage("clustering:search")
+def run_cluster_search(settings: Settings, cases: tuple[str, ...]) -> None:
+    """Run grid search per embedding case, fingerprint-gated.
+
+    On stale: wipe scoped ClusterRun rows, compute the full grid in memory,
+    bulk-insert results, seal StageState. Compute runs outside any open
+    write transaction. Empty matrices still seal an empty state so reruns
+    short-circuit.
+    """
+    max_cluster_frac = float(settings.search.hdbscan_max_cluster_frac)
+    by_case: dict[str, list[dict]] = {}
+    for combo in _load_grid(settings.search, cases=cases):
+        by_case.setdefault(combo["embedding_case"], []).append(combo)
+
+    for case, combos in by_case.items():
+        preprocess = settings.search.embedding_preprocess.get(case, "none")
+        current, stale, diff = _check_fingerprint(
+            case, combos, preprocess, max_cluster_frac
+        )
+        if not stale:
+            event("SKIP", "fingerprint")
+            continue
+        warn("SCAN", "fingerprint", stats={"diff": diff})
+
+        matrix, _ = load_user_matrix(case, preprocess=preprocess)
+        new_rows: list[ClusterRun] = []
+        if matrix.shape[0] > 0:
+            with progress(len(combos), f"cluster search · {case}") as advance:
+                for combo in combos:
+                    result, elapsed, err = _fit_one(matrix, combo, max_cluster_frac)
+                    if result is None:
+                        event(
+                            "EXTRACT",
+                            _target(combo),
+                            result="ERR",
+                            stats={"time": elapsed, "err": err},
+                        )
+                        advance(1, detail=f"{_short(combo)} | skip {err[:48]}")
+                        continue
+                    new_rows.append(_combo_to_row(combo, result))
+                    event(
+                        "EXTRACT",
+                        _target(combo),
+                        stats={
+                            "time": elapsed,
+                            "k": result.n_clusters,
+                            "noise": round(result.noise_ratio, 3),
+                        },
+                    )
+                    advance(1, detail=f"{_short(combo)} | k={result.n_clusters}")
+
+        _seal_case(case, current, new_rows)
+        event("WRITE", f"search:{case}", stats={"runs": len(new_rows)})

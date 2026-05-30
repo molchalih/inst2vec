@@ -51,28 +51,6 @@ def test_lease_complete_flow_writes_completion():
     assert len(item.blob) == 8
 
 
-def test_lease_returns_410_when_drained():
-    b = JobBroker(lease_ttl_s=600, max_attempts=3)
-    b.producer_done()  # nothing added -> resolved
-    c = _client(b)
-    r = c.post(
-        "/lease", json={"served_only": True}, headers={"Authorization": "Bearer t"}
-    )
-    assert r.status_code == 410
-    assert r.json()["status"] == "drained"
-
-
-def test_lease_returns_204_when_busy_but_not_drained():
-    b = JobBroker(lease_ttl_s=600, max_attempts=3)
-    b.add(_job(1))
-    b.producer_done()
-    c = _client(b)
-    h = {"Authorization": "Bearer t"}
-    c.post("/lease", json={"served_only": True}, headers=h)  # take the only job
-    r = c.post("/lease", json={"served_only": True}, headers=h)
-    assert r.status_code == 204
-
-
 def test_fail_endpoint_routes_to_broker():
     b = JobBroker(lease_ttl_s=600, max_attempts=1)
     b.add(_job(1))

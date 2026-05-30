@@ -25,7 +25,6 @@ from pathlib import Path
 import numpy as np
 from sqlalchemy import func
 
-from core.console import log
 from core.database import (
     AudioMIR,
     Clip,
@@ -37,6 +36,7 @@ from core.database import (
     VisualizationUser,
     get_session,
 )
+from core.log import event, scope
 from modules.embeddings.cases import CASE_REGISTRY
 from modules.visualization.compute import (
     ClusterMember,
@@ -350,6 +350,7 @@ def _write_case_details(
     return written_clusters, written_users
 
 
+@scope("visualization:export")
 def export_visualization_json(settings, cases: tuple[str, ...]) -> None:
     """Read DB → write the frontend bulk-JSON tree. Idempotent."""
     viz_settings = settings.visualization
@@ -373,7 +374,7 @@ def export_visualization_json(settings, cases: tuple[str, ...]) -> None:
         for case in cases_to_export:
             viz = viz_rows.get(case)
             if viz is None:
-                log("viz:export", "SKIP", case, "no data")
+                event("SKIP", case)
                 continue
             users = (
                 session.query(VisualizationUser)
@@ -405,7 +406,14 @@ def export_visualization_json(settings, cases: tuple[str, ...]) -> None:
                     "run_id": case,
                     "bounds": _bounds(users),
                     "users": [
-                        [u.user_id, u.x, u.y, u.cluster_id, u.user_id in written_users]
+                        [
+                            u.user_id,
+                            u.x,
+                            u.y,
+                            u.cluster_id,
+                            u.user_id in written_users,
+                            float(u.centrality) if u.centrality is not None else 0.0,
+                        ]
                         for u in users
                     ],
                 },
@@ -445,20 +453,14 @@ def export_visualization_json(settings, cases: tuple[str, ...]) -> None:
                 }
             )
             written_cases.add(case)
-            log(
-                "viz:export",
-                "WRITE",
-                case,
-                "ok",
-                stats={"users": len(users), "clusters": len(clusters)},
-            )
+            event("WRITE", case, stats={"users": len(users), "clusters": len(clusters)})
 
         _prune_stale_run_dirs(runs_dir, written_cases)
 
         if not manifest_runs:
             if manifest_path.exists():
                 manifest_path.unlink()
-            log("viz:export", "SKIP", "manifest", "no runs")
+            event("SKIP", "manifest")
             return
 
         _write_json(
@@ -469,6 +471,6 @@ def export_visualization_json(settings, cases: tuple[str, ...]) -> None:
                 "runs": manifest_runs,
             },
         )
-        log("viz:export", "SEAL", "manifest", "ok", stats={"runs": len(manifest_runs)})
+        event("SEAL", "manifest", stats={"runs": len(manifest_runs)})
     finally:
         session.close()

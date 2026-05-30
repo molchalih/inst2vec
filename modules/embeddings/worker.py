@@ -19,6 +19,7 @@ from concurrent.futures import ThreadPoolExecutor
 import httpx
 
 from core.console import log
+from core.log import _scope_var, item, warn
 from modules.embeddings.broker import JobBroker, Leased
 from modules.embeddings.cases import CASE_REGISTRY, EmbeddingCaseSpec
 from modules.embeddings.sampling import frame_retry_schedule, is_token_mismatch_error
@@ -146,7 +147,7 @@ class HttpJobSource:
         if not resp.is_success:
             log(
                 "embed:pod",
-                "EMB",
+                "EXTRACT",
                 f"lease_{lease_id}",
                 "WARN",
                 stats={"complete_status": resp.status_code},
@@ -162,7 +163,7 @@ class HttpJobSource:
         if not resp.is_success:
             log(
                 "embed:pod",
-                "EMB",
+                "EXTRACT",
                 f"lease_{lease_id}",
                 "WARN",
                 stats={"fail_status": resp.status_code},
@@ -207,24 +208,23 @@ def _process_one(
     video_root: str,
     audio_root: str | None,
     leased: Leased,
-    log_tag: str,
 ) -> None:
     job = leased.job
-    try:
+    cid = job["clip_id"]
+    with item("EXTRACT", f"clip_{cid}") as t:
         spec = CASE_REGISTRY[job["case"]]
         blob = embed_with_token_fallback(
             provider,
             spec,
-            clip_id=job["clip_id"],
+            clip_id=cid,
             text=job["text"],
             video_path=_resolve_video_path(video_root, job["video_key"]),
             audio_path=_resolve_audio_path(audio_root, job.get("audio_key")),
             fps=job["fps"],
             max_frames=job["max_frames"],
         )
-    except Exception as exc:
-        log(log_tag, "EMB", f"clip_{job['clip_id']}", "ERR", stats={"err": repr(exc)})
-        source.fail(leased.lease_id, repr(exc))
+    if t.failed:
+        source.fail(leased.lease_id, repr(t.exc))
         return
     source.complete_blob(leased.lease_id, blob)
 
@@ -247,28 +247,32 @@ def run_worker(
     leases — a crash backstop so a dead coordinator stops GPU billing."""
 
     def lane() -> None:
-        unreachable_since: float | None = None
-        while True:
-            leased = source.lease(served_only=served_only)
-            if leased == DRAINED:
-                return
-            if leased == UNREACHABLE:
-                now = time.monotonic()
-                if unreachable_since is None:
-                    unreachable_since = now
-                elif (
-                    unreachable_exit_s is not None
-                    and now - unreachable_since > unreachable_exit_s
-                ):
-                    log(log_tag, "SKIP", "coordinator", "unreachable")
+        token = _scope_var.set(log_tag)
+        try:
+            unreachable_since: float | None = None
+            while True:
+                leased = source.lease(served_only=served_only)
+                if leased == DRAINED:
                     return
-                time.sleep(poll_idle_s)
-                continue
-            unreachable_since = None
-            if leased is None:
-                time.sleep(poll_idle_s)
-                continue
-            _process_one(source, provider, video_root, audio_root, leased, log_tag)
+                if leased == UNREACHABLE:
+                    now = time.monotonic()
+                    if unreachable_since is None:
+                        unreachable_since = now
+                    elif (
+                        unreachable_exit_s is not None
+                        and now - unreachable_since > unreachable_exit_s
+                    ):
+                        warn("SCAN", "coordinator", stats={"status": "unreachable"})
+                        return
+                    time.sleep(poll_idle_s)
+                    continue
+                unreachable_since = None
+                if leased is None:
+                    time.sleep(poll_idle_s)
+                    continue
+                _process_one(source, provider, video_root, audio_root, leased)
+        finally:
+            _scope_var.reset(token)
 
     if inflight <= 1:
         lane()

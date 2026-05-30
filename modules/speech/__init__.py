@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from core import fingerprint as fp
 from core.config import Secrets, Settings, SpeechSettings
 from core.database import get_engine
+from core.log import StageResult, scope, stage
 from modules.speech.classify import classify_speech, clean_speech
 from modules.speech.state import (
     SCOPE_SPEECH,
@@ -36,12 +37,13 @@ __all__ = [
 ]
 
 
+@scope("speech")
 def process_speech(
     cfg: SpeechSettings,
     *,
     video_dir: str,
     speech_audio_dir: str,
-) -> None:
+) -> tuple[int, int, int]:
     """Fingerprint-gated entry point for the speech pipeline."""
     current = fp.Fingerprint(
         data=fp.hash_text(""),
@@ -61,7 +63,7 @@ def process_speech(
         )
         session.commit()
 
-    classify_speech(
+    transcribed, failed = classify_speech(
         video_dir=video_dir,
         speech_audio_dir=speech_audio_dir,
         whisper_model=cfg.whisper_model,
@@ -90,17 +92,21 @@ def process_speech(
         translate_max_new_tokens=cfg.translate_max_new_tokens,
         translate_batch_size=cfg.translate_batch_size,
     )
-    clean_speech()
+    cleaned = clean_speech()
 
     with Session(get_engine()) as session:
         fp.mark_complete(session, STAGE_SPEECH, SCOPE_SPEECH, current)
         session.commit()
 
+    return transcribed, failed, cleaned
 
-def run(settings: Settings, secrets: Secrets) -> None:
+
+@stage("speech")
+def run(settings: Settings, secrets: Secrets) -> StageResult:
     """Speech transcription + translation + post-clean."""
-    process_speech(
+    transcribed, failed, cleaned = process_speech(
         settings.speech,
         video_dir=settings.paths.video_dir,
         speech_audio_dir=settings.paths.speech_audio_dir,
     )
+    return StageResult(transcribed=transcribed, failed=failed, cleaned=cleaned)

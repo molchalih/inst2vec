@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from core.database import Clip, clip_needs_speech_translation, get_session
+from core.log import scope
 from core.translate import translate_rows
 
 
+@scope("speech")
 def translate_speech(
     commit_every: int,
     translate_model: str,

@@ -26,15 +26,14 @@ import httpx
 
 from core.concurrency import retry_with_backoff
 from core.config import DownloadSettings, PathsSettings
-from core.console import log, progress
+from core.console import progress
 from core.database import (
     Clip,
     User,
     get_profile_pic_url,
     get_session,
 )
-
-SCOPE = "download"
+from core.log import StageResult, event, item, stage
 
 _COMMIT_EVERY = 20
 
@@ -111,12 +110,13 @@ def fetch_file(
         )
 
 
+@stage("ingest:download")
 def download_files(
     download: DownloadSettings,
     paths: PathsSettings,
     *,
     retry_failed: bool = False,
-) -> None:
+) -> StageResult:
     max_attempts = download.max_attempts
     retry_delay = download.retry_delay
     retry_jitter = download.retry_jitter
@@ -171,24 +171,16 @@ def download_files(
                 clip.is_downloaded = False
             session.commit()
             for cid in clips_missing_url:
-                log(
-                    SCOPE,
-                    "GET",
-                    f"clips/{cid}.mp4",
-                    "ERR",
-                    stats={"err": "no video_url"},
-                )
+                event("GET", f"clip_{cid}", result="ERR", stats={"err": "no video_url"})
 
         total_jobs = len(profile_jobs) + len(thumbnail_jobs) + len(video_jobs)
         if total_jobs == 0:
             session.commit()
-            return
+            return StageResult(downloaded=0, skipped=0, failed=len(clips_missing_url))
 
-        log(
-            SCOPE,
+        event(
             "SCAN",
             "clips",
-            "ok",
             stats={
                 "todo": total_jobs,
                 "videos": len(video_jobs),
@@ -202,7 +194,6 @@ def download_files(
         thumb_failed = 0
         pic_failed = 0
         committed_since = 0
-        t_stage = time.perf_counter()
 
         with (
             progress(total_jobs, "Downloading") as advance,
@@ -248,64 +239,43 @@ def download_files(
 
             for fut in as_completed(future_meta):
                 kind, item_id = future_meta[fut]
-                result = fut.result()
+                fetch = fut.result()
 
                 if kind == "video":
-                    target = f"clips/{item_id}.mp4"
+                    target = f"clip_{item_id}"
                 elif kind == "thumb":
-                    target = f"thumb/{item_id}.jpg"
+                    target = f"thumb_{item_id}"
                 else:
-                    target = f"profile/{item_id}.jpg"
+                    target = f"profile_{item_id}"
 
-                if result.ok:
-                    log(
-                        SCOPE,
-                        "GET",
-                        target,
-                        str(result.status),
-                        stats={"time": result.duration, "size": result.size or 0},
-                    )
-                else:
-                    log(
-                        SCOPE,
-                        "GET",
-                        target,
-                        "ERR",
-                        stats={
-                            "time": result.duration,
-                            "err": result.err or "unknown",
-                        },
-                    )
+                with item("GET", target) as t:
+                    if not fetch.ok:
+                        raise RuntimeError(fetch.err or "unknown")
+                    t.stats(size=fetch.size or 0)
 
                 if kind == "video":
                     clip = session.get(Clip, item_id)
-                    clip.is_downloaded = result.ok
+                    clip.is_downloaded = fetch.ok
                     committed_since += 1
-                    if not result.ok:
+                    if t.failed:
                         video_failed += 1
                     if committed_since >= _COMMIT_EVERY:
                         session.commit()
                         committed_since = 0
-                elif kind == "thumb" and not result.ok:
+                elif kind == "thumb" and t.failed:
                     thumb_failed += 1
-                elif kind == "pic" and not result.ok:
+                elif kind == "pic" and t.failed:
                     pic_failed += 1
 
                 advance()
 
         session.commit()
-        log(
-            SCOPE,
-            "SEAL",
-            "download",
-            "ok",
-            stats={
-                "videos_ok": len(video_jobs) - video_failed,
-                "videos_err": video_failed,
-                "thumbs_err": thumb_failed,
-                "pics_err": pic_failed,
-                "time": time.perf_counter() - t_stage,
-            },
-        )
     finally:
         session.close()
+
+    downloaded = len(video_jobs) - video_failed
+    return StageResult(
+        downloaded=downloaded,
+        skipped=0,
+        failed=video_failed + len(clips_missing_url),
+    )

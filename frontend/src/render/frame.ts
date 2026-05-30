@@ -1,5 +1,6 @@
 import {
   colorForCluster, introStagger, introDotAlpha,
+  centralityRadiusScale,
   type Vec2, type IntroPhase,
 } from "@/core";
 import type { AtlasRun } from "@/data";
@@ -38,11 +39,11 @@ export type EllipsesFrame = {
 
 export const runToDotsFrame = (run: AtlasRun | null): DotsFrame => {
   if (!run) return { users: [], alphaScale: 1, radiusScale: 1 };
-  const users: DrawableUser[] = run.users.map(([id, x, y, clusterId]) => ({
+  const users: DrawableUser[] = run.users.map(([id, x, y, clusterId, _hd, centrality]) => ({
     id, x, y,
     color: colorForCluster(clusterId, tokens.palette.cluster, tokens.palette.noise),
     alpha: clusterId < 0 ? tokens.noise.alpha : tokens.dot.alpha,
-    radiusScale: 1,
+    radiusScale: centralityRadiusScale(clusterId, centrality, tokens.dot.centrality),
   }));
   return { users, alphaScale: 1, radiusScale: 1 };
 };
@@ -68,7 +69,7 @@ export const runToIntroDotsFrame = (
   const { maxStaggerFrac } = tokens.motion.intro;
   // Fade phase: dots pinned at center (flightProgress 0). Settle: landed.
   const flightProgress = phase < 1 ? 0 : phase === 1 ? progress : 1;
-  const users: DrawableUser[] = run.users.map(([id, x, y, clusterId]) => {
+  const users: DrawableUser[] = run.users.map(([id, x, y, clusterId, _hd, centrality]) => {
     const p = introStagger(flightProgress, id, maxStaggerFrac);
     const baseAlpha = clusterId < 0 ? tokens.noise.alpha : tokens.dot.alpha;
     return {
@@ -77,7 +78,7 @@ export const runToIntroDotsFrame = (
       y: centerWorld.y + (y - centerWorld.y) * p,
       color: colorForCluster(clusterId, tokens.palette.cluster, tokens.palette.noise),
       alpha: introDotAlpha(phase, progress, baseAlpha),
-      radiusScale: 1,
+      radiusScale: centralityRadiusScale(clusterId, centrality, tokens.dot.centrality),
     };
   });
   return { users, alphaScale: 1, radiusScale: 1 };

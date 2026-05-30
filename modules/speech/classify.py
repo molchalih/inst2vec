@@ -8,7 +8,7 @@ from pathlib import Path
 import whisper
 from sqlalchemy import or_
 
-from core.console import log, progress
+from core.console import progress
 from core.database import (
     Clip,
     clip_has_detected_speech,
@@ -16,6 +16,7 @@ from core.database import (
     get_session,
 )
 from core.ffmpeg import probe_audio_stream
+from core.log import event, item, scope
 from modules.speech.state import (
     HALLUCINATION_MARKERS,
     has_hallucination_marker,
@@ -25,9 +26,6 @@ from modules.speech.state import (
     is_too_short,
 )
 from modules.speech.vad import VadConfig, prepare_for_whisper
-
-SCOPE = "whisper"
-SCOPE_CLEAN = "whisper:clean"
 
 
 def _transcribe(model, path: str) -> tuple[str, str, float, float, float]:
@@ -58,6 +56,7 @@ def _transcribe(model, path: str) -> tuple[str, str, float, float, float]:
     return text, language, confidence, avg_logprob, compression_ratio
 
 
+@scope("speech")
 def classify_speech(
     video_dir: str,
     speech_audio_dir: str,
@@ -69,7 +68,7 @@ def classify_speech(
     dirty_min_chars: int,
     dirty_min_letter_ratio: float,
     vad_config: VadConfig,
-) -> None:
+) -> tuple[int, int]:
     """Transcribe all unresolved clips with Whisper, gated by Silero VAD.
 
     Per-clip flow:
@@ -91,26 +90,24 @@ def classify_speech(
     )
     if not clips:
         session.close()
-        return
+        return 0, 0
 
     speech_out = Path(speech_audio_dir)
     speech_out.mkdir(parents=True, exist_ok=True)
 
-    log(SCOPE, "SCAN", "clips", "ok", stats={"todo": len(clips)})
+    event("SCAN", "clips", stats={"todo": len(clips)})
     model: whisper.Whisper | None = None
     detected = no_speech_vad = no_speech = missing = errored = 0
-    t_stage = time.perf_counter()
 
     with progress(len(clips), "Transcribing") as advance:
         for i, clip in enumerate(clips, 1):
             video_path = Path(video_dir) / f"{clip.id}.mp4"
             if not video_path.exists():
                 missing += 1
-                log(
-                    SCOPE,
-                    "ASR",
+                event(
+                    "EXTRACT",
                     f"clip_{clip.id}",
-                    "ERR",
+                    result="ERR",
                     stats={"err": "video not downloaded yet"},
                 )
                 advance()
@@ -119,11 +116,10 @@ def classify_speech(
             probe = probe_audio_stream(str(video_path))
             if probe is None:
                 errored += 1
-                log(
-                    SCOPE,
-                    "ASR",
+                event(
+                    "EXTRACT",
                     f"clip_{clip.id}",
-                    "ERR",
+                    result="ERR",
                     stats={"err": "ffprobe failed"},
                 )
                 advance(detail=f"{clip.id}: ffprobe failed (left unresolved)")
@@ -131,12 +127,10 @@ def classify_speech(
             if probe is False:
                 clip.is_speech_detected = False
                 no_speech_vad += 1
-                log(
-                    SCOPE,
-                    "ASR",
+                event(
+                    "SKIP",
                     f"clip_{clip.id}",
-                    "none",
-                    stats={"reason": "no audio stream"},
+                    stats={"reason": "no_audio_stream"},
                 )
                 advance(detail=f"{clip.id}: no audio stream")
                 if i % commit_every == 0:
@@ -148,11 +142,10 @@ def classify_speech(
                 vad = prepare_for_whisper(video_path, speech_out, vad_config)
             except Exception as exc:
                 errored += 1
-                log(
-                    SCOPE,
-                    "ASR",
+                event(
+                    "EXTRACT",
                     f"clip_{clip.id}",
-                    "ERR",
+                    result="ERR",
                     stats={
                         "time": time.perf_counter() - t0,
                         "err": f"VAD error: {exc}",
@@ -164,12 +157,10 @@ def classify_speech(
             if not vad.is_speech_detected:
                 clip.is_speech_detected = False
                 no_speech_vad += 1
-                log(
-                    SCOPE,
-                    "ASR",
+                event(
+                    "SKIP",
                     f"clip_{clip.id}",
-                    "none",
-                    stats={"time": time.perf_counter() - t0, "src": "vad"},
+                    stats={"time": time.perf_counter() - t0, "reason": "vad_silent"},
                 )
                 advance(detail=f"{clip.id}: VAD silent")
                 if i % commit_every == 0:
@@ -182,103 +173,75 @@ def classify_speech(
             if model is None:
                 t_load = time.perf_counter()
                 model = whisper.load_model(whisper_model)
-                log(
-                    SCOPE,
-                    "LOAD",
-                    whisper_model,
-                    "ok",
-                    stats={"time": time.perf_counter() - t_load},
+                event(
+                    "LOAD", whisper_model, stats={"time": time.perf_counter() - t_load}
                 )
-            try:
+
+            with item("EXTRACT", f"clip_{clip.id}") as t:
                 text, language, conf, avg_logprob, compression_ratio = _transcribe(
                     model, str(vad.speech_audio_path)
                 )
-            except Exception as exc:
+
+                clip.speech_transcription = text
+                clip.speech_language = language or None
+                clip.speech_confidence = conf if text else None
+                clip.speech_avg_logprob = avg_logprob if text else None
+                clip.speech_compression_ratio = compression_ratio if text else None
+
+                low_logprob = bool(text) and avg_logprob < logprob_threshold
+                high_compression = (
+                    bool(text) and compression_ratio > compression_threshold
+                )
+                too_short = is_too_short(text, min_chars=dirty_min_chars)
+                low_letter_ratio = has_low_letter_ratio(
+                    text, min_ratio=dirty_min_letter_ratio
+                )
+                dirty = (
+                    low_logprob
+                    or high_compression
+                    or too_short
+                    or low_letter_ratio
+                    or has_hallucination_marker(text)
+                    or is_repeated_output(text)
+                )
+                meaningful = has_meaningful_speech_text(text, min_meaningful_chars)
+
+                if meaningful and not dirty:
+                    clip.is_speech_detected = True
+                    detected += 1
+                    preview = text[:60] + ("…" if len(text) > 60 else "")
+                    t.stats(lang=language, conf=round(conf, 2))
+                    advance(detail=f'{clip.id}: "{preview}"')
+                else:
+                    clip.is_speech_detected = False
+                    no_speech += 1
+                    t.stats(lang=language, speech=False)
+                    advance()
+
+            if t.failed:
                 errored += 1
-                log(
-                    SCOPE,
-                    "ASR",
-                    f"clip_{clip.id}",
-                    "ERR",
-                    stats={
-                        "time": time.perf_counter() - t0,
-                        "err": f"transcription error: {exc}",
-                    },
-                )
-                advance(detail=f"{clip.id}: transcription error (left unresolved)")
-                continue
-
-            clip.speech_transcription = text
-            clip.speech_language = language or None
-            clip.speech_confidence = conf if text else None
-            clip.speech_avg_logprob = avg_logprob if text else None
-            clip.speech_compression_ratio = compression_ratio if text else None
-
-            low_logprob = bool(text) and avg_logprob < logprob_threshold
-            high_compression = bool(text) and compression_ratio > compression_threshold
-            too_short = is_too_short(text, min_chars=dirty_min_chars)
-            low_letter_ratio = has_low_letter_ratio(
-                text, min_ratio=dirty_min_letter_ratio
-            )
-            dirty = (
-                low_logprob
-                or high_compression
-                or too_short
-                or low_letter_ratio
-                or has_hallucination_marker(text)
-                or is_repeated_output(text)
-            )
-            meaningful = has_meaningful_speech_text(text, min_meaningful_chars)
-
-            if meaningful and not dirty:
-                clip.is_speech_detected = True
-                detected += 1
-                preview = text[:60] + ("…" if len(text) > 60 else "")
-                log(
-                    SCOPE,
-                    "ASR",
-                    f"clip_{clip.id}",
-                    language or "ok",
-                    stats={
-                        "time": time.perf_counter() - t0,
-                        "conf": round(conf, 2),
-                    },
-                )
-                advance(detail=f'{clip.id}: "{preview}"')
-            else:
-                clip.is_speech_detected = False
-                no_speech += 1
-                log(
-                    SCOPE,
-                    "ASR",
-                    f"clip_{clip.id}",
-                    "none",
-                    stats={"time": time.perf_counter() - t0, "src": "whisper"},
-                )
-                advance()
 
             if i % commit_every == 0:
                 session.commit()
 
     session.commit()
     session.close()
-    log(
-        SCOPE,
-        "SEAL",
+    event(
+        "SCAN",
         "transcribe",
-        "ok",
         stats={
             "speech": detected,
             "silent_vad": no_speech_vad,
             "silent_whisper": no_speech,
             "missing": missing,
             "err": errored,
-            "time": time.perf_counter() - t_stage,
         },
     )
+    return detected, errored
 
 
-def clean_speech() -> None:
+@scope("speech:clean")
+def clean_speech() -> int:
     """Null the seven speech columns for clips whose translation matches a
     hallucination marker — a post-hoc safety net for cases the classifier
     let through.
@@ -304,7 +267,7 @@ def clean_speech() -> None:
     )
     if not clips:
         session.close()
-        return
+        return 0
 
     t_stage = time.perf_counter()
     for clip in clips:
@@ -316,20 +279,13 @@ def clean_speech() -> None:
         clip.speech_confidence = None
         clip.speech_avg_logprob = None
         clip.speech_compression_ratio = None
-        log(
-            SCOPE_CLEAN,
-            "CLEAN",
-            f"clip_{clip.id}",
-            "ok",
-            stats={"preview": original[:32]},
-        )
+        event("CLEAN", f"clip_{clip.id}", stats={"preview": original[:32]})
 
     session.commit()
     session.close()
-    log(
-        SCOPE_CLEAN,
-        "SEAL",
+    event(
+        "SCAN",
         "clean",
-        "ok",
         stats={"cleared": len(clips), "time": time.perf_counter() - t_stage},
     )
+    return len(clips)

@@ -56,7 +56,7 @@ def test_worker_converts_embed_exception_to_failure(monkeypatch):
     def _capture_log(*args, **kwargs) -> None:
         log_calls.append((args, kwargs))
 
-    monkeypatch.setattr("modules.embeddings.worker.log", _capture_log)
+    monkeypatch.setattr("core.log._render", _capture_log)
 
     run_worker(
         LocalJobSource(b),
@@ -76,7 +76,7 @@ def test_worker_converts_embed_exception_to_failure(monkeypatch):
     # the real exception cause.
     assert any(
         len(args) >= 4
-        and args[1] == "EMB"
+        and args[1] == "EXTRACT"
         and args[2] == "clip_102"
         and args[3] == "ERR"
         and "vision processing failed" in str(kwargs.get("stats", {}).get("err", ""))

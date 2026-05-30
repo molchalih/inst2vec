@@ -15,8 +15,8 @@ from sqlalchemy.orm import Session
 
 from core import fingerprint as fp
 from core.config import FilterSettings, Secrets, Settings
-from core.console import log
 from core.database import Clip, User, get_engine
+from core.log import StageResult, event, scope, stage
 from modules.filter.predicates import (
     eligible_clips,
     has_any_flag,
@@ -105,6 +105,7 @@ def _fingerprint(session: Session, cfg: FilterSettings) -> fp.Fingerprint:
     return fp.Fingerprint(data=data, config=config, dependency=dependency)
 
 
+@scope("filter")
 def process_dataset(
     cfg: FilterSettings,
     *,
@@ -114,53 +115,34 @@ def process_dataset(
     with Session(eng) as session:
         current = _fingerprint(session, cfg)
         if not fp.is_stale(session, STAGE, SCOPE, current):
-            log("filter", "SKIP", "fingerprint", "ok")
+            event("SKIP", "fingerprint")
             return
 
         diff = fp.describe_diff(session, STAGE, SCOPE, current)
-        log("filter", "SCAN", "fingerprint", "stale", stats={"diff": diff})
+        event("SCAN", "fingerprint", stats={"diff": diff})
 
-        t0 = time.perf_counter()
         reset_dataset_processing_state(session)
 
         t_hard = time.perf_counter()
         _hard_preprocess(session, cfg)
-        log(
-            "filter",
-            "WRITE",
-            "hard",
-            "ok",
-            stats={"time": time.perf_counter() - t_hard},
-        )
+        event("WRITE", "hard", stats={"time": time.perf_counter() - t_hard})
 
         calculate_user_stats(session)
 
         t_soft = time.perf_counter()
         _soft_preprocess(session, cfg)
-        log(
-            "filter",
-            "WRITE",
-            "soft",
-            "ok",
-            stats={"time": time.perf_counter() - t_soft},
-        )
+        event("WRITE", "soft", stats={"time": time.perf_counter() - t_soft})
 
         t_sel = time.perf_counter()
         _random_sample(session, cfg)
-        log(
-            "filter",
-            "WRITE",
-            "selection",
-            "ok",
-            stats={"time": time.perf_counter() - t_sel},
-        )
+        event("WRITE", "selection", stats={"time": time.perf_counter() - t_sel})
 
         fp.mark_complete(session, STAGE, SCOPE, current)
         session.commit()
 
-        log("filter", "SEAL", "filter", "ok", stats={"time": time.perf_counter() - t0})
 
-
-def run(settings: Settings, secrets: Secrets) -> None:
+@stage("filter")
+def run(settings: Settings, secrets: Secrets) -> StageResult:
     """Filter dataset to eligible+selected clips."""
     process_dataset(settings.filter)
+    return StageResult()

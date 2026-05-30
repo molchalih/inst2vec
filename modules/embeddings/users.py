@@ -19,18 +19,17 @@ when the aggregator changes.
 from __future__ import annotations
 
 import hashlib
-import time
 from collections import defaultdict
 
 import numpy as np
 
 from core import fingerprint as fp
-from core.console import log
 from core.database import (
     StageState,
     UserEmbedding,
     get_session,
 )
+from core.log import StageResult, event, item, stage
 from core.pipeline import Stage
 from modules.embeddings.cases import default_cases
 from modules.embeddings.state import (
@@ -97,38 +96,31 @@ def _recompute_users(
     rows: list[tuple[int, bytes, int]],
     user_ids: set[int],
     desired_hashes: dict[int, str],
-) -> None:
+) -> int:
+    """Aggregate and write user embeddings for *user_ids*. Returns count written."""
     if not user_ids:
-        return
+        return 0
     subset = [r for r in rows if r[2] in user_ids]
     aggregated = aggregate_user_embeddings_from_rows(subset)
-    log(
-        f"embed:user:{case}",
-        "SCAN",
-        "users",
-        "ok",
-        stats={"todo": len(aggregated)},
-    )
+    event("SCAN", "users", stats={"todo": len(aggregated)})
     for user_id, mean_blob in aggregated.items():
-        session.merge(
-            UserEmbedding(
-                user_id=user_id,
-                embedding_case=case,
-                embedding=mean_blob,
-                source_hash=desired_hashes[user_id],
+        n_clips = sum(1 for r in subset if r[2] == user_id)
+        with item("EXTRACT", f"user_{user_id}") as t:
+            session.merge(
+                UserEmbedding(
+                    user_id=user_id,
+                    embedding_case=case,
+                    embedding=mean_blob,
+                    source_hash=desired_hashes[user_id],
+                )
             )
-        )
-        session.commit()
-        log(
-            f"embed:user:{case}",
-            "AGG",
-            f"user_{user_id}",
-            "ok",
-            stats={"dim": len(mean_blob) // 4},
-        )
+            session.commit()
+            t.stats(clips=n_clips, dim=len(mean_blob) // 4)
+    return len(aggregated)
 
 
-def embed_user_embeddings(settings, cases: list[str] | None = None) -> None:
+@stage("embed:users")
+def embed_user_embeddings(settings, cases: list[str] | None = None) -> StageResult:
     """Recompute and merge UserEmbedding rows for each case when stale.
 
     Reads ``settings.embeddings.exclude_disqualified_users`` so the
@@ -139,24 +131,23 @@ def embed_user_embeddings(settings, cases: list[str] | None = None) -> None:
     case_names = list(cases) if cases is not None else list(default_cases(settings))
     exclude_disqualified = settings.embeddings.exclude_disqualified_users
     session = get_session()
+    total_done = 0
     try:
         for case in case_names:
-            scope = f"embed:user:{case}"
-            t_stage = time.perf_counter()
             rows = get_clip_embedding_rows_for_user_aggregation(
                 session, case, exclude_disqualified
             )
             current = _compute_fingerprint(session, case, rows)
             if not fp.is_stale(session, STAGE, case, current):
-                log(scope, "SKIP", "fingerprint", "ok")
+                event("SKIP", "fingerprint")
                 continue
 
             diff = fp.describe_diff(session, STAGE, case, current)
-            log(scope, "SCAN", "fingerprint", "stale", stats={"diff": diff})
+            event("SCAN", "fingerprint", result="WARN", stats={"diff": diff})
 
             stored_state = session.get(StageState, (STAGE, case))
             if stored_state is not None and stored_state.config_hash != current.config:
-                log(scope, "WRITE", "case", "ok", stats={"reason": "config drift"})
+                event("WRITE", "case", stats={"reason": "config drift"})
                 _wipe_case(session, case)
 
             desired = per_user_source_hashes(rows)
@@ -166,26 +157,12 @@ def embed_user_embeddings(settings, cases: list[str] | None = None) -> None:
 
             _delete_users(session, case, orphans)
             if orphans:
-                log(
-                    scope,
-                    "WRITE",
-                    "orphans",
-                    "ok",
-                    stats={"deleted": len(orphans)},
-                )
-            _recompute_users(session, case, rows, changed, desired)
+                event("WRITE", "orphans", stats={"deleted": len(orphans)})
+            done = _recompute_users(session, case, rows, changed, desired)
+            total_done += done
 
             fp.mark_complete(session, STAGE, case, current)
             session.commit()
-            log(
-                scope,
-                "SEAL",
-                "aggregate",
-                "ok",
-                stats={
-                    "users": len(changed),
-                    "time": time.perf_counter() - t_stage,
-                },
-            )
     finally:
         session.close()
+    return StageResult(done=total_done)

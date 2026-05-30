@@ -1,9 +1,12 @@
 import importlib
 import sys
+from datetime import datetime as _datetime
 from pathlib import Path
 
 import pytest
 from sqlalchemy import text
+
+from core.database import Base, StageState, get_engine, get_session
 
 
 def test_quarto_default_engine_resolves_relative_sqlite_url(monkeypatch):
@@ -305,3 +308,88 @@ def test_user_embedding_has_nullable_source_hash():
     assert "source_hash" in cols, "UserEmbedding must expose source_hash"
     assert cols["source_hash"]["nullable"] is True
     assert UserEmbedding.source_hash.property.columns[0].nullable is True
+
+
+# ── StageState model ────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def fresh_stage_state():
+    Base.metadata.create_all(get_engine())
+    session = get_session()
+    session.query(StageState).delete()
+    session.commit()
+    yield session
+    session.close()
+
+
+def test_stage_state_columns_present():
+    cols = {c.name for c in StageState.__table__.columns}
+    assert cols == {
+        "stage_name",
+        "scope_key",
+        "data_hash",
+        "config_hash",
+        "dependency_hash",
+        "updated_at",
+    }
+
+
+def test_stage_state_primary_key_is_stage_name_scope_key():
+    pk = {c.name for c in StageState.__table__.primary_key.columns}
+    assert pk == {"stage_name", "scope_key"}
+
+
+def test_stage_state_merge_and_get(fresh_stage_state):
+    session = fresh_stage_state
+    session.merge(
+        StageState(
+            stage_name="t1",
+            scope_key="alpha",
+            data_hash="d1",
+            config_hash="c1",
+            dependency_hash="x1",
+        )
+    )
+    session.commit()
+
+    row = session.get(StageState, ("t1", "alpha"))
+    assert row is not None
+    assert row.data_hash == "d1"
+    assert row.config_hash == "c1"
+    assert row.dependency_hash == "x1"
+    assert isinstance(row.updated_at, _datetime)
+
+
+def test_stage_state_merge_overwrites_in_place(fresh_stage_state):
+    session = fresh_stage_state
+    session.merge(
+        StageState(
+            stage_name="t1",
+            scope_key="alpha",
+            data_hash="d1",
+            config_hash="c1",
+            dependency_hash="x1",
+        )
+    )
+    session.commit()
+    session.merge(
+        StageState(
+            stage_name="t1",
+            scope_key="alpha",
+            data_hash="d2",
+            config_hash="c2",
+            dependency_hash="x2",
+        )
+    )
+    session.commit()
+
+    row = session.get(StageState, ("t1", "alpha"))
+    assert row is not None
+    assert row.data_hash == "d2"
+    assert row.config_hash == "c2"
+    assert row.dependency_hash == "x2"
+    assert (
+        session.query(StageState).filter_by(stage_name="t1", scope_key="alpha").count()
+        == 1
+    )

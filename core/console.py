@@ -20,7 +20,7 @@ from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, ClassVar, Literal, cast, get_args
+from typing import Any, ClassVar, cast, get_args
 
 from rich.console import Console, Group
 from rich.highlighter import RegexHighlighter
@@ -39,30 +39,12 @@ from rich.table import Table
 from rich.text import Text
 from rich.theme import Theme
 
+from core.log_types import Result, Verb
+
 # ---------------------------------------------------------------------------
-# Verb vocabulary (closed set, 17)
+# Verb vocabulary (closed set, 11) — types imported from core.log_types
 # ---------------------------------------------------------------------------
 
-Verb = Literal[
-    "INIT",
-    "LOAD",
-    "SCAN",
-    "SKIP",
-    "GET",
-    "PUT",
-    "EXTRACT",
-    "ID",
-    "ASR",
-    "MT",
-    "CLEAN",
-    "EMB",
-    "AGG",
-    "FIT",
-    "SCORE",
-    "WRITE",
-    "SEAL",
-    "SWEEP",
-]
 _VERBS: frozenset[str] = frozenset(get_args(Verb))
 
 
@@ -240,13 +222,13 @@ def _render_log(scope: str, body: str, *, is_err: bool = False) -> None:
 # ---------------------------------------------------------------------------
 
 
-def phase(name: str) -> None:
-    """Advance the pipeline bar by 1 and reset scope dedup.
+def _maybe_advance_phase() -> None:
+    """Reset scope dedup state and advance the pipeline bar by 1 if a Live is active.
 
-    The phase name is intentionally not rendered: stage progress + worker
-    log lines already convey what is running.
+    Called from `core.log.stage` decorator on every stage entry. The
+    `last_scope` reset fires unconditionally; the bar advance is a no-op
+    outside `pipeline(...)`.
     """
-    del name  # kept in signature for call-site readability
     _render_state.last_scope = ""
     if _pipeline_task_id is not None:
         _pipeline_progress.update(_pipeline_task_id, advance=1)
@@ -254,9 +236,9 @@ def phase(name: str) -> None:
 
 def log(
     scope: str,
-    verb: str,
+    verb: Verb,
     target: str,
-    result: str = "ok",
+    result: Result = "ok",
     *,
     stats: Mapping[str, Any] | None = None,
 ) -> None:

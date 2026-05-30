@@ -13,6 +13,7 @@ from core.fingerprint import (
     is_stale,
     mark_complete,
 )
+from core.log import scope as _scope
 
 # ── hash_rows / hash_text ────────────────────────────────────────────────────
 
@@ -229,29 +230,36 @@ def test_file_stat_for_hash_existing_returns_size_and_mtime(tmp_path):
 # ── gate ─────────────────────────────────────────────────────────────────────
 
 
+# gate() uses event() which requires an active scope via ContextVar;
+# wrap direct calls with a dummy @scope so the ContextVar is set.
+@_scope("fingerprint")
+def _gate_in_scope(*args, **kwargs):
+    from core.fingerprint import gate
+
+    gate(*args, **kwargs)
+
+
 def test_gate_no_prior_state_skips_drift_and_logs(fresh_state, capsys):
-    from core.fingerprint import Fingerprint, gate, hash_text
+    from core.fingerprint import Fingerprint, hash_text
 
     called: list[str] = []
     fp_obj = Fingerprint(
         data=hash_text(""), config=hash_text("v1"), dependency=hash_text("")
     )
 
-    gate(
+    _gate_in_scope(
         fresh_state,
         "stage_x",
         "scope_y",
         fp_obj,
         on_drift=lambda s: called.append("drift"),
-        log_scope="stage_x",
-        drift_msg="resetting",
     )
 
     assert called == []
 
 
 def test_gate_drift_invokes_on_drift_callback(fresh_state):
-    from core.fingerprint import Fingerprint, gate, hash_text, mark_complete
+    from core.fingerprint import Fingerprint, hash_text, mark_complete
 
     fp_old = Fingerprint(
         data=hash_text(""), config=hash_text("v1"), dependency=hash_text("")
@@ -263,21 +271,19 @@ def test_gate_drift_invokes_on_drift_callback(fresh_state):
         data=hash_text(""), config=hash_text("v2"), dependency=hash_text("")
     )
     called: list[str] = []
-    gate(
+    _gate_in_scope(
         fresh_state,
         "stage_x",
         "scope_y",
         fp_new,
         on_drift=lambda s: called.append("drift"),
-        log_scope="stage_x",
-        drift_msg="resetting",
     )
 
     assert called == ["drift"]
 
 
 def test_gate_match_does_not_invoke_callback(fresh_state):
-    from core.fingerprint import Fingerprint, gate, hash_text, mark_complete
+    from core.fingerprint import Fingerprint, hash_text, mark_complete
 
     fp_obj = Fingerprint(
         data=hash_text(""), config=hash_text("v1"), dependency=hash_text("")
@@ -286,14 +292,12 @@ def test_gate_match_does_not_invoke_callback(fresh_state):
     fresh_state.commit()
 
     called: list[str] = []
-    gate(
+    _gate_in_scope(
         fresh_state,
         "stage_x",
         "scope_y",
         fp_obj,
         on_drift=lambda s: called.append("drift"),
-        log_scope="stage_x",
-        drift_msg="resetting",
     )
 
     assert called == []
@@ -322,14 +326,12 @@ def test_gate_dependency_drift_ignored_by_default(fresh_state):
     def on_drift(_s):
         called["n"] += 1
 
-    fp.gate(
+    _gate_in_scope(
         session,
         "t",
         "s",
         current,
         on_drift,
-        log_scope="x",
-        drift_msg="dep drift",
     )
     assert called["n"] == 0
 
@@ -357,14 +359,12 @@ def test_gate_dependency_drift_triggers_when_flag_set(fresh_state):
     def on_drift(_s):
         called["n"] += 1
 
-    fp.gate(
+    _gate_in_scope(
         session,
         "t",
         "s",
         current,
         on_drift,
-        log_scope="x",
-        drift_msg="dep drift",
         check_dependency=True,
     )
     assert called["n"] == 1
@@ -392,14 +392,12 @@ def test_gate_dependency_match_does_not_trigger_when_flag_set(fresh_state):
     def on_drift(_s):
         called["n"] += 1
 
-    fp.gate(
+    _gate_in_scope(
         session,
         "t",
         "s",
         current,
         on_drift,
-        log_scope="x",
-        drift_msg="m",
         check_dependency=True,
     )
     assert called["n"] == 0
