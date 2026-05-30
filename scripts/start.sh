@@ -5,6 +5,13 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# Tee everything (stdout + stderr) to a timestamped log while still printing to
+# the console. logs/ is gitignored.
+mkdir -p logs
+LOG_FILE="logs/$(date +%Y%m%d-%H%M%S).log"
+exec > >(tee -a "$LOG_FILE") 2>&1
+echo "[start] logging to $LOG_FILE"
+
 # Load .env into this shell. python-dotenv also loads it at runtime and will
 # not override what we export here.
 if [ -f .env ]; then

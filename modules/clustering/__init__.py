@@ -6,19 +6,19 @@ from modules.clustering.search import run_cluster_search
 from modules.clustering.validation import validate_clustering
 
 
-def run_search(settings: Settings, secrets: Secrets, cases: tuple[str, ...]) -> None:
+def run_search(settings: Settings, _secrets: Secrets, cases: tuple[str, ...]) -> None:
     """UMAP + HDBSCAN grid search over embedding cases."""
     run_cluster_search(settings=settings, cases=cases)
 
 
 def run_validation(
-    settings: Settings, secrets: Secrets, cases: tuple[str, ...]
+    settings: Settings, _secrets: Secrets, cases: tuple[str, ...]
 ) -> None:
     """DBCV + silhouette validation with plateau detection."""
     validate_clustering(settings=settings, cases=cases)
 
 
-def run_assign(settings: Settings, secrets: Secrets, cases: tuple[str, ...]) -> None:
+def run_assign(settings: Settings, _secrets: Secrets, cases: tuple[str, ...]) -> None:
     """Assign final cluster labels using the best run per case."""
     assign_clusters(settings=settings, cases=cases)
 

@@ -21,7 +21,7 @@ const serializeRoute = (r: Route): string => {
 };
 
 export const routeAtom = atom<Route>(
-  typeof window === "undefined" ? {} : parseHash(window.location.hash),
+  typeof globalThis === "undefined" ? {} : parseHash(globalThis.location.hash),
 );
 
 export { parseHash, serializeRoute };

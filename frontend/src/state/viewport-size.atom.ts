@@ -3,9 +3,9 @@ import { atom, useAtomValue } from "jotai";
 export type ViewportSize = { width: number; height: number };
 
 const initial: ViewportSize =
-  typeof window !== "undefined"
-    ? { width: window.innerWidth, height: window.innerHeight }
-    : { width: 0, height: 0 };
+  typeof globalThis === "undefined"
+    ? { width: 0, height: 0 }
+    : { width: globalThis.innerWidth, height: globalThis.innerHeight };
 
 export const viewportSizeAtom = atom<ViewportSize>(initial);
 

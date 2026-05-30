@@ -30,6 +30,6 @@ __all__ = [
 ]
 
 
-def run_users(settings: Settings, secrets: Secrets) -> None:
+def run_users(settings: Settings, _secrets: Secrets) -> None:
     """Aggregate clip embeddings into per-user vectors."""
     embed_user_embeddings(settings, cases=list(default_cases(settings)))

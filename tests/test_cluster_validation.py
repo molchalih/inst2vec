@@ -94,7 +94,7 @@ def test_compute_row_scores_uses_explicit_euclidean_metrics(monkeypatch):
         captured["dbcv_metric"] = metric
         return 0.42
 
-    def fake_silhouette_score(X, labels, metric):
+    def fake_silhouette_score(X, labels, metric, random_state=None):
         captured["silhouette_metric"] = metric
         return 0.51
 

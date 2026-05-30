@@ -6,7 +6,7 @@ import numpy as np
 from PIL import Image
 from urllib.parse import urlparse
 from dataclasses import dataclass
-from typing import Optional, List, Union, Dict, Any
+from typing import Optional, List, Dict, Any
 from transformers.models.qwen3_vl.modeling_qwen3_vl import Qwen3VLPreTrainedModel, Qwen3VLModel, Qwen3VLConfig
 from transformers.models.qwen3_vl.processing_qwen3_vl import Qwen3VLProcessor
 from transformers.modeling_outputs import ModelOutput
@@ -31,6 +31,8 @@ MAX_FRAMES = 64
 FRAME_MAX_PIXELS = 768 * IMAGE_FACTOR * IMAGE_FACTOR
 MAX_TOTAL_PIXELS = 10 * FRAME_MAX_PIXELS
 PAD_TOKEN = "<|endoftext|>"
+URL_PREFIXES = ('http://', 'https://')
+FILE_PREFIX = 'file://'
 
 # Define output structure for embeddings
 @dataclass
@@ -93,9 +95,9 @@ class Qwen3VLForEmbedding(Qwen3VLPreTrainedModel):
                 image_grid_thw: Optional[torch.LongTensor] = None,
                 video_grid_thw: Optional[torch.LongTensor] = None,
                 cache_position: Optional[torch.LongTensor] = None,
-                logits_to_keep: Union[int, torch.Tensor] = 0,
+                logits_to_keep: int | torch.Tensor = 0,
                 **kwargs: Unpack[TransformersKwargs],
-    ) -> Union[tuple, Qwen3VLForEmbeddingOutput]:
+    ) -> tuple | Qwen3VLForEmbeddingOutput:
         # Pass inputs through the model
         outputs = self.model(
             input_ids=input_ids,
@@ -116,7 +118,7 @@ class Qwen3VLForEmbedding(Qwen3VLPreTrainedModel):
             attention_mask=attention_mask,
         )
 
-def sample_frames(frames: List[Union[str, Image.Image]], max_segments: int) -> List[Union[str, Image.Image]]:
+def sample_frames(frames: List[str | Image.Image], max_segments: int) -> List[str | Image.Image]:
     duration = len(frames)
     if duration <= max_segments:
         return frames
@@ -129,7 +131,7 @@ def sample_frames(frames: List[Union[str, Image.Image]], max_segments: int) -> L
 def is_image_path(path: str) -> bool:
     image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff', '.svg'}
     
-    if path.startswith(('http://', 'https://')):
+    if path.startswith(URL_PREFIXES):
         # Parse URL to remove query parameters
         parsed_url = urlparse(path)
         clean_path = parsed_url.path
@@ -229,21 +231,61 @@ class Qwen3VLEmbedder():
                 non_special_kept_count += 1
         return final_token_ids
 
+    @staticmethod
+    def _normalize_instruction(instruction: Optional[str]) -> Optional[str]:
+        # Ensure instruction ends with punctuation
+        if not instruction:
+            return instruction
+        instruction = instruction.strip()
+        if instruction and not unicodedata.category(instruction[-1]).startswith('P'):
+            instruction = instruction + '.'
+        return instruction
+
+    @staticmethod
+    def _as_list(value, is_single) -> list:
+        if value is None:
+            return []
+        if is_single(value):
+            return [value]
+        return value
+
+    def _video_content(self, vid, fps, max_frames):
+        """Resolve one video input to a (content, extra_kwargs) pair."""
+        if isinstance(vid, list):
+            # Video as frame sequence
+            video_content = vid
+            if self.max_frames is not None:
+                video_content = sample_frames(video_content, self.max_frames)
+            video_content = [
+                (FILE_PREFIX + ele if isinstance(ele, str) else ele)
+                for ele in video_content
+            ]
+            return video_content, {'total_pixels': self.total_pixels}
+        if isinstance(vid, str):
+            # Video as file path
+            video_content = vid if vid.startswith(URL_PREFIXES) else FILE_PREFIX + vid
+            return video_content, {'fps': fps or self.fps, 'max_frames': max_frames or self.max_frames}
+        raise TypeError(f"Unrecognized video type: {type(vid)}")
+
+    @staticmethod
+    def _image_content(img):
+        """Resolve one image input to its content value."""
+        if isinstance(img, Image.Image):
+            return img
+        if isinstance(img, str):
+            return img if img.startswith(URL_PREFIXES) else FILE_PREFIX + img
+        raise TypeError(f"Unrecognized image type: {type(img)}")
+
     def format_model_input(
-        self, 
-        text: Optional[Union[List[str], str]] = None,
-        image: Optional[Union[List[Union[str, Image.Image]], str, Image.Image]] = None,
-        video: Optional[Union[List[Union[str, List[Union[str, Image.Image]]]], str, List[Union[str, Image.Image]]]] = None,
+        self,
+        text: Optional[list[str] | str] = None,
+        image: Optional[list[str | Image.Image] | str | Image.Image] = None,
+        video: Optional[list[str | list[str | Image.Image]] | str | list[str | Image.Image]] = None,
         instruction: Optional[str] = None,
         fps: Optional[float] = None,
         max_frames: Optional[int] = None
     ) -> List[Dict]:
-
-        # Ensure instruction ends with punctuation
-        if instruction:
-            instruction = instruction.strip()
-            if instruction and not unicodedata.category(instruction[-1]).startswith('P'):
-                instruction = instruction + '.'
+        instruction = self._normalize_instruction(instruction)
 
         # Initialize conversation with system prompts
         content = []
@@ -252,90 +294,35 @@ class Qwen3VLEmbedder():
             {"role": "user", "content": content}
         ]
 
-        # Normalize text input to list
-        if text is None:
-            texts = []
-        elif isinstance(text, str):
-            texts = [text]
-        else:
-            texts = text
-        
-        # Normalize image input to list
-        if image is None:
-            images = []
-        elif not isinstance(image, list):
-            images = [image]
-        else:
-            images = image
-        
-        # Normalize video input to list
-        if video is None:
-            videos = []
-        elif is_video_input(video):
-            videos = [video]
-        else:
-            # Assume it's a list of videos
-            videos = video
+        # Normalize text/image/video inputs to lists
+        texts = self._as_list(text, lambda v: isinstance(v, str))
+        images = self._as_list(image, lambda v: not isinstance(v, list))
+        videos = self._as_list(video, is_video_input)
 
-        # Add text, image, or video content to conversation
+        self._populate_content(content, texts, images, videos, fps, max_frames)
+        return conversation
+
+    def _populate_content(self, content, texts, images, videos, fps, max_frames) -> None:
+        """Append video/image/text blocks to ``content`` (or a NULL placeholder
+        when every modality is empty)."""
         if not texts and not images and not videos:
             content.append({'type': 'text', 'text': "NULL"})
-            return conversation
-
-        # Process each video
+            return
         for vid in videos:
-            video_content = None
-            video_kwargs = {'total_pixels': self.total_pixels}
-            
-            if isinstance(vid, list):
-                # Video as frame sequence
-                video_content = vid
-                if self.max_frames is not None:
-                    video_content = sample_frames(video_content, self.max_frames)
-                video_content = [
-                    ('file://' + ele if isinstance(ele, str) else ele) 
-                    for ele in video_content
-                ]
-            elif isinstance(vid, str):
-                # Video as file path
-                video_content = vid if vid.startswith(('http://', 'https://')) else 'file://' + vid
-                video_kwargs = {'fps': fps or self.fps, 'max_frames': max_frames or self.max_frames}
-            else:
-                raise TypeError(f"Unrecognized video type: {type(vid)}")
-
-            # Add video input to content
+            video_content, video_kwargs = self._video_content(vid, fps, max_frames)
             if video_content:
-                content.append({
-                    'type': 'video', 
-                    'video': video_content,
-                    **video_kwargs
-                })
-
-        # Process each image
+                content.append({'type': 'video', 'video': video_content, **video_kwargs})
         for img in images:
-            image_content = None
-            
-            if isinstance(img, Image.Image):
-                image_content = img
-            elif isinstance(img, str):
-                image_content = img if img.startswith(('http://', 'https://')) else 'file://' + img
-            else:
-                raise TypeError(f"Unrecognized image type: {type(img)}")
-
-            # Add image input to content
+            image_content = self._image_content(img)
             if image_content:
                 content.append({
-                    'type': 'image', 
+                    'type': 'image',
                     'image': image_content,
                     "min_pixels": self.min_pixels,
-                    "max_pixels": self.max_pixels
+                    "max_pixels": self.max_pixels,
                 })
-
-        # Process each text
         for txt in texts:
             content.append({'type': 'text', 'text': txt})
-
-        return conversation
 
     # Preprocess input conversations for model consumption
     def _preprocess_inputs(self, conversations: List[List[Dict]]) -> Dict[str, torch.Tensor]:

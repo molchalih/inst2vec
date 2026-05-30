@@ -29,17 +29,17 @@ from huggingface_hub import snapshot_download
 from transformers import AutoTokenizer
 
 
-def _ensure_local_model(model_path: str) -> str:
+def _ensure_local_model(model_path: str) -> None:
+    """Download the checkpoint into ``model_path`` if it isn't present yet."""
     path = Path(model_path)
     if path.is_dir() and any(path.iterdir()):
-        return model_path
+        return
     repo_id = f"Qwen/{path.name}"
     path.mkdir(parents=True, exist_ok=True)
     snapshot_download(
         repo_id=repo_id, local_dir=str(path),
         token=os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN"),
     )
-    return model_path
 
 
 @dataclass
@@ -72,7 +72,7 @@ class Qwen3TextGenerator:
             import vllm.sampling_params as svp
             from vllm import LLM
 
-            model_path = _ensure_local_model(model_path)
+            _ensure_local_model(model_path)
             tokenizer = AutoTokenizer.from_pretrained(model_path)
             llm = LLM(
                 model=model_path,

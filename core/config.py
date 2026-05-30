@@ -9,6 +9,7 @@ from typing import Any
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 _CONFIG_PATH = Path(__file__).parent.parent / "config.toml"
+_MUST_BE_POSITIVE = "must be > 0"
 
 
 class PathsSettings(BaseModel):
@@ -99,11 +100,12 @@ class MirSettings(BaseModel):
         "commit_every",
         "prefetch_queue_size",
         "checkpoint_max_attempts",
+        "maest_patch_seconds",
     )
     @classmethod
-    def _positive(cls, v: int) -> int:
+    def _positive(cls, v: int | float) -> int | float:
         if v <= 0:
-            raise ValueError("must be > 0")
+            raise ValueError(_MUST_BE_POSITIVE)
         return v
 
     @field_validator("binary_threshold")
@@ -118,13 +120,6 @@ class MirSettings(BaseModel):
     def _unit_interval(cls, v: float) -> float:
         if not 0.0 <= v <= 1.0:
             raise ValueError("must lie in [0, 1]")
-        return v
-
-    @field_validator("maest_patch_seconds")
-    @classmethod
-    def _positive_float(cls, v: float) -> float:
-        if v <= 0:
-            raise ValueError("must be > 0")
         return v
 
 
@@ -186,6 +181,33 @@ class LabelsSettings(BaseModel):
     # this many rounds before a deterministic distinct-suffix fallback.
     cluster_dedup_max_rounds: int = 2
 
+    @staticmethod
+    def _promote_legacy(legacy: Any, sub_table: dict) -> tuple[dict, bool]:
+        """Back-fill ``sub_table["video"]`` from a legacy key when unset.
+
+        Returns the (possibly updated) sub-table and whether the legacy value
+        was actually promoted (``False`` when ``video`` was already present).
+        """
+        used = legacy is not None and "video" not in sub_table
+        if used:
+            sub_table["video"] = legacy
+        return sub_table, used
+
+    @staticmethod
+    def _warn_legacy_prompts(*, has_legacy: bool, both: bool) -> None:
+        if not has_legacy:
+            return
+        note = (
+            "labels.prompt / labels.cluster_prompt are deprecated; "
+            "move them under [labels.case_prompts] / "
+            "[labels.cluster_case_prompts]."
+        )
+        if both:
+            note += (
+                " Both legacy and new keys present — new keys win, legacy keys ignored."
+            )
+        warnings.warn(note, DeprecationWarning, stacklevel=2)
+
     @model_validator(mode="before")
     @classmethod
     def _promote_legacy_prompts(cls, data: Any) -> Any:
@@ -201,38 +223,25 @@ class LabelsSettings(BaseModel):
             return data
         legacy_clip = data.pop("prompt", None)
         legacy_cluster = data.pop("cluster_prompt", None)
-        case_prompts = dict(data.get("case_prompts") or {})
-        cluster_case_prompts = dict(data.get("cluster_case_prompts") or {})
-
-        used_legacy_clip = legacy_clip is not None and "video" not in case_prompts
-        used_legacy_cluster = (
-            legacy_cluster is not None and "video" not in cluster_case_prompts
+        case_prompts, used_clip = cls._promote_legacy(
+            legacy_clip, dict(data.get("case_prompts") or {})
         )
-        if used_legacy_clip:
-            case_prompts["video"] = legacy_clip
-        if used_legacy_cluster:
-            cluster_case_prompts["video"] = legacy_cluster
+        cluster_case_prompts, used_cluster = cls._promote_legacy(
+            legacy_cluster, dict(data.get("cluster_case_prompts") or {})
+        )
 
         both_clip = (
-            legacy_clip is not None and "video" in case_prompts and not used_legacy_clip
+            legacy_clip is not None and "video" in case_prompts and not used_clip
         )
         both_cluster = (
             legacy_cluster is not None
             and "video" in cluster_case_prompts
-            and not used_legacy_cluster
+            and not used_cluster
         )
-        if legacy_clip is not None or legacy_cluster is not None:
-            note = (
-                "labels.prompt / labels.cluster_prompt are deprecated; "
-                "move them under [labels.case_prompts] / "
-                "[labels.cluster_case_prompts]."
-            )
-            if both_clip or both_cluster:
-                note += (
-                    " Both legacy and new keys present — new keys win, "
-                    "legacy keys ignored."
-                )
-            warnings.warn(note, DeprecationWarning, stacklevel=2)
+        cls._warn_legacy_prompts(
+            has_legacy=legacy_clip is not None or legacy_cluster is not None,
+            both=both_clip or both_cluster,
+        )
 
         if case_prompts:
             data["case_prompts"] = case_prompts
@@ -302,7 +311,7 @@ class EmbeddingsSettings(BaseModel):
     @classmethod
     def _positive(cls, v: int) -> int:
         if v <= 0:
-            raise ValueError("must be > 0")
+            raise ValueError(_MUST_BE_POSITIVE)
         return v
 
 

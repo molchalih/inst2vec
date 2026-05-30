@@ -32,33 +32,33 @@ export const Stage = ({ children }: StageProps) => {
   const run = useAtomValue(stretchedRunAtom);
   const viewport = useAtomValue(viewportAtom);
   const hover = useAtomValue(hoverAtom);
-  const cursorClass = hover.dotId !== null ? "cursor-pointer" : "";
+  const cursorClass = hover.dotId === null ? "" : "cursor-pointer";
 
-  if (!run) {
-    return <div ref={wrapperRef} className="absolute inset-0" />;
+  if (run) {
+    const isBrowser = typeof globalThis !== "undefined";
+    const resolution = isBrowser ? globalThis.devicePixelRatio : 1;
+
+    return (
+      <div ref={wrapperRef} className={`absolute inset-0 ${cursorClass}`}>
+        <Application
+          background={tokens.bg.canvas}
+          antialias
+          resolution={resolution}
+          autoDensity
+          {...(isBrowser ? { resizeTo: window } : {})}
+        >
+          <pixiContainer
+            x={viewport.x}
+            y={viewport.y}
+            scale={viewport.scale}
+            sortableChildren
+          >
+            {children}
+          </pixiContainer>
+        </Application>
+      </div>
+    );
   }
 
-  const isBrowser = typeof window !== "undefined";
-  const resolution = isBrowser ? window.devicePixelRatio : 1;
-
-  return (
-    <div ref={wrapperRef} className={`absolute inset-0 ${cursorClass}`}>
-      <Application
-        background={tokens.bg.canvas}
-        antialias
-        resolution={resolution}
-        autoDensity
-        {...(isBrowser ? { resizeTo: window } : {})}
-      >
-        <pixiContainer
-          x={viewport.x}
-          y={viewport.y}
-          scale={viewport.scale}
-          sortableChildren
-        >
-          {children}
-        </pixiContainer>
-      </Application>
-    </div>
-  );
+  return <div ref={wrapperRef} className="absolute inset-0" />;
 };

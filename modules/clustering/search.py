@@ -40,21 +40,21 @@ def _load_grid(settings, cases: Iterable[str]) -> list[dict]:
     """
     samples: list[int | None] = list(settings.hdbscan_min_samples) or [None]
     return [
-        dict(
-            embedding_case=case,
-            umap_n_components=nc,
-            umap_n_neighbors=nn,
-            umap_min_dist=float(md),
-            umap_metric=um,
-            umap2d_n_neighbors=int(settings.umap2d_n_neighbors),
-            umap2d_min_dist=float(settings.umap2d_min_dist),
-            umap2d_metric=u2m,
-            hdbscan_min_cluster_size=mcs,
-            hdbscan_min_samples=ms,
-            hdbscan_cluster_selection_method=sel,
-            hdbscan_metric=DEFAULT_HDBSCAN_METRIC,
-            random_state=int(settings.random_state),
-        )
+        {
+            "embedding_case": case,
+            "umap_n_components": nc,
+            "umap_n_neighbors": nn,
+            "umap_min_dist": float(md),
+            "umap_metric": um,
+            "umap2d_n_neighbors": int(settings.umap2d_n_neighbors),
+            "umap2d_min_dist": float(settings.umap2d_min_dist),
+            "umap2d_metric": u2m,
+            "hdbscan_min_cluster_size": mcs,
+            "hdbscan_min_samples": ms,
+            "hdbscan_cluster_selection_method": sel,
+            "hdbscan_metric": DEFAULT_HDBSCAN_METRIC,
+            "random_state": int(settings.random_state),
+        }
         for case, nc, nn, md, um, u2m, mcs, ms, sel in product(
             list(cases),
             list(settings.umap_n_components),

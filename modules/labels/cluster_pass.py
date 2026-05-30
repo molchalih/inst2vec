@@ -469,65 +469,138 @@ def _disambiguate_duplicate_labels(
     """
     repertoire_key = REGISTRY[case].repertoire_key
     for round_i in range(labels.cluster_dedup_max_rounds):
-        label_by_cid = _success_label_by_cid(session, case)
-        extras = _duplicate_extra_cids(label_by_cid)
-        if not extras:
-            return
-        used = {_norm_label(v) for v in label_by_cid.values()}
-        avoid = sorted(set(label_by_cid.values()))
-        reqs: list[tuple[int, str, list[ClipCandidate]]] = []
-        for cid in extras:
-            cands = candidates_per_cluster.get(cid, [])
-            if not cands:
-                continue
-            prompt = (
-                prompt_for_cluster(labels, case=case)
-                + "\n\n"
-                + render_prompt_body(cands)
-                + _avoid_clause(avoid)
-            )
-            reqs.append((cid, prompt, cands))
-        if not reqs:
+        if not _dedup_round(
+            session,
+            case=case,
+            labels=labels,
+            generator=generator,
+            schema=schema,
+            candidates_per_cluster=candidates_per_cluster,
+            round_i=round_i,
+        ):
             break
-        # Dedicated seed space past the per-attempt range; higher temperature
-        # to push the regenerated names away from the colliding originals.
-        seed = labels.generation_seed + labels.cluster_max_attempts + 1 + round_i
-        try:
-            raws = generator.run_text_batch(
-                [p for _, p, _ in reqs],
-                max_new_tokens=labels.cluster_max_new_tokens,
-                seeds=[seed] * len(reqs),
-                do_sample=True,
-                temperature=0.9,
-                top_p=0.95,
-                schema=schema,
-            )
-        except Exception:
-            break
-        for (cid, _, cands), raw in zip(reqs, raws, strict=True):
-            payload, status, _warnings = validate_cluster(raw, labels, case=case)
-            if payload is None:
-                continue
-            new_norm = _norm_label(payload.get("cluster_label", ""))
-            if not new_norm or new_norm in used:
-                continue
-            with item("WRITE", f"{case}/{cid}"):
-                upsert_success(
-                    session,
-                    ClusterLabel,
-                    key=(case, cid),
-                    validation=status,
-                    payload=payload,
-                    warnings=_warnings,
-                    generation_seed=seed,
-                )
-                row = session.get(ClusterLabel, (case, cid))
-                row.sampled_clip_ids = [c.clip_id for c in cands]
-                session.commit()
-            used.add(new_norm)
-        generator.reclaim_memory()
 
-    # Deterministic fallback for any residual collisions.
+    _resolve_residual_collisions(session, case=case, repertoire_key=repertoire_key)
+
+
+def _build_dedup_requests(
+    *,
+    case: str,
+    labels: LabelsSettings,
+    extras: list[int],
+    avoid: list[str],
+    candidates_per_cluster: dict[int, list[ClipCandidate]],
+) -> list[tuple[int, str, list[ClipCandidate]]]:
+    reqs: list[tuple[int, str, list[ClipCandidate]]] = []
+    for cid in extras:
+        cands = candidates_per_cluster.get(cid, [])
+        if not cands:
+            continue
+        prompt = (
+            prompt_for_cluster(labels, case=case)
+            + "\n\n"
+            + render_prompt_body(cands)
+            + _avoid_clause(avoid)
+        )
+        reqs.append((cid, prompt, cands))
+    return reqs
+
+
+def _dedup_round(
+    session: Session,
+    *,
+    case: str,
+    labels: LabelsSettings,
+    generator,
+    schema: dict,
+    candidates_per_cluster: dict[int, list[ClipCandidate]],
+    round_i: int,
+) -> bool:
+    """Run one regeneration round. Returns ``True`` to continue looping,
+    ``False`` to stop (nothing to do, no requests, or generator failure)."""
+    label_by_cid = _success_label_by_cid(session, case)
+    extras = _duplicate_extra_cids(label_by_cid)
+    if not extras:
+        return False
+    used = {_norm_label(v) for v in label_by_cid.values()}
+    avoid = sorted(set(label_by_cid.values()))
+    reqs = _build_dedup_requests(
+        case=case,
+        labels=labels,
+        extras=extras,
+        avoid=avoid,
+        candidates_per_cluster=candidates_per_cluster,
+    )
+    if not reqs:
+        return False
+    # Dedicated seed space past the per-attempt range; higher temperature
+    # to push the regenerated names away from the colliding originals.
+    seed = labels.generation_seed + labels.cluster_max_attempts + 1 + round_i
+    try:
+        raws = generator.run_text_batch(
+            [p for _, p, _ in reqs],
+            max_new_tokens=labels.cluster_max_new_tokens,
+            seeds=[seed] * len(reqs),
+            do_sample=True,
+            temperature=0.9,
+            top_p=0.95,
+            schema=schema,
+        )
+    except Exception:
+        return False
+    for (cid, _, cands), raw in zip(reqs, raws, strict=True):
+        _apply_dedup_result(
+            session,
+            case=case,
+            labels=labels,
+            cid=cid,
+            cands=cands,
+            raw=raw,
+            seed=seed,
+            used=used,
+        )
+    generator.reclaim_memory()
+    return True
+
+
+def _apply_dedup_result(
+    session: Session,
+    *,
+    case: str,
+    labels: LabelsSettings,
+    cid: int,
+    cands: list[ClipCandidate],
+    raw: str,
+    seed: int,
+    used: set[str],
+) -> None:
+    """Validate a regenerated label and persist it if it is a new unique name."""
+    payload, status, _warnings = validate_cluster(raw, labels, case=case)
+    if payload is None:
+        return
+    new_norm = _norm_label(payload.get("cluster_label", ""))
+    if not new_norm or new_norm in used:
+        return
+    with item("WRITE", f"{case}/{cid}"):
+        upsert_success(
+            session,
+            ClusterLabel,
+            key=(case, cid),
+            validation=status,
+            payload=payload,
+            warnings=_warnings,
+            generation_seed=seed,
+        )
+        row = session.get(ClusterLabel, (case, cid))
+        row.sampled_clip_ids = [c.clip_id for c in cands]
+        session.commit()
+    used.add(new_norm)
+
+
+def _resolve_residual_collisions(
+    session: Session, *, case: str, repertoire_key: str
+) -> None:
+    """Deterministic fallback for any collisions left after regeneration."""
     label_by_cid = _success_label_by_cid(session, case)
     extras = _duplicate_extra_cids(label_by_cid)
     if not extras:
@@ -566,21 +639,8 @@ def _pending_cluster_ids(
     return out
 
 
-def _run_case(
-    *,
-    session: Session,
-    case: str,
-    labels: LabelsSettings,
-    generator,
-) -> None:
-    spec = REGISTRY[case]
-    candidates_per_cluster = _load_candidates(session, spec=spec, labels=labels)
-    current = _fingerprint_for(
-        session,
-        spec=spec,
-        labels=labels,
-        candidates_per_cluster=candidates_per_cluster,
-    )
+def _gate_case(session: Session, *, case: str, current) -> None:
+    """Wipe-on-drift and fingerprint gate for a case before generation."""
 
     def _wipe(s: Session) -> None:
         s.execute(delete(ClusterLabel).where(ClusterLabel.embedding_case == case))
@@ -604,6 +664,78 @@ def _run_case(
         check_data=True,
     )
     session.commit()
+
+
+def _run_cluster_round(
+    session: Session,
+    *,
+    case: str,
+    labels: LabelsSettings,
+    generator,
+    schema: dict,
+    pending: list[int],
+    candidates_per_cluster: dict[int, list[ClipCandidate]],
+) -> None:
+    """One batched generate/validate/store round over the pending clusters."""
+    requests: list[_ClusterRequest] = []
+    for cid in pending:
+        req = _prepare_request(
+            session,
+            case=case,
+            cluster_id=cid,
+            candidates=candidates_per_cluster.get(cid, []),
+            labels=labels,
+        )
+        if req is not None:
+            requests.append(req)
+    session.commit()  # persist any no_input terminal failures
+    if not requests:
+        return
+
+    try:
+        raws = generator.run_text_batch(
+            [r.prompt for r in requests],
+            max_new_tokens=labels.cluster_max_new_tokens,
+            seeds=[r.seed for r in requests],
+            # Nucleus sampling so per-attempt seed variation produces
+            # different outputs; mild temperature keeps each generation
+            # close to greedy while letting retries diverge.
+            do_sample=True,
+            temperature=0.7,
+            top_p=0.9,
+            schema=schema,
+        )
+        errors: list[str | None] = [None] * len(requests)
+    except Exception as exc:  # whole-batch failure (e.g. OOM) → bump all
+        raws = [None] * len(requests)
+        errors = [str(exc)] * len(requests)
+
+    for req, raw, err in zip(requests, raws, errors, strict=True):
+        with item("WRITE", f"{case}/{req.cluster_id}"):
+            _store_result(
+                session, case=case, req=req, raw=raw, error=err, labels=labels
+            )
+            session.commit()
+    generator.reclaim_memory()
+
+
+def _run_case(
+    *,
+    session: Session,
+    case: str,
+    labels: LabelsSettings,
+    generator,
+) -> None:
+    spec = REGISTRY[case]
+    candidates_per_cluster = _load_candidates(session, spec=spec, labels=labels)
+    current = _fingerprint_for(
+        session,
+        spec=spec,
+        labels=labels,
+        candidates_per_cluster=candidates_per_cluster,
+    )
+
+    _gate_case(session, case=case, current=current)
 
     all_ids = sorted(candidates_per_cluster)
     schema = cluster_schema(REGISTRY[case], labels)
@@ -632,46 +764,15 @@ def _run_case(
             )
             first_iteration = False
 
-        requests: list[_ClusterRequest] = []
-        for cid in pending:
-            req = _prepare_request(
-                session,
-                case=case,
-                cluster_id=cid,
-                candidates=candidates_per_cluster.get(cid, []),
-                labels=labels,
-            )
-            if req is not None:
-                requests.append(req)
-        session.commit()  # persist any no_input terminal failures
-        if not requests:
-            continue
-
-        try:
-            raws = generator.run_text_batch(
-                [r.prompt for r in requests],
-                max_new_tokens=labels.cluster_max_new_tokens,
-                seeds=[r.seed for r in requests],
-                # Nucleus sampling so per-attempt seed variation produces
-                # different outputs; mild temperature keeps each generation
-                # close to greedy while letting retries diverge.
-                do_sample=True,
-                temperature=0.7,
-                top_p=0.9,
-                schema=schema,
-            )
-            errors: list[str | None] = [None] * len(requests)
-        except Exception as exc:  # whole-batch failure (e.g. OOM) → bump all
-            raws = [None] * len(requests)
-            errors = [str(exc)] * len(requests)
-
-        for req, raw, err in zip(requests, raws, errors, strict=True):
-            with item("WRITE", f"{case}/{req.cluster_id}"):
-                _store_result(
-                    session, case=case, req=req, raw=raw, error=err, labels=labels
-                )
-                session.commit()
-        generator.reclaim_memory()
+        _run_cluster_round(
+            session,
+            case=case,
+            labels=labels,
+            generator=generator,
+            schema=schema,
+            pending=pending,
+            candidates_per_cluster=candidates_per_cluster,
+        )
 
     # Enforce within-case label uniqueness before sealing.
     _disambiguate_duplicate_labels(

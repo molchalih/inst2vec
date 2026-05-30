@@ -79,8 +79,8 @@ const morphFrame = (
 
     // Use the present-side centrality on both endpoints when one side
     // is missing — a fade-in/out dot keeps a meaningful scale.
-    const fromC = j.fromCluster !== null ? j.fromCentrality : j.toCentrality;
-    const toC = j.toCluster !== null ? j.toCentrality : j.fromCentrality;
+    const fromC = j.fromCluster === null ? j.toCentrality : j.fromCentrality;
+    const toC = j.toCluster === null ? j.fromCentrality : j.toCentrality;
     const fromCl = j.fromCluster ?? j.toCluster ?? -1;
     const toCl = j.toCluster ?? j.fromCluster ?? -1;
     const fromScale = centralityRadiusScale(fromCl, fromC, cParams);

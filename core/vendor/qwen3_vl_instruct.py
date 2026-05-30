@@ -23,8 +23,10 @@ from huggingface_hub import snapshot_download
 from transformers import AutoModelForImageTextToText, AutoProcessor
 from qwen_vl_utils.vision_process import process_vision_info
 
+_NOT_LOADED = "load_once must be called first"
 
-def _ensure_local_model(model_path: str) -> str:
+
+def _ensure_local_model(model_path: str) -> None:
     """Materialize ``model_path`` from the HF hub when the directory is empty.
 
     HF ``from_pretrained`` rejects bare paths like ``./models/foo`` when the
@@ -34,7 +36,7 @@ def _ensure_local_model(model_path: str) -> str:
     """
     path = Path(model_path)
     if path.is_dir() and any(path.iterdir()):
-        return model_path
+        return
     repo_id = f"Qwen/{path.name}"
     path.mkdir(parents=True, exist_ok=True)
     snapshot_download(
@@ -42,7 +44,6 @@ def _ensure_local_model(model_path: str) -> str:
         local_dir=str(path),
         token=os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN"),
     )
-    return model_path
 
 
 @dataclass
@@ -77,7 +78,7 @@ class Qwen3VLInstructGenerator:
                 torch.set_float32_matmul_precision("high")
                 torch.backends.cuda.matmul.allow_tf32 = True
                 torch.backends.cudnn.allow_tf32 = True
-            model_path = _ensure_local_model(model_path)
+            _ensure_local_model(model_path)
             processor = AutoProcessor.from_pretrained(model_path)
             # Qwen3-VL is image-text-to-text (vision-language conditional
             # generation); AutoModelForCausalLM does not register a class
@@ -142,7 +143,7 @@ class Qwen3VLInstructGenerator:
         validation failures; everything else stays greedy for full
         determinism.
         """
-        assert self._loaded is not None, "load_once must be called first"
+        assert self._loaded is not None, _NOT_LOADED
         torch.manual_seed(seed if seed is not None else self.generation_seed)
         messages = [
             {
@@ -183,7 +184,7 @@ class Qwen3VLInstructGenerator:
         )[0]
 
     def run(self, video_path: str, prompt: str) -> str:
-        assert self._loaded is not None, "load_once must be called first"
+        assert self._loaded is not None, _NOT_LOADED
         torch.manual_seed(self.generation_seed)
         messages = [
             {
@@ -230,7 +231,7 @@ class Qwen3VLInstructGenerator:
         Split off from ``run_many`` so callers can overlap this on a
         background thread while the GPU runs the previous batch.
         """
-        assert self._loaded is not None, "load_once must be called first"
+        assert self._loaded is not None, _NOT_LOADED
         if not video_paths:
             return None
         all_messages = [
@@ -275,7 +276,7 @@ class Qwen3VLInstructGenerator:
 
     def generate_from_inputs(self, inputs) -> list[str]:
         """GPU half of ``run_many``. Pairs with ``prepare_many``."""
-        assert self._loaded is not None, "load_once must be called first"
+        assert self._loaded is not None, _NOT_LOADED
         if inputs is None:
             return []
         torch.manual_seed(self.generation_seed)

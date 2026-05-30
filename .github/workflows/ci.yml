@@ -23,7 +23,7 @@ jobs:
         run: uv python install 3.12
 
       - name: Install dependencies
-        run: uv sync --no-group gpu --group analysis
+        run: uv sync --no-group gpu --group analysis --group serving
 
       - name: Ruff lint
         run: uv run ruff check

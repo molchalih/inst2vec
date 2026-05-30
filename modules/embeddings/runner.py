@@ -209,6 +209,108 @@ def _run_case(
         session.close()
 
 
+def _clip_embed_text(
+    clip: Clip,
+    spec: EmbeddingCaseSpec,
+    *,
+    video_dir: str,
+    audio_dir: str | None,
+    audio_mir_map: dict,
+) -> tuple[bool, str | None]:
+    """Resolve a clip's embed text or signal that it is not embeddable.
+
+    Returns ``(True, text)`` when the clip can be embedded (``text`` may be
+    ``None`` for non-text cases), or ``(False, None)`` when a required video /
+    audio file is missing or the text builder yields ``None``.
+    """
+    if spec.requires_video and not os.path.exists(_video_path(clip.id, video_dir)):
+        return False, None
+    if audio_dir is not None:
+        audio_path = os.path.abspath(os.path.join(audio_dir, f"{clip.id}.mp3"))
+        if not os.path.exists(audio_path):
+            return False, None
+    if spec.text_builder is not None:
+        text = spec.text_builder(clip, audio_mir_map.get(clip.id))
+        if text is None:
+            return False, None
+        return True, text
+    return True, None
+
+
+def _build_target_texts(
+    session,
+    spec: EmbeddingCaseSpec,
+    settings,
+    targets: list[Clip],
+    embedded: dict[int, str | None],
+) -> tuple[dict[int, str | None], list[Clip], list[int], int]:
+    """Partition ``targets`` into buildable vs. (stale|fresh) un-embeddable.
+
+    Returns ``(texts, targets_built, stale_skipped, fresh_skipped)``. A target
+    that cannot be built counts as ``stale`` when it already had an embedding
+    row, else ``fresh``.
+    """
+    audio_mir_map: dict = {}
+    if spec.text_builder is not None and ("_audio_mir_row" in spec.dependency_columns):
+        audio_mir_map = get_audio_mir_map(session)
+
+    video_dir = settings.paths.video_dir
+    needs_audio = "_audio_file_stat" in spec.dependency_columns
+    audio_dir = settings.paths.audio_dir if needs_audio else None
+
+    texts: dict[int, str | None] = {}
+    targets_built: list[Clip] = []
+    stale_skipped: list[int] = []
+    fresh_skipped = 0
+    for clip in targets:
+        ok, text = _clip_embed_text(
+            clip,
+            spec,
+            video_dir=video_dir,
+            audio_dir=audio_dir,
+            audio_mir_map=audio_mir_map,
+        )
+        if not ok:
+            if clip.id in embedded:
+                stale_skipped.append(clip.id)
+            else:
+                fresh_skipped += 1
+            continue
+        texts[clip.id] = text
+        targets_built.append(clip)
+    return texts, targets_built, stale_skipped, fresh_skipped
+
+
+def _seal_no_targets(
+    session,
+    spec: EmbeddingCaseSpec,
+    current: fp.Fingerprint,
+    stale_skipped: list[int],
+    fresh_skipped: int,
+    t_stage: float,
+) -> None:
+    """Emit the no-buildable-targets SEAL outcome. Only seals when no stale
+    rows remain unresolved."""
+    if stale_skipped:
+        # do not seal — un-buildable stale targets remain unresolved
+        event(
+            "SEAL",
+            "embed",
+            result="WARN",
+            stats={"stale": len(stale_skipped)},
+        )
+        return
+    if fresh_skipped:
+        event("SCAN", "candidates", stats={"non_embeddable": fresh_skipped})
+    fp.mark_complete(session, STAGE, spec.name, current)
+    session.commit()
+    event(
+        "SEAL",
+        "embed",
+        stats={"done": 0, "time": time.perf_counter() - t_stage},
+    )
+
+
 def _embed_targets(
     session,
     spec: EmbeddingCaseSpec,
@@ -223,46 +325,9 @@ def _embed_targets(
     """Embed the subset of ``candidates`` whose ids are in ``target_ids``."""
     targets = [c for c in candidates if c.id in target_ids]
 
-    audio_mir_map: dict = {}
-    if spec.text_builder is not None and ("_audio_mir_row" in spec.dependency_columns):
-        audio_mir_map = get_audio_mir_map(session)
-
-    video_dir = settings.paths.video_dir
-    needs_audio = "_audio_file_stat" in spec.dependency_columns
-    audio_dir = settings.paths.audio_dir if needs_audio else None
-    texts: dict[int, str | None] = {}
-    targets_built: list[Clip] = []
-    stale_skipped: list[int] = []
-    fresh_skipped = 0
-    for clip in targets:
-        had_row = clip.id in embedded
-        if spec.requires_video:
-            path = _video_path(clip.id, video_dir)
-            if not os.path.exists(path):
-                if had_row:
-                    stale_skipped.append(clip.id)
-                else:
-                    fresh_skipped += 1
-                continue
-        if audio_dir is not None:
-            audio_path = os.path.abspath(os.path.join(audio_dir, f"{clip.id}.mp3"))
-            if not os.path.exists(audio_path):
-                if had_row:
-                    stale_skipped.append(clip.id)
-                else:
-                    fresh_skipped += 1
-                continue
-        text: str | None = None
-        if spec.text_builder is not None:
-            text = spec.text_builder(clip, audio_mir_map.get(clip.id))
-            if text is None:
-                if had_row:
-                    stale_skipped.append(clip.id)
-                else:
-                    fresh_skipped += 1
-                continue
-        texts[clip.id] = text
-        targets_built.append(clip)
+    texts, targets_built, stale_skipped, fresh_skipped = _build_target_texts(
+        session, spec, settings, targets, embedded
+    )
 
     if stale_skipped:
         session.query(ClipEmbedding).filter(
@@ -275,25 +340,10 @@ def _embed_targets(
     t_stage = time.perf_counter()
 
     if not targets_built:
-        if stale_skipped:
-            event(
-                "SEAL",
-                "embed",
-                result="WARN",
-                stats={"stale": len(stale_skipped)},
-            )
-            return 0, 0  # do not seal — un-buildable stale targets remain unresolved
-        if fresh_skipped:
-            event("SCAN", "candidates", stats={"non_embeddable": fresh_skipped})
-        fp.mark_complete(session, STAGE, spec.name, current)
-        session.commit()
-        event(
-            "SEAL",
-            "embed",
-            stats={"done": 0, "time": time.perf_counter() - t_stage},
-        )
+        _seal_no_targets(session, spec, current, stale_skipped, fresh_skipped, t_stage)
         return 0, 0
 
+    video_dir = settings.paths.video_dir
     case_jobs = build_jobs_for_case(
         spec,
         targets_built,

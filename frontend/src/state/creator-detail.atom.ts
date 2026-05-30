@@ -7,19 +7,18 @@ import { selectionAtom } from "./selection.atom";
 
 // Cache entries are keyed by `${runId}:${id}` so that switching runs
 // doesn't surface stale detail data for a colliding creator id.
-type Key = string;
-const keyFor = (runId: string, id: number): Key => `${runId}:${id}`;
+const keyFor = (runId: string, id: number): string => `${runId}:${id}`;
 
 type Map_ = {
-  details: Map<Key, CreatorDetail>;
-  loading: Set<Key>;
-  errors: Map<Key, Error>;
+  details: Map<string, CreatorDetail>;
+  loading: Set<string>;
+  errors: Map<string, Error>;
 };
 
 export const creatorDetailMapAtom = atom<Map_>({
-  details: new Map<Key, CreatorDetail>(),
-  loading: new Set<Key>(),
-  errors: new Map<Key, Error>(),
+  details: new Map<string, CreatorDetail>(),
+  loading: new Set<string>(),
+  errors: new Map<string, Error>(),
 });
 
 type Slot = { data?: CreatorDetail; loading?: boolean; error?: Error };

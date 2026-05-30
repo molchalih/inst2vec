@@ -85,7 +85,8 @@ _HALLUCINATION_SUBSTRING_PHRASES: list[str] = [
 # should use has_hallucination_marker() instead.
 HALLUCINATION_MARKERS: list[str] = _HALLUCINATION_SUBSTRING_PHRASES
 
-_NON_LETTER_RE = re.compile(r"[^A-Za-zА-Яа-яÀ-ɏЀ-ӿ]+")
+# Cyrillic basic ranges (А-Я, а-я) are subsumed by the full block Ѐ-ӿ (U+0400-04FF).
+_NON_LETTER_RE = re.compile(r"[^A-Za-zÀ-ɏЀ-ӿ]+")
 _REPEAT_MIN_TOKENS = 5  # at least N tokens of the same lowercased word in a row
 
 

@@ -10,7 +10,7 @@ import type { Ellipse } from "./ellipse";
  * or similar.
  */
 export const ellipsePoints = (e: Ellipse, segments: number): Vec2[] => {
-  const n = Math.max(3, segments | 0);
+  const n = Math.max(3, Math.trunc(segments));
   const cos = Math.cos(e.angle);
   const sin = Math.sin(e.angle);
   const out: Vec2[] = new Array(n);

@@ -1,6 +1,6 @@
 import type { UsersFile } from "./schemas/users.schema";
 import type { ClusterShape } from "./schemas/clusters.schema";
-import type { Manifest, ManifestRun, EmbeddingCase } from "./schemas/manifest.schema";
+import type { ManifestRun } from "./schemas/manifest.schema";
 
 export type AtlasRun = {
   meta: ManifestRun;
@@ -9,4 +9,5 @@ export type AtlasRun = {
   clusters: ClusterShape[];
 };
 
-export type { Manifest, ManifestRun, EmbeddingCase, ClusterShape };
+export type { ClusterShape } from "./schemas/clusters.schema";
+export type { Manifest, ManifestRun, EmbeddingCase } from "./schemas/manifest.schema";

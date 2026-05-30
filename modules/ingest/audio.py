@@ -105,6 +105,84 @@ def extract_audio(
     )
 
 
+def _consume_extract_results(future_to_id: dict, advance) -> int:
+    """Drain completed extraction futures, logging each. Returns failure count."""
+    failures = 0
+    for fut in as_completed(future_to_id):
+        cid = future_to_id[fut]
+        result = fut.result()
+        if result.ok:
+            event(
+                "EXTRACT",
+                f"clip_{cid}",
+                stats={
+                    "time": result.duration,
+                    "size": result.size or 0,
+                },
+            )
+            advance(detail=f"✓ {cid}")
+        else:
+            failures += 1
+            event(
+                "EXTRACT",
+                f"clip_{cid}",
+                result="ERR",
+                stats={
+                    "time": result.duration,
+                    "err": result.err or "unknown",
+                },
+            )
+            advance(detail=f"✗ {cid}")
+    return failures
+
+
+class _ClipExtractDecision(NamedTuple):
+    """Outcome of inspecting one clip before submitting an extraction job."""
+
+    action: str  # "fail" | "fresh" | "skip" | "submit"
+    video_path: str
+    audio_path: str
+
+
+def _decide_clip_extract(
+    clip,
+    paths,
+    *,
+    audio_for,
+    force: bool,
+    advance,
+) -> _ClipExtractDecision:
+    """Resolve paths and emit any terminal/cached/skip event for one clip.
+
+    ``audio_for`` is the path-builder (``paths.audio_for`` or
+    ``paths.audio_mir_for``). ``force`` bypasses the freshness shortcut.
+    Logging and progress side effects match the original inline loop.
+    """
+    video_path = str(paths.video_for(clip.id))
+    audio_path = str(audio_for(clip.id))
+    if not os.path.exists(video_path):
+        event(
+            "EXTRACT",
+            f"clip_{clip.id}",
+            result="ERR",
+            stats={"err": "no video on disk"},
+        )
+        advance(detail=f"✗ {clip.id} (no video)")
+        return _ClipExtractDecision("fail", video_path, audio_path)
+    if not force and _output_is_fresh(audio_path, video_path):
+        advance(detail=f"• {clip.id} (cached)")
+        return _ClipExtractDecision("fresh", video_path, audio_path)
+    if not has_audio_stream(video_path):
+        event(
+            "EXTRACT",
+            f"clip_{clip.id}",
+            stats={"reason": "no audio stream"},
+        )
+        advance(detail=f"⊘ {clip.id} (no audio)")
+        return _ClipExtractDecision("skip", video_path, audio_path)
+    return _ClipExtractDecision("submit", video_path, audio_path)
+
+
 @stage("ingest:audio")
 def extract_audio_stage(settings) -> StageResult:
     """Extract mp3 audio for every downloaded clip into ``paths.audio_dir``.
@@ -154,66 +232,29 @@ def extract_audio_stage(settings) -> StageResult:
         ):
             future_to_id: dict = {}
             for clip in clips:
-                video_path = str(paths.video_for(clip.id))
-                audio_path = str(paths.audio_for(clip.id))
-                if not os.path.exists(video_path):
+                decision = _decide_clip_extract(
+                    clip, paths, audio_for=paths.audio_for, force=False, advance=advance
+                )
+                if decision.action == "fail":
                     failures += 1
-                    event(
-                        "EXTRACT",
-                        f"clip_{clip.id}",
-                        result="ERR",
-                        stats={"err": "no video on disk"},
-                    )
-                    advance(detail=f"✗ {clip.id} (no video)")
                     continue
-                if _output_is_fresh(audio_path, video_path):
+                if decision.action == "fresh":
                     fresh += 1
-                    advance(detail=f"• {clip.id} (cached)")
                     continue
-                if not has_audio_stream(video_path):
+                if decision.action == "skip":
                     skipped += 1
-                    event(
-                        "EXTRACT",
-                        f"clip_{clip.id}",
-                        stats={"reason": "no audio stream"},
-                    )
-                    advance(detail=f"⊘ {clip.id} (no audio)")
                     continue
                 fut = pool.submit(
                     extract_audio,
-                    video_path,
-                    audio_path,
+                    decision.video_path,
+                    decision.audio_path,
                     bitrate_kbps=bitrate,
                     sample_rate_hz=sr,
                     timeout_s=timeout_s,
                 )
                 future_to_id[fut] = clip.id
 
-            for fut in as_completed(future_to_id):
-                cid = future_to_id[fut]
-                result = fut.result()
-                if result.ok:
-                    event(
-                        "EXTRACT",
-                        f"clip_{cid}",
-                        stats={
-                            "time": result.duration,
-                            "size": result.size or 0,
-                        },
-                    )
-                    advance(detail=f"✓ {cid}")
-                else:
-                    failures += 1
-                    event(
-                        "EXTRACT",
-                        f"clip_{cid}",
-                        result="ERR",
-                        stats={
-                            "time": result.duration,
-                            "err": result.err or "unknown",
-                        },
-                    )
-                    advance(detail=f"✗ {cid}")
+            failures += _consume_extract_results(future_to_id, advance)
 
         if failures == 0:
             fp.mark_complete(session, AUDIO_EXTRACT_STAGE, AUDIO_EXTRACT_SCOPE, current)
@@ -280,7 +321,7 @@ def _probe_wav_format(path: str, *, timeout: int = 5) -> tuple[int, int] | None:
             return None
         sr = int(streams[0].get("sample_rate"))
         ch = int(streams[0].get("channels"))
-    except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+    except (KeyError, TypeError, ValueError):
         return None
     return (sr, ch)
 
@@ -391,35 +432,26 @@ def extract_audio_mir_stage(settings) -> StageResult:
         ):
             future_to_id: dict = {}
             for clip in clips:
-                video_path = str(paths.video_for(clip.id))
-                audio_path = str(paths.audio_mir_for(clip.id))
-                if not os.path.exists(video_path):
+                decision = _decide_clip_extract(
+                    clip,
+                    paths,
+                    audio_for=paths.audio_mir_for,
+                    force=force_reencode,
+                    advance=advance,
+                )
+                if decision.action == "fail":
                     failures += 1
-                    event(
-                        "EXTRACT",
-                        f"clip_{clip.id}",
-                        result="ERR",
-                        stats={"err": "no video on disk"},
-                    )
-                    advance(detail=f"✗ {clip.id} (no video)")
                     continue
-                if not force_reencode and _output_is_fresh(audio_path, video_path):
+                if decision.action == "fresh":
                     fresh += 1
-                    advance(detail=f"• {clip.id} (cached)")
                     continue
-                if not has_audio_stream(video_path):
+                if decision.action == "skip":
                     skipped += 1
-                    event(
-                        "EXTRACT",
-                        f"clip_{clip.id}",
-                        stats={"reason": "no audio stream"},
-                    )
-                    advance(detail=f"⊘ {clip.id} (no audio)")
                     continue
                 fut = pool.submit(
                     extract_audio,
-                    video_path,
-                    audio_path,
+                    decision.video_path,
+                    decision.audio_path,
                     bitrate_kbps=0,
                     sample_rate_hz=ae.mir_sample_rate_hz,
                     timeout_s=timeout_s,
@@ -430,31 +462,7 @@ def extract_audio_mir_stage(settings) -> StageResult:
                 )
                 future_to_id[fut] = clip.id
 
-            for fut in as_completed(future_to_id):
-                cid = future_to_id[fut]
-                result = fut.result()
-                if result.ok:
-                    event(
-                        "EXTRACT",
-                        f"clip_{cid}",
-                        stats={
-                            "time": result.duration,
-                            "size": result.size or 0,
-                        },
-                    )
-                    advance(detail=f"✓ {cid}")
-                else:
-                    failures += 1
-                    event(
-                        "EXTRACT",
-                        f"clip_{cid}",
-                        result="ERR",
-                        stats={
-                            "time": result.duration,
-                            "err": result.err or "unknown",
-                        },
-                    )
-                    advance(detail=f"✗ {cid}")
+            failures += _consume_extract_results(future_to_id, advance)
 
         if failures == 0:
             fp.mark_complete(

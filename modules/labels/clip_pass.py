@@ -292,37 +292,94 @@ def _process_video_batches(
     prepare = getattr(generator, "prepare_many", None)
     generate = getattr(generator, "generate_from_inputs", None)
     if prepare is None or generate is None:
-        for chunk, video_paths in zip(chunks, paths_for, strict=True):
-            labels_for_log = ",".join(f"clip_{cid}" for cid in chunk)
-            with item("EXTRACT", f"{spec.name}/batch[{labels_for_log}]"):
-                try:
-                    raws = generator.run_many(video_paths, prompt_body)
-                except Exception as exc:
-                    _fail_chunk(chunk, exc)
-                    continue
-                _store_chunk(chunk, raws)
+        _process_video_batches_sync(
+            chunks,
+            paths_for,
+            generator=generator,
+            prompt_body=prompt_body,
+            spec=spec,
+            fail_chunk=_fail_chunk,
+            store_chunk=_store_chunk,
+        )
         return
 
     with ThreadPoolExecutor(max_workers=1, thread_name_prefix="labels-prep") as ex:
-        prep_fut = ex.submit(prepare, paths_for[0], prompt_body)
-        for i, chunk in enumerate(chunks):
-            labels_for_log = ",".join(f"clip_{cid}" for cid in chunk)
-            with item("EXTRACT", f"{spec.name}/batch[{labels_for_log}]"):
-                try:
-                    inputs = prep_fut.result()
-                except Exception as exc:
-                    if i + 1 < len(chunks):
-                        prep_fut = ex.submit(prepare, paths_for[i + 1], prompt_body)
-                    _fail_chunk(chunk, exc)
-                    continue
-                if i + 1 < len(chunks):
-                    prep_fut = ex.submit(prepare, paths_for[i + 1], prompt_body)
-                try:
-                    raws = generate(inputs)
-                except Exception as exc:
-                    _fail_chunk(chunk, exc)
-                    continue
-                _store_chunk(chunk, raws)
+        _process_video_batches_pipelined(
+            chunks,
+            paths_for,
+            ex=ex,
+            prepare=prepare,
+            generate=generate,
+            prompt_body=prompt_body,
+            spec=spec,
+            fail_chunk=_fail_chunk,
+            store_chunk=_store_chunk,
+        )
+
+
+def _batch_log_label(spec: LabelCaseSpec, chunk: list[int]) -> str:
+    labels_for_log = ",".join(f"clip_{cid}" for cid in chunk)
+    return f"{spec.name}/batch[{labels_for_log}]"
+
+
+def _process_video_batches_sync(
+    chunks: list[list[int]],
+    paths_for: list[list],
+    *,
+    generator,
+    prompt_body: str,
+    spec: LabelCaseSpec,
+    fail_chunk,
+    store_chunk,
+) -> None:
+    """Synchronous fallback for generators without the split prepare/generate
+    interface: decode + generate inline, one chunk at a time."""
+    for chunk, video_paths in zip(chunks, paths_for, strict=True):
+        with item("EXTRACT", _batch_log_label(spec, chunk)):
+            try:
+                raws = generator.run_many(video_paths, prompt_body)
+            except Exception as exc:
+                fail_chunk(chunk, exc)
+                continue
+            store_chunk(chunk, raws)
+
+
+def _process_video_batches_pipelined(
+    chunks: list[list[int]],
+    paths_for: list[list],
+    *,
+    ex,
+    prepare,
+    generate,
+    prompt_body: str,
+    spec: LabelCaseSpec,
+    fail_chunk,
+    store_chunk,
+) -> None:
+    """CPU/GPU-overlapped path: prefetch the next chunk's inputs on ``ex``
+    while the current chunk generates on the GPU."""
+    prep_fut = ex.submit(prepare, paths_for[0], prompt_body)
+
+    def _prefetch_next(i: int) -> None:
+        nonlocal prep_fut
+        if i + 1 < len(chunks):
+            prep_fut = ex.submit(prepare, paths_for[i + 1], prompt_body)
+
+    for i, chunk in enumerate(chunks):
+        with item("EXTRACT", _batch_log_label(spec, chunk)):
+            try:
+                inputs = prep_fut.result()
+            except Exception as exc:
+                _prefetch_next(i)
+                fail_chunk(chunk, exc)
+                continue
+            _prefetch_next(i)
+            try:
+                raws = generate(inputs)
+            except Exception as exc:
+                fail_chunk(chunk, exc)
+                continue
+            store_chunk(chunk, raws)
 
 
 def _process_one(

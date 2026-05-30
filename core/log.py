@@ -18,7 +18,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from functools import wraps
-from typing import Any, TypeVar, cast, get_args
+from typing import Any, cast, get_args
 
 from core.console import log as _render
 from core.log_types import Result, Verb
@@ -151,10 +151,7 @@ def warn(
     _render(scope, verb, target, "WARN", stats=merged)
 
 
-F = TypeVar("F", bound=Callable[..., Any])
-
-
-def scope(template: str) -> Callable[[F], F]:
+def scope(template: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Set scope contextvar to a formatted template for the function call.
 
     `template` may include `{name}` placeholders bound against the wrapped
@@ -165,7 +162,7 @@ def scope(template: str) -> Callable[[F], F]:
     if not has_placeholders:
         _check_scope(template)
 
-    def deco(fn: F) -> F:
+    def deco[F: Callable[..., Any]](fn: F) -> F:
         sig = inspect.signature(fn) if has_placeholders else None
 
         @wraps(fn)
@@ -196,7 +193,7 @@ def scope(template: str) -> Callable[[F], F]:
     return deco
 
 
-def stage(name: str) -> Callable[[F], F]:
+def stage(name: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Time a pipeline-stage function, emit SEAL on exit, advance pipeline bar.
 
     - Sets scope contextvar to `name` for the call.
@@ -207,7 +204,7 @@ def stage(name: str) -> Callable[[F], F]:
     """
     _check_scope(name)
 
-    def deco(fn: F) -> F:
+    def deco[F: Callable[..., Any]](fn: F) -> F:
         @wraps(fn)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             # Lazy import: core.console imports nothing from core.log so no

@@ -59,6 +59,91 @@ def _translate_singly(
     return results
 
 
+def _collect_eligible(
+    rows: list[Any],
+    get_source: Callable[[Any], str | None],
+    get_source_lang: Callable[[Any], str | None],
+    max_chars: int,
+) -> tuple[list[tuple[Any, str, str]], int]:
+    """Keep non-empty, non-English sources; length-bucket them ascending.
+
+    Returns ``(eligible, skipped)``. Length-bucketing means each batch holds
+    similar-length sources: with greedy decoding the batch runs until its
+    longest member finishes, so mixing a 5-char source with a 1000-char one
+    wastes compute on padding.
+    """
+    eligible: list[tuple[Any, str, str]] = []
+    skipped = 0
+    for row in rows:
+        source = (get_source(row) or "").strip()[:max_chars]
+        source_lang = (get_source_lang(row) or "").strip().replace("_", "-")
+        if not source or not source_lang or is_english(source_lang):
+            skipped += 1
+            continue
+        eligible.append((row, source, source_lang))
+    eligible.sort(key=lambda rs: len(rs[1]))
+    return eligible, skipped
+
+
+def _translate_chunk(
+    translator: GemmaTranslator,
+    chunk: list[tuple[Any, str, str]],
+    target_lang: str,
+    max_new_tokens: int,
+    width: int,
+    log_tag_prefix: str,
+    mt_scope: str,
+) -> list[str | None]:
+    """Translate one chunk, degrading a whole-batch failure to per-row."""
+    items = [(src, lang, target_lang) for (_row, src, lang) in chunk]
+    try:
+        return list(
+            translator.translate_batch(
+                items, max_new_tokens=max_new_tokens, batch_size=width
+            )
+        )
+    except Exception:
+        # Whole-batch failure (e.g. CUDA OOM): isolate per row.
+        return _translate_singly(
+            translator, chunk, target_lang, max_new_tokens, log_tag_prefix, mt_scope
+        )
+
+
+def _store_chunk(
+    chunk: list[tuple[Any, str, str]],
+    results: list[str | None],
+    set_translation: Callable[[Any, str], None],
+    target_lang: str,
+    log_tag_prefix: str,
+    mt_scope: str,
+    advance: Callable[..., None],
+) -> int:
+    """Persist successful translations from one chunk. Returns the success count."""
+    batch_ok = 0
+    for (row, source, source_lang), translation in zip(chunk, results, strict=True):
+        tag = f"{log_tag_prefix}_{row.id}"
+        if translation is None:  # already logged ERR in the fallback
+            advance()
+            continue
+        if not translation:
+            _log(mt_scope, "EXTRACT", tag, "WARN", stats={"src": source_lang})
+            advance()
+            continue
+        set_translation(row, translation)
+        batch_ok += 1
+        _log(
+            mt_scope,
+            "EXTRACT",
+            tag,
+            "ok",
+            stats={"src": source_lang, "dst": target_lang},
+        )
+        src_preview = source[:45] + ("…" if len(source) > 45 else "")
+        tr_preview = translation[:45] + ("…" if len(translation) > 45 else "")
+        advance(detail=f'{row.id}: "{src_preview}" → "{tr_preview}"')
+    return batch_ok
+
+
 def translate_rows(
     rows: list[Any],
     *,
@@ -109,20 +194,7 @@ def translate_rows(
 
     # Pre-filter: only non-empty, non-English sources reach the GPU. Skipped
     # rows are accounted for in the progress bar up front.
-    eligible: list[tuple[Any, str, str]] = []
-    skipped = 0
-    for row in rows:
-        source = (get_source(row) or "").strip()[:max_chars]
-        source_lang = (get_source_lang(row) or "").strip().replace("_", "-")
-        if not source or not source_lang or is_english(source_lang):
-            skipped += 1
-            continue
-        eligible.append((row, source, source_lang))
-
-    # Length-bucket so each batch holds similar-length sources: with greedy
-    # decoding the batch runs until its longest member finishes, so mixing a
-    # 5-char source with a 1000-char one wastes compute on padding.
-    eligible.sort(key=lambda rs: len(rs[1]))
+    eligible, skipped = _collect_eligible(rows, get_source, get_source_lang, max_chars)
 
     width = max(batch_size, 1)
     translated = 0
@@ -137,51 +209,26 @@ def translate_rows(
             advance(skipped)
         for start in range(0, len(eligible), width):
             chunk = eligible[start : start + width]
-            items = [(src, lang, target_lang) for (_row, src, lang) in chunk]
-
             t0 = time.perf_counter()
-            try:
-                results: list[str | None] = list(
-                    translator.translate_batch(
-                        items, max_new_tokens=max_new_tokens, batch_size=width
-                    )
-                )
-            except Exception:
-                # Whole-batch failure (e.g. CUDA OOM): isolate per row.
-                results = _translate_singly(
-                    translator,
-                    chunk,
-                    target_lang,
-                    max_new_tokens,
-                    log_tag_prefix,
-                    _mt_scope,
-                )
-
-            batch_ok = 0
-            for (row, source, source_lang), translation in zip(
-                chunk, results, strict=True
-            ):
-                tag = f"{log_tag_prefix}_{row.id}"
-                if translation is None:  # already logged ERR in the fallback
-                    advance()
-                    continue
-                if not translation:
-                    _log(_mt_scope, "EXTRACT", tag, "WARN", stats={"src": source_lang})
-                    advance()
-                    continue
-                set_translation(row, translation)
-                translated += 1
-                batch_ok += 1
-                _log(
-                    _mt_scope,
-                    "EXTRACT",
-                    tag,
-                    "ok",
-                    stats={"src": source_lang, "dst": target_lang},
-                )
-                src_preview = source[:45] + ("…" if len(source) > 45 else "")
-                tr_preview = translation[:45] + ("…" if len(translation) > 45 else "")
-                advance(detail=f'{row.id}: "{src_preview}" → "{tr_preview}"')
+            results = _translate_chunk(
+                translator,
+                chunk,
+                target_lang,
+                max_new_tokens,
+                width,
+                log_tag_prefix,
+                _mt_scope,
+            )
+            batch_ok = _store_chunk(
+                chunk,
+                results,
+                set_translation,
+                target_lang,
+                log_tag_prefix,
+                _mt_scope,
+                advance,
+            )
+            translated += batch_ok
 
             _log(
                 _mt_scope,

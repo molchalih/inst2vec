@@ -11,7 +11,7 @@ export const useEscKey = (enabled: boolean, onEsc: () => void): void => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === "Escape") onEsc();
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    globalThis.addEventListener("keydown", onKey);
+    return () => globalThis.removeEventListener("keydown", onKey);
   }, [enabled, onEsc]);
 };

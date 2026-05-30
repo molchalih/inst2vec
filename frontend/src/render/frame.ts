@@ -68,7 +68,8 @@ export const runToIntroDotsFrame = (
   if (!run) return { users: [], alphaScale: 1, radiusScale: 1 };
   const { maxStaggerFrac } = tokens.motion.intro;
   // Fade phase: dots pinned at center (flightProgress 0). Settle: landed.
-  const flightProgress = phase < 1 ? 0 : phase === 1 ? progress : 1;
+  const flightProgressForPhase1 = phase === 1 ? progress : 1;
+  const flightProgress = phase < 1 ? 0 : flightProgressForPhase1;
   const users: DrawableUser[] = run.users.map(([id, x, y, clusterId, _hd, centrality]) => {
     const p = introStagger(flightProgress, id, maxStaggerFrac);
     const baseAlpha = clusterId < 0 ? tokens.noise.alpha : tokens.dot.alpha;

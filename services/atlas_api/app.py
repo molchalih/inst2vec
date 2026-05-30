@@ -9,10 +9,9 @@ endpoint bodies equal the static JSON files byte-for-byte.
 Reads ONLY the serving DB — never the pipeline main or identity DBs.
 """
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from contextlib import AbstractContextManager
+from typing import Annotated
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -57,6 +56,9 @@ def build_app(
         if authorization != f"Bearer {token}":
             raise HTTPException(status_code=401, detail="unauthorized")
 
+    auth_dep = Annotated[None, Depends(_auth)]
+    not_found = {404: {"description": "Resource not found"}}
+
     def _json(payload: dict) -> Response:
         return Response(to_bytes(payload), media_type=_JSON)
 
@@ -64,42 +66,40 @@ def build_app(
     def healthz() -> dict:
         return {"status": "ok"}
 
-    @app.get("/manifest.json")
-    def manifest(_: None = Depends(_auth)) -> Response:
+    @app.get("/manifest.json", responses=not_found)
+    def manifest(_: auth_dep) -> Response:
         with session_factory() as s:
             try:
                 return _json(reconstruct.reconstruct_manifest(s))
             except KeyError as exc:
                 raise HTTPException(status_code=404, detail="no runs") from exc
 
-    @app.get("/runs/{run_id}/users.json")
-    def users(run_id: str, _: None = Depends(_auth)) -> Response:
+    @app.get("/runs/{run_id}/users.json", responses=not_found)
+    def users(run_id: str, _: auth_dep) -> Response:
         with session_factory() as s:
             try:
                 return _json(reconstruct.reconstruct_users(s, run_id))
             except KeyError as exc:
                 raise HTTPException(status_code=404, detail="run not found") from exc
 
-    @app.get("/runs/{run_id}/clusters.json")
-    def clusters(run_id: str, _: None = Depends(_auth)) -> Response:
+    @app.get("/runs/{run_id}/clusters.json", responses=not_found)
+    def clusters(run_id: str, _: auth_dep) -> Response:
         with session_factory() as s:
             try:
                 return _json(reconstruct.reconstruct_clusters(s, run_id))
             except KeyError as exc:
                 raise HTTPException(status_code=404, detail="run not found") from exc
 
-    @app.get("/runs/{run_id}/users/{user_id}.json")
-    def user_detail(run_id: str, user_id: int, _: None = Depends(_auth)) -> Response:
+    @app.get("/runs/{run_id}/users/{user_id}.json", responses=not_found)
+    def user_detail(run_id: str, user_id: int, _: auth_dep) -> Response:
         with session_factory() as s:
             payload = reconstruct.reconstruct_creator_detail(s, run_id, user_id)
         if payload is None:
             raise HTTPException(status_code=404, detail="creator not found")
         return _json(payload)
 
-    @app.get("/runs/{run_id}/clusters/{cluster_id}.json")
-    def cluster_detail(
-        run_id: str, cluster_id: int, _: None = Depends(_auth)
-    ) -> Response:
+    @app.get("/runs/{run_id}/clusters/{cluster_id}.json", responses=not_found)
+    def cluster_detail(run_id: str, cluster_id: int, _: auth_dep) -> Response:
         with session_factory() as s:
             payload = reconstruct.reconstruct_cluster_detail(s, run_id, cluster_id)
         if payload is None:

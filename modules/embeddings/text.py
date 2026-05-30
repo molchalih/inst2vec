@@ -16,6 +16,32 @@ def _is_non_english(lang: str | None) -> bool:
     return bool(lang) and not is_english(lang)
 
 
+def _select_caption(clip) -> str:
+    """Caption translation when the source is non-English and a non-empty
+    translation exists; otherwise the cleaned/original caption text."""
+    use_translation = (
+        _is_non_english(clip.caption_language)
+        and clip.caption_translation
+        and clip.caption_translation.strip()
+    )
+    if use_translation:
+        return clip.caption_translation
+    return clip.caption_clean or clip.caption_text or ""
+
+
+def _select_speech(clip) -> str:
+    """Speech translation when the source is non-English and a non-empty
+    translation exists; otherwise the raw transcription."""
+    use_translation = (
+        _is_non_english(clip.speech_language)
+        and clip.speech_translation
+        and clip.speech_translation.strip()
+    )
+    if use_translation:
+        return clip.speech_translation
+    return clip.speech_transcription or ""
+
+
 _MIR_FLAG_FIELDS: tuple[tuple[str, str], ...] = (
     ("is_acoustic", "acoustic"),
     ("is_electronic", "electronic"),
@@ -133,26 +159,14 @@ def build_sandwich_text(clip, mir_row) -> str | None:
     """
     parts = []
 
-    cap = (
-        clip.caption_translation
-        if _is_non_english(clip.caption_language)
-        and clip.caption_translation
-        and clip.caption_translation.strip()
-        else (clip.caption_clean or clip.caption_text or "")
-    )
-    if cap.strip():
-        parts.append(cap.strip())
+    cap = _select_caption(clip).strip()
+    if cap:
+        parts.append(cap)
 
     if clip.is_speech_detected is True:
-        speech = (
-            clip.speech_translation
-            if _is_non_english(clip.speech_language)
-            and clip.speech_translation
-            and clip.speech_translation.strip()
-            else (clip.speech_transcription or "")
-        )
-        if speech.strip():
-            parts.append(speech.strip())
+        speech = _select_speech(clip).strip()
+        if speech:
+            parts.append(speech)
 
     if mir_row is not None and mir_row.is_music_detected is True:
         music_text = verbalize_mir(mir_row)
@@ -171,15 +185,9 @@ def build_audio_text(clip, mir_row) -> str | None:
     parts = []
 
     if clip.is_speech_detected is True:
-        speech = (
-            clip.speech_translation
-            if _is_non_english(clip.speech_language)
-            and clip.speech_translation
-            and clip.speech_translation.strip()
-            else (clip.speech_transcription or "")
-        )
-        if speech.strip():
-            parts.append(speech.strip())
+        speech = _select_speech(clip).strip()
+        if speech:
+            parts.append(speech)
 
     if mir_row is not None and mir_row.is_music_detected is True:
         music_text = verbalize_mir(mir_row)
@@ -200,14 +208,7 @@ def build_spoken_text(clip, _mir_row) -> str | None:
     """
     if clip.is_speech_detected is not True:
         return None
-    speech = (
-        clip.speech_translation
-        if _is_non_english(clip.speech_language)
-        and clip.speech_translation
-        and clip.speech_translation.strip()
-        else (clip.speech_transcription or "")
-    )
-    speech = speech.strip()
+    speech = _select_speech(clip).strip()
     return speech if speech else None
 
 
@@ -218,12 +219,5 @@ def build_textual_text(clip, _mir_row) -> str | None:
     accepted to keep the signature uniform and is ignored. Returns ``None``
     when the caption is empty.
     """
-    cap = (
-        clip.caption_translation
-        if _is_non_english(clip.caption_language)
-        and clip.caption_translation
-        and clip.caption_translation.strip()
-        else (clip.caption_clean or clip.caption_text or "")
-    )
-    cap = cap.strip()
+    cap = _select_caption(clip).strip()
     return cap if cap else None

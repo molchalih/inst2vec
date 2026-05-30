@@ -25,14 +25,14 @@ const RunLoader = () => {
   const isTransitioning = useIsTransitioning();
 
   useEffect(() => {
-    void ensureManifest().catch((err: unknown) => {
+    ensureManifest().catch((err: unknown) => {
       console.error("ensureManifest failed", err);
     });
   }, [ensureManifest]);
 
   useEffect(() => {
     if (!runId || isTransitioning) return;
-    void ensureRun(runId).catch((err: unknown) => {
+    ensureRun(runId).catch((err: unknown) => {
       console.error("ensureRun failed", err);
     });
   }, [runId, isTransitioning, ensureRun]);

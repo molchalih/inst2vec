@@ -26,11 +26,6 @@ from modules.embeddings.cases import default_cases
 @stage("db")
 def _init_db_stage(settings: Settings, secrets: Secrets) -> None:
     init_db(secrets.database_url, secrets.identity_db_url)
-    # Self-healing, idempotent: re-key legacy maest→auditory (no recompute)
-    # and drop legacy audio rows. No-op on a clean tree.
-    from core.database.case_migration import run_case_migration_at_startup
-
-    run_case_migration_at_startup(settings)
 
 
 # Pipeline DAG (upstream → downstream, by Fingerprint.dependency edges):

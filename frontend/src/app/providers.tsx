@@ -1,8 +1,7 @@
 import { Provider as JotaiProvider, useStore } from "jotai";
 import { createContext, useContext, useMemo, type ReactNode } from "react";
 import { makeSources, type ApiClient, type BulkSource } from "@/data";
-import { setBulkSource, setApiClient } from "@/state";
-import { runStateAtom } from "@/state";
+import { setBulkSource, setApiClient, runStateAtom } from "@/state";
 import { config } from "./config";
 
 const BulkContext = createContext<BulkSource | null>(null);

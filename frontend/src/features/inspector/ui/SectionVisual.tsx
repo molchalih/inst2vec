@@ -264,7 +264,7 @@ function letterFor(i: number): string {
   let n = i;
   let s = "";
   do {
-    s = String.fromCharCode(97 + (n % 26)) + s;
+    s = String.fromCodePoint(97 + (n % 26)) + s;
     n = Math.floor(n / 26) - 1;
   } while (n >= 0);
   return `${s})`;

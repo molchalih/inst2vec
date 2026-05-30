@@ -9,12 +9,12 @@ import { screenToWorld, introPhaseAndProgress } from "@/core";
 import { tokens } from "@/ui/tokens";
 
 const prefersReducedMotion = (): boolean =>
-  typeof window !== "undefined"
-  && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+  typeof globalThis !== "undefined"
+  && globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
 
 const hasDeepLinkSelection = (): boolean => {
-  if (typeof window === "undefined") return false;
-  const parsed = parseHash(window.location.hash);
+  if (typeof globalThis === "undefined") return false;
+  const parsed = parseHash(globalThis.location.hash);
   return parsed.user !== undefined || parsed.cluster !== undefined;
 };
 

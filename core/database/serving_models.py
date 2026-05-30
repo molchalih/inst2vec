@@ -29,6 +29,8 @@ from sqlalchemy.orm import declarative_base
 
 ServingBase = declarative_base()
 
+_SERVING_RUN_ID = "serving_run.run_id"
+
 
 # Classes use explicit ``Column`` objects (not ``Mapped[...]``) since the base
 # comes from ``declarative_base()``; this keeps the schema readable and avoids
@@ -60,7 +62,7 @@ class ServingRun(ServingBase):
 class ServingRunBounds(ServingBase):
     __tablename__ = "serving_run_bounds"
 
-    run_id = Column(String, ForeignKey("serving_run.run_id"), primary_key=True)
+    run_id = Column(String, ForeignKey(_SERVING_RUN_ID), primary_key=True)
     min_x = Column(Float, nullable=False)
     max_x = Column(Float, nullable=False)
     min_y = Column(Float, nullable=False)
@@ -72,7 +74,7 @@ class ServingUser(ServingBase):
 
     __tablename__ = "serving_user"
 
-    run_id = Column(String, ForeignKey("serving_run.run_id"), primary_key=True)
+    run_id = Column(String, ForeignKey(_SERVING_RUN_ID), primary_key=True)
     user_id = Column(Integer, primary_key=True)
     x = Column(Float, nullable=False)
     y = Column(Float, nullable=False)
@@ -86,7 +88,7 @@ class ServingCluster(ServingBase):
 
     __tablename__ = "serving_cluster"
 
-    run_id = Column(String, ForeignKey("serving_run.run_id"), primary_key=True)
+    run_id = Column(String, ForeignKey(_SERVING_RUN_ID), primary_key=True)
     cluster_id = Column(Integer, primary_key=True)
     label = Column(String, nullable=False)
     cx = Column(Float, nullable=False)
@@ -106,7 +108,7 @@ class ServingUserDetail(ServingBase):
 
     __tablename__ = "serving_user_detail"
 
-    run_id = Column(String, ForeignKey("serving_run.run_id"), primary_key=True)
+    run_id = Column(String, ForeignKey(_SERVING_RUN_ID), primary_key=True)
     user_id = Column(Integer, primary_key=True)
     # identity / position
     x = Column(Float, nullable=False)
@@ -157,7 +159,7 @@ class ServingClusterDetail(ServingBase):
 
     __tablename__ = "serving_cluster_detail"
 
-    run_id = Column(String, ForeignKey("serving_run.run_id"), primary_key=True)
+    run_id = Column(String, ForeignKey(_SERVING_RUN_ID), primary_key=True)
     cluster_id = Column(Integer, primary_key=True)
     size = Column(Integer, nullable=False)
     # ellipse (5)

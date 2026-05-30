@@ -11,30 +11,10 @@ models/
 checkpoints/
 *.safetensors
 
-# Generated / transient bits inside docs/ (the source tree itself stays tracked)
-docs/.quarto/
-docs/__pycache__/
-docs/index_files/
-docs/index.quarto_ipynb*
-docs/refs/
-docs/DataCollectionNotice_FGW-9358_2026.pdf
-
-# Local TUI prototypes (scratch — to be removed)
-docs/dynamic_progress.py
-docs/jobs.py
-docs/log.py
-docs/screen.py
-
-# Paper sources & renders — kept locally only, never tracked
-docs/index.qmd
-docs/index.pdf
-docs/index.html
-docs/references.bib
-docs/chicago-author-date.csl
-docs/_freeze/
-docs/_site/
-docs/quarto_helpers.py
-docs/reporting/
+# docs/: only docs/assets is tracked in git. Everything else (reporting source,
+# quarto paper sources & renders, scratch prototypes, generated bits) is local-only.
+/docs/*
+!/docs/assets/
 
 # uv
 uv.lock.bak
@@ -67,8 +47,12 @@ __pycache__/
 # Script outputs
 scripts/output/
 
-# Local-only working journal for the cluster-analysis maintainer
-scripts/cluster_analysis/LESSONS.md
+# Pipeline run logs (start.sh tees here)
+logs/
+
+# Local-only maintainer tooling: cluster analysis (scripts + its tests)
+scripts/cluster_analysis/
+tests/cluster_analysis/
 
 # Local-only state
 .claude/

@@ -33,8 +33,12 @@ CLUSTER_PARAM_COLS = (
 )
 
 
-def resolve_hdbscan_metric(hdbscan_metric: str | None = None) -> str:
-    """HDBSCAN runs on pass-1 UMAP coordinates; distance is always Euclidean in that space."""
+def resolve_hdbscan_metric(_hdbscan_metric: str | None = None) -> str:
+    """HDBSCAN runs on pass-1 UMAP coordinates; distance is always Euclidean in that space.
+
+    The requested metric is intentionally ignored — the argument is retained so
+    callers can pass their configured metric through without a conditional.
+    """
     return DEFAULT_HDBSCAN_METRIC
 
 

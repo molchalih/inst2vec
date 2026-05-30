@@ -34,6 +34,11 @@ export type Phrase = { label: string; arrow: "↑" | "↓" };
 export const phraseFor = (e: DistinctivenessEntry): Phrase => {
   const positive = e.z >= 0;
   const row = TABLE[e.feature];
-  const label = row ? (positive ? row.pos : row.neg) : e.feature;
+  let label: string;
+  if (row) {
+    label = positive ? row.pos : row.neg;
+  } else {
+    label = e.feature;
+  }
   return { label, arrow: positive ? "↑" : "↓" };
 };

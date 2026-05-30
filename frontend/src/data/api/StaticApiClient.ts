@@ -2,8 +2,7 @@ import { clusterDetailSchema } from "../schemas/cluster-detail.schema";
 import { creatorDetailSchema } from "../schemas/creator-detail.schema";
 import type { ClusterDetail } from "../schemas/cluster-detail.schema";
 import type { CreatorDetail } from "../schemas/creator-detail.schema";
-import type { CreatorSummary } from "./ApiClient";
-import { type ApiClient, ApiUnavailableError } from "./ApiClient";
+import { type ApiClient, type CreatorSummary, ApiUnavailableError } from "./ApiClient";
 
 /**
  * Thrown when a static per-id JSON is missing (HTTP 404). Distinct

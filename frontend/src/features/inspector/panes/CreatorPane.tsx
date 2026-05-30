@@ -40,7 +40,7 @@ export const CreatorPane = ({ creatorId }: Props) => {
   const detailAvailable = !!run?.meta.details_available && user?.[4] === true;
   useEffect(() => {
     if (!detailAvailable) return;
-    void ensure(creatorId).catch(() => {});
+    ensure(creatorId).catch(() => {});
   }, [creatorId, ensure, detailAvailable]);
 
   if (!run) return null;
@@ -64,7 +64,7 @@ export const CreatorPane = ({ creatorId }: Props) => {
     return (
       <PaneBody>
         <PaneHeader name={name} meta={meta} />
-        <FetchError onRetry={() => void ensure(creatorId).catch(() => {})} />
+        <FetchError onRetry={() => { ensure(creatorId).catch(() => {}); }} />
       </PaneBody>
     );
   }

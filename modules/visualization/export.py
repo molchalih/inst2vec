@@ -263,6 +263,35 @@ def _make_member_clip(*, clip: Clip, mir: AudioMIR) -> ClusterMemberClip:
     )
 
 
+def _make_cluster_member(
+    *,
+    user_id: int,
+    user: User | None,
+    stats: UserStats | None,
+    n_clips: int,
+    clips: list[ClusterMemberClip],
+) -> ClusterMember:
+    """Build one ClusterMember from its user / stats rows and clip list."""
+    s = stats
+    return ClusterMember(
+        user_id=user_id,
+        follower_count=(user.follower_count if user else None),
+        n_clips=n_clips,
+        median_plays=(
+            int(s.median_plays) if s and s.median_plays is not None else None
+        ),
+        median_clips_per_week=(s.approx_clips_per_week if s else None),
+        engagement_shape_ratio=(s.top_to_median_plays_ratio if s else None),
+        median_video_duration=(s.median_video_duration if s else None),
+        activity_span_months=(
+            round(s.clip_time_span_days / 30.0)
+            if s and s.clip_time_span_days is not None
+            else None
+        ),
+        clips=clips,
+    )
+
+
 def _load_case_detail_inputs(
     session, case: str
 ) -> tuple[dict[int, ClusterMember], dict[int, list[int]]]:
@@ -308,25 +337,12 @@ def _load_case_detail_inputs(
     member_by_user: dict[int, ClusterMember] = {}
     members_by_cluster: dict[int, list[int]] = defaultdict(list)
     for uc in uc_rows:
-        clips = clips_by_user.get(uc.user_id, [])
-        u = users.get(uc.user_id)
-        s = stats.get(uc.user_id)
-        member_by_user[uc.user_id] = ClusterMember(
+        member_by_user[uc.user_id] = _make_cluster_member(
             user_id=uc.user_id,
-            follower_count=(u.follower_count if u else None),
+            user=users.get(uc.user_id),
+            stats=stats.get(uc.user_id),
             n_clips=selected_count_by_user.get(uc.user_id, 0),
-            median_plays=(
-                int(s.median_plays) if s and s.median_plays is not None else None
-            ),
-            median_clips_per_week=(s.approx_clips_per_week if s else None),
-            engagement_shape_ratio=(s.top_to_median_plays_ratio if s else None),
-            median_video_duration=(s.median_video_duration if s else None),
-            activity_span_months=(
-                round(s.clip_time_span_days / 30.0)
-                if s and s.clip_time_span_days is not None
-                else None
-            ),
-            clips=clips,
+            clips=clips_by_user.get(uc.user_id, []),
         )
         members_by_cluster[uc.cluster_id].append(uc.user_id)
 
@@ -384,6 +400,78 @@ def _build_cluster_detail_payloads(
     return out
 
 
+def _centroid_distances_by_cluster(
+    centroids: dict[int, tuple[float, float]],
+    members_by_cluster: dict[int, list[int]],
+    user_row_by_id: dict[int, VisualizationUser],
+) -> dict[int, np.ndarray]:
+    """Per-cluster array of member distances to that cluster's centroid."""
+    out: dict[int, np.ndarray] = {}
+    for cid, member_ids in members_by_cluster.items():
+        if cid not in centroids:
+            continue
+        cx, cy = centroids[cid]
+        dists = []
+        for uid in member_ids:
+            uc = user_row_by_id.get(uid)
+            if uc is None or uc.cluster_id != cid:
+                continue
+            dists.append(float(np.hypot(uc.x - cx, uc.y - cy)))
+        out[cid] = np.array(dists, dtype=np.float64)
+    return out
+
+
+def _build_one_creator_detail(
+    u: VisualizationUser,
+    *,
+    session: Session,
+    settings_viz,
+    case: str,
+    centroids: dict[int, tuple[float, float]],
+    labels: dict[int, str],
+    member_by_user: dict[int, ClusterMember],
+    members_by_cluster: dict[int, list[int]],
+    centroid_dist_by_cluster: dict[int, np.ndarray],
+) -> dict | None:
+    """Build one creator's detail payload, or None when the user is skipped."""
+    if u.user_id not in member_by_user or u.cluster_id not in centroids:
+        return None
+    self_member = member_by_user[u.user_id]
+    if not self_member.clips:
+        return None
+    own_member_ids = members_by_cluster.get(u.cluster_id, [])
+    own_excl_self = [
+        member_by_user[m]
+        for m in own_member_ids
+        if m != u.user_id and m in member_by_user
+    ]
+    other_centroids = {cid: xy for cid, xy in centroids.items() if cid != u.cluster_id}
+    other_labels = {cid: labels[cid] for cid in other_centroids}
+    detail = build_user_detail(
+        user_id=u.user_id,
+        cluster_id=u.cluster_id,
+        x=u.x,
+        y=u.y,
+        self_member=self_member,
+        own_cluster_members_excl_self=own_excl_self,
+        own_cluster_centroid=centroids[u.cluster_id],
+        own_cluster_member_distances=centroid_dist_by_cluster.get(
+            u.cluster_id, np.array([], dtype=np.float64)
+        ),
+        other_cluster_centroids=other_centroids,
+        other_cluster_labels=other_labels,
+        edge_percentile=settings_viz.edge_percentile,
+        z_min=settings_viz.distinctiveness_z_min,
+        distinctiveness_top_k=settings_viz.distinctiveness_top_k,
+        genre_top_k=settings_viz.genre_top_k,
+        instrument_top_k=settings_viz.instrument_top_k,
+        languages_top_k=settings_viz.languages_top_k,
+    )
+    payload = detail.to_json()
+    payload["clips"] = _render_user_clips_block(session, u.user_id, case=case)
+    return payload
+
+
 def _build_creator_detail_payloads(
     *,
     session: Session,
@@ -402,59 +490,25 @@ def _build_creator_detail_payloads(
     centroids = {c.cluster_id: (c.cx, c.cy) for c in cluster_rows}
     labels = {c.cluster_id: c.label for c in cluster_rows}
     user_row_by_id = {u.user_id: u for u in user_rows}
-    centroid_dist_by_cluster: dict[int, np.ndarray] = {}
-    for cid, member_ids in members_by_cluster.items():
-        if cid not in centroids:
-            continue
-        cx, cy = centroids[cid]
-        dists = []
-        for uid in member_ids:
-            uc = user_row_by_id.get(uid)
-            if uc is None or uc.cluster_id != cid:
-                continue
-            dists.append(float(np.hypot(uc.x - cx, uc.y - cy)))
-        centroid_dist_by_cluster[cid] = np.array(dists, dtype=np.float64)
+    centroid_dist_by_cluster = _centroid_distances_by_cluster(
+        centroids, members_by_cluster, user_row_by_id
+    )
 
     out: dict[int, dict] = {}
     for u in user_rows:
-        if u.user_id not in member_by_user or u.cluster_id not in centroids:
-            continue
-        self_member = member_by_user[u.user_id]
-        if not self_member.clips:
-            continue
-        own_member_ids = members_by_cluster.get(u.cluster_id, [])
-        own_excl_self = [
-            member_by_user[m]
-            for m in own_member_ids
-            if m != u.user_id and m in member_by_user
-        ]
-        other_centroids = {
-            cid: xy for cid, xy in centroids.items() if cid != u.cluster_id
-        }
-        other_labels = {cid: labels[cid] for cid in other_centroids}
-        detail = build_user_detail(
-            user_id=u.user_id,
-            cluster_id=u.cluster_id,
-            x=u.x,
-            y=u.y,
-            self_member=self_member,
-            own_cluster_members_excl_self=own_excl_self,
-            own_cluster_centroid=centroids[u.cluster_id],
-            own_cluster_member_distances=centroid_dist_by_cluster.get(
-                u.cluster_id, np.array([], dtype=np.float64)
-            ),
-            other_cluster_centroids=other_centroids,
-            other_cluster_labels=other_labels,
-            edge_percentile=settings_viz.edge_percentile,
-            z_min=settings_viz.distinctiveness_z_min,
-            distinctiveness_top_k=settings_viz.distinctiveness_top_k,
-            genre_top_k=settings_viz.genre_top_k,
-            instrument_top_k=settings_viz.instrument_top_k,
-            languages_top_k=settings_viz.languages_top_k,
+        payload = _build_one_creator_detail(
+            u,
+            session=session,
+            settings_viz=settings_viz,
+            case=case,
+            centroids=centroids,
+            labels=labels,
+            member_by_user=member_by_user,
+            members_by_cluster=members_by_cluster,
+            centroid_dist_by_cluster=centroid_dist_by_cluster,
         )
-        payload = detail.to_json()
-        payload["clips"] = _render_user_clips_block(session, u.user_id, case=case)
-        out[u.user_id] = payload
+        if payload is not None:
+            out[u.user_id] = payload
     return out
 
 

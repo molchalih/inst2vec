@@ -11,14 +11,14 @@ export const useTrackViewportSize = (): void => {
   const setSize = useSetAtom(viewportSizeAtom);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (typeof globalThis === "undefined") return;
 
     const sync = () => {
-      setSize({ width: window.innerWidth, height: window.innerHeight });
+      setSize({ width: globalThis.innerWidth, height: globalThis.innerHeight });
     };
 
     sync();
-    window.addEventListener("resize", sync);
-    return () => window.removeEventListener("resize", sync);
+    globalThis.addEventListener("resize", sync);
+    return () => globalThis.removeEventListener("resize", sync);
   }, [setSize]);
 };

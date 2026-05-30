@@ -1,7 +1,8 @@
 import type { ClusterDetail } from "../schemas/cluster-detail.schema";
 import type { CreatorDetail } from "../schemas/creator-detail.schema";
 
-export type { ClusterDetail, CreatorDetail };
+export type { ClusterDetail } from "../schemas/cluster-detail.schema";
+export type { CreatorDetail } from "../schemas/creator-detail.schema";
 
 export interface CreatorSummary {
   id: number;

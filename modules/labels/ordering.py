@@ -31,7 +31,8 @@ def case_run_order(
         if name not in registry:
             raise KeyError(name)
 
-    state: dict[str, int] = {}  # 0=unseen, 1=on-stack, 2=done
+    # visit state per case: 0 unseen, 1 on-stack, 2 done
+    state: dict[str, int] = {}
     out: list[str] = []
 
     def visit(name: str, stack: list[str]) -> None:

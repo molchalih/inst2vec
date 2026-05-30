@@ -97,7 +97,7 @@ def aggregate_label_scores(rows: Sequence[tuple[str, float]], top_k: int) -> lis
         totals[label] += score
     ranked = sorted(totals.items(), key=lambda kv: kv[1], reverse=True)[:top_k]
     top_weight = ranked[0][1]
-    if top_weight == 0.0:
+    if top_weight <= 0.0:
         return [{"label": lab, "weight": 0.0} for lab, _ in ranked]
     return [{"label": lab, "weight": round(sc / top_weight, 4)} for lab, sc in ranked]
 
@@ -226,7 +226,7 @@ def distinctiveness(
             continue
         base_mean = float(base_arr.mean())
         base_std = float(base_arr.std())
-        if base_std == 0.0:
+        if base_std <= 0.0:
             continue
         cohort_mean = float(cohort_arr.mean())
         z = (cohort_mean - base_mean) / base_std

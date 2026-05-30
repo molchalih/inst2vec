@@ -53,7 +53,7 @@ export const Panel = ({
       };
     }
     setShow(false);
-    const t = window.setTimeout(() => setMounted(false), slideMs);
+    const t = globalThis.setTimeout(() => setMounted(false), slideMs);
     return () => clearTimeout(t);
   }, [open, slideMs]);
 
@@ -62,8 +62,8 @@ export const Panel = ({
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === "Escape") onClose();
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    globalThis.addEventListener("keydown", onKey);
+    return () => globalThis.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
   useEffect(() => {

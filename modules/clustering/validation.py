@@ -67,7 +67,7 @@ def _compute_row_scores(
     if result.matrix_nd is None:
         return "value_error"
 
-    X_nd = result.matrix_nd.astype(np.float64)
+    x_nd = result.matrix_nd.astype(np.float64)
     labels = result.labels
     metric = resolve_hdbscan_metric(
         params.get("hdbscan_metric", DEFAULT_HDBSCAN_METRIC)
@@ -75,7 +75,7 @@ def _compute_row_scores(
 
     try:
         dbcv = float(
-            cast(float, hdbscan.validity.validity_index(X_nd, labels, metric=metric))
+            cast(float, hdbscan.validity.validity_index(x_nd, labels, metric=metric))
         )
     except Exception:
         return "dbcv_fail"
@@ -84,7 +84,12 @@ def _compute_row_scores(
     if len(np.unique(labels[non_noise])) >= 2:
         try:
             sil = float(
-                silhouette_score(X_nd[non_noise], labels[non_noise], metric=metric)
+                silhouette_score(
+                    x_nd[non_noise],
+                    labels[non_noise],
+                    metric=metric,
+                    random_state=params.get("random_state"),
+                )
             )
         except Exception:
             sil = 0.0
@@ -94,6 +99,30 @@ def _compute_row_scores(
 
 
 # ── plateau ───────────────────────────────────────────────────────────────────
+
+
+def _adjacent_numeric(vals: list, tv, cv) -> bool:
+    """True if *tv* and *cv* are neighbours in the sorted distinct-value list."""
+    if tv not in vals or cv not in vals:
+        return False
+    return abs(vals.index(tv) - vals.index(cv)) == 1
+
+
+def _is_param_neighbor(target, cand, distinct: dict[str, list]) -> bool:
+    """True if *cand* differs from *target* in exactly one parameter, with any
+    numeric difference adjacent in that column's sorted distinct values."""
+    diffs = 0
+    for col in CLUSTER_PARAM_COLS:
+        tv, cv = getattr(target, col), getattr(cand, col)
+        if tv == cv:
+            continue
+        diffs += 1
+        if diffs > 1:
+            return False
+        # categorical: any other value counts as adjacent
+        if col in _NUMERIC_PARAM_COLS and not _adjacent_numeric(distinct[col], tv, cv):
+            return False
+    return diffs == 1
 
 
 def _find_param_neighbors(target, candidates: list) -> list:
@@ -106,33 +135,11 @@ def _find_param_neighbors(target, candidates: list) -> list:
         )
         for col in _NUMERIC_PARAM_COLS
     }
-
-    neighbors: list = []
-    for cand in candidates:
-        if cand.id == target.id:
-            continue
-        diffs = 0
-        adjacent = True
-        for col in CLUSTER_PARAM_COLS:
-            tv, cv = getattr(target, col), getattr(cand, col)
-            if tv == cv:
-                continue
-            diffs += 1
-            if diffs > 1:
-                adjacent = False
-                break
-            if col in _NUMERIC_PARAM_COLS:
-                vals = distinct[col]
-                if tv not in vals or cv not in vals:
-                    adjacent = False
-                    break
-                if abs(vals.index(tv) - vals.index(cv)) != 1:
-                    adjacent = False
-                    break
-            # categorical: any other value counts as adjacent
-        if adjacent and diffs == 1:
-            neighbors.append(cand)
-    return neighbors
+    return [
+        cand
+        for cand in candidates
+        if cand.id != target.id and _is_param_neighbor(target, cand, distinct)
+    ]
 
 
 # ── fingerprint ───────────────────────────────────────────────────────────────

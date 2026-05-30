@@ -55,7 +55,7 @@ export const waveProgress = (
   const start = delayNorm * (1 - spread) + jitter;
   if (globalProgress <= start) return 0;
   const local = (globalProgress - start) / spread;
-  return local >= 1 ? 1 : local;
+  return Math.min(local, 1);
 };
 
 /**

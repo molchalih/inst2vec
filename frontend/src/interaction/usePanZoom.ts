@@ -1,7 +1,7 @@
 import { useEffect, type RefObject } from "react";
 import { useSetAtom } from "jotai";
 import { viewportAtom, wheelZoomAtom } from "@/state";
-import { applyDrag, type Transform } from "@/core";
+import { applyDrag } from "@/core";
 
 const WHEEL_ZOOM_PER_PIXEL = 0.0015;
 // Pointer travel (Manhattan px) past which a release is treated as a pan,
@@ -99,4 +99,4 @@ export const usePanZoom = (ref: RefObject<HTMLElement | null>): void => {
   }, [ref, setViewport, dispatchWheel]);
 };
 
-export type { Transform };
+export type { Transform } from "@/core";

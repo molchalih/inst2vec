@@ -3,7 +3,8 @@
 Sole owner of engine globals — no other file in the package or codebase
 holds engine handles directly.
 
-Alembic (``migrations/``) is the production (Postgres) schema path. The
+Alembic (``core/database/migrations/``) is the production (Postgres) schema
+path. The
 ``create_all`` + ``_LATE_ADDED_COLUMNS`` fast-path here remains for SQLite and
 tests so fresh dev still bootstraps instantly (see D5 in the migration spec);
 a fresh Postgres DB is brought up with ``alembic -n <db> upgrade head``.

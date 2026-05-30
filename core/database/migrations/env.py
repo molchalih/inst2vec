@@ -24,7 +24,7 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 # Make the project importable when alembic is invoked from the repo root.
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from core.database.engine import _wrap_sqlite_path
 from core.database.identity import IdentityBase

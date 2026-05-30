@@ -26,6 +26,9 @@ from sqlalchemy.orm import (
 )
 from sqlalchemy.sql import func
 
+_USERS_ID = "users.id"
+_CLIPS_ID = "clips.id"
+
 
 class Base(DeclarativeBase):
     pass
@@ -59,7 +62,7 @@ class UserStats(Base):
     __tablename__ = "user_stats"
 
     user_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("users.id"), primary_key=True
+        Integer, ForeignKey(_USERS_ID), primary_key=True
     )
     n_clips: Mapped[int | None] = mapped_column(Integer, nullable=True)
     median_plays: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -91,9 +94,7 @@ class Clip(Base):
     __tablename__ = "clips"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    user_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("users.id"), nullable=False
-    )
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey(_USERS_ID), nullable=False)
     thumbnail_url: Mapped[str | None] = mapped_column(String)
     video_url: Mapped[str | None] = mapped_column(String)
     caption_text: Mapped[str | None] = mapped_column(Text)
@@ -135,7 +136,7 @@ class ClipFilterScratch(Base):
     __tablename__ = "clip_filter_scratch"
 
     clip_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("clips.id"), primary_key=True
+        Integer, ForeignKey(_CLIPS_ID), primary_key=True
     )
     log_plays: Mapped[float | None] = mapped_column(Float, nullable=True)
     creator_relative_robust_z: Mapped[float | None] = mapped_column(
@@ -149,7 +150,7 @@ class AudioMIR(Base):
     __table_args__ = (UniqueConstraint("clip_id", name="uq_audio_mir_clip"),)
 
     clip_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("clips.id"), primary_key=True
+        BigInteger, ForeignKey(_CLIPS_ID), primary_key=True
     )
 
     is_mir_extracted: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
@@ -214,7 +215,7 @@ class ClipEmbedding(Base):
     )
 
     clip_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("clips.id"), primary_key=True
+        BigInteger, ForeignKey(_CLIPS_ID), primary_key=True
     )
     embedding_case: Mapped[str] = mapped_column(String, primary_key=True)
     embedding: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
@@ -241,7 +242,7 @@ class UserEmbedding(Base):
     )
 
     user_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("users.id"), primary_key=True
+        Integer, ForeignKey(_USERS_ID), primary_key=True
     )
     embedding_case: Mapped[str] = mapped_column(String, primary_key=True)
     embedding: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
@@ -268,7 +269,7 @@ class UserCluster(Base):
     )
 
     user_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("users.id"), primary_key=True
+        Integer, ForeignKey(_USERS_ID), primary_key=True
     )
     embedding_case: Mapped[str] = mapped_column(String, primary_key=True)
     cluster_id: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -383,7 +384,7 @@ class VisualizationUser(Base):
     )
 
     user_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("users.id"), primary_key=True
+        Integer, ForeignKey(_USERS_ID), primary_key=True
     )
     embedding_case: Mapped[str] = mapped_column(String, primary_key=True)
     x: Mapped[float] = mapped_column(Float, nullable=False)
@@ -413,7 +414,7 @@ class ClipLabel(Base):
     )
 
     clip_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("clips.id"), primary_key=True
+        BigInteger, ForeignKey(_CLIPS_ID), primary_key=True
     )
     # Per-case discriminator mirroring ``ClipEmbedding.embedding_case`` so a
     # single clip can carry one stage-1 label row per modality (video /

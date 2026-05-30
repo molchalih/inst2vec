@@ -60,9 +60,7 @@ def aggregate_user_embeddings_from_rows(
     }
 
 
-def _compute_fingerprint(
-    session, case: str, rows: list[tuple[int, bytes, int]]
-) -> fp.Fingerprint:
+def _compute_fingerprint(rows: list[tuple[int, bytes, int]]) -> fp.Fingerprint:
     dep = fp.hash_rows(
         (clip_id, hashlib.sha256(blob).hexdigest()) for clip_id, blob, _ in rows
     )
@@ -137,7 +135,7 @@ def embed_user_embeddings(settings, cases: list[str] | None = None) -> StageResu
             rows = get_clip_embedding_rows_for_user_aggregation(
                 session, case, exclude_disqualified
             )
-            current = _compute_fingerprint(session, case, rows)
+            current = _compute_fingerprint(rows)
             if not fp.is_stale(session, STAGE, case, current):
                 event("SKIP", "fingerprint")
                 continue

@@ -25,9 +25,9 @@ const hexToRgb = (hex: string): [number, number, number] => {
   if (!m) throw new Error(`lerpHex: expected #rrggbb, got "${hex}"`);
   const h = m[1]!;
   return [
-    parseInt(h.slice(0, 2), 16),
-    parseInt(h.slice(2, 4), 16),
-    parseInt(h.slice(4, 6), 16),
+    Number.parseInt(h.slice(0, 2), 16),
+    Number.parseInt(h.slice(2, 4), 16),
+    Number.parseInt(h.slice(4, 6), 16),
   ];
 };
 

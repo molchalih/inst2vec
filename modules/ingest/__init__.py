@@ -16,16 +16,16 @@ __all__ = [
 ]
 
 
-def run_download(settings: Settings, secrets: Secrets) -> None:
+def run_download(settings: Settings, _secrets: Secrets) -> None:
     """Download videos/thumbnails/profile pics for selected clips."""
     download_files(settings.download, settings.paths)
 
 
-def run_audio(settings: Settings, secrets: Secrets) -> None:
+def run_audio(settings: Settings, _secrets: Secrets) -> None:
     """Extract mp3 audio from downloaded videos."""
     extract_audio_stage(settings)
 
 
-def run_audio_mir(settings: Settings, secrets: Secrets) -> None:
+def run_audio_mir(settings: Settings, _secrets: Secrets) -> None:
     """Extract high-quality WAV audio for MIR inference."""
     extract_audio_mir_stage(settings)

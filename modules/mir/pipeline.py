@@ -131,6 +131,68 @@ def _upsert(session: Session, row: AudioMIR) -> None:
         setattr(existing, col, getattr(row, col))
 
 
+def _prefetch_audio(eligible: list[int], paths, mir: MirSettings, queue: Queue) -> None:
+    """Load each eligible clip's audio and feed ``(cid, audio, err)`` tuples.
+
+    A per-clip error (missing file / load failure) is passed through as the
+    third element rather than raised; a final ``_SENTINEL`` always terminates
+    the consumer.
+    """
+    try:
+        for cid in eligible:
+            path = paths.audio_mir_for(cid)
+            if not path.exists():
+                queue.put((cid, None, "no_audio_file"))
+                continue
+            try:
+                audio = _load_audio(str(path), mir.inference_sample_rate)
+            except Exception:  # per-clip safety net
+                queue.put((cid, None, "audio_load"))
+                continue
+            queue.put((cid, audio, None))
+    finally:
+        queue.put(_SENTINEL)
+
+
+def _infer_message(
+    msg,
+    *,
+    maest,
+    effnet,
+    mir: MirSettings,
+    labels_genre: list[str],
+    labels_moodtheme: list[str],
+    labels_instrument: list[str],
+) -> tuple[int, AudioMIR, bool]:
+    """Process one queue message into ``(clip_id, row, failed)``.
+
+    Wraps inference in the ``item`` logging scope, mirroring the original
+    inline handling (prefetch errors and non-extracted rows raise inside the
+    scope so they are logged as failures).
+    """
+    cid, audio, prefetch_err = msg
+    if prefetch_err is not None:
+        row = _terminal_failure(cid, prefetch_err)
+        with item("EXTRACT", f"clip_{cid}") as t_item:
+            raise RuntimeError(prefetch_err)
+        return cid, row, t_item.failed
+    with item("EXTRACT", f"clip_{cid}") as t_item:
+        row = _infer_with_error_attribution(
+            cid,
+            audio,
+            maest,
+            effnet,
+            mir,
+            labels_genre,
+            labels_moodtheme,
+            labels_instrument,
+        )
+        if not row.is_mir_extracted:
+            raise RuntimeError(row.mir_error)
+        t_item.stats(tags=len(row.genre_labels.split(",")) if row.genre_labels else 0)
+    return cid, row, t_item.failed
+
+
 @stage("mir")
 def run_mir(settings: Settings, secrets=None) -> StageResult:
     """Per-clip MIR descriptors via MAEST + EffNet-Discogs."""
@@ -185,23 +247,9 @@ def run_mir(settings: Settings, secrets=None) -> StageResult:
         with build_maest(mir) as maest, build_effnet(mir) as effnet:
             queue: Queue = Queue(maxsize=mir.prefetch_queue_size)
 
-            def prefetch() -> None:
-                try:
-                    for cid in eligible:
-                        path = paths.audio_mir_for(cid)
-                        if not path.exists():
-                            queue.put((cid, None, "no_audio_file"))
-                            continue
-                        try:
-                            audio = _load_audio(str(path), mir.inference_sample_rate)
-                        except Exception:  # per-clip safety net
-                            queue.put((cid, None, "audio_load"))
-                            continue
-                        queue.put((cid, audio, None))
-                finally:
-                    queue.put(_SENTINEL)
-
-            t = Thread(target=prefetch, daemon=True)
+            t = Thread(
+                target=_prefetch_audio, args=(eligible, paths, mir, queue), daemon=True
+            )
             t.start()
 
             with progress(len(eligible), "MIR inference") as advance:
@@ -210,32 +258,16 @@ def run_mir(settings: Settings, secrets=None) -> StageResult:
                     msg = queue.get()
                     if msg is _SENTINEL:
                         break
-                    cid, audio, prefetch_err = msg
-                    row: AudioMIR
-                    if prefetch_err is not None:
-                        row = _terminal_failure(cid, prefetch_err)
-                        with item("EXTRACT", f"clip_{cid}") as t_item:
-                            raise RuntimeError(prefetch_err)
-                    else:
-                        with item("EXTRACT", f"clip_{cid}") as t_item:
-                            row = _infer_with_error_attribution(
-                                cid,
-                                audio,
-                                maest,
-                                effnet,
-                                mir,
-                                labels_genre,
-                                labels_moodtheme,
-                                labels_instrument,
-                            )
-                            if not row.is_mir_extracted:
-                                raise RuntimeError(row.mir_error)
-                            t_item.stats(
-                                tags=len(row.genre_labels.split(","))
-                                if row.genre_labels
-                                else 0
-                            )
-                    if t_item.failed:
+                    cid, row, item_failed = _infer_message(
+                        msg,
+                        maest=maest,
+                        effnet=effnet,
+                        mir=mir,
+                        labels_genre=labels_genre,
+                        labels_moodtheme=labels_moodtheme,
+                        labels_instrument=labels_instrument,
+                    )
+                    if item_failed:
                         failed += 1
                     else:
                         done += 1

@@ -132,36 +132,44 @@ def _balance_brackets(s: str) -> str:
     escape = False
     for ch in s:
         if in_str:
-            out.append(ch)
-            if escape:
-                escape = False
-            elif ch == "\\":
-                escape = True
-            elif ch == '"':
-                in_str = False
+            in_str, escape = _consume_string_char(ch, out, escape)
             continue
-        if ch == '"':
-            in_str = True
-            out.append(ch)
-        elif ch in "[{":
-            stack.append(ch)
-            out.append(ch)
-        elif ch == "}":
-            if stack and stack[-1] == "{":
-                stack.pop()
-            out.append(ch)
-        elif ch == "]":
-            while stack and stack[-1] == "{":
-                out.append("}")
-                stack.pop()
-            if stack and stack[-1] == "[":
-                stack.pop()
-            out.append(ch)
-        else:
-            out.append(ch)
+        in_str = _consume_structural_char(ch, out, stack)
     while stack:
         out.append("}" if stack.pop() == "{" else "]")
     return "".join(out)
+
+
+def _consume_string_char(ch: str, out: list[str], escape: bool) -> tuple[bool, bool]:
+    """Append a char inside a JSON string literal; return ``(in_str, escape)``."""
+    out.append(ch)
+    if escape:
+        return True, False
+    if ch == "\\":
+        return True, True
+    if ch == '"':
+        return False, False
+    return True, False
+
+
+def _consume_structural_char(ch: str, out: list[str], stack: list[str]) -> bool:
+    """Append a char outside a string literal; return whether a string opened."""
+    if ch == '"':
+        out.append(ch)
+        return True
+    if ch in "[{":
+        stack.append(ch)
+    elif ch == "}":
+        if stack and stack[-1] == "{":
+            stack.pop()
+    elif ch == "]":
+        while stack and stack[-1] == "{":
+            out.append("}")
+            stack.pop()
+        if stack and stack[-1] == "[":
+            stack.pop()
+    out.append(ch)
+    return False
 
 
 def _strip_dict_keys(obj: Any) -> Any:
@@ -203,6 +211,28 @@ def format_failure_error(code: str, raw: str) -> str:
     return f"{code} len={n} head={head!r} tail={tail!r}"
 
 
+def _observable_entry_ok(entry: Any) -> bool:
+    """A clip observable-tag entry needs string ``tag`` and ``evidence``."""
+    return (
+        isinstance(entry, dict)
+        and isinstance(entry.get("tag"), str)
+        and isinstance(entry.get("evidence"), str)
+    )
+
+
+def _grounded_entry_ok(entry: Any) -> bool:
+    """A clip aesthetic/community entry: string ``tag``/``confidence`` and a
+    ``grounded_in`` list of strings."""
+    if not isinstance(entry, dict):
+        return False
+    if not isinstance(entry.get("tag"), str):
+        return False
+    grounded = entry.get("grounded_in")
+    if not isinstance(grounded, list) or not all(isinstance(g, str) for g in grounded):
+        return False
+    return isinstance(entry.get("confidence"), str)
+
+
 def _shapes_ok(parsed: dict, spec: LabelCaseSpec) -> bool:
     observable_key, sentence_key = _clip_role_keys(spec)
     obs = parsed[observable_key]
@@ -217,27 +247,35 @@ def _shapes_ok(parsed: dict, spec: LabelCaseSpec) -> bool:
         return False
     if not isinstance(sentence, str):
         return False
-    for entry in obs:
-        if not isinstance(entry, dict):
-            return False
-        if not isinstance(entry.get("tag"), str):
-            return False
-        if not isinstance(entry.get("evidence"), str):
-            return False
-    for block in (aes, com):
-        for entry in block:
-            if not isinstance(entry, dict):
-                return False
-            if not isinstance(entry.get("tag"), str):
-                return False
-            grounded = entry.get("grounded_in")
-            if not isinstance(grounded, list) or not all(
-                isinstance(g, str) for g in grounded
-            ):
-                return False
-            if not isinstance(entry.get("confidence"), str):
-                return False
-    return True
+    if not all(_observable_entry_ok(entry) for entry in obs):
+        return False
+    return all(_grounded_entry_ok(entry) for block in (aes, com) for entry in block)
+
+
+def _bad_count(block: list, labels: LabelsSettings) -> bool:
+    return (
+        len(block) < labels.min_tags_per_kind or len(block) > labels.max_tags_per_kind
+    )
+
+
+def _bad_tag_len(tag: str, labels: LabelsSettings) -> bool:
+    t = tag.strip()
+    return len(t) < labels.min_tag_chars or len(t) > labels.max_tag_chars
+
+
+def _has_duplicate_tags(block: list) -> bool:
+    norm = [_norm(e["tag"]) for e in block]
+    return len(set(norm)) != len(norm)
+
+
+def _is_hashtaglike(tag: str) -> bool:
+    t = tag.strip()
+    return t.startswith("#") or t.startswith("@") or bool(_HASHTAGLIKE.match(t))
+
+
+def _grounded_unresolved(block: list, valid: set[str]) -> bool:
+    """True if any entry in ``block`` grounds in a tag not present in ``valid``."""
+    return any(_norm(g) not in valid for entry in block for g in entry["grounded_in"])
 
 
 def _soft_fail_codes(
@@ -249,69 +287,35 @@ def _soft_fail_codes(
     aes = parsed["aesthetic_tags"]
     com = parsed["community_signalling_tags"]
     sentence = parsed[sentence_key]
+    all_blocks = (obs, aes, com)
 
     # S1: count bounds per kind
-    for block in (obs, aes, com):
-        n = len(block)
-        if n < labels.min_tags_per_kind or n > labels.max_tags_per_kind:
-            codes.add("S1")
-            break
+    if any(_bad_count(block, labels) for block in all_blocks):
+        codes.add("S1")
 
     # S2: tag length bounds
-    for block in (obs, aes, com):
-        for entry in block:
-            t = entry["tag"].strip()
-            if len(t) < labels.min_tag_chars or len(t) > labels.max_tag_chars:
-                codes.add("S2")
-                break
-        if "S2" in codes:
-            break
+    if any(_bad_tag_len(e["tag"], labels) for block in all_blocks for e in block):
+        codes.add("S2")
 
     # S3: duplicate tags within a kind (case-insensitive, whitespace-normalised)
-    for block in (obs, aes, com):
-        norm = [_norm(e["tag"]) for e in block]
-        if len(set(norm)) != len(norm):
-            codes.add("S3")
-            break
+    if any(_has_duplicate_tags(block) for block in all_blocks):
+        codes.add("S3")
 
     # S4: hashtag-like tag (#x, @x, or single \w+ token)
-    for block in (obs, aes, com):
-        for entry in block:
-            t = entry["tag"].strip()
-            if t.startswith("#") or t.startswith("@") or _HASHTAGLIKE.match(t):
-                codes.add("S4")
-                break
-        if "S4" in codes:
-            break
+    if any(_is_hashtaglike(e["tag"]) for block in all_blocks for e in block):
+        codes.add("S4")
 
     # S6: confidence enum
-    for block in (aes, com):
-        for entry in block:
-            if entry["confidence"] not in _CONFIDENCES:
-                codes.add("S6")
-                break
-        if "S6" in codes:
-            break
+    if any(e["confidence"] not in _CONFIDENCES for block in (aes, com) for e in block):
+        codes.add("S6")
 
     # S7: grounded_in references must hit an earlier section's tags
     observable_norms = {_norm(e["tag"]) for e in obs}
     aesthetic_norms = {_norm(e["tag"]) for e in aes}
-    for entry in aes:
-        for g in entry["grounded_in"]:
-            if _norm(g) not in observable_norms:
-                codes.add("S7")
-                break
-        if "S7" in codes:
-            break
-    if "S7" not in codes:
-        prior = observable_norms | aesthetic_norms
-        for entry in com:
-            for g in entry["grounded_in"]:
-                if _norm(g) not in prior:
-                    codes.add("S7")
-                    break
-            if "S7" in codes:
-                break
+    if _grounded_unresolved(aes, observable_norms) or _grounded_unresolved(
+        com, observable_norms | aesthetic_norms
+    ):
+        codes.add("S7")
 
     # S8: sentence length bounds
     n = len(sentence.strip())
@@ -417,64 +421,100 @@ def validate_cluster(
     return parsed, "ok", []
 
 
+def _is_str_list(value: Any) -> bool:
+    return isinstance(value, list) and all(isinstance(x, str) for x in value)
+
+
+def _repertoire_entry_ok(entry: Any) -> bool:
+    return (
+        isinstance(entry, dict)
+        and isinstance(entry.get("tag"), str)
+        and isinstance(entry.get("description"), str)
+        and entry.get("recurrence") in _RECURRENCES
+    )
+
+
+def _cluster_aesthetic_entry_ok(entry: Any) -> bool:
+    return (
+        isinstance(entry, dict)
+        and isinstance(entry.get("tag"), str)
+        and _is_str_list(entry.get("grounded_in"))
+        and isinstance(entry.get("description"), str)
+    )
+
+
+def _signal_block_ok(block: Any) -> bool:
+    return (
+        isinstance(block, dict)
+        and isinstance(block.get("label"), str)
+        and isinstance(block.get("description"), str)
+        and isinstance(block.get("confidence"), str)
+    )
+
+
+def _variation_entry_ok(entry: Any) -> bool:
+    return (
+        isinstance(entry, dict)
+        and isinstance(entry.get("variation"), str)
+        and isinstance(entry.get("description"), str)
+    )
+
+
 def _cluster_shapes_ok(parsed: dict, spec: LabelCaseSpec) -> bool:
     repertoire_key = _cluster_repertoire_key(spec)
-    if not isinstance(parsed["cluster_label"], str):
-        return False
-    if not isinstance(parsed["cluster_summary"], str):
-        return False
-    if not isinstance(parsed["boundary_notes"], str):
-        return False
-    if not isinstance(parsed["tool_tags"], list) or not all(
-        isinstance(t, str) for t in parsed["tool_tags"]
+    if not all(
+        isinstance(parsed[k], str)
+        for k in ("cluster_label", "cluster_summary", "boundary_notes")
     ):
         return False
+    if not _is_str_list(parsed["tool_tags"]):
+        return False
     rep = parsed[repertoire_key]
-    if not isinstance(rep, list):
+    if not isinstance(rep, list) or not all(_repertoire_entry_ok(e) for e in rep):
         return False
-    for entry in rep:
-        if not isinstance(entry, dict):
-            return False
-        if not isinstance(entry.get("tag"), str):
-            return False
-        if not isinstance(entry.get("description"), str):
-            return False
-        if entry.get("recurrence") not in _RECURRENCES:
-            return False
     aes = parsed["dominant_aesthetic_logic"]
-    if not isinstance(aes, list):
+    if not isinstance(aes, list) or not all(
+        _cluster_aesthetic_entry_ok(e) for e in aes
+    ):
         return False
-    for entry in aes:
-        if not isinstance(entry, dict):
-            return False
-        if not isinstance(entry.get("tag"), str):
-            return False
-        g = entry.get("grounded_in")
-        if not isinstance(g, list) or not all(isinstance(x, str) for x in g):
-            return False
-        if not isinstance(entry.get("description"), str):
-            return False
-    for key in ("taste_signalling", "visibility_orientation"):
-        block = parsed[key]
-        if not isinstance(block, dict):
-            return False
-        if not isinstance(block.get("label"), str):
-            return False
-        if not isinstance(block.get("description"), str):
-            return False
-        if not isinstance(block.get("confidence"), str):
-            return False
+    if not all(
+        _signal_block_ok(parsed[key])
+        for key in ("taste_signalling", "visibility_orientation")
+    ):
+        return False
     var = parsed["internal_variations"]
-    if not isinstance(var, list):
-        return False
-    for entry in var:
-        if not isinstance(entry, dict):
-            return False
-        if not isinstance(entry.get("variation"), str):
-            return False
-        if not isinstance(entry.get("description"), str):
-            return False
-    return True
+    return isinstance(var, list) and all(_variation_entry_ok(e) for e in var)
+
+
+def _cluster_sentence_fields(parsed: dict, rep: list, aes: list) -> list[str]:
+    """All sentence-shaped fields whose length SC6 bounds."""
+    fields: list[str] = [parsed["cluster_summary"], parsed["boundary_notes"]]
+    fields += [entry["description"] for entry in rep + aes]
+    fields += [
+        parsed[key]["description"]
+        for key in ("taste_signalling", "visibility_orientation")
+    ]
+    fields += [entry["description"] for entry in parsed["internal_variations"]]
+    return fields
+
+
+def _has_connector_word(tag: str) -> bool:
+    return bool({w.lower() for w in tag.split()} & _CONNECTOR_WORDS)
+
+
+def _cluster_tool_tags_invalid(tool_tags: list) -> bool:
+    """SC7: tool_tags must be non-empty and free of #/@ prefixes."""
+    return not tool_tags or any(
+        t.strip().startswith("#") or t.strip().startswith("@") for t in tool_tags
+    )
+
+
+def _cluster_tags_have_connector(rep: list, aes: list, tool_tags: list) -> bool:
+    """SC9: a connector word in any repertoire/aesthetic/tool tag."""
+    rep_aes_tags = (e["tag"] for block in (rep, aes) for e in block)
+    return any(_has_connector_word(t) for t in rep_aes_tags) or any(
+        _has_connector_word(t) for t in tool_tags
+    )
 
 
 def _cluster_soft_fail_codes(
@@ -487,11 +527,11 @@ def _cluster_soft_fail_codes(
     tool_tags = parsed["tool_tags"]
 
     # SC1: count bounds for repertoire and aesthetic logic
-    for block in (rep, aes):
-        n = len(block)
-        if n < labels.cluster_min_tags or n > labels.cluster_max_tags:
-            codes.add("SC1")
-            break
+    if any(
+        len(block) < labels.cluster_min_tags or len(block) > labels.cluster_max_tags
+        for block in (rep, aes)
+    ):
+        codes.add("SC1")
 
     # SC2: tag length bounds. The grammar caps every tag at
     # ``cluster_tag_max_chars`` via the schema's ``maxLength``, but vLLM does
@@ -500,60 +540,39 @@ def _cluster_soft_fail_codes(
     # ``_tag_schema`` bound, so they are checked alongside rep/aes.
     cluster_tags = [e["tag"].strip() for block in (rep, aes) for e in block]
     cluster_tags += [t.strip() for t in tool_tags]
-    for t in cluster_tags:
-        if len(t) < labels.min_tag_chars or len(t) > labels.cluster_tag_max_chars:
-            codes.add("SC2")
-            break
+    if any(
+        len(t) < labels.min_tag_chars or len(t) > labels.cluster_tag_max_chars
+        for t in cluster_tags
+    ):
+        codes.add("SC2")
 
     # SC3: duplicate tags within a block (case/whitespace-normalised)
-    for block in (rep, aes):
-        norm = [_norm(e["tag"]) for e in block]
-        if len(set(norm)) != len(norm):
-            codes.add("SC3")
-            break
+    if any(_has_duplicate_tags(block) for block in (rep, aes)):
+        codes.add("SC3")
 
     # SC4: aesthetic_logic.grounded_in must reference a repertoire tag
     rep_norms = {_norm(e["tag"]) for e in rep}
-    for entry in aes:
-        for g in entry["grounded_in"]:
-            if _norm(g) not in rep_norms:
-                codes.add("SC4")
-                break
-        if "SC4" in codes:
-            break
+    if _grounded_unresolved(aes, rep_norms):
+        codes.add("SC4")
 
     # SC5: confidence enum on taste_signalling and visibility_orientation
-    for key in ("taste_signalling", "visibility_orientation"):
-        if parsed[key]["confidence"] not in _CONFIDENCES:
-            codes.add("SC5")
-            break
+    if any(
+        parsed[key]["confidence"] not in _CONFIDENCES
+        for key in ("taste_signalling", "visibility_orientation")
+    ):
+        codes.add("SC5")
 
     # SC6: sentence-shaped fields length bounds
-    sentence_fields: list[str] = [parsed["cluster_summary"], parsed["boundary_notes"]]
-    for entry in rep + aes:
-        sentence_fields.append(entry["description"])
-    for key in ("taste_signalling", "visibility_orientation"):
-        sentence_fields.append(parsed[key]["description"])
-    for entry in parsed["internal_variations"]:
-        sentence_fields.append(entry["description"])
-    for s in sentence_fields:
-        n = len(s.strip())
-        if (
-            n < labels.cluster_min_sentence_chars
-            or n > labels.cluster_max_sentence_chars
-        ):
-            codes.add("SC6")
-            break
+    if any(
+        len(s.strip()) < labels.cluster_min_sentence_chars
+        or len(s.strip()) > labels.cluster_max_sentence_chars
+        for s in _cluster_sentence_fields(parsed, rep, aes)
+    ):
+        codes.add("SC6")
 
     # SC7: tool_tags non-empty and none may carry a hashtag/at-sign prefix
-    if not tool_tags:
+    if _cluster_tool_tags_invalid(tool_tags):
         codes.add("SC7")
-    else:
-        for t in tool_tags:
-            s = t.strip()
-            if s.startswith("#") or s.startswith("@"):
-                codes.add("SC7")
-                break
 
     # SC8: cluster_summary target band (soft — informational, does not gate)
     # SC6 is the hard sentence ceiling; SC8 is the tighter summary target band.
@@ -567,13 +586,7 @@ def _cluster_soft_fail_codes(
     # SC9: connector word in a tag (soft — was the HC5 hard fail; the grammar's
     # word/char cap already blocks real squashes, so a connector in a short
     # descriptive phrase is flagged, not rejected).
-    for block in (rep, aes):
-        if any({w.lower() for w in e["tag"].split()} & _CONNECTOR_WORDS for e in block):
-            codes.add("SC9")
-            break
-    if "SC9" not in codes and any(
-        {w.lower() for w in t.split()} & _CONNECTOR_WORDS for t in tool_tags
-    ):
+    if _cluster_tags_have_connector(rep, aes, tool_tags):
         codes.add("SC9")
 
     return codes

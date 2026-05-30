@@ -5,19 +5,18 @@ import { activeRunIdAtom } from "./active-run-id.atom";
 
 // Cache entries are keyed by `${runId}:${id}` so that switching runs
 // doesn't surface stale detail data for a colliding cluster id.
-type Key = string;
-const keyFor = (runId: string, id: number): Key => `${runId}:${id}`;
+const keyFor = (runId: string, id: number): string => `${runId}:${id}`;
 
 type Map_ = {
-  details: Map<Key, ClusterDetail>;
-  loading: Set<Key>;
-  errors: Map<Key, Error>;
+  details: Map<string, ClusterDetail>;
+  loading: Set<string>;
+  errors: Map<string, Error>;
 };
 
 export const clusterDetailMapAtom = atom<Map_>({
-  details: new Map<Key, ClusterDetail>(),
-  loading: new Set<Key>(),
-  errors: new Map<Key, Error>(),
+  details: new Map<string, ClusterDetail>(),
+  loading: new Set<string>(),
+  errors: new Map<string, Error>(),
 });
 
 type Slot = { data?: ClusterDetail; loading?: boolean; error?: Error };

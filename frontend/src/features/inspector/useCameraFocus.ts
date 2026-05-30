@@ -95,11 +95,12 @@ export const useCameraFocus = (): void => {
     if (rect.width <= 0 || rect.height <= 0) return;
 
     const deselected = prev !== null && selection === null;
+    const fitOrNull = deselected
+      ? fitBoundsToRect(run.bounds, rect, tokens.interaction.focus.runFitPadding)
+      : null;
     const target = selection
       ? computeTarget(selection, run, rect)
-      : deselected
-        ? fitBoundsToRect(run.bounds, rect, tokens.interaction.focus.runFitPadding)
-        : null;
+      : fitOrNull;
     if (!target) return;
 
     // Snapshot start once per ease via store.get (no subscription —

@@ -29,7 +29,7 @@ export const ClusterPane = ({ clusterId }: Props) => {
   const detailAvailable = !!run?.meta.details_available && !!cluster?.has_detail;
   useEffect(() => {
     if (!detailAvailable) return;
-    void ensure(clusterId).catch(() => {});
+    ensure(clusterId).catch(() => {});
   }, [clusterId, ensure, detailAvailable]);
 
   if (!run) return null;
@@ -58,7 +58,7 @@ export const ClusterPane = ({ clusterId }: Props) => {
     return (
       <PaneBody>
         <PaneHeader name={cluster.label} meta={meta} />
-        <FetchError onRetry={() => void ensure(clusterId).catch(() => {})} />
+        <FetchError onRetry={() => { ensure(clusterId).catch(() => {}); }} />
       </PaneBody>
     );
   }

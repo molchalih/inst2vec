@@ -46,8 +46,8 @@ export const useInspectorChoreography = (): void => {
       // body stays blank on first paint for deep-link URLs.
       if (sel !== null) {
         setPhase("opening-content");
-        const settle = window.setTimeout(() => setPhase("open"), 0);
-        return () => window.clearTimeout(settle);
+        const settle = globalThis.setTimeout(() => setPhase("open"), 0);
+        return () => globalThis.clearTimeout(settle);
       }
       return;
     }
@@ -70,22 +70,28 @@ export const useInspectorChoreography = (): void => {
     if (prev === null && next !== null) {
       // Open: panel slide → (overlap) content slide → settled.
       setPhase("opening-slide");
-      timers.push(window.setTimeout(() => setPhase("opening-content"), slideHandoff));
-      timers.push(window.setTimeout(() => setPhase("open"), slideHandoff + content));
+      timers.push(
+        globalThis.setTimeout(() => setPhase("opening-content"), slideHandoff),
+        globalThis.setTimeout(() => setPhase("open"), slideHandoff + content),
+      );
     } else if (prev !== null && next === null) {
       // Close: content slide → (overlap) panel slide → unmount.
       setPhase("closing-content");
-      timers.push(window.setTimeout(() => setPhase("closing-slide"), contentHandoff));
-      timers.push(window.setTimeout(() => setPhase("closed"), contentHandoff + slide));
+      timers.push(
+        globalThis.setTimeout(() => setPhase("closing-slide"), contentHandoff),
+        globalThis.setTimeout(() => setPhase("closed"), contentHandoff + slide),
+      );
     } else {
       // Swap: content out, then content in. Sequential — the two
       // halves animate the same DOM element and would clash if
       // overlapped. `Inspector` watches for the `opening-content`
       // boundary to swap the displayed selection.
       setPhase("closing-content");
-      timers.push(window.setTimeout(() => setPhase("opening-content"), content));
-      timers.push(window.setTimeout(() => setPhase("open"), 2 * content));
+      timers.push(
+        globalThis.setTimeout(() => setPhase("opening-content"), content),
+        globalThis.setTimeout(() => setPhase("open"), 2 * content),
+      );
     }
-    return () => timers.forEach((t) => window.clearTimeout(t));
+    return () => timers.forEach((t) => globalThis.clearTimeout(t));
   }, [sel, setPhase]);
 };

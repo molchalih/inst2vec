@@ -15,8 +15,8 @@ export type Selection =
 // see a null selection and erase the route's keys before any consumer
 // reads them.
 const initialSelection = (): Selection => {
-  if (typeof window === "undefined") return null;
-  const r = parseHash(window.location.hash);
+  if (typeof globalThis === "undefined") return null;
+  const r = parseHash(globalThis.location.hash);
   if (r.user !== undefined) return { kind: "creator", creatorId: r.user };
   if (r.cluster !== undefined) return { kind: "cluster", clusterId: r.cluster };
   return null;
