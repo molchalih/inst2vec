@@ -239,6 +239,41 @@ def test_download_files_rerun_skips_completed(tmp_path, monkeypatch, isolated_db
     session.close()
 
 
+def test_download_files_completed_clip_skips_filesystem_verification(
+    tmp_path, monkeypatch, isolated_db
+):
+    """A DB-confirmed downloaded clip is trusted: no per-file stat on rerun.
+
+    The clip carries a thumbnail_url, but because is_downloaded is True the
+    stage must not stat the clip's thumbnail (or video) path at all — the DB
+    is the source of truth, keeping reruns fast.
+    """
+    session = get_session()
+    _seed(session, 1, 100, True, True, "https://x/v.mp4", "https://x/t.jpg")
+    session.close()
+
+    settings, paths = _dl(tmp_path)
+    thumb_path = str(paths.thumbnail_for(100))
+    video_path = str(paths.video_for(100))
+
+    statted: list[str] = []
+    real_exists = os.path.exists
+
+    def spy_exists(p):
+        statted.append(str(p))
+        return real_exists(p)
+
+    monkeypatch.setattr(dl_mod, "get_profile_pic_url", lambda uid: None)
+    monkeypatch.setattr(httpx, "get", lambda *a, **kw: _make_response(200, b"x" * 1024))
+    monkeypatch.setattr(dl_mod.time, "sleep", lambda _: None)
+    monkeypatch.setattr(dl_mod.os.path, "exists", spy_exists)
+
+    dl_mod.download_files(settings, paths)
+
+    assert thumb_path not in statted
+    assert video_path not in statted
+
+
 def test_download_files_rerun_skips_failed(tmp_path, monkeypatch, isolated_db):
     session = get_session()
     _seed(session, 1, 100, True, False, "https://x/v.mp4", None)  # failed

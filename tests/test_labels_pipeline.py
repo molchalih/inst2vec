@@ -396,18 +396,20 @@ def test_run_runs_stage1_for_video_only_and_skips_non_video_clip_pass(db_engine)
 # reasoning needed.
 _CLIP_PROMPT_TOKENS: dict[str, str] = {
     "video": "observable_visual_tags",
-    "audio": "observable_audio_tags",
+    "spoken": "observable_audio_tags",
     "sandwich": "observable_multimodal_tags",
-    "maest": "observable_music_tags",
+    "auditory": "observable_music_tags",
+    "textual": "observable_textual_tags",
     "gemini": "observable_multimodal_tags",
 }
 
 # Cluster prompts mention ``dominant_*_repertoire`` keys uniquely per case.
 _CLUSTER_PROMPT_TOKENS: dict[str, str] = {
     "video": "dominant_visual_repertoire",
-    "audio": "dominant_audio_repertoire",
+    "spoken": "dominant_audio_repertoire",
     "sandwich": "dominant_multimodal_repertoire",
-    "maest": "dominant_music_repertoire",
+    "auditory": "dominant_music_repertoire",
+    "textual": "dominant_textual_repertoire",
     "gemini": "dominant_multimodal_repertoire",
 }
 

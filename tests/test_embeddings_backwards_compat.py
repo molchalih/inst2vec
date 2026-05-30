@@ -15,6 +15,6 @@ def test_frozen_factory_names():
     assert getattr(CASE_REGISTRY["video"].provider_factory, "__name__", None) == (
         "qwen_provider_video"
     )
-    assert getattr(CASE_REGISTRY["audio"].provider_factory, "__name__", None) == (
+    assert getattr(CASE_REGISTRY["spoken"].provider_factory, "__name__", None) == (
         "qwen_provider_text"
     )

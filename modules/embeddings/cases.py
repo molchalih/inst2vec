@@ -6,9 +6,9 @@ logic). It is the only idempotence boundary the embeddings package
 recognizes — completion is derived from rows in ClipEmbedding /
 UserEmbedding keyed by ``(clip_id|user_id, embedding_case)``.
 
-Note: ``"audio"`` is currently an audio-SEMANTIC TEXT embedding (built
-from speech + verbalized music), not a raw-waveform embedding. The name
-is kept for thesis/pipeline simplicity.
+Note: ``"auditory"`` is a raw-waveform MAEST acoustic embedding;
+``"spoken"`` is a text embedding over the speech transcript only and
+``"textual"`` over the caption only.
 """
 
 from __future__ import annotations
@@ -24,18 +24,22 @@ from modules.embeddings.providers import (
     ProviderRouter,
 )
 from modules.embeddings.text import (
-    build_audio_text,
     build_gemini_text,
     build_sandwich_text,
+    build_spoken_text,
+    build_textual_text,
 )
 
 # audio_path is only consumed by the gemini case; every other builder
 # accepts it and ignores it so the runner can pass it uniformly without
 # branching by case name.
 
-AUDIO_INSTRUCTION = (
-    "Represent the audio character of this video: its musical mood, energy, "
-    "and any spoken content."
+SPOKEN_INSTRUCTION = (
+    "Represent the spoken content of this video: what is said and its topics."
+)
+
+TEXTUAL_INSTRUCTION = (
+    "Represent the written caption of this post: its topics, tone, and framing."
 )
 
 
@@ -142,8 +146,12 @@ def _sandwich_payload(clip, text, video_path, audio_path, fps, max_frames) -> di
     }
 
 
-def _audio_payload(clip, text, video_path, audio_path, fps, max_frames) -> dict:
-    return {"text": text, "instruction": AUDIO_INSTRUCTION}
+def _spoken_payload(clip, text, video_path, audio_path, fps, max_frames) -> dict:
+    return {"text": text, "instruction": SPOKEN_INSTRUCTION}
+
+
+def _textual_payload(clip, text, video_path, audio_path, fps, max_frames) -> dict:
+    return {"text": text, "instruction": TEXTUAL_INSTRUCTION}
 
 
 # ── registry ─────────────────────────────────────────────────────────────────
@@ -184,22 +192,41 @@ SANDWICH_CASE = EmbeddingCaseSpec(
     backbone="qwen",
 )
 
-AUDIO_CASE = EmbeddingCaseSpec(
-    name="audio",
-    text_builder=build_audio_text,
+SPOKEN_CASE = EmbeddingCaseSpec(
+    name="spoken",
+    text_builder=build_spoken_text,
     requires_video=False,
     provider_factory=_QWEN_TEXT,
-    payload_builder=_audio_payload,
+    payload_builder=_spoken_payload,
     apply_video_token_fallback=False,
     dependency_columns=(
         "is_speech_detected",
         "speech_transcription",
         "speech_language",
         "speech_translation",
-        "_audio_mir_row",
     ),
-    recipe_version="audio_v3",
+    recipe_version="spoken_v1",
+    served_remotely=False,
     display_label="Spoken",
+    backbone="qwen",
+)
+
+TEXTUAL_CASE = EmbeddingCaseSpec(
+    name="textual",
+    text_builder=build_textual_text,
+    requires_video=False,
+    provider_factory=_QWEN_TEXT,
+    payload_builder=_textual_payload,
+    apply_video_token_fallback=False,
+    dependency_columns=(
+        "caption_clean",
+        "caption_text",
+        "caption_language",
+        "caption_translation",
+    ),
+    recipe_version="textual_v1",
+    served_remotely=False,
+    display_label="Textual",
     backbone="qwen",
 )
 
@@ -283,8 +310,8 @@ def _maest_payload(clip, text, video_path, audio_path, fps, max_frames) -> dict:
     return {"audio_path": audio_path}
 
 
-MAEST_CASE = EmbeddingCaseSpec(
-    name="maest",
+AUDITORY_CASE = EmbeddingCaseSpec(
+    name="auditory",
     text_builder=None,
     requires_video=False,
     provider_factory=_maest_factory,
@@ -294,16 +321,17 @@ MAEST_CASE = EmbeddingCaseSpec(
     recipe_version="maest_v1",
     requires=(),
     served_remotely=False,
-    display_label="Musical",
+    display_label="Auditory",
 )
 
 
 CASE_REGISTRY: dict[str, EmbeddingCaseSpec] = {
     "video": VIDEO_CASE,
     "sandwich": SANDWICH_CASE,
-    "audio": AUDIO_CASE,
+    "auditory": AUDITORY_CASE,
     "gemini": GEMINI_CASE,
-    "maest": MAEST_CASE,
+    "spoken": SPOKEN_CASE,
+    "textual": TEXTUAL_CASE,
 }
 
 
@@ -342,8 +370,10 @@ def case_config_identity(spec: EmbeddingCaseSpec, settings) -> str:
         f"token_fallback={spec.apply_video_token_fallback}",
         f"text_recipe={spec.recipe_version}",
     ]
-    if spec.name == "audio":
-        parts.append(f"instruction={AUDIO_INSTRUCTION}")
+    if spec.name == "spoken":
+        parts.append(f"instruction={SPOKEN_INSTRUCTION}")
+    if spec.name == "textual":
+        parts.append(f"instruction={TEXTUAL_INSTRUCTION}")
     if spec.name == "gemini":
         # The common ``model=`` field above is the Qwen path and does not
         # distinguish Gemini model versions; include the real Gemini model
@@ -356,7 +386,7 @@ def case_config_identity(spec: EmbeddingCaseSpec, settings) -> str:
         )
         parts.append(f"max_video_s={settings.embeddings.gemini_max_video_seconds}")
         parts.append(f"max_audio_s={settings.embeddings.gemini_max_audio_seconds}")
-    if spec.name == "maest":
+    if spec.name == "auditory":
         mir = settings.mir
         pb_path = Path(mir.model_dir) / mir.maest_checkpoint
         # backend=onnx is the deliberate migration marker: it flips the
@@ -393,11 +423,10 @@ def build_provider_router(settings, secrets, cases) -> ProviderRouter:
     (with_frames=True). A backbone="qwen" case with an overridden
     ``provider_factory`` falls through to its own instance via that factory,
     which lets tests inject a stub without touching the shared model. The
-    audio case is text-only, and a text-only payload is independent of the
-    model's frame settings (see vendor format_model_input), so the shared
-    instance yields the same vector the old text-config provider did — no
-    stored-row recompute, hence audio's config_identity is intentionally left
-    unchanged. Everything else builds via its own provider_factory. All
+    text-only cases (spoken/textual) feed a text-only payload that is
+    independent of the model's frame settings (see vendor format_model_input),
+    so the shared instance yields the same vector a standalone text-config
+    provider would. Everything else builds via its own provider_factory. All
     builders are deferred (the router instantiates on first use).
     """
     instances: dict[str, Provider] = {}

@@ -461,6 +461,10 @@ class Settings(BaseModel):
 class Secrets(BaseModel):
     database_url: str
     identity_db_url: str
+    # Separate read-optimised store the offload script writes and the atlas
+    # API reads. Defaults to a local SQLite file so dev/test never need to set
+    # it; production points it at Postgres alongside DATABASE_URL.
+    serving_database_url: str = "sqlite:///data/serving.db"
     hiker_api_key: str
     huggingface_token: str
     embedder_token: str = ""
@@ -578,9 +582,15 @@ def load_runtime_config() -> tuple[Settings, Secrets]:
             "embeddings.gemini_enabled=true but GEMINI_API_KEY is not set"
         )
 
+    serving_database_url = os.environ.get("SERVING_DATABASE_URL")
     secrets = Secrets(
         database_url=os.environ["DATABASE_URL"],
         identity_db_url=os.environ["IDENTITY_DB_URL"],
+        **(
+            {"serving_database_url": serving_database_url}
+            if serving_database_url
+            else {}
+        ),
         hiker_api_key=os.environ["HIKER_API_KEY"],
         huggingface_token=os.environ["HUGGINGFACE_TOKEN"],
         embedder_token=os.environ.get("EMBEDDER_TOKEN", ""),

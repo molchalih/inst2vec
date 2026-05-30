@@ -18,10 +18,10 @@ from modules.labels.cluster_pass import run_all_cases
 
 def _labels(**overrides) -> LabelsSettings:
     base = dict(
-        case_prompts={"video": "x", "audio": "x-audio"},
+        case_prompts={"video": "x", "spoken": "x-spoken"},
         cluster_case_prompts={
             "video": "cluster prompt",
-            "audio": "audio cluster prompt",
+            "spoken": "spoken cluster prompt",
         },
     )
     base.update(overrides)
@@ -336,8 +336,8 @@ def _clean_audio_cluster_json() -> dict:
     return payload
 
 
-def test_cluster_pass_audio_consumes_raw_speech_signals() -> None:
-    """Stage-2 for ``case='audio'`` skips the per-clip pass and synthesises
+def test_cluster_pass_spoken_consumes_raw_speech_signals() -> None:
+    """Stage-2 for ``case='spoken'`` skips the per-clip pass and synthesises
     directly from each member clip's raw speech transcription (and MIR, when
     music is detected). The prompt body the generator sees must embed the
     speech transcript and must NOT carry the video-case ``ClipLabel`` payload
@@ -360,8 +360,8 @@ def test_cluster_pass_audio_consumes_raw_speech_signals() -> None:
                     speech_language="en",
                 )
             )
-            # A visual ClipLabel row that MUST NOT leak into the audio
-            # cluster prompt — the audio case does not consume video labels.
+            # A visual ClipLabel row that MUST NOT leak into the spoken
+            # cluster prompt — the spoken case does not consume video labels.
             s.add(
                 ClipLabel(
                     clip_id=cid,
@@ -384,7 +384,7 @@ def test_cluster_pass_audio_consumes_raw_speech_signals() -> None:
             s.add(
                 UserCluster(
                     user_id=uid,
-                    embedding_case="audio",
+                    embedding_case="spoken",
                     cluster_id=0,
                     umap_x=0.0,
                     umap_y=0.0,
@@ -399,20 +399,20 @@ def test_cluster_pass_audio_consumes_raw_speech_signals() -> None:
             session=s,
             labels=_labels(),
             generator=fake,
-            cases=("audio",),
+            cases=("spoken",),
         )
 
-    assert len(fake.prompts) == 1, "expected exactly one cluster prompt for audio case"
+    assert len(fake.prompts) == 1, "expected exactly one cluster prompt for spoken case"
     prompt = fake.prompts[0]
     assert speech_marker in prompt, (
-        "audio cluster prompt must include each member clip's speech transcript"
+        "spoken cluster prompt must include each member clip's speech transcript"
     )
     assert "visual-only-tag" not in prompt, (
-        "audio cluster prompt must NOT include video-case clip labels"
+        "spoken cluster prompt must NOT include video-case clip labels"
     )
 
     with Session(eng) as s:
-        row = s.get(ClusterLabel, ("audio", 0))
+        row = s.get(ClusterLabel, ("spoken", 0))
         assert row is not None and row.status == "success"
         assert "dominant_audio_repertoire" in row.payload
 

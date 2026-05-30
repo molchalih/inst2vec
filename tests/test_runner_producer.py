@@ -40,7 +40,9 @@ def test_build_jobs_sets_audio_key_for_audio_dependent_case(monkeypatch):
     from modules.embeddings.cases import CASE_REGISTRY
 
     jobs = build_jobs_for_case(
-        CASE_REGISTRY["maest"],  # requires_video=False, dependency has _audio_file_stat
+        CASE_REGISTRY[
+            "auditory"
+        ],  # requires_video=False, dependency has _audio_file_stat
         clips,
         texts={7: None},
         video_dir="/videos",

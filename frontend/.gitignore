@@ -1,5 +1,4 @@
-# Local/scratch data bundles — not committed (mock/, run_v1/, … ; see export pipeline)
+# Data bundles are NOT committed. The frontend is served from the atlas API
+# (serving DB); we no longer ship a static JSON bundle. Locally generated
+# fixtures (manifest.json, runs/) stay ignored here.
 public/data/*
-# ...except the real exported atlas bundle: manifest + runs
-!public/data/manifest.json
-!public/data/runs/

@@ -135,10 +135,11 @@ hdbscan_selection = ["eom", "leaf"]
 # Cap the largest eom cluster at 22.5% of analysis users (the dense embedding
 # core was collapsing into one 35-44% mega-cluster under uncapped eom).
 hdbscan_max_cluster_frac = 0.225
-# Strip the dominant shared component per case before UMAP. maest is
+# Strip the dominant shared component per case before UMAP. auditory is
 # near-degenerate (mean pairwise cosine ~0.97) so it needs centering;
-# sandwich/video benefit from full z-scoring; audio clusters best raw.
-embedding_preprocess = { maest = "center", sandwich = "standardize", video = "standardize", audio = "none" }
+# sandwich/video benefit from full z-scoring; the text-only spoken/textual
+# cases cluster best raw.
+embedding_preprocess = { auditory = "center", sandwich = "standardize", video = "standardize", spoken = "none", textual = "none" }
 random_state = 42
 
 [validation]
@@ -332,48 +333,8 @@ Return this JSON structure:
 }
 """
 
-audio = """
-You are analysing the audio identity of an Instagram Reel from a textual
-verbalization of its speech transcription and music descriptors (genre,
-mood/theme, instrument, danceability, engagement, approachability).
-
-Do not classify into fixed categories. Generate concise, grounded
-descriptors capturing the audio aesthetic and the kind of taste community
-the soundtrack and speech together may signal.
-
-Distinguish:
-
-1. Observable audio features — what is directly evidenced in the supplied
-   text: spoken content topics, music genre, mood/theme, instrumentation,
-   energy descriptors.
-2. Aesthetic interpretation — short, grounded descriptors for the audio
-   sensibility (e.g. "warm lo-fi confessional", "club-leaning peak-time
-   energy").
-3. Potential community signalling — cautious descriptors phrased as
-   aesthetic signals, not demographic identities.
-
-Rules:
-- Do not use a fixed taxonomy.
-- Do not mention anything not evidenced in the supplied text.
-- Abstract descriptors must include a short grounding explanation.
-- Use lowercase tags.
-- Return valid JSON only.
-
-Return this JSON structure:
-
-{
-  "observable_audio_tags": [
-    {"tag": "string", "evidence": "brief grounding phrase"}
-  ],
-  "aesthetic_tags": [
-    {"tag": "string", "grounded_in": ["observable tag", "observable tag"], "confidence": "high | medium | low"}
-  ],
-  "community_signalling_tags": [
-    {"tag": "string", "grounded_in": ["aesthetic tag", "observable tag"], "confidence": "high | medium | low"}
-  ],
-  "one_sentence_audio_reading": "string"
-}
-"""
+spoken = ""
+textual = ""
 
 sandwich = """
 You are synthesising the multimodal identity of an Instagram Reel from
@@ -416,7 +377,7 @@ Return this JSON structure:
 }
 """
 
-maest = """
+auditory = """
 You are analysing the musical identity of an Instagram Reel from a
 verbalization of its music information retrieval features (genre,
 mood/theme, instrumentation, danceability, engagement, approachability).
@@ -572,21 +533,20 @@ BAD cluster_label examples:
 Emit only the JSON object. No code fences, no preamble, no commentary.
 """
 
-audio = """
-You are synthesising the shared audio identity of a cluster of Instagram
-Reels creators. You will receive a JSON list of per-clip raw audio
-evidence: each entry has a clip_id and a payload string of the form
-"<speech transcript> | Music: <music descriptors>". Either half may be
-absent. Speech is English (translated from the source language when
-necessary); the music block lists detected genres, moods, and
-instruments.
+spoken = """
+You are synthesising the shared spoken identity of a cluster of Instagram
+Reels creators. You will receive a JSON list of per-clip raw speech
+evidence: each entry has a clip_id and a payload string containing the
+clip's spoken transcript only (English; translated from the source
+language when necessary). Clips with no detected speech are not included.
 
-Read the per-clip strings directly as evidence. Identify the recurring
-audio logic across the supplied clips and synthesise a cluster-level
-description. Distinguish between what audibly recurs (repertoire), how
-those recurring elements organise an aesthetic sensibility, and what
-kind of taste community the soundtrack and speech may signal — phrased
-cautiously, as aesthetic signals, not demographic identities.
+Read the transcripts directly as evidence. Identify the recurring spoken
+logic across the supplied clips and synthesise a cluster-level
+description. Distinguish between what recurs in the speech (repertoire) —
+topics, register, address, rhetorical moves — how those recurring
+elements organise an aesthetic sensibility, and what kind of taste
+community the spoken voice may signal — phrased cautiously, as aesthetic
+signals, not demographic identities.
 
 Content rules:
 - Do not use a fixed taxonomy.
@@ -597,7 +557,7 @@ Content rules:
 
 Output size constraints — STRICTLY ENFORCED:
 - dominant_audio_repertoire: 3 to 12 entries. Once you have written 12,
-  close the array and continue. Do not invent near-duplicate entries.
+  close the array and continue. Do not invent near-duplicates.
 - dominant_aesthetic_logic: 3 to 12 entries. Same cap.
 - internal_variations: 0 to 4 entries. Usually 0 or 1.
 - tool_tags: 3 to 10 short string tags.
@@ -609,7 +569,7 @@ real content, not the placeholders):
 
 {
   "cluster_label": "<short label phrase>",
-  "cluster_summary": "<one or two sentences capturing the shared audio identity>",
+  "cluster_summary": "<one or two sentences capturing the shared spoken identity>",
   "dominant_audio_repertoire": [
     {"tag": "<short tag>", "description": "<one sentence>", "recurrence": "dominant"},
     {"tag": "<short tag>", "description": "<one sentence>", "recurrence": "frequent"},
@@ -638,6 +598,113 @@ Strict JSON rules:
 - `grounded_in` entries MUST exactly match a tag string that appears in
   the `dominant_audio_repertoire` array (copy the tag verbatim).
 - `dominant_audio_repertoire`, `dominant_aesthetic_logic`, and
+  `internal_variations` are arrays of OBJECTS with the fields shown,
+  NOT arrays of strings.
+- `taste_signalling` and `visibility_orientation` are single OBJECTS,
+  NOT arrays.
+- `tool_tags` is an array of bare strings.
+- Use ONLY ASCII double quotes (the " character, U+0022). Do NOT use
+  typographic / "smart" / curly quotes (U+201C, U+201D, U+2018, U+2019).
+  Every quote in your output must be a plain straight " character.
+- Key names in your output MUST be byte-identical to those shown in the
+  example above. Do not paraphrase, abbreviate, or grammatically adjust
+  them. Write "dominant_aesthetic_logic" exactly — NOT
+  "dominant_aesthetic_logical".
+
+cluster_label rules — STRICTLY ENFORCED:
+- MAXIMUM 40 CHARACTERS TOTAL (count every character including spaces).
+  Outputs over 40 characters will be REJECTED and you will be asked to
+  retry. Count the characters yourself before emitting.
+- Prefer 2 to 4 words. A single concise noun phrase is best.
+- BANNED filler words (do NOT use): "aesthetic", "aesthetics",
+  "curated", "cluster", "cluster of". Every cluster is one of these;
+  using them tells the reader nothing. Be specific.
+- BANNED structures: "X with Y", "X across A, B, and C", "X and Y" as
+  the entire label. Pick ONE noun phrase, not a list of ingredients.
+- Use Title Case.
+
+GOOD cluster_label examples (note the brevity):
+- "Nightclub Visual Culture"        (24 chars)
+- "Domestic Craft Rituals"          (22 chars)
+- "Cinematic Stillness"             (19 chars)
+- "Performance Realism"             (19 chars)
+- "Ambient Hip-Hop"                 (15 chars)
+- "Synth-Driven Pop"                (16 chars)
+
+BAD cluster_label examples:
+- "curated visual storytelling across performance, documentary, and digital aesthetics"
+  (83 chars; banned "curated" + "aesthetics"; list structure)
+- "Curated Stillness and Reflective Digital Aesthetics"
+  (51 chars; banned "curated" + "aesthetics"; "X and Y" structure)
+
+Emit only the JSON object. No code fences, no preamble, no commentary.
+"""
+
+textual = """
+You are synthesising the shared written identity of a cluster of Instagram
+Reels creators. You will receive a JSON list of per-clip raw caption
+evidence: each entry has a clip_id and a payload string containing the
+post's caption only (English; translated from the source language when
+necessary). Clips with no caption are not included.
+
+Read the captions directly as evidence. Identify the recurring written
+logic across the supplied clips and synthesise a cluster-level
+description. Distinguish between what recurs in the captions (repertoire)
+— topics, tone, framing, calls to action, hashtag/phrasing habits — how
+those recurring elements organise an aesthetic sensibility, and what kind
+of taste community the written voice may signal — phrased cautiously, as
+aesthetic signals, not demographic identities.
+
+Content rules:
+- Do not use a fixed taxonomy.
+- Do not assign demographic identities.
+- Ground every aesthetic_logic entry in repertoire tags by name.
+- Keep every tag to at most 4 words. Prefer compact noun phrases; avoid
+  filler/connector words (of, with, and, in, on, the, a, an).
+
+Output size constraints — STRICTLY ENFORCED:
+- dominant_textual_repertoire: 3 to 12 entries. Once you have written 12,
+  close the array and continue. Do not invent near-duplicates.
+- dominant_aesthetic_logic: 3 to 12 entries. Same cap.
+- internal_variations: 0 to 4 entries. Usually 0 or 1.
+- tool_tags: 3 to 10 short string tags.
+- Never repeat a near-identical phrase across entries of the same array.
+
+Return ONLY a single JSON object matching EXACTLY this shape (placeholders
+in angle brackets show the type of value; the actual output must contain
+real content, not the placeholders):
+
+{
+  "cluster_label": "<short label phrase>",
+  "cluster_summary": "<one or two sentences capturing the shared written identity>",
+  "dominant_textual_repertoire": [
+    {"tag": "<short tag>", "description": "<one sentence>", "recurrence": "dominant"},
+    {"tag": "<short tag>", "description": "<one sentence>", "recurrence": "frequent"},
+    {"tag": "<short tag>", "description": "<one sentence>", "recurrence": "occasional"}
+  ],
+  "dominant_aesthetic_logic": [
+    {"tag": "<short tag>", "grounded_in": ["<repertoire tag>"], "description": "<one sentence>"},
+    {"tag": "<short tag>", "grounded_in": ["<repertoire tag>", "<repertoire tag>"], "description": "<one sentence>"},
+    {"tag": "<short tag>", "grounded_in": ["<repertoire tag>"], "description": "<one sentence>"}
+  ],
+  "taste_signalling": {"label": "<short label>", "description": "<one sentence>", "confidence": "medium"},
+  "visibility_orientation": {"label": "<short label>", "description": "<one sentence>", "confidence": "low"},
+  "internal_variations": [
+    {"variation": "<short label>", "description": "<one sentence>"}
+  ],
+  "boundary_notes": "<one sentence>",
+  "tool_tags": ["<short tag>", "<short tag>", "<short tag>"]
+}
+
+Strict JSON rules:
+- NO trailing commas anywhere.
+- All strings double-quoted; never single-quoted.
+- Each top-level key present exactly once.
+- `recurrence` MUST be one of: "dominant", "frequent", "occasional".
+- `confidence` MUST be one of: "high", "medium", "low".
+- `grounded_in` entries MUST exactly match a tag string that appears in
+  the `dominant_textual_repertoire` array (copy the tag verbatim).
+- `dominant_textual_repertoire`, `dominant_aesthetic_logic`, and
   `internal_variations` are arrays of OBJECTS with the fields shown,
   NOT arrays of strings.
 - `taste_signalling` and `visibility_orientation` are single OBJECTS,
@@ -796,7 +863,7 @@ BAD cluster_label examples:
 Emit only the JSON object. No code fences, no preamble, no commentary.
 """
 
-maest = """
+auditory = """
 You are synthesising the shared musical identity of a cluster of
 Instagram Reels creators. You will receive a JSON list of per-clip
 music descriptors: each entry has a clip_id and a payload string of

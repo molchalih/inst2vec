@@ -1,4 +1,4 @@
-"""End-to-end cascade: change one audio knob, only audio rows are wiped.
+"""End-to-end cascade: change one spoken knob, only spoken rows are wiped.
 
 Deviation notes
 ---------------
@@ -18,25 +18,25 @@ Deviation notes
 
 3. **SQLite second-precision timestamps** — ``ClipEmbedding.updated_at``
    uses ``server_default=func.now()`` (second precision in SQLite).  When
-   clip_embeddings deletes + re-inserts an audio row within the same second,
+   clip_embeddings deletes + re-inserts a spoken row within the same second,
    the new row's ``updated_at`` is identical to the old row's, so
    ``user_embeddings`` fingerprint sees no dependency change and skips.
 
    Fix: after the second ``embed_clip_embeddings`` call the test manually
-   bumps the audio ``ClipEmbedding.updated_at`` to a timestamp one second
+   bumps the spoken ``ClipEmbedding.updated_at`` to a timestamp one second
    in the future via a direct SQL ``UPDATE``.  This correctly exercises the
    cascade logic (user_embeddings detects the dependency change and
    re-runs) without requiring a wall-clock ``sleep(1)``.
 
    The cascade test therefore has three explicit phases:
    (a) baseline run (both stages, all cases);
-   (b) mutate AUDIO_INSTRUCTION → re-run clip_embeddings → bump updated_at
-       on audio ClipEmbedding → re-run user_embeddings;
-   (c) assert video/sandwich sealed at both layers; audio re-ran at both.
+   (b) mutate SPOKEN_INSTRUCTION → re-run clip_embeddings → bump updated_at
+       on spoken ClipEmbedding → re-run user_embeddings;
+   (c) assert video/sandwich sealed at both layers; spoken re-ran at both.
 
    Assertions for "sealed" cases use ``updated_at`` (genuinely unchanged).
-   Assertions for "re-ran" audio case use ``config_hash`` at clip layer
-   (changes because AUDIO_INSTRUCTION is part of the identity string) and
+   Assertions for "re-ran" spoken case use ``config_hash`` at clip layer
+   (changes because SPOKEN_INSTRUCTION is part of the identity string) and
    ``dependency_hash`` at user layer (changes because ClipEmbedding
    updated_at changed after the manual bump).
 """
@@ -246,8 +246,8 @@ def _seed(session, settings: _SettingsStub) -> None:
     session.commit()
 
 
-def _bump_audio_clip_embedding_ts(session) -> None:
-    """Advance updated_at on the audio ClipEmbedding row by one second.
+def _bump_spoken_clip_embedding_ts(session) -> None:
+    """Advance updated_at on the spoken ClipEmbedding row by one second.
 
     SQLite stores timestamps at second precision via ``func.now()``, so two
     runs within the same wall-clock second produce identical timestamps.
@@ -258,7 +258,7 @@ def _bump_audio_clip_embedding_ts(session) -> None:
     future = (datetime.now(UTC) + timedelta(seconds=2)).strftime("%Y-%m-%d %H:%M:%S")
     session.execute(
         text(
-            "UPDATE clip_embeddings SET updated_at = :ts WHERE embedding_case = 'audio'"
+            "UPDATE clip_embeddings SET updated_at = :ts WHERE embedding_case = 'spoken'"
         ),
         {"ts": future},
     )
@@ -268,17 +268,17 @@ def _bump_audio_clip_embedding_ts(session) -> None:
 # ── test ──────────────────────────────────────────────────────────────────────
 
 
-def test_audio_instruction_change_cascades_only_to_audio(
+def test_spoken_instruction_change_cascades_only_to_spoken(
     db_session, stub_providers, tmp_path, monkeypatch
 ):
-    """Mutating AUDIO_INSTRUCTION wipes audio rows at both layers; video +
+    """Mutating SPOKEN_INSTRUCTION wipes spoken rows at both layers; video +
     sandwich remain sealed.
 
     Phase (a): baseline run — all six stage-state rows written.
-    Phase (b): mutate AUDIO_INSTRUCTION, re-run clip_embeddings (audio
-               re-runs; video/sandwich skip), bump audio ClipEmbedding
+    Phase (b): mutate SPOKEN_INSTRUCTION, re-run clip_embeddings (spoken
+               re-runs; video/sandwich skip), bump spoken ClipEmbedding
                updated_at to make the cascade detectable, re-run
-               user_embeddings (audio re-runs; video/sandwich skip).
+               user_embeddings (spoken re-runs; video/sandwich skip).
     Phase (c): assert the correct rows changed / stayed sealed.
     """
     settings = _settings(tmp_path)
@@ -301,20 +301,22 @@ def test_audio_instruction_change_cascades_only_to_audio(
     before_user_video_ts = _user_state("video").updated_at
     before_user_sandwich_ts = _user_state("sandwich").updated_at
 
-    # Capture config_hash / dependency_hash for the audio case.
-    # config_hash changes when AUDIO_INSTRUCTION changes (clip layer).
+    # Capture config_hash / dependency_hash for the spoken case.
+    # config_hash changes when SPOKEN_INSTRUCTION changes (clip layer).
     # dependency_hash changes when ClipEmbedding updated_at changes (user layer).
-    before_clip_audio_cfg = _clip_state("audio").config_hash
-    before_user_audio_dep = _user_state("audio").dependency_hash
+    before_clip_spoken_cfg = _clip_state("spoken").config_hash
+    before_user_spoken_dep = _user_state("spoken").dependency_hash
 
-    # Phase (b): mutate audio knob → re-run both stages
-    monkeypatch.setattr(cases_mod, "AUDIO_INSTRUCTION", "DIFFERENT INSTRUCTION")
+    # Phase (b): mutate spoken knob → re-run both stages
+    monkeypatch.setattr(cases_mod, "SPOKEN_INSTRUCTION", "DIFFERENT INSTRUCTION")
 
-    embed_clip_embeddings(settings, _FAKE_SECRETS)  # audio re-runs; video/sandwich skip
-    # Bump updated_at on the audio ClipEmbedding row so user_embeddings
+    embed_clip_embeddings(
+        settings, _FAKE_SECRETS
+    )  # spoken re-runs; video/sandwich skip
+    # Bump updated_at on the spoken ClipEmbedding row so user_embeddings
     # can detect the upstream change (sub-second cascade workaround).
-    _bump_audio_clip_embedding_ts(db_session)
-    embed_user_embeddings(settings)  # audio re-runs; video/sandwich skip
+    _bump_spoken_clip_embedding_ts(db_session)
+    embed_user_embeddings(settings)  # spoken re-runs; video/sandwich skip
     db_session.expire_all()
 
     # Phase (c): assertions
@@ -323,12 +325,12 @@ def test_audio_instruction_change_cascades_only_to_audio(
     assert _clip_state("video").updated_at == before_clip_video_ts
     assert _clip_state("sandwich").updated_at == before_clip_sandwich_ts
 
-    # Audio re-ran at the clip layer (config_hash changed).
-    assert _clip_state("audio").config_hash != before_clip_audio_cfg
+    # Spoken re-ran at the clip layer (config_hash changed).
+    assert _clip_state("spoken").config_hash != before_clip_spoken_cfg
 
     # Video + sandwich sealed at the user layer.
     assert _user_state("video").updated_at == before_user_video_ts
     assert _user_state("sandwich").updated_at == before_user_sandwich_ts
 
-    # Audio re-ran at the user layer (dependency_hash changed).
-    assert _user_state("audio").dependency_hash != before_user_audio_dep
+    # Spoken re-ran at the user layer (dependency_hash changed).
+    assert _user_state("spoken").dependency_hash != before_user_spoken_dep

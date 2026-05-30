@@ -108,7 +108,7 @@ def test_get_embedded_source_hashes_returns_clip_id_to_hash_map():
     session.merge(
         ClipEmbedding(
             clip_id=10,
-            embedding_case="audio",
+            embedding_case="spoken",
             embedding=b"\x00" * 4,
             source_hash="zzz",
         )
@@ -203,7 +203,7 @@ def test_dependency_rows_uses_case_spec_columns(tmp_path):
 
 
 def test_audio_mir_row_sentinel_flips_when_descriptors_arrive(tmp_path):
-    """An audio/sandwich case sealed before MIR ran must observe a hash
+    """A sandwich case sealed before MIR ran must observe a hash
     change once the AudioMIR row gains descriptors."""
     Base.metadata.create_all(get_engine())
     session = get_session()
@@ -228,7 +228,7 @@ def test_audio_mir_row_sentinel_flips_when_descriptors_arrive(tmp_path):
     paths = _paths_stub(tmp_path)
 
     # No AudioMIR row yet.
-    before = dependency_rows_for_case("audio", clip, paths=paths, audio_mir_map={})
+    before = dependency_rows_for_case("sandwich", clip, paths=paths, audio_mir_map={})
 
     session.merge(
         AudioMIR(
@@ -243,16 +243,16 @@ def test_audio_mir_row_sentinel_flips_when_descriptors_arrive(tmp_path):
     after_map = {42: session.query(AudioMIR).filter_by(clip_id=42).one()}
 
     after = dependency_rows_for_case(
-        "audio", clip, paths=paths, audio_mir_map=after_map
+        "sandwich", clip, paths=paths, audio_mir_map=after_map
     )
     assert fp.hash_rows(before) != fp.hash_rows(after), (
-        "AudioMIR row arrival must change the audio fingerprint"
+        "AudioMIR row arrival must change the sandwich fingerprint"
     )
     session.close()
 
 
 def test_audio_mir_row_sentinel_flips_when_is_music_detected_flips(tmp_path):
-    """Toggling is_music_detected on the AudioMIR row must change the audio hash."""
+    """Toggling is_music_detected on the AudioMIR row must change the sandwich hash."""
     Base.metadata.create_all(get_engine())
     session = get_session()
     for model in (ClipEmbedding, AudioMIR, Clip, User):
@@ -274,14 +274,14 @@ def test_audio_mir_row_sentinel_flips_when_is_music_detected_flips(tmp_path):
     paths = _paths_stub(tmp_path)
     mir = session.query(AudioMIR).filter_by(clip_id=42).one()
     before = dependency_rows_for_case(
-        "audio", clip, paths=paths, audio_mir_map={42: mir}
+        "sandwich", clip, paths=paths, audio_mir_map={42: mir}
     )
 
     mir.is_music_detected = True
     session.commit()
     after_mir = session.query(AudioMIR).filter_by(clip_id=42).one()
     after = dependency_rows_for_case(
-        "audio", clip, paths=paths, audio_mir_map={42: after_mir}
+        "sandwich", clip, paths=paths, audio_mir_map={42: after_mir}
     )
     assert fp.hash_rows(before) != fp.hash_rows(after)
     session.close()
@@ -311,7 +311,7 @@ def test_get_stored_user_hashes_returns_user_id_to_hash_map():
     )
     session.merge(
         UserEmbedding(
-            user_id=1, embedding_case="audio", embedding=b"\x00" * 4, source_hash="aud"
+            user_id=1, embedding_case="spoken", embedding=b"\x00" * 4, source_hash="aud"
         )
     )
     session.commit()

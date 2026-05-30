@@ -1,33 +1,65 @@
+import { clusterDetailSchema } from "../schemas/cluster-detail.schema";
+import { creatorDetailSchema } from "../schemas/creator-detail.schema";
 import type { ClusterDetail } from "../schemas/cluster-detail.schema";
 import type { CreatorDetail } from "../schemas/creator-detail.schema";
 import type { ApiClient, CreatorSummary } from "./ApiClient";
 import { ApiUnavailableError } from "./ApiClient";
+import { AssetNotFoundError } from "./StaticApiClient";
 
 /**
- * Stub for the future FastAPI client. The swap point in
- * app/providers.tsx already chooses between Http and Static based on
- * config; the impl lands when the backend ships.
+ * Live HTTP client for the read-only atlas API (`services/atlas_api`).
+ *
+ * Byte-for-byte identical to {@link StaticApiClient} except the base is the API
+ * root rather than the static `data/` folder — the API mirrors the static path
+ * suffixes 1:1, so the same Zod schemas parse both planes and a single
+ * `VITE_API_BASE_URL` swap flips the data plane. The live-only methods
+ * (`searchCreators`/`getEdges`/`getReels`) stay unimplemented, exactly like
+ * the static client.
  */
 export class HttpApiClient implements ApiClient {
-  constructor(private readonly baseUrl: string) {
+  constructor(
+    private readonly baseUrl: string,
+    private readonly getActiveRunId: () => string | null,
+  ) {
     if (!baseUrl.endsWith("/")) {
       throw new Error("HttpApiClient baseUrl must end with '/'");
     }
   }
 
-  getClusterDetail(_id: number): Promise<ClusterDetail> {
-    return Promise.reject(new ApiUnavailableError("getClusterDetail (HttpApiClient not implemented)"));
+  async getClusterDetail(id: number): Promise<ClusterDetail> {
+    const runId = this.requireRunId();
+    const raw = await this.fetchJson(`${this.baseUrl}runs/${runId}/clusters/${id}.json`);
+    return clusterDetailSchema.parse(raw);
   }
-  getCreatorDetail(_id: number): Promise<CreatorDetail> {
-    return Promise.reject(new ApiUnavailableError("getCreatorDetail (HttpApiClient not implemented)"));
+
+  async getCreatorDetail(id: number): Promise<CreatorDetail> {
+    const runId = this.requireRunId();
+    const raw = await this.fetchJson(`${this.baseUrl}runs/${runId}/users/${id}.json`);
+    return creatorDetailSchema.parse(raw);
   }
+
   searchCreators(_query: string): Promise<CreatorSummary[]> {
-    return Promise.reject(new ApiUnavailableError("searchCreators (HttpApiClient not implemented)"));
+    return Promise.reject(new ApiUnavailableError("searchCreators"));
   }
+
   getEdges(_creatorId: number): Promise<number[]> {
-    return Promise.reject(new ApiUnavailableError("getEdges (HttpApiClient not implemented)"));
+    return Promise.reject(new ApiUnavailableError("getEdges"));
   }
+
   getReels(_creatorId: number): Promise<unknown[]> {
-    return Promise.reject(new ApiUnavailableError("getReels (HttpApiClient not implemented)"));
+    return Promise.reject(new ApiUnavailableError("getReels"));
+  }
+
+  private requireRunId(): string {
+    const id = this.getActiveRunId();
+    if (!id) throw new Error("HttpApiClient: no active runId");
+    return id;
+  }
+
+  private async fetchJson(url: string): Promise<unknown> {
+    const res = await fetch(url);
+    if (res.status === 404) throw new AssetNotFoundError(url);
+    if (!res.ok) throw new Error(`Fetch ${url}: ${res.status}`);
+    return res.json();
   }
 }

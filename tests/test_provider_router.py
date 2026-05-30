@@ -17,11 +17,11 @@ class _Rec:
 
 def test_router_dispatches_by_case():
     a, b = _Rec("a"), _Rec("b")
-    r = ProviderRouter({"video": lambda: a, "maest": lambda: b})
+    r = ProviderRouter({"video": lambda: a, "auditory": lambda: b})
     r.embed({"case": "video"})
-    r.embed({"case": "maest"})
+    r.embed({"case": "auditory"})
     r.embed({"case": "video"})
-    assert a.seen == ["video", "video"] and b.seen == ["maest"]
+    assert a.seen == ["video", "video"] and b.seen == ["auditory"]
 
 
 def test_router_builds_each_backend_once():
@@ -45,17 +45,19 @@ def test_build_router_shares_one_qwen_instance_lazily(monkeypatch):
         return _Rec("qwen")
 
     monkeypatch.setattr(cases_mod, "qwen_provider", fake_qwen)
-    router = build_provider_router(object(), None, ["video", "sandwich", "audio"])
+    router = build_provider_router(object(), None, ["video", "sandwich", "spoken"])
     # Lazy: nothing built until first embed.
     assert built["n"] == 0
     router.embed({"case": "video"})
     router.embed({"case": "sandwich"})
-    router.embed({"case": "audio"})
+    router.embed({"case": "spoken"})
     # All three Qwen-backbone cases share ONE instance.
     assert built["n"] == 1
 
 
 def test_remote_served_cases_excludes_local_only():
     served = remote_served_cases()
-    assert "video" in served and "sandwich" in served and "audio" in served
-    assert "maest" not in served and "gemini" not in served
+    assert "video" in served and "sandwich" in served
+    # spoken / textual / auditory / gemini are all local-only.
+    assert "spoken" not in served and "textual" not in served
+    assert "auditory" not in served and "gemini" not in served

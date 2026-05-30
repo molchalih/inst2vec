@@ -13,8 +13,9 @@ from __future__ import annotations
 import json
 
 from modules.embeddings.text import (
-    build_audio_text,
     build_sandwich_text,
+    build_spoken_text,
+    build_textual_text,
     verbalize_mir,
 )
 
@@ -31,9 +32,14 @@ def video_input(_clip, _mir_row, _visual_payload) -> str | None:
     return None
 
 
-def audio_input(clip, mir_row, _visual_payload) -> str | None:
-    """Audio case input — speech + MIR verbalization joined by ``" | "``."""
-    return build_audio_text(clip, mir_row)
+def spoken_input(clip, _mir_row, _visual_payload) -> str | None:
+    """Spoken case input — speech transcript only (no music, no caption)."""
+    return build_spoken_text(clip, None)
+
+
+def textual_input(clip, _mir_row, _visual_payload) -> str | None:
+    """Textual case input — clip caption only (no speech, no music)."""
+    return build_textual_text(clip, None)
 
 
 def sandwich_input(clip, mir_row, visual_payload: dict | None) -> str | None:

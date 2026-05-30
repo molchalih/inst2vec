@@ -16,9 +16,10 @@ from dataclasses import dataclass
 from core.pipeline import Stage
 from modules.captions.state import SCOPE_CAPTIONS
 from modules.labels.inputs import (
-    audio_input,
     maest_input,
     sandwich_input,
+    spoken_input,
+    textual_input,
     video_input,
 )
 from modules.mir.state import SCOPE_MIR
@@ -35,7 +36,7 @@ ClipInputBuilder = Callable[[object, object, dict | None], str | None]
 @dataclass(frozen=True)
 class LabelCaseSpec:
     name: str
-    modality: str  # "visual" | "audio" | "music" | "multimodal"
+    modality: str  # "visual" | "audio" | "music" | "multimodal" | "textual"
     clip_input: ClipInputBuilder
     # Routes ``LabelsGenerator.run(video_path, prompt)`` (True, video case
     # only) versus ``LabelsGenerator.run_text(prompt, ...)`` (every other
@@ -73,10 +74,10 @@ class LabelCaseSpec:
     # Whether this case runs the per-clip stage-1 pass (Qwen3-VL writes
     # ``ClipLabel`` rows). The visual case (video) must, because it is the
     # only place frames are reduced to text — the cluster pass has no other
-    # access to frame data. The text rephrasing cases (sandwich, audio,
-    # maest, gemini) skip stage 1 and consume their raw signals (captions,
-    # speech, MIR, plus the video ClipLabel for sandwich/gemini) directly
-    # in the cluster pass. Stage-1-skipped cases keep ``clip_input`` as the
+    # access to frame data. The text rephrasing cases (sandwich, spoken,
+    # textual, auditory, gemini) skip stage 1 and consume their raw signals
+    # (captions, speech, MIR, plus the video ClipLabel for sandwich/gemini)
+    # directly in the cluster pass. Stage-1-skipped cases keep ``clip_input`` as the
     # adapter producing one cluster-pass per-clip text block.
     runs_clip_pass: bool = True
 
@@ -114,6 +115,15 @@ _SANDWICH_CLIP_KEYS: frozenset[str] = frozenset(
         "aesthetic_tags",
         "community_signalling_tags",
         "one_sentence_multimodal_reading",
+    }
+)
+
+_TEXTUAL_CLIP_KEYS: frozenset[str] = frozenset(
+    {
+        "observable_textual_tags",
+        "aesthetic_tags",
+        "community_signalling_tags",
+        "one_sentence_textual_reading",
     }
 )
 
@@ -157,21 +167,39 @@ _SPEECH_DEP: tuple[Stage, str] = (Stage.SPEECH, SCOPE_SPEECH)
 _CAPTIONS_DEP: tuple[Stage, str] = (Stage.CAPTIONS, SCOPE_CAPTIONS)
 _MIR_DEP: tuple[Stage, str] = (Stage.MIR, SCOPE_MIR)
 
-AUDIO_CASE = LabelCaseSpec(
-    name="audio",
+SPOKEN_CASE = LabelCaseSpec(
+    name="spoken",
     modality="audio",
-    clip_input=audio_input,
+    clip_input=spoken_input,
     clip_uses_video=False,
     clip_required_keys=_AUDIO_CLIP_KEYS,
     cluster_required_keys=_cluster_keys("dominant_audio_repertoire"),
-    clip_prompt_key="audio",
-    cluster_prompt_key="audio",
-    stage1_dependency_stages=(_SPEECH_DEP, _MIR_DEP),
+    clip_prompt_key="spoken",
+    cluster_prompt_key="spoken",
+    stage1_dependency_stages=(_SPEECH_DEP,),
     observable_key="observable_audio_tags",
     sentence_key="one_sentence_audio_reading",
     repertoire_key="dominant_audio_repertoire",
     consumes_label_cases=(),
-    none_input_error="no_input",
+    none_input_error="no_speech",
+    runs_clip_pass=False,
+)
+
+TEXTUAL_CASE = LabelCaseSpec(
+    name="textual",
+    modality="textual",
+    clip_input=textual_input,
+    clip_uses_video=False,
+    clip_required_keys=_TEXTUAL_CLIP_KEYS,
+    cluster_required_keys=_cluster_keys("dominant_textual_repertoire"),
+    clip_prompt_key="textual",
+    cluster_prompt_key="textual",
+    stage1_dependency_stages=(_CAPTIONS_DEP,),
+    observable_key="observable_textual_tags",
+    sentence_key="one_sentence_textual_reading",
+    repertoire_key="dominant_textual_repertoire",
+    consumes_label_cases=(),
+    none_input_error="no_caption",
     runs_clip_pass=False,
 )
 
@@ -193,15 +221,15 @@ SANDWICH_CASE = LabelCaseSpec(
     runs_clip_pass=False,
 )
 
-MAEST_CASE = LabelCaseSpec(
-    name="maest",
+AUDITORY_CASE = LabelCaseSpec(
+    name="auditory",
     modality="music",
     clip_input=maest_input,
     clip_uses_video=False,
     clip_required_keys=_MAEST_CLIP_KEYS,
     cluster_required_keys=_cluster_keys("dominant_music_repertoire"),
-    clip_prompt_key="maest",
-    cluster_prompt_key="maest",
+    clip_prompt_key="auditory",
+    cluster_prompt_key="auditory",
     stage1_dependency_stages=(_MIR_DEP,),
     observable_key="observable_music_tags",
     sentence_key="one_sentence_music_reading",
@@ -233,7 +261,8 @@ GEMINI_CASE = LabelCaseSpec(
 REGISTRY: dict[str, LabelCaseSpec] = {
     "video": VIDEO_CASE,
     "sandwich": SANDWICH_CASE,
-    "audio": AUDIO_CASE,
+    "auditory": AUDITORY_CASE,
     "gemini": GEMINI_CASE,
-    "maest": MAEST_CASE,
+    "spoken": SPOKEN_CASE,
+    "textual": TEXTUAL_CASE,
 }

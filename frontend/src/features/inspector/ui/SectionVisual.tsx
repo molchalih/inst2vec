@@ -37,6 +37,8 @@ function titleFor(modality: ClusterLabel["modality"] | undefined): string {
       return "Audio";
     case "music":
       return "Musical";
+    case "textual":
+      return "Textual";
     case "multimodal":
       return "Combined";
     case "visual":

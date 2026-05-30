@@ -473,7 +473,7 @@ def test_cluster_multiple_warnings_are_sorted() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Per-case validator coverage (audio / maest / sandwich)
+# Per-case validator coverage (spoken / auditory / sandwich / textual)
 # ---------------------------------------------------------------------------
 
 
@@ -489,35 +489,37 @@ def _retarget_clip_payload(
     return out
 
 
-def test_validate_audio_case_accepts_audio_keys() -> None:
+def test_validate_spoken_case_accepts_audio_keys() -> None:
     payload = _retarget_clip_payload(
         _clean_payload(),
         "observable_audio_tags",
         "one_sentence_audio_reading",
     )
-    parsed, status, warnings = validate(json.dumps(payload), _labels(), case="audio")
+    parsed, status, warnings = validate(json.dumps(payload), _labels(), case="spoken")
     assert status == "ok"
     assert warnings == []
     assert parsed is not None
 
 
-def test_validate_audio_case_rejects_visual_keys() -> None:
-    # The visual-keyed payload must not validate as an audio payload (H2:
+def test_validate_spoken_case_rejects_visual_keys() -> None:
+    # The visual-keyed payload must not validate as a spoken payload (H2:
     # the required-key set diverges).
     _payload, status, warnings = validate(
-        json.dumps(_clean_payload()), _labels(), case="audio"
+        json.dumps(_clean_payload()), _labels(), case="spoken"
     )
     assert status == "failed"
     assert warnings == ["H2"]
 
 
-def test_validate_maest_case_accepts_music_keys() -> None:
+def test_validate_auditory_case_accepts_music_keys() -> None:
     payload = _retarget_clip_payload(
         _clean_payload(),
         "observable_music_tags",
         "one_sentence_music_reading",
     )
-    parsed, status, _warnings = validate(json.dumps(payload), _labels(), case="maest")
+    parsed, status, _warnings = validate(
+        json.dumps(payload), _labels(), case="auditory"
+    )
     assert status == "ok"
     assert parsed is not None
 
@@ -541,23 +543,23 @@ def _retarget_cluster_payload(visual: dict, repertoire_key: str) -> dict:
     return out
 
 
-def test_validate_cluster_audio_accepts_audio_repertoire() -> None:
+def test_validate_cluster_spoken_accepts_audio_repertoire() -> None:
     payload = _retarget_cluster_payload(
         _clean_cluster_payload(), "dominant_audio_repertoire"
     )
     parsed, status, _warnings = validate_cluster(
-        json.dumps(payload), _cluster_labels(), case="audio"
+        json.dumps(payload), _cluster_labels(), case="spoken"
     )
     assert status == "ok"
     assert parsed is not None
 
 
-def test_validate_cluster_maest_accepts_music_repertoire() -> None:
+def test_validate_cluster_auditory_accepts_music_repertoire() -> None:
     payload = _retarget_cluster_payload(
         _clean_cluster_payload(), "dominant_music_repertoire"
     )
     parsed, status, _warnings = validate_cluster(
-        json.dumps(payload), _cluster_labels(), case="maest"
+        json.dumps(payload), _cluster_labels(), case="auditory"
     )
     assert status == "ok"
     assert parsed is not None
@@ -574,9 +576,9 @@ def test_validate_cluster_sandwich_accepts_multimodal_repertoire() -> None:
     assert parsed is not None
 
 
-def test_validate_cluster_audio_rejects_visual_repertoire_keys() -> None:
+def test_validate_cluster_spoken_rejects_visual_repertoire_keys() -> None:
     _parsed, status, warnings = validate_cluster(
-        json.dumps(_clean_cluster_payload()), _cluster_labels(), case="audio"
+        json.dumps(_clean_cluster_payload()), _cluster_labels(), case="spoken"
     )
     assert status == "failed"
     assert warnings == ["HC2"]

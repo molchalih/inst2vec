@@ -37,15 +37,24 @@ def test_sandwich_case_shape():
     assert "is_speech_detected" in spec.dependency_columns
 
 
-def test_audio_case_shape():
-    spec = CASE_REGISTRY["audio"]
+def test_spoken_case_shape():
+    spec = CASE_REGISTRY["spoken"]
     assert spec.requires_video is False
     assert spec.apply_video_token_fallback is False
     assert spec.text_builder is not None
-    assert spec.recipe_version == "audio_v3"
-    assert "_audio_mir_row" in spec.dependency_columns
-    assert "_music_row" not in spec.dependency_columns
+    assert spec.recipe_version == "spoken_v1"
+    assert "_audio_mir_row" not in spec.dependency_columns
     assert "is_speech_detected" in spec.dependency_columns
+
+
+def test_textual_case_shape():
+    spec = CASE_REGISTRY["textual"]
+    assert spec.requires_video is False
+    assert spec.apply_video_token_fallback is False
+    assert spec.text_builder is not None
+    assert spec.recipe_version == "textual_v1"
+    assert "_audio_mir_row" not in spec.dependency_columns
+    assert "caption_clean" in spec.dependency_columns
 
 
 def test_gemini_case_shape():
@@ -92,35 +101,35 @@ def test_spec_has_no_instruction_or_requires_text_fields():
     assert "requires_text" not in field_names
 
 
-def test_maest_case_registered_with_expected_shape():
-    from modules.embeddings.cases import CASE_REGISTRY, MAEST_CASE
+def test_auditory_case_registered_with_expected_shape():
+    from modules.embeddings.cases import AUDITORY_CASE, CASE_REGISTRY
 
-    assert CASE_REGISTRY["maest"] is MAEST_CASE
-    assert MAEST_CASE.name == "maest"
-    assert MAEST_CASE.text_builder is None
-    assert MAEST_CASE.requires_video is False
-    assert MAEST_CASE.apply_video_token_fallback is False
-    assert MAEST_CASE.dependency_columns == ("_audio_file_stat",)
-    assert MAEST_CASE.recipe_version == "maest_v1"
-    assert MAEST_CASE.requires == ()
-    assert MAEST_CASE.served_remotely is False
+    assert CASE_REGISTRY["auditory"] is AUDITORY_CASE
+    assert AUDITORY_CASE.name == "auditory"
+    assert AUDITORY_CASE.text_builder is None
+    assert AUDITORY_CASE.requires_video is False
+    assert AUDITORY_CASE.apply_video_token_fallback is False
+    assert AUDITORY_CASE.dependency_columns == ("_audio_file_stat",)
+    assert AUDITORY_CASE.recipe_version == "maest_v1"
+    assert AUDITORY_CASE.requires == ()
+    assert AUDITORY_CASE.served_remotely is False
 
 
-def test_default_cases_includes_maest():
+def test_default_cases_includes_auditory():
     from modules.embeddings.cases import default_cases
 
     settings_stub = types.SimpleNamespace(
         embeddings=types.SimpleNamespace(gemini_enabled=False)
     )
-    assert "maest" in default_cases(settings_stub)
+    assert "auditory" in default_cases(settings_stub)
 
 
-def test_case_config_identity_for_maest_captures_onnx_backend(tmp_path):
-    """The maest identity must mark the onnx backend, the :7 output, the
+def test_case_config_identity_for_auditory_captures_onnx_backend(tmp_path):
+    """The auditory identity must mark the onnx backend, the :7 output, the
     aggregation, the patch geometry, and keep the .pb sidecar sha256 anchor.
     The presence of ``backend=onnx`` is what forces the one-time re-extraction
     when migrating off the Essentia .pb path."""
-    from modules.embeddings.cases import MAEST_CASE, case_config_identity
+    from modules.embeddings.cases import AUDITORY_CASE, case_config_identity
 
     model_dir = tmp_path / "mir_models"
     model_dir.mkdir()
@@ -146,9 +155,9 @@ def test_case_config_identity_for_maest_captures_onnx_backend(tmp_path):
             maest_patch_seconds=30.0,
         ),
     )
-    identity = case_config_identity(MAEST_CASE, settings)
+    identity = case_config_identity(AUDITORY_CASE, settings)
 
-    assert "case=maest" in identity
+    assert "case=auditory" in identity
     assert "backend=onnx" in identity
     assert "maest_onnx_checkpoint=discogs-maest-30s-pw-519l-1.onnx" in identity
     assert "output_op=layer_4_tokens" in identity

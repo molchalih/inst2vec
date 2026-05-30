@@ -259,27 +259,30 @@ def _seed_full_clip(eng) -> None:
         s.commit()
 
 
-def _all_prompts(*, video="VP", audio="AP", sandwich="SP", maest="MP"):
+def _all_prompts(
+    *, video="VP", spoken="AP", sandwich="SP", auditory="MP", textual="TP"
+):
     return {
         "video": video,
-        "audio": audio,
+        "spoken": spoken,
         "sandwich": sandwich,
-        "maest": maest,
+        "auditory": auditory,
+        "textual": textual,
     }
 
 
 def test_video_prompt_drift_wipes_only_video_rows(tmp_path):
     eng = _engine()
     _seed_full_clip(eng)
-    # Pre-seed audio + sandwich rows directly so we can verify they survive.
+    # Pre-seed spoken + sandwich rows directly so we can verify they survive.
     with Session(eng) as s:
         s.add(
             ClipLabel(
                 clip_id=1,
-                label_case="audio",
+                label_case="spoken",
                 status="success",
                 validation="ok",
-                payload={"keep": "audio"},
+                payload={"keep": "spoken"},
                 warnings=[],
                 attempts=1,
             )
@@ -315,14 +318,14 @@ def test_video_prompt_drift_wipes_only_video_rows(tmp_path):
             spec=REGISTRY["video"],
         )
     with Session(eng) as s:
-        assert s.get(ClipLabel, (1, "audio")).payload == {"keep": "audio"}
+        assert s.get(ClipLabel, (1, "spoken")).payload == {"keep": "spoken"}
         assert s.get(ClipLabel, (1, "sandwich")).payload == {"keep": "sandwich"}
         video_row = s.get(ClipLabel, (1, "video"))
         assert video_row is not None
         assert video_row.status == "success"
 
 
-def test_audio_prompt_drift_wipes_only_audio_rows(tmp_path):
+def test_spoken_prompt_drift_wipes_only_spoken_rows(tmp_path):
     eng = _engine()
     _seed_full_clip(eng)
     with Session(eng) as s:
@@ -340,10 +343,10 @@ def test_audio_prompt_drift_wipes_only_audio_rows(tmp_path):
         s.add(
             ClipLabel(
                 clip_id=1,
-                label_case="maest",
+                label_case="auditory",
                 status="success",
                 validation="ok",
-                payload={"keep": "maest"},
+                payload={"keep": "auditory"},
                 warnings=[],
                 attempts=1,
             )
@@ -357,22 +360,22 @@ def test_audio_prompt_drift_wipes_only_audio_rows(tmp_path):
             settings=settings,
             labels=_labels(_all_prompts()),
             generator=gen,
-            spec=REGISTRY["audio"],
+            spec=REGISTRY["spoken"],
         )
     with Session(eng) as s:
         run_case(
             session=s,
             settings=settings,
-            labels=_labels(_all_prompts(audio="DIFFERENT_AP")),
+            labels=_labels(_all_prompts(spoken="DIFFERENT_AP")),
             generator=gen,
-            spec=REGISTRY["audio"],
+            spec=REGISTRY["spoken"],
         )
     with Session(eng) as s:
         assert s.get(ClipLabel, (1, "video")).payload == {"keep": "video"}
-        assert s.get(ClipLabel, (1, "maest")).payload == {"keep": "maest"}
-        audio_row = s.get(ClipLabel, (1, "audio"))
-        assert audio_row is not None
-        assert audio_row.status == "success"
+        assert s.get(ClipLabel, (1, "auditory")).payload == {"keep": "auditory"}
+        spoken_row = s.get(ClipLabel, (1, "spoken"))
+        assert spoken_row is not None
+        assert spoken_row.status == "success"
 
 
 def test_sandwich_prompt_drift_wipes_only_sandwich_rows(tmp_path):
@@ -399,10 +402,10 @@ def test_sandwich_prompt_drift_wipes_only_sandwich_rows(tmp_path):
         s.add(
             ClipLabel(
                 clip_id=1,
-                label_case="audio",
+                label_case="spoken",
                 status="success",
                 validation="ok",
-                payload={"keep": "audio"},
+                payload={"keep": "spoken"},
                 warnings=[],
                 attempts=1,
             )
@@ -427,29 +430,29 @@ def test_sandwich_prompt_drift_wipes_only_sandwich_rows(tmp_path):
             spec=REGISTRY["sandwich"],
         )
     with Session(eng) as s:
-        # Video + audio are untouched.
+        # Video + spoken are untouched.
         assert (
             s.get(ClipLabel, (1, "video")).payload["one_sentence_visual_reading"]
             == "warm scene"
         )
-        assert s.get(ClipLabel, (1, "audio")).payload == {"keep": "audio"}
+        assert s.get(ClipLabel, (1, "spoken")).payload == {"keep": "spoken"}
         sw = s.get(ClipLabel, (1, "sandwich"))
         assert sw is not None
         assert sw.status == "success"
 
 
-def test_audio_upstream_speech_drift_wipes_audio_rows(tmp_path):
-    """Mutating the SPEECH StageState row wipes audio ClipLabel rows.
+def test_spoken_upstream_speech_drift_wipes_spoken_rows(tmp_path):
+    """Mutating the SPEECH StageState row wipes spoken ClipLabel rows.
 
-    The audio case composes Stage.SPEECH into its dependency hash.  When the
+    The spoken case composes Stage.SPEECH into its dependency hash.  When the
     SPEECH StageState row changes (simulating a speech-stage re-run), the gate
-    must fire ``on_drift`` for the audio scope and delete stale ClipLabel rows
+    must fire ``on_drift`` for the spoken scope and delete stale ClipLabel rows
     before re-running the clips.
     """
     eng = _engine()
     _seed_full_clip(eng)
-    # Seed a SPEECH StageState so the audio dep hash is non-trivial.
-    # Scope must match SCOPE_SPEECH ("all") — that is the scope the audio
+    # Seed a SPEECH StageState so the spoken dep hash is non-trivial.
+    # Scope must match SCOPE_SPEECH ("all") — that is the scope the spoken
     # case looks up via its LabelCaseSpec.stage1_dependency_stages pair.
     with Session(eng) as s:
         s.merge(
@@ -465,40 +468,40 @@ def test_audio_upstream_speech_drift_wipes_audio_rows(tmp_path):
     gen = _FakeGen(response=_audio_json())
     settings = _settings(tmp_path)
     labels = _labels(_all_prompts())
-    # First run: no audio StageState → gate skips wipe, runs clip, marks complete.
+    # First run: no spoken StageState → gate skips wipe, runs clip, marks complete.
     with Session(eng) as s:
         run_case(
             session=s,
             settings=settings,
             labels=labels,
             generator=gen,
-            spec=REGISTRY["audio"],
+            spec=REGISTRY["spoken"],
         )
     with Session(eng) as s:
-        row = s.get(ClipLabel, (1, "audio"))
+        row = s.get(ClipLabel, (1, "spoken"))
         assert row is not None and row.status == "success"
     # Stamp a sentinel payload so we can detect a wipe unambiguously.
     with Session(eng) as s:
-        row = s.get(ClipLabel, (1, "audio"))
+        row = s.get(ClipLabel, (1, "spoken"))
         row.payload = {"sentinel": True}
         s.commit()
-    # Drift the SPEECH StageState — audio's dependency hash changes.
+    # Drift the SPEECH StageState — spoken's dependency hash changes.
     with Session(eng) as s:
         speech_ss = s.get(StageState, (Stage.SPEECH, "all"))
         speech_ss.config_hash = "cB"
         s.commit()
     gen2 = _FakeGen(response=_audio_json())
-    # Second run: gate detects dep drift → wipes audio rows → re-runs clip.
+    # Second run: gate detects dep drift → wipes spoken rows → re-runs clip.
     with Session(eng) as s:
         run_case(
             session=s,
             settings=settings,
             labels=labels,
             generator=gen2,
-            spec=REGISTRY["audio"],
+            spec=REGISTRY["spoken"],
         )
     with Session(eng) as s:
-        row = s.get(ClipLabel, (1, "audio"))
+        row = s.get(ClipLabel, (1, "spoken"))
         # Row was wiped and re-created from fresh generator output.
         assert row is not None
         assert row.payload != {"sentinel": True}
@@ -588,18 +591,18 @@ def _cluster_payloads_by_case(eng) -> dict[str, dict | None]:
         return {r.embedding_case: r.payload for r in rows}
 
 
-def test_audio_case_prompt_drift_invalidates_only_audio_cluster_labels(
+def test_spoken_case_prompt_drift_invalidates_only_spoken_cluster_labels(
     monkeypatch, tmp_path
 ):
-    """Mutating ``case_prompts.audio`` cascades through stage-1 (audio)
-    → stage-2 (audio) and MUST leave every other case's ``ClusterLabel``
+    """Mutating ``case_prompts.spoken`` cascades through stage-1 (spoken)
+    → stage-2 (spoken) and MUST leave every other case's ``ClusterLabel``
     rows untouched.
     """
     eng = _shared_engine(monkeypatch)
     _seed_full_clip_for_pipeline(eng, tmp_path=tmp_path)
     settings = _full_pipeline_settings(tmp_path)
     cases = default_cases(settings)
-    assert "audio" in cases  # precondition
+    assert "spoken" in cases  # precondition
     _seed_clusters_for_cases(eng, cases)
 
     gen = _DispatchingGen()
@@ -609,17 +612,17 @@ def test_audio_case_prompt_drift_invalidates_only_audio_cluster_labels(
         run_labels(settings, _secrets())
 
     before = _cluster_payloads_by_case(eng)
-    survivors = {c: before[c] for c in before if c != "audio"}
-    assert "audio" in before and before["audio"] is not None
+    survivors = {c: before[c] for c in before if c != "spoken"}
+    assert "spoken" in before and before["spoken"] is not None
 
-    # Drift both audio prompts to force the cluster-pass dep to change.
+    # Drift both spoken prompts to force the cluster-pass dep to change.
     settings.labels.case_prompts = dict(settings.labels.case_prompts)
-    settings.labels.case_prompts["audio"] = (
-        settings.labels.case_prompts["audio"] + "\n# audio clip drift"
+    settings.labels.case_prompts["spoken"] = (
+        settings.labels.case_prompts["spoken"] + "\n# spoken clip drift"
     )
     settings.labels.cluster_case_prompts = dict(settings.labels.cluster_case_prompts)
-    settings.labels.cluster_case_prompts["audio"] = (
-        settings.labels.cluster_case_prompts["audio"] + "\n# audio cluster drift"
+    settings.labels.cluster_case_prompts["spoken"] = (
+        settings.labels.cluster_case_prompts["spoken"] + "\n# spoken cluster drift"
     )
 
     gen2 = _DispatchingGen()
@@ -634,8 +637,8 @@ def test_audio_case_prompt_drift_invalidates_only_audio_cluster_labels(
         assert after.get(case) == payload, (
             f"case={case} cluster payload changed unexpectedly"
         )
-    # Audio cluster row was wiped + re-created.
-    assert after.get("audio") is not None
+    # Spoken cluster row was wiped + re-created.
+    assert after.get("spoken") is not None
 
 
 def test_cluster_case_prompt_drift_invalidates_only_that_cases_cluster_labels(

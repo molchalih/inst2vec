@@ -1,0 +1,66 @@
+name: Deploy serving API
+
+# Redeploys the atlas serving API on the host that runs the
+# `inst2vec-serving` docker compose stack (msc-dc-srv01). Runs on a
+# self-hosted runner registered on that box with the `inst2vec-serving`
+# label, so no inbound SSH is required.
+#
+# The compose bundle (deploy/Dockerfile, deploy/docker-compose.yml,
+# deploy/.env, deploy/data/main.db) is NOT in git — it lives untracked in
+# the deploy dir (INST2VEC_DIR) and survives `git reset --hard` (which only
+# touches tracked files). The API *source* (services/atlas_api, the
+# visualization/export contract, core/database) IS tracked, so updating the
+# clone and rebuilding the image picks up code changes.
+#
+# Gated on CI: triggered only when the CI workflow completes successfully, so a
+# red build never deploys. (workflow_run has no path filter, so any green CI on
+# main/integration redeploys — re-add a paths guard if rebuilds get noisy.)
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main, integration]
+  workflow_dispatch:
+    inputs:
+      offload:
+        description: "Re-run the offload (rebuild serving rows from deploy/data/main.db)"
+        type: boolean
+        default: true
+
+concurrency:
+  group: deploy-serving
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    # Only when the triggering CI run passed (manual dispatch always deploys).
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: [self-hosted, inst2vec-serving]
+    steps:
+      - name: Update clone, rebuild image, restart API
+        env:
+          REF: ${{ github.event.workflow_run.head_branch || github.ref_name }}
+          # Repo checkout + deploy bundle dir on the runner host. Set the
+          # INST2VEC_DIR repo variable; falls back to ~/inst2vec.
+          DEPLOY_DIR: ${{ vars.INST2VEC_DIR }}
+          # On manual runs honour the input; on push always offload so code
+          # changes to the export/reconstruct contract reach the served rows.
+          RUN_OFFLOAD: ${{ github.event_name != 'workflow_dispatch' || inputs.offload }}
+        run: |
+          set -euo pipefail
+          cd "${DEPLOY_DIR:-$HOME/inst2vec}"
+          # Explicit refspec so this works even on a single-branch clone (the box
+          # was cloned -b integration, so origin/main may not exist yet).
+          git fetch --prune origin "+refs/heads/${REF}:refs/remotes/origin/${REF}"
+          git checkout -B "$REF" "origin/$REF"
+          git reset --hard "origin/$REF"   # tracked files only; deploy/ is untracked and preserved
+          cd deploy
+          docker compose build
+          docker compose up -d api
+          if [ "$RUN_OFFLOAD" = "true" ] && [ -f data/main.db ]; then
+            docker compose run --rm offload
+          else
+            echo "skipping offload (RUN_OFFLOAD=$RUN_OFFLOAD, data/main.db present: $([ -f data/main.db ] && echo yes || echo no))"
+          fi
+          docker compose ps

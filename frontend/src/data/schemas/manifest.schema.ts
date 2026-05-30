@@ -1,7 +1,13 @@
 import { z } from "zod";
 import { SCHEMA_VERSION } from "./version";
 
-export const embeddingCaseSchema = z.enum(["video", "sandwich", "audio", "maest"]);
+export const embeddingCaseSchema = z.enum([
+  "video",
+  "sandwich",
+  "auditory",
+  "spoken",
+  "textual",
+]);
 
 export const manifestRunSchema = z.object({
   id: z.string(),

@@ -21,8 +21,9 @@ import { PaneUnavailable } from "../ui/PaneUnavailable";
 const MODALITY_FOR_CASE: Record<EmbeddingCase, ClusterLabel["modality"]> = {
   video: "visual",
   sandwich: "multimodal",
-  audio: "audio",
-  maest: "music",
+  auditory: "music",
+  spoken: "audio",
+  textual: "textual",
 };
 
 type Props = { creatorId: number };

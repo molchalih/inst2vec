@@ -7,8 +7,9 @@ def test_default_cases_tuple():
     assert tuple(name for name, spec in CASE_REGISTRY.items() if not spec.requires) == (
         "video",
         "sandwich",
-        "audio",
-        "maest",
+        "auditory",
+        "spoken",
+        "textual",
     )
 
 

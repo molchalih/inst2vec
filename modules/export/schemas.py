@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 SCHEMA_VERSION: Literal[1] = 1
 
-EmbeddingCase = Literal["video", "sandwich", "audio"]
+EmbeddingCase = Literal["video", "sandwich", "auditory", "spoken", "textual"]
 
 
 class BoundsModel(BaseModel):

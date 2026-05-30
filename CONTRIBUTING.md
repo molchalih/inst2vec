@@ -26,6 +26,40 @@ The `analysis` group provides pandas/seaborn/scikit-posthocs for `scripts/`, whi
 
 4. CI runs the same four commands. PRs are not merged red.
 
+## Database migrations
+
+SQLite (dev/test) bootstraps instantly via `create_all`; no migration step is
+needed. Postgres (production) is brought up and upgraded with Alembic, which
+covers three databases selected by `-n`:
+
+```bash
+uv run alembic -n main     upgrade head   # DATABASE_URL
+uv run alembic -n identity upgrade head   # IDENTITY_DB_URL
+uv run alembic -n serving  upgrade head   # SERVING_DATABASE_URL
+```
+
+Each environment reads its URL from the matching env var (the same source as
+`core.config`). After changing a SQLAlchemy model, autogenerate a revision for
+the affected database, e.g. `uv run alembic -n main revision --autogenerate -m "<change>"`,
+review it, and commit it alongside the model change.
+
+## Serving data + read API
+
+The frontend reads either the static JSON tree (default) or a read-only HTTP
+API backed by a separate serving database. To populate and serve it:
+
+```bash
+# 1. Decompose the version-6 contract from the main DB into the serving DB.
+uv run python scripts/offload_serving.py
+# 2. Serve it (reads SERVING_DATABASE_URL; ATLAS_API_TOKEN / ATLAS_API_CORS_ORIGIN optional).
+uv run python -m services.atlas_api
+```
+
+The API mirrors the static JSON paths 1:1 (`/manifest.json`,
+`/runs/{run}/users.json`, etc.) and returns byte-identical payloads. Point the
+frontend at it by setting `VITE_API_BASE_URL` (see `frontend/.env.example`);
+leave it unset for the default static-JSON deploy.
+
 ## Conventions
 
 - One pipeline stage per subpackage under `modules/`. Cross-cutting infra goes in `core/`. Scripts in `scripts/` only orchestrate.

@@ -70,10 +70,10 @@ def test_served_only_skips_non_remote_eligible():
 
 def test_served_only_skips_local_only_case():
     b = JobBroker(lease_ttl_s=600, max_attempts=3)
-    b.add(_job(1, case="maest"))  # served_remotely=False in registry
+    b.add(_job(1, case="auditory"))  # served_remotely=False in registry
     b.producer_done()
     assert b.lease(served_only=True) is None
-    assert b.lease(served_only=False).job["case"] == "maest"
+    assert b.lease(served_only=False).job["case"] == "auditory"
 
 
 def test_reap_expired_requeues():

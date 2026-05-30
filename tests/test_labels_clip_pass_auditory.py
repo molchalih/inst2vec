@@ -1,4 +1,4 @@
-"""Stage-1 generic runner — ``maest`` (music) case coverage."""
+"""Stage-1 generic runner — ``auditory`` (music) case coverage."""
 
 from __future__ import annotations
 
@@ -17,8 +17,8 @@ from modules.labels.clip_pass import run_case
 
 def _labels(**overrides) -> LabelsSettings:
     base = dict(
-        case_prompts={"maest": "MAEST_PROMPT"},
-        cluster_case_prompts={"maest": "cluster prompt"},
+        case_prompts={"auditory": "MAEST_PROMPT"},
+        cluster_case_prompts={"auditory": "cluster prompt"},
     )
     base.update(overrides)
     return LabelsSettings(**base)
@@ -124,7 +124,7 @@ def _seed_no_music(eng) -> None:
         s.commit()
 
 
-def test_maest_happy_path_uses_verbalize_mir():
+def test_auditory_happy_path_uses_verbalize_mir():
     eng = _engine()
     _seed_music(eng)
     gen = _FakeGen(response=_clean_music_json())
@@ -134,7 +134,7 @@ def test_maest_happy_path_uses_verbalize_mir():
             settings=_settings(),
             labels=_labels(),
             generator=gen,
-            spec=REGISTRY["maest"],
+            spec=REGISTRY["auditory"],
         )
     assert gen.video_calls == []
     assert len(gen.text_calls) == 1
@@ -143,9 +143,9 @@ def test_maest_happy_path_uses_verbalize_mir():
     assert prompt.startswith("MAEST_PROMPT\n\nMusic:")
     assert "lofi" in prompt and "piano" in prompt
     with Session(eng) as s:
-        row = s.get(ClipLabel, (1, "maest"))
+        row = s.get(ClipLabel, (1, "auditory"))
         assert row is not None
-        assert row.label_case == "maest"
+        assert row.label_case == "auditory"
         assert row.status == "success"
         expected = {
             "observable_music_tags",
@@ -156,7 +156,7 @@ def test_maest_happy_path_uses_verbalize_mir():
         assert set(row.payload) == expected
 
 
-def test_maest_no_music_marks_failed_no_music():
+def test_auditory_no_music_marks_failed_no_music():
     eng = _engine()
     _seed_no_music(eng)
     gen = _FakeGen(response=_clean_music_json())
@@ -166,11 +166,11 @@ def test_maest_no_music_marks_failed_no_music():
             settings=_settings(),
             labels=_labels(max_attempts=1),
             generator=gen,
-            spec=REGISTRY["maest"],
+            spec=REGISTRY["auditory"],
         )
     assert gen.text_calls == []
     with Session(eng) as s:
-        row = s.get(ClipLabel, (1, "maest"))
+        row = s.get(ClipLabel, (1, "auditory"))
         assert row is not None
         assert row.status == "failed"
         assert row.error == "no_music"

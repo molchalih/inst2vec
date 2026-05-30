@@ -111,7 +111,7 @@ const internalVariationSchema = z.object({
 export const clusterLabelSchema = z.object({
   label: z.string(),
   summary: z.string(),
-  modality: z.enum(["visual", "audio", "music", "multimodal"]),
+  modality: z.enum(["visual", "audio", "music", "multimodal", "textual"]),
   repertoire: z.array(repertoireEntrySchema),
   aesthetic_logic: z.array(aestheticLogicEntrySchema),
   taste_signalling: cautiousBlockSchema,

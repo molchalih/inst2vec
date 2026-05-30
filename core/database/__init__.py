@@ -2,8 +2,11 @@ from core.database.engine import (  # noqa: F401  -- re-exports for core.databas
     get_engine,
     get_identity_engine,
     get_identity_session,
+    get_serving_engine,
+    get_serving_session,
     get_session,
     init_db,
+    init_serving_db,
 )
 from core.database.identity import (  # noqa: F401  -- re-exports for core.database.*
     ClipIdentity,
@@ -48,4 +51,25 @@ from core.database.predicates import (  # noqa: F401  -- re-exports for core.dat
     needs_caption_cleaning,
     needs_caption_language_detection,
     needs_caption_translation,
+)
+from core.database.serving_models import (  # noqa: F401  -- re-exports
+    ServingBase,
+    ServingCluster,
+    ServingClusterDetail,
+    ServingClusterLabel,
+    ServingClusterLabelAesthetic,
+    ServingClusterLabelRepertoire,
+    ServingClusterLabelTooltag,
+    ServingClusterLabelVariations,
+    ServingClusterNearest,
+    ServingDistinctiveness,
+    ServingLangShare,
+    ServingRun,
+    ServingRunBounds,
+    ServingUser,
+    ServingUserClip,
+    ServingUserClipTag,
+    ServingUserClipWarning,
+    ServingUserDetail,
+    ServingWeightedTag,
 )

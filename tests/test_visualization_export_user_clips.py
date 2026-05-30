@@ -6,7 +6,7 @@ Covers two behaviours of ``_render_user_clips_block``:
   clip with N modality-specific rows does not appear N times.
 * Cross-case fallback: the visual ``ClipLabel`` payload is
   case-agnostic content (it describes the clip's frames), so for
-  stage-1-skipped cases (audio/sandwich/maest/gemini) the per-clip
+  stage-1-skipped cases (spoken/sandwich/auditory/gemini) the per-clip
   block falls back to ``label_case="video"`` rows rather than
   returning empty — the creator pane shows the same per-clip tags in
   every run.
@@ -79,12 +79,12 @@ def _seed_one_user_one_clip(case: str, *, clip_id: int = 100) -> None:
     """Seed the minimum rows needed for ``export_visualization_json`` to
     materialise a single user's detail file under ``runs/{case}/users/``.
 
-    Visualization rows exist for both ``video`` and ``audio`` so a single
+    Visualization rows exist for both ``video`` and ``spoken`` so a single
     seed can drive a per-case export under either case without re-seeding.
     """
     session = get_session()
     try:
-        for c in ("video", "audio"):
+        for c in ("video", "spoken"):
             session.merge(
                 Visualization(
                     embedding_case=c,
@@ -202,7 +202,7 @@ def _video_payload(sentence: str = "video reading") -> dict:
     }
 
 
-def _audio_payload(sentence: str = "audio reading") -> dict:
+def _spoken_payload(sentence: str = "audio reading") -> dict:
     return {
         "observable_audio_tags": [{"tag": "kick", "evidence": "0:01"}],
         "aesthetic_tags": [
@@ -217,29 +217,29 @@ def _audio_payload(sentence: str = "audio reading") -> dict:
 
 def test_user_clips_block_falls_back_to_video_for_stage1_skipped_case(tmp_path):
     """Audio is stage-1-skipped — the cluster pass synthesises directly
-    from raw signals and the pipeline writes no per-clip audio
+    from raw signals and the pipeline writes no per-clip spoken
     ``ClipLabel`` rows. But the per-clip visual tags describe the
     clip's frames regardless of which embedding case is being viewed,
-    so the audio export must surface the video ``ClipLabel`` payload
-    in the per-clip block. Any stray audio ``ClipLabel`` row is
+    so the spoken export must surface the video ``ClipLabel`` payload
+    in the per-clip block. Any stray spoken ``ClipLabel`` row is
     ignored — only the video reading is shown.
     """
     _clear()
-    _seed_one_user_one_clip("audio", clip_id=100)
+    _seed_one_user_one_clip("spoken", clip_id=100)
     _add_clip_label(
         clip_id=100, label_case="video", payload=_video_payload("the video one")
     )
     _add_clip_label(
         clip_id=100,
-        label_case="audio",
-        payload=_audio_payload("the audio one"),
+        label_case="spoken",
+        payload=_spoken_payload("the spoken one"),
     )
 
     export_visualization_json(
-        _settings(tmp_path, default_case="audio"), cases=("audio",)
+        _settings(tmp_path, default_case="spoken"), cases=("spoken",)
     )
 
-    detail = json.loads((tmp_path / "runs" / "audio" / "users" / "0.json").read_text())
+    detail = json.loads((tmp_path / "runs" / "spoken" / "users" / "0.json").read_text())
     clips = detail["clips"]
     assert len(clips) == 1
     assert clips[0]["clip_id"] == 100
@@ -249,13 +249,13 @@ def test_user_clips_block_falls_back_to_video_for_stage1_skipped_case(tmp_path):
 
 def test_user_clips_block_for_video_case_remains_unchanged(tmp_path):
     """Same seed, but exporting the video case must yield the video row's
-    one_sentence_visual_reading — not the audio row's."""
+    one_sentence_visual_reading — not the spoken row's."""
     _clear()
     _seed_one_user_one_clip("video", clip_id=100)
     _add_clip_label(
         clip_id=100, label_case="video", payload=_video_payload("the video one")
     )
-    _add_clip_label(clip_id=100, label_case="audio", payload=_audio_payload())
+    _add_clip_label(clip_id=100, label_case="spoken", payload=_spoken_payload())
 
     export_visualization_json(
         _settings(tmp_path, default_case="video"), cases=("video",)
@@ -277,14 +277,14 @@ def test_user_clips_block_omits_clip_with_no_video_label_for_stage1_skipped_case
     omitted (inner join on ``label_case``, no outer fallback to other
     cases)."""
     _clear()
-    _seed_one_user_one_clip("audio", clip_id=100)
-    # Only an audio ClipLabel exists; there is no video label to fall
+    _seed_one_user_one_clip("spoken", clip_id=100)
+    # Only a spoken ClipLabel exists; there is no video label to fall
     # back to, so the per-case block must be empty.
-    _add_clip_label(clip_id=100, label_case="audio", payload=_audio_payload())
+    _add_clip_label(clip_id=100, label_case="spoken", payload=_spoken_payload())
 
     export_visualization_json(
-        _settings(tmp_path, default_case="audio"), cases=("audio",)
+        _settings(tmp_path, default_case="spoken"), cases=("spoken",)
     )
 
-    detail = json.loads((tmp_path / "runs" / "audio" / "users" / "0.json").read_text())
+    detail = json.loads((tmp_path / "runs" / "spoken" / "users" / "0.json").read_text())
     assert detail["clips"] == []

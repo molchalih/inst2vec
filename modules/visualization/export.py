@@ -19,6 +19,7 @@ import json
 import shutil
 from collections import defaultdict
 from collections.abc import Sequence
+from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
@@ -55,6 +56,12 @@ from modules.visualization.compute import (
     build_user_detail,
 )
 from modules.visualization.schema import SCHEMA_VERSION
+
+# Placeholder thumbnail served for every clip for now: we deliberately do NOT
+# emit real per-clip thumbnail URLs into the published payload. Swap back to the
+# per-clip ``clip.thumbnail_url`` here (and re-export / re-offload) to restore
+# real thumbnails.
+BLANK_THUMBNAIL_URL = "https://cdn.240.agency/blank.jpg"
 
 
 def _write_json(path: Path, payload: dict) -> None:
@@ -124,7 +131,7 @@ def _render_user_clips_block(
             {
                 "clip_id": clip.id,
                 "shortcode": getattr(clip, "shortcode", None),
-                "thumbnail_url": getattr(clip, "thumbnail_url", None),
+                "thumbnail_url": BLANK_THUMBNAIL_URL,
                 "sentence": payload.get(sentence_key, ""),
                 "tags": {
                     "observable": payload.get(observable_key, []),
@@ -326,26 +333,21 @@ def _load_case_detail_inputs(
     return member_by_user, members_by_cluster
 
 
-def _write_case_details(
+def _build_cluster_detail_payloads(
     *,
-    session: Session,
     settings_viz,
     case: str,
     cluster_rows: Sequence[VisualizationCluster],
-    user_rows: Sequence[VisualizationUser],
     member_by_user: dict[int, ClusterMember],
     members_by_cluster: dict[int, list[int]],
     cluster_label_rows: dict[int, ClusterLabel],
-    export_dir: Path,
-) -> tuple[set[int], set[int]]:
-    """Write per-cluster and per-user detail files. Returns (written_cluster_ids, written_user_ids)."""
+) -> dict[int, dict]:
+    """Per-cluster detail dicts keyed by cluster_id (exporter emission order)."""
     baseline = _cluster_baseline_from_members(list(member_by_user.values()))
     centroids = {c.cluster_id: (c.cx, c.cy) for c in cluster_rows}
     labels = {c.cluster_id: c.label for c in cluster_rows}
 
-    written_clusters: set[int] = set()
-    written_users: set[int] = set()
-
+    out: dict[int, dict] = {}
     for c in cluster_rows:
         member_ids = members_by_cluster.get(c.cluster_id, [])
         members = [member_by_user[uid] for uid in member_ids if uid in member_by_user]
@@ -378,12 +380,27 @@ def _write_case_details(
             cluster_payload["label"] = label_block
         else:
             cluster_payload.pop("label", None)
-        _write_json(
-            export_dir / "runs" / case / "clusters" / f"{c.cluster_id}.json",
-            cluster_payload,
-        )
-        written_clusters.add(c.cluster_id)
+        out[c.cluster_id] = cluster_payload
+    return out
 
+
+def _build_creator_detail_payloads(
+    *,
+    session: Session,
+    settings_viz,
+    case: str,
+    cluster_rows: Sequence[VisualizationCluster],
+    user_rows: Sequence[VisualizationUser],
+    member_by_user: dict[int, ClusterMember],
+    members_by_cluster: dict[int, list[int]],
+) -> dict[int, dict]:
+    """Per-creator detail dicts keyed by user_id (exporter emission order).
+
+    Only users the exporter actually writes are present (skips users with no
+    centroid or no MIR-backed clips), so the keyset doubles as ``has_detail``.
+    """
+    centroids = {c.cluster_id: (c.cx, c.cy) for c in cluster_rows}
+    labels = {c.cluster_id: c.label for c in cluster_rows}
     user_row_by_id = {u.user_id: u for u in user_rows}
     centroid_dist_by_cluster: dict[int, np.ndarray] = {}
     for cid, member_ids in members_by_cluster.items():
@@ -398,6 +415,7 @@ def _write_case_details(
             dists.append(float(np.hypot(uc.x - cx, uc.y - cy)))
         centroid_dist_by_cluster[cid] = np.array(dists, dtype=np.float64)
 
+    out: dict[int, dict] = {}
     for u in user_rows:
         if u.user_id not in member_by_user or u.cluster_id not in centroids:
             continue
@@ -436,16 +454,158 @@ def _write_case_details(
         )
         payload = detail.to_json()
         payload["clips"] = _render_user_clips_block(session, u.user_id, case=case)
+        out[u.user_id] = payload
+    return out
+
+
+@dataclass(frozen=True)
+class CasePayloadBundle:
+    """Every version-6 payload for one run/case, built once from the DB.
+
+    The single producer of payload shape shared by the file exporter and the
+    serving offload: ``manifest_entry`` + ``users`` + ``clusters`` are the bulk
+    files; ``cluster_details`` / ``creator_details`` are keyed by id in the
+    exporter's emission order (clusters by cluster_id, users by user_id). A
+    user/cluster id is present in the details dict iff the exporter writes its
+    file, so the keyset is the source of ``has_detail``.
+    """
+
+    case: str
+    manifest_entry: dict
+    users: dict
+    clusters: dict
+    cluster_details: dict[int, dict]
+    creator_details: dict[int, dict]
+
+
+def build_case_payloads(
+    session: Session, *, settings_viz, case: str
+) -> CasePayloadBundle | None:
+    """Build all version-6 payloads for one case, or None if it has no row."""
+    viz = session.get(Visualization, case)
+    if viz is None:
+        return None
+    users = (
+        session.query(VisualizationUser)
+        .filter_by(embedding_case=case)
+        .order_by(VisualizationUser.user_id)
+        .all()
+    )
+    clusters = (
+        session.query(VisualizationCluster)
+        .filter_by(embedding_case=case)
+        .order_by(VisualizationCluster.cluster_id)
+        .all()
+    )
+    member_by_user, members_by_cluster = _load_case_detail_inputs(session, case)
+    cluster_label_rows = {
+        r.cluster_id: r
+        for r in session.query(ClusterLabel)
+        .filter(ClusterLabel.embedding_case == case)
+        .all()
+    }
+    cluster_details = _build_cluster_detail_payloads(
+        settings_viz=settings_viz,
+        case=case,
+        cluster_rows=clusters,
+        member_by_user=member_by_user,
+        members_by_cluster=members_by_cluster,
+        cluster_label_rows=cluster_label_rows,
+    )
+    creator_details = _build_creator_detail_payloads(
+        session=session,
+        settings_viz=settings_viz,
+        case=case,
+        cluster_rows=clusters,
+        user_rows=users,
+        member_by_user=member_by_user,
+        members_by_cluster=members_by_cluster,
+    )
+    written_users = set(creator_details)
+    written_clusters = set(cluster_details)
+
+    users_payload = {
+        "version": SCHEMA_VERSION,
+        "run_id": case,
+        "bounds": _bounds(users),
+        "users": [
+            [
+                u.user_id,
+                u.x,
+                u.y,
+                u.cluster_id,
+                u.user_id in written_users,
+                float(u.centrality) if u.centrality is not None else 0.0,
+            ]
+            for u in users
+        ],
+    }
+    clusters_payload = {
+        "version": SCHEMA_VERSION,
+        "run_id": case,
+        "clusters": [
+            {
+                "id": c.cluster_id,
+                "label": display_label_for(
+                    cluster_label_rows.get(c.cluster_id), c.label
+                ),
+                "cx": c.cx,
+                "cy": c.cy,
+                "rx": c.rx,
+                "ry": c.ry,
+                "angle": c.angle,
+                "size": c.size,
+                "has_detail": c.cluster_id in written_clusters,
+            }
+            for c in clusters
+        ],
+    }
+    manifest_entry = {
+        "id": case,
+        "case": case,
+        # Label is presentation metadata, not fingerprinted data: read it live
+        # from the case spec so renaming a display_label lands on the next
+        # export without forcing the (data-only) viz fingerprint stale.
+        "label": CASE_REGISTRY[case].display_label,
+        "size": viz.size,
+        "details_available": True,
+    }
+    return CasePayloadBundle(
+        case=case,
+        manifest_entry=manifest_entry,
+        users=users_payload,
+        clusters=clusters_payload,
+        cluster_details=cluster_details,
+        creator_details=creator_details,
+    )
+
+
+def build_manifest_payload(default_case: str, entries: list[dict]) -> dict:
+    """Assemble the manifest.json payload from per-case manifest entries."""
+    return {
+        "version": SCHEMA_VERSION,
+        "default_run_id": default_case,
+        "runs": entries,
+    }
+
+
+def _write_case_bundle(bundle: CasePayloadBundle, export_dir: Path) -> None:
+    """Write one case's detail + bulk files; prune stale per-entity files."""
+    case = bundle.case
+    for cluster_id, payload in bundle.cluster_details.items():
         _write_json(
-            export_dir / "runs" / case / "users" / f"{u.user_id}.json",
-            payload,
+            export_dir / "runs" / case / "clusters" / f"{cluster_id}.json", payload
         )
-        written_users.add(u.user_id)
-
-    _prune_stale_entity_files(export_dir / "runs" / case / "clusters", written_clusters)
-    _prune_stale_entity_files(export_dir / "runs" / case / "users", written_users)
-
-    return written_clusters, written_users
+    for user_id, payload in bundle.creator_details.items():
+        _write_json(export_dir / "runs" / case / "users" / f"{user_id}.json", payload)
+    _prune_stale_entity_files(
+        export_dir / "runs" / case / "clusters", set(bundle.cluster_details)
+    )
+    _prune_stale_entity_files(
+        export_dir / "runs" / case / "users", set(bundle.creator_details)
+    )
+    _write_json(export_dir / "runs" / case / "users.json", bundle.users)
+    _write_json(export_dir / "runs" / case / "clusters.json", bundle.clusters)
 
 
 @scope("visualization:export")
@@ -461,107 +621,24 @@ def export_visualization_json(settings, cases: tuple[str, ...]) -> None:
     cases_to_export = _exposed_cases(cases)
     session = get_session()
     try:
-        viz_rows = {
-            row.embedding_case: row
-            for row in session.query(Visualization)
-            .filter(Visualization.embedding_case.in_(cases_to_export))
-            .all()
-        }
         manifest_runs: list[dict] = []
         written_cases: set[str] = set()
         for case in cases_to_export:
-            viz = viz_rows.get(case)
-            if viz is None:
+            bundle = build_case_payloads(session, settings_viz=viz_settings, case=case)
+            if bundle is None:
                 event("SKIP", case)
                 continue
-            users = (
-                session.query(VisualizationUser)
-                .filter_by(embedding_case=case)
-                .order_by(VisualizationUser.user_id)
-                .all()
-            )
-            clusters = (
-                session.query(VisualizationCluster)
-                .filter_by(embedding_case=case)
-                .order_by(VisualizationCluster.cluster_id)
-                .all()
-            )
-            member_by_user, members_by_cluster = _load_case_detail_inputs(session, case)
-            cluster_label_rows = {
-                r.cluster_id: r
-                for r in session.query(ClusterLabel)
-                .filter(ClusterLabel.embedding_case == case)
-                .all()
-            }
-            written_clusters, written_users = _write_case_details(
-                session=session,
-                settings_viz=viz_settings,
-                case=case,
-                cluster_rows=clusters,
-                user_rows=users,
-                member_by_user=member_by_user,
-                members_by_cluster=members_by_cluster,
-                cluster_label_rows=cluster_label_rows,
-                export_dir=export_dir,
-            )
-
-            _write_json(
-                export_dir / "runs" / case / "users.json",
-                {
-                    "version": SCHEMA_VERSION,
-                    "run_id": case,
-                    "bounds": _bounds(users),
-                    "users": [
-                        [
-                            u.user_id,
-                            u.x,
-                            u.y,
-                            u.cluster_id,
-                            u.user_id in written_users,
-                            float(u.centrality) if u.centrality is not None else 0.0,
-                        ]
-                        for u in users
-                    ],
-                },
-            )
-            _write_json(
-                export_dir / "runs" / case / "clusters.json",
-                {
-                    "version": SCHEMA_VERSION,
-                    "run_id": case,
-                    "clusters": [
-                        {
-                            "id": c.cluster_id,
-                            "label": display_label_for(
-                                cluster_label_rows.get(c.cluster_id), c.label
-                            ),
-                            "cx": c.cx,
-                            "cy": c.cy,
-                            "rx": c.rx,
-                            "ry": c.ry,
-                            "angle": c.angle,
-                            "size": c.size,
-                            "has_detail": c.cluster_id in written_clusters,
-                        }
-                        for c in clusters
-                    ],
-                },
-            )
-            manifest_runs.append(
-                {
-                    "id": case,
-                    "case": case,
-                    # Label is presentation metadata, not fingerprinted data:
-                    # read it live from the case spec so renaming a
-                    # display_label lands on the next export without forcing
-                    # the (data-only) viz fingerprint stale.
-                    "label": CASE_REGISTRY[case].display_label,
-                    "size": viz.size,
-                    "details_available": True,
-                }
-            )
+            _write_case_bundle(bundle, export_dir)
+            manifest_runs.append(bundle.manifest_entry)
             written_cases.add(case)
-            event("WRITE", case, stats={"users": len(users), "clusters": len(clusters)})
+            event(
+                "WRITE",
+                case,
+                stats={
+                    "users": len(bundle.users["users"]),
+                    "clusters": len(bundle.clusters["clusters"]),
+                },
+            )
 
         _prune_stale_run_dirs(runs_dir, written_cases)
 
@@ -573,11 +650,7 @@ def export_visualization_json(settings, cases: tuple[str, ...]) -> None:
 
         _write_json(
             manifest_path,
-            {
-                "version": SCHEMA_VERSION,
-                "default_run_id": viz_settings.default_case,
-                "runs": manifest_runs,
-            },
+            build_manifest_payload(viz_settings.default_case, manifest_runs),
         )
         event("SEAL", "manifest", stats={"runs": len(manifest_runs)})
     finally:

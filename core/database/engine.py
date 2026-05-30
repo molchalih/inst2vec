@@ -1,7 +1,12 @@
-"""Engine and session lifecycle for both the main and identity databases.
+"""Engine and session lifecycle for the main, identity and serving databases.
 
 Sole owner of engine globals — no other file in the package or codebase
 holds engine handles directly.
+
+Alembic (``migrations/``) is the production (Postgres) schema path. The
+``create_all`` + ``_LATE_ADDED_COLUMNS`` fast-path here remains for SQLite and
+tests so fresh dev still bootstraps instantly (see D5 in the migration spec);
+a fresh Postgres DB is brought up with ``alembic -n <db> upgrade head``.
 """
 
 import sqlite3
@@ -58,8 +63,16 @@ def _apply_sqlite_pragmas(dbapi_connection, _connection_record) -> None:
         cursor.close()
 
 
+def _wrap_sqlite_path(url: str) -> str:
+    """Accept a full SQLAlchemy URL or a bare file path (→ ``sqlite:///``)."""
+    if "://" in url:
+        return url
+    return f"sqlite:///{url}"
+
+
 _main_engine: Engine | None = None
 _identity_engine: Engine | None = None
+_serving_engine: Engine | None = None
 
 
 def get_engine() -> Engine:
@@ -69,6 +82,47 @@ def get_engine() -> Engine:
 
 def get_session() -> Session:
     return Session(get_engine())
+
+
+def get_serving_engine() -> Engine:
+    assert _serving_engine is not None, (
+        "Call init_serving_db() before using the serving database"
+    )
+    return _serving_engine
+
+
+@contextmanager
+def get_serving_session() -> Iterator[Session]:
+    with Session(get_serving_engine()) as s:
+        yield s
+
+
+@scope("db")
+def init_serving_db(serving_database_url: str) -> None:
+    """Initialize the serving engine and create all serving tables.
+
+    Separate from ``init_db`` so ordinary pipeline runs that never touch the
+    serving store stay cheap; the offload script and atlas API call this
+    explicitly. ``serving_database_url`` may be a full SQLAlchemy URL or a bare
+    file path (auto-wrapped with ``sqlite:///``). Alembic owns the prod
+    (Postgres) schema; this ``create_all`` fast-path covers SQLite/dev/test.
+    """
+    global _serving_engine
+
+    from core.database.serving_models import ServingBase
+
+    t0 = time.perf_counter()
+    _serving_engine = create_engine(_wrap_sqlite_path(serving_database_url))
+    _sqla_event.listen(_serving_engine, "connect", _apply_sqlite_pragmas)
+    ServingBase.metadata.create_all(_serving_engine)
+    event(
+        "INIT",
+        "serving",
+        stats={
+            "tables": len(ServingBase.metadata.tables),
+            "time": time.perf_counter() - t0,
+        },
+    )
 
 
 def get_identity_engine() -> Engine:
@@ -107,10 +161,7 @@ def init_db(database_url: str, identity_db_url: str) -> None:
         },
     )
 
-    if identity_db_url.startswith("sqlite://"):
-        wrapped_url = identity_db_url
-    else:
-        wrapped_url = f"sqlite:///{identity_db_url}"
+    wrapped_url = _wrap_sqlite_path(identity_db_url)
 
     t1 = time.perf_counter()
     _identity_engine = create_engine(wrapped_url)

@@ -1,15 +1,14 @@
 name: Pages
 
+# Runs only after the CI workflow completes successfully (gates the Pages
+# deploy on green CI), plus a manual trigger. Builds the frontend in API mode
+# and publishes it to GitHub Pages.
 on:
-  push:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
     branches: [main]
-    paths:
-      - frontend/**
-      - .github/workflows/pages.yml
-  pull_request:
-    paths:
-      - frontend/**
-      - .github/workflows/pages.yml
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -20,24 +19,29 @@ concurrency:
 
 jobs:
   build:
+    # Only when the triggering CI run passed (manual dispatch always builds).
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: frontend
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.ref }}
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
-      - run: bun run lint
-      - run: bun run typecheck
-      - run: bun run test
+        # Point the published site at the live atlas API (serving DB). Unset →
+        # the build falls back to bundled static JSON, which we no longer ship.
+        # Override via the VITE_API_BASE_URL repo variable.
       - run: bun run build
+        env:
+          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL || 'https://api.240.agency/inst2vec/' }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: frontend/dist
 
   deploy:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
     permissions:

@@ -10,6 +10,7 @@ export { clustersFileSchema } from "./schemas/clusters.schema";
 
 export type { BulkSource } from "./bulk/BulkSource";
 export { StaticBulkSource } from "./bulk/StaticBulkSource";
+export { HttpBulkSource } from "./bulk/HttpBulkSource";
 
 export type {
   ApiClient, CreatorDetail, CreatorSummary,
@@ -22,6 +23,8 @@ export { clipLabelEntrySchema } from "./schemas/clip-label.schema";
 export type { ClipLabelEntry, GroundedTag, ObservableTag } from "./schemas/clip-label.schema";
 export { StaticApiClient, AssetNotFoundError } from "./api/StaticApiClient";
 export { HttpApiClient } from "./api/HttpApiClient";
+export { makeSources } from "./makeSources";
+export type { Sources, SourcesConfig } from "./makeSources";
 
 export type {
   AudioScores, MoodShares, TimbreShares, WeightedTag,

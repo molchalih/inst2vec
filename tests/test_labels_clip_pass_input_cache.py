@@ -12,7 +12,7 @@ from core.config import LabelsSettings
 from core.database import Clip, User, init_db
 from core.database.engine import get_engine
 from modules.labels import clip_pass
-from modules.labels.cases import AUDIO_CASE
+from modules.labels.cases import SPOKEN_CASE
 
 
 def _seed(session: Session) -> None:
@@ -24,27 +24,30 @@ def _seed(session: Session) -> None:
                 user_id=1,
                 is_selected=True,
                 is_downloaded=True,
+                is_speech_detected=True,
+                speech_transcription="some words",
+                speech_language="en",
             )
         )
     session.commit()
 
 
-def test_audio_input_adapter_runs_once_per_clip(monkeypatch) -> None:
+def test_spoken_input_adapter_runs_once_per_clip(monkeypatch) -> None:
     init_db("sqlite:///:memory:", "sqlite:///:memory:")
     with Session(get_engine()) as session:
         _seed(session)
         calls: Counter[int] = Counter()
-        original = AUDIO_CASE.clip_input
+        original = SPOKEN_CASE.clip_input
 
         def counting_adapter(clip, mir_row, visual_payload):
             calls[clip.id] += 1
             return original(clip, mir_row, visual_payload)
 
-        spec = replace(AUDIO_CASE, clip_input=counting_adapter)
+        spec = replace(SPOKEN_CASE, clip_input=counting_adapter)
 
         labels = LabelsSettings(
-            case_prompts={"audio": "PROMPT"},
-            cluster_case_prompts={"audio": "C"},
+            case_prompts={"spoken": "PROMPT"},
+            cluster_case_prompts={"spoken": "C"},
             max_attempts=1,
         )
         settings = MagicMock()

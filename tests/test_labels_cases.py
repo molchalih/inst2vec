@@ -9,7 +9,7 @@ from modules.labels.cases import REGISTRY, LabelCaseSpec
 
 
 def test_registry_has_all_default_cases() -> None:
-    expected = {"video", "audio", "sandwich", "maest", "gemini"}
+    expected = {"video", "spoken", "sandwich", "auditory", "gemini", "textual"}
     assert set(REGISTRY) == expected
     for name, spec in REGISTRY.items():
         assert isinstance(spec, LabelCaseSpec)
@@ -24,7 +24,7 @@ def test_each_case_has_required_clip_keys_and_cluster_keys() -> None:
             "community_signalling_tags",
             "one_sentence_visual_reading",
         },
-        "audio": {
+        "spoken": {
             "observable_audio_tags",
             "aesthetic_tags",
             "community_signalling_tags",
@@ -36,11 +36,17 @@ def test_each_case_has_required_clip_keys_and_cluster_keys() -> None:
             "community_signalling_tags",
             "one_sentence_multimodal_reading",
         },
-        "maest": {
+        "auditory": {
             "observable_music_tags",
             "aesthetic_tags",
             "community_signalling_tags",
             "one_sentence_music_reading",
+        },
+        "textual": {
+            "observable_textual_tags",
+            "aesthetic_tags",
+            "community_signalling_tags",
+            "one_sentence_textual_reading",
         },
     }
     # gemini follows the sandwich recipe.
@@ -48,10 +54,11 @@ def test_each_case_has_required_clip_keys_and_cluster_keys() -> None:
 
     expected_repertoire = {
         "video": "dominant_visual_repertoire",
-        "audio": "dominant_audio_repertoire",
+        "spoken": "dominant_audio_repertoire",
         "sandwich": "dominant_multimodal_repertoire",
-        "maest": "dominant_music_repertoire",
+        "auditory": "dominant_music_repertoire",
         "gemini": "dominant_multimodal_repertoire",
+        "textual": "dominant_textual_repertoire",
     }
     common = {
         "cluster_label",
@@ -85,31 +92,31 @@ def test_stage1_dependency_stages_match_spec() -> None:
     mir = (Stage.MIR, "all")
     expected = {
         "video": (),
-        "audio": (speech, mir),
+        "spoken": (speech,),
         "sandwich": (captions, speech, mir),
-        "maest": (mir,),
+        "auditory": (mir,),
         "gemini": (captions, speech, mir),
+        "textual": (captions,),
     }
     for case, stages in expected.items():
         assert REGISTRY[case].stage1_dependency_stages == stages, case
 
 
-def test_audio_input_returns_speech_or_music_text() -> None:
-    spec = REGISTRY["audio"]
+def test_spoken_input_returns_speech_text() -> None:
+    spec = REGISTRY["spoken"]
     clip = SimpleNamespace(
         is_speech_detected=True,
         speech_language="en",
         speech_translation=None,
         speech_transcription="hello world from a podcast",
     )
-    mir = None
-    text = spec.clip_input(clip, mir, None)
+    text = spec.clip_input(clip, None, None)
     assert text is not None
     assert "hello world" in text
 
 
-def test_audio_input_returns_none_when_no_speech_and_no_music() -> None:
-    spec = REGISTRY["audio"]
+def test_spoken_input_returns_none_when_no_speech() -> None:
+    spec = REGISTRY["spoken"]
     clip = SimpleNamespace(
         is_speech_detected=False,
         speech_language=None,
@@ -117,6 +124,19 @@ def test_audio_input_returns_none_when_no_speech_and_no_music() -> None:
         speech_transcription=None,
     )
     assert spec.clip_input(clip, None, None) is None
+
+
+def test_textual_input_returns_caption_text() -> None:
+    spec = REGISTRY["textual"]
+    clip = SimpleNamespace(
+        caption_language="en",
+        caption_translation=None,
+        caption_clean="a tidy caption",
+        caption_text="a tidy caption",
+    )
+    text = spec.clip_input(clip, None, None)
+    assert text is not None
+    assert "tidy caption" in text
 
 
 def test_sandwich_input_returns_none_when_visual_payload_missing() -> None:
@@ -153,8 +173,8 @@ def test_sandwich_input_embeds_visual_payload_when_present() -> None:
     assert "a kitchen scene" in text
 
 
-def test_maest_input_returns_none_when_music_not_detected() -> None:
-    spec = REGISTRY["maest"]
+def test_auditory_input_returns_none_when_music_not_detected() -> None:
+    spec = REGISTRY["auditory"]
     mir = SimpleNamespace(is_music_detected=False)
     assert spec.clip_input(None, mir, None) is None
 

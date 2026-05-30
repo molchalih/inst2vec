@@ -41,7 +41,7 @@ def test_worker_converts_embed_exception_to_failure(monkeypatch):
         b.add(
             make_job(
                 clip_id=cid,
-                case="audio",
+                case="spoken",
                 text="x",
                 video_key=None,
                 fps=None,
@@ -165,12 +165,12 @@ def test_embed_with_token_fallback_propagates_non_token_errors():
             max_frames=32,
         )
 
-    # audio case has no token-fallback path; provider errors must
+    # spoken case has no token-fallback path; provider errors must
     # propagate verbatim.
     with pytest.raises(RuntimeError, match="bad codec"):
         embed_with_token_fallback(
             _RaisingProvider(),
-            CASE_REGISTRY["audio"],
+            CASE_REGISTRY["spoken"],
             clip_id=99,
             text="hello",
             video_path=None,

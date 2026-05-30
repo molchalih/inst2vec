@@ -148,13 +148,17 @@ def download_files(
             for clip in user.clips:
                 if not clip.is_selected:
                     continue
-                thumb_path = str(paths.thumbnail_for(clip.id))
-                if not os.path.exists(thumb_path) and clip.thumbnail_url:
-                    thumbnail_jobs.append((clip.thumbnail_url, thumb_path, clip.id))
+                # DB is the source of truth: a clip whose video is recorded as
+                # downloaded is trusted as complete, so it incurs zero
+                # filesystem stats on rerun (its thumbnail was fetched in the
+                # same prior run). This is the steady-state fast path.
                 if clip.is_downloaded is True:
                     continue
                 if clip.is_downloaded is False and not retry_failed:
                     continue
+                thumb_path = str(paths.thumbnail_for(clip.id))
+                if not os.path.exists(thumb_path) and clip.thumbnail_url:
+                    thumbnail_jobs.append((clip.thumbnail_url, thumb_path, clip.id))
                 if clip.video_url is None:
                     clips_missing_url.append(clip.id)
                     continue

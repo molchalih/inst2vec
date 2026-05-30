@@ -21,6 +21,7 @@ classifiers = [
 # extra) only co-resolves on the 3.12 the box and prod images run.
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "alembic>=1.13",
     "hdbscan>=0.8.42",
     "hikerapi>=1.7.9",
     "httpx>=0.28.1",
@@ -29,6 +30,7 @@ dependencies = [
     "lingua-language-detector>=2.2.0",
     "matplotlib>=3.10.9",
     "faster-whisper>=1.2.0",
+    "psycopg[binary]>=3.2",
     "pydantic>=2.0",
     "python-dotenv>=1.2.2",
     "qwen-vl-utils>=0.0.14",

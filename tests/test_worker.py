@@ -35,7 +35,7 @@ def test_embed_with_token_fallback_injects_case_and_clip_id():
     p = _StubProvider()
     embed_with_token_fallback(
         p,
-        CASE_REGISTRY["audio"],
+        CASE_REGISTRY["spoken"],
         clip_id=42,
         text="hi",
         video_path=None,
@@ -53,7 +53,7 @@ def test_embed_with_token_fallback_injects_case_and_clip_id():
         fps=1.0,
         max_frames=32,
     )
-    assert p.payloads[0]["case"] == "audio" and p.payloads[0]["clip_id"] == 42
+    assert p.payloads[0]["case"] == "spoken" and p.payloads[0]["clip_id"] == 42
     assert p.payloads[1]["case"] == "video" and p.payloads[1]["clip_id"] == 42
 
 
@@ -97,7 +97,7 @@ def test_http_job_source_lease_complete_roundtrip():
                     "lease_id": "L1",
                     "job": make_job(
                         clip_id=7,
-                        case="audio",
+                        case="sandwich",
                         text="hi",
                         video_key=None,
                         fps=None,
@@ -129,7 +129,7 @@ def test_worker_resolves_audio_path_for_audio_key(tmp_path):
     b.add(
         make_job(
             clip_id=5,
-            case="maest",
+            case="auditory",
             text=None,
             video_key=None,
             fps=None,
@@ -150,7 +150,7 @@ def test_worker_resolves_audio_path_for_audio_key(tmp_path):
         poll_idle_s=0.01,
     )
     assert p.payloads[0]["audio_path"] == str(tmp_path / "5.mp3")
-    assert p.payloads[0]["case"] == "maest"
+    assert p.payloads[0]["case"] == "auditory"
 
 
 def test_lease_raises_clear_error_on_unauthorized():

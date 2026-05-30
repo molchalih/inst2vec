@@ -69,11 +69,17 @@ def test_default_config_toml_loads_all_default_case_prompts() -> None:
     settings = _load_settings()
     cps = settings.labels.case_prompts
     cl = settings.labels.cluster_case_prompts
-    # video / sandwich / audio / maest must all be present and non-empty
-    # (gemini is gated and may be omitted from the default config.toml).
-    for case in ("video", "sandwich", "audio", "maest"):
+    # Cases that run the per-clip pass (video) or carry a clip prompt body
+    # (auditory) must have a non-empty clip prompt; spoken / textual skip the
+    # clip pass so their clip prompt resolves to an empty string by design.
+    for case in ("video", "sandwich", "auditory"):
         assert case in cps, f"case_prompts.{case} missing from config.toml"
         assert cps[case].strip(), f"case_prompts.{case} is empty"
+    for case in ("spoken", "textual"):
+        assert case in cps, f"case_prompts.{case} missing from config.toml"
+    # Every active case (incl. the text-only spoken / textual) must have a
+    # non-empty cluster prompt; the cluster pass runs for all of them.
+    for case in ("video", "sandwich", "auditory", "spoken", "textual"):
         assert case in cl, f"cluster_case_prompts.{case} missing"
         assert cl[case].strip(), f"cluster_case_prompts.{case} is empty"
 
@@ -89,15 +95,32 @@ def test_video_case_prompt_matches_legacy_prompt_text() -> None:
     assert "one_sentence_visual_reading" in text
 
 
-@pytest.mark.parametrize("case", ("audio", "sandwich", "maest"))
-def test_other_case_prompts_target_their_modality(case: str) -> None:
+@pytest.mark.parametrize("case", ("sandwich", "auditory"))
+def test_clip_case_prompts_target_their_modality(case: str) -> None:
+    """Cases that carry a clip-pass prompt body name their modality's
+    per-clip keys (observable_<modality>_tags / one_sentence_<modality>_reading)
+    and the cluster prompt names dominant_<modality>_repertoire."""
     settings = _load_settings()
     text = settings.labels.case_prompts[case]
     cluster_text = settings.labels.cluster_case_prompts[case]
-    # Per SPEC §5.6 the per-case stage-1 keys are observable_<modality>_tags
-    # and one_sentence_<modality>_reading; the cluster prompt similarly names
-    # dominant_<modality>_repertoire.
-    modality = {"audio": "audio", "sandwich": "multimodal", "maest": "music"}[case]
+    modality = {"sandwich": "multimodal", "auditory": "music"}[case]
     assert f"observable_{modality}_tags" in text
     assert f"one_sentence_{modality}_reading" in text
     assert f"dominant_{modality}_repertoire" in cluster_text
+
+
+@pytest.mark.parametrize(
+    ("case", "repertoire"),
+    (
+        ("spoken", "dominant_audio_repertoire"),
+        ("textual", "dominant_textual_repertoire"),
+    ),
+)
+def test_clip_skipped_cluster_prompts_name_repertoire(
+    case: str, repertoire: str
+) -> None:
+    """spoken / textual skip the clip pass, so only the cluster prompt is
+    asserted — it must name the modality's repertoire key."""
+    settings = _load_settings()
+    cluster_text = settings.labels.cluster_case_prompts[case]
+    assert repertoire in cluster_text

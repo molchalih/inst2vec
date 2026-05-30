@@ -26,8 +26,8 @@ def test_cycle_raises() -> None:
     from dataclasses import replace
 
     bad = {
-        "a": replace(REGISTRY["audio"], name="a", consumes_label_cases=("b",)),
-        "b": replace(REGISTRY["audio"], name="b", consumes_label_cases=("a",)),
+        "a": replace(REGISTRY["spoken"], name="a", consumes_label_cases=("b",)),
+        "b": replace(REGISTRY["spoken"], name="b", consumes_label_cases=("a",)),
     }
     with pytest.raises(CycleError):
         case_run_order(["a", "b"], registry=bad)

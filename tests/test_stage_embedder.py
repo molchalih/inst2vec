@@ -94,10 +94,10 @@ def _video_job(cid):
     )
 
 
-def _maest_job(cid):
+def _auditory_job(cid):
     return make_job(
         clip_id=cid,
-        case="maest",
+        case="auditory",
         text=None,
         video_key=None,
         fps=None,
@@ -129,21 +129,25 @@ def test_one_worker_persists_across_two_cases(monkeypatch):
     _patch_router(monkeypatch)
     settings = _Settings(_Emb(), _Paths())
     sess = _FakeSession()
-    with StageEmbedder(settings, _Secrets(), ["video", "maest"]) as stage:
+    with StageEmbedder(settings, _Secrets(), ["video", "auditory"]) as stage:
         worker_before = stage._worker
         cl._scope_var.set("embed:video")
         ok1, _ = stage.drain_case(
             sess, CASE_REGISTRY["video"], [_video_job(1)], {1: "h"}, "embed:video"
         )
-        cl._scope_var.set("embed:maest")
+        cl._scope_var.set("embed:auditory")
         ok2, _ = stage.drain_case(
-            sess, CASE_REGISTRY["maest"], [_maest_job(3)], {3: "h"}, "embed:maest"
+            sess,
+            CASE_REGISTRY["auditory"],
+            [_auditory_job(3)],
+            {3: "h"},
+            "embed:auditory",
         )
         assert stage._worker is worker_before  # same long-lived worker
     assert ok1 == 1 and ok2 == 1
     assert {(m.clip_id, m.embedding_case) for m in sess.merged} == {
         (1, "video"),
-        (3, "maest"),
+        (3, "auditory"),
     }
 
 
@@ -237,10 +241,14 @@ def test_fleet_started_only_for_remote_leaseable_jobs(monkeypatch):
     settings = _Settings(_Emb(), _Paths())
     sess = _FakeSession()
     fleet = _SpyFleet()
-    cl._scope_var.set("embed:maest")
-    with StageEmbedder(settings, _Secrets(), ["video", "maest"], fleet=fleet) as stage:
-        # local-only case (maest is served_remotely=False) -> no deploy
-        stage.drain_case(sess, CASE_REGISTRY["maest"], [_maest_job(1)], {1: "h"}, "t")
+    cl._scope_var.set("embed:auditory")
+    with StageEmbedder(
+        settings, _Secrets(), ["video", "auditory"], fleet=fleet
+    ) as stage:
+        # local-only case (auditory is served_remotely=False) -> no deploy
+        stage.drain_case(
+            sess, CASE_REGISTRY["auditory"], [_auditory_job(1)], {1: "h"}, "t"
+        )
         assert fleet.started == 0
         # video case but the clip is not uploaded -> nothing a pod could lease
         local_video = make_job(

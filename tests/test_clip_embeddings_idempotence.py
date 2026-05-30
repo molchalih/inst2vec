@@ -245,7 +245,15 @@ def test_first_run_embeds_all_default_cases(db_session, stub_providers, tmp_path
     _seed(
         db_session,
         settings,
-        clips=[dict(id=10, user_id=1)],
+        clips=[
+            dict(
+                id=10,
+                user_id=1,
+                is_speech_detected=True,
+                speech_transcription="hi there",
+                caption_clean="a caption",
+            )
+        ],
         audio_mir_rows=[
             dict(
                 clip_id=10,
@@ -261,9 +269,9 @@ def test_first_run_embeds_all_default_cases(db_session, stub_providers, tmp_path
 
     rows = db_session.query(ClipEmbedding).all()
     cases = {r.embedding_case for r in rows}
-    assert cases == {"video", "sandwich", "audio", "maest"}
+    assert cases == {"video", "sandwich", "auditory", "spoken", "textual"}
 
-    for case in ("video", "sandwich", "audio", "maest"):
+    for case in ("video", "sandwich", "auditory", "spoken", "textual"):
         assert db_session.get(StageState, ("clip_embeddings", case)) is not None
 
 
@@ -296,7 +304,7 @@ def test_new_candidate_triggers_recompute(db_session, stub_providers):
     assert ids == {10, 11}
 
 
-def test_audio_speech_change_only_invalidates_audio(db_session, stub_providers):
+def test_speech_change_only_invalidates_spoken(db_session, stub_providers):
     settings = _settings(stub_providers)
     _seed(
         db_session,
@@ -308,10 +316,10 @@ def test_audio_speech_change_only_invalidates_audio(db_session, stub_providers):
 
     before = {
         case: db_session.get(StageState, ("clip_embeddings", case)).dependency_hash
-        for case in ("video", "sandwich", "audio")
+        for case in ("video", "sandwich", "spoken")
     }
 
-    # Mutate speech_transcription — should flip audio + sandwich dep, not video.
+    # Mutate speech_transcription — should flip spoken + sandwich dep, not video.
     db_session.query(Clip).filter_by(id=10).update(
         {"speech_transcription": "hello there"}
     )
@@ -322,18 +330,22 @@ def test_audio_speech_change_only_invalidates_audio(db_session, stub_providers):
 
     after = {
         case: db_session.get(StageState, ("clip_embeddings", case)).dependency_hash
-        for case in ("video", "sandwich", "audio")
+        for case in ("video", "sandwich", "spoken")
     }
     assert after["video"] == before["video"]  # video untouched
     assert after["sandwich"] != before["sandwich"]  # sandwich dep changed
-    assert after["audio"] != before["audio"]  # audio dep changed
+    assert after["spoken"] != before["spoken"]  # spoken dep changed
 
 
-def test_audio_instruction_change_only_invalidates_audio(
+def test_spoken_instruction_change_only_invalidates_spoken(
     db_session, stub_providers, monkeypatch
 ):
     settings = _settings(stub_providers)
-    _seed(db_session, settings, clips=[dict(id=10, user_id=1)])
+    _seed(
+        db_session,
+        settings,
+        clips=[dict(id=10, user_id=1, speech_transcription="hi")],
+    )
     embed_clip_embeddings(settings, _FAKE_SECRETS)
     db_session.expire_all()
     # Compare config_hash (not updated_at): SQLite server_default/onupdate has
@@ -342,20 +354,20 @@ def test_audio_instruction_change_only_invalidates_audio(
     # the invariant we actually care about here.
     before = {
         case: db_session.get(StageState, ("clip_embeddings", case)).config_hash
-        for case in ("video", "sandwich", "audio")
+        for case in ("video", "sandwich", "spoken")
     }
 
-    monkeypatch.setattr(cases_mod, "AUDIO_INSTRUCTION", "NEW INSTRUCTION TEXT")
+    monkeypatch.setattr(cases_mod, "SPOKEN_INSTRUCTION", "NEW INSTRUCTION TEXT")
 
     embed_clip_embeddings(settings, _FAKE_SECRETS)
     db_session.expire_all()
     after = {
         case: db_session.get(StageState, ("clip_embeddings", case)).config_hash
-        for case in ("video", "sandwich", "audio")
+        for case in ("video", "sandwich", "spoken")
     }
     assert after["video"] == before["video"]
     assert after["sandwich"] == before["sandwich"]
-    assert after["audio"] != before["audio"]
+    assert after["spoken"] != before["spoken"]
 
 
 def test_empty_candidates_writes_stage_state(db_session, stub_providers):
@@ -571,7 +583,7 @@ def test_empty_candidate_set_does_not_wipe_existing_rows(db_session, stub_provid
 
 
 def test_config_change_still_wipes(db_session, stub_providers, monkeypatch):
-    """A config-hash drift (e.g. AUDIO_INSTRUCTION edit) must wipe + recompute."""
+    """A config-hash drift (e.g. SPOKEN_INSTRUCTION edit) must wipe + recompute."""
     settings = _settings(stub_providers)
     _seed(
         db_session,
@@ -599,16 +611,16 @@ def test_config_change_still_wipes(db_session, stub_providers, monkeypatch):
 
     monkeypatch.setattr(worker_mod, "embed_with_token_fallback", tracked)
 
-    # Mutate AUDIO_INSTRUCTION → only audio's config_hash changes.
-    monkeypatch.setattr(cases_mod, "AUDIO_INSTRUCTION", "NEW INSTRUCTION TEXT")
+    # Mutate SPOKEN_INSTRUCTION → only spoken's config_hash changes.
+    monkeypatch.setattr(cases_mod, "SPOKEN_INSTRUCTION", "NEW INSTRUCTION TEXT")
 
     embed_clip_embeddings(settings, _FAKE_SECRETS)
     db_session.expire_all()
 
-    audio_calls = sorted(cid for case, cid in call_log if case == "audio")
-    non_audio_calls = [pair for pair in call_log if pair[0] != "audio"]
-    assert audio_calls == [10, 11], "audio: full wipe-and-recompute"
-    assert non_audio_calls == [], "video and sandwich: fingerprint match → skip"
+    spoken_calls = sorted(cid for case, cid in call_log if case == "spoken")
+    non_spoken_calls = [pair for pair in call_log if pair[0] != "spoken"]
+    assert spoken_calls == [10, 11], "spoken: full wipe-and-recompute"
+    assert non_spoken_calls == [], "video and sandwich: fingerprint match → skip"
 
 
 def test_stale_row_with_missing_video_drops_row_and_leaves_stage_stale(
@@ -769,8 +781,8 @@ def test_orphan_row_swept_even_when_stage_sealed(db_session, stub_providers):
     } == {10}, "orphan row must be swept on the next run, even when stage is sealed"
 
 
-def test_maest_case_runs_with_audio_path(db_session, stub_providers, tmp_path):
-    """The maest case must be embedded once per candidate; the provider
+def test_auditory_case_runs_with_audio_path(db_session, stub_providers, tmp_path):
+    """The auditory case must be embedded once per candidate; the provider
     receives the clip's .mp3 path. The stub_providers fixture replaces
     every spec.provider_factory with the fake _FakeProvider, so this also
     exercises the payload builder path.
@@ -784,19 +796,19 @@ def test_maest_case_runs_with_audio_path(db_session, stub_providers, tmp_path):
     _seed(db_session, settings, clips=[dict(id=10, user_id=1)])
     (audio_dir / "10.mp3").write_bytes(b"\x00")
 
-    embed_clip_embeddings(settings, _FAKE_SECRETS, cases=["maest"])
+    embed_clip_embeddings(settings, _FAKE_SECRETS, cases=["auditory"])
     db_session.expire_all()
 
-    rows = db_session.query(ClipEmbedding).filter_by(embedding_case="maest").all()
+    rows = db_session.query(ClipEmbedding).filter_by(embedding_case="auditory").all()
     assert len(rows) == 1
     assert rows[0].clip_id == 10
     assert rows[0].source_hash is not None
 
 
-def test_maest_case_skips_clip_when_audio_file_missing(
+def test_auditory_case_skips_clip_when_audio_file_missing(
     db_session, stub_providers, tmp_path
 ):
-    """No mp3 on disk → maest skips the clip cleanly without writing a row."""
+    """No mp3 on disk → auditory skips the clip cleanly without writing a row."""
     settings = _settings(stub_providers)
     audio_dir = stub_providers / "audios"
     audio_dir.mkdir(exist_ok=True)
@@ -805,16 +817,19 @@ def test_maest_case_skips_clip_when_audio_file_missing(
     _seed(db_session, settings, clips=[dict(id=10, user_id=1)])
     # NO audio file written.
 
-    embed_clip_embeddings(settings, _FAKE_SECRETS, cases=["maest"])
+    embed_clip_embeddings(settings, _FAKE_SECRETS, cases=["auditory"])
     db_session.expire_all()
 
-    rows = db_session.query(ClipEmbedding).filter_by(embedding_case="maest").all()
+    rows = db_session.query(ClipEmbedding).filter_by(embedding_case="auditory").all()
     assert rows == []
 
 
-def test_audio_mir_row_descriptor_change_invalidates_sandwich_and_audio(
+def test_audio_mir_row_descriptor_change_invalidates_sandwich_only(
     db_session, stub_providers, tmp_path, monkeypatch
 ):
+    """MIR descriptors feed only the multimodal sandwich case now; spoken is
+    speech-only and video has no MIR dependency, so a genre change must drift
+    sandwich alone."""
     settings = _settings(stub_providers)
     audio_dir = stub_providers / "audios"
     audio_dir.mkdir(exist_ok=True)
@@ -837,12 +852,14 @@ def test_audio_mir_row_descriptor_change_invalidates_sandwich_and_audio(
         ],
     )
 
-    embed_clip_embeddings(settings, _FAKE_SECRETS, cases=["sandwich", "audio", "video"])
+    embed_clip_embeddings(
+        settings, _FAKE_SECRETS, cases=["sandwich", "spoken", "video"]
+    )
     db_session.expire_all()
 
     before = {
         case: db_session.get(StageState, ("clip_embeddings", case)).dependency_hash
-        for case in ("video", "sandwich", "audio")
+        for case in ("video", "sandwich", "spoken")
     }
 
     db_session.query(AudioMIR).filter_by(clip_id=10).update(
@@ -850,16 +867,18 @@ def test_audio_mir_row_descriptor_change_invalidates_sandwich_and_audio(
     )
     db_session.commit()
 
-    embed_clip_embeddings(settings, _FAKE_SECRETS, cases=["sandwich", "audio", "video"])
+    embed_clip_embeddings(
+        settings, _FAKE_SECRETS, cases=["sandwich", "spoken", "video"]
+    )
     db_session.expire_all()
 
     after = {
         case: db_session.get(StageState, ("clip_embeddings", case)).dependency_hash
-        for case in ("video", "sandwich", "audio")
+        for case in ("video", "sandwich", "spoken")
     }
     assert after["video"] == before["video"]
     assert after["sandwich"] != before["sandwich"]
-    assert after["audio"] != before["audio"]
+    assert after["spoken"] == before["spoken"]  # spoken has no MIR dependency
 
 
 def test_preflight_warns_when_pods_set_but_no_bucket(

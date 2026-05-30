@@ -222,3 +222,43 @@ def build_audio_text(clip, mir_row) -> str | None:
             parts.append(music_text)
 
     return " | ".join(parts) if parts else None
+
+
+def build_spoken_text(clip, _mir_row) -> str | None:
+    """Speech transcript ONLY (no music, no caption).
+
+    Same translation rule as the speech half of ``build_sandwich_text``:
+    use ``speech_translation`` when the source language is non-English and a
+    non-empty translation exists, else ``speech_transcription``. ``_mir_row``
+    is accepted to keep the text_builder signature uniform and is ignored.
+    Returns ``None`` when no speech was detected or the transcript is empty.
+    """
+    if clip.is_speech_detected is not True:
+        return None
+    speech = (
+        clip.speech_translation
+        if _is_non_english(clip.speech_language)
+        and clip.speech_translation
+        and clip.speech_translation.strip()
+        else (clip.speech_transcription or "")
+    )
+    speech = speech.strip()
+    return speech if speech else None
+
+
+def build_textual_text(clip, _mir_row) -> str | None:
+    """Clip caption ONLY (no speech, no music).
+
+    Same caption translation rule as ``build_sandwich_text``. ``_mir_row`` is
+    accepted to keep the signature uniform and is ignored. Returns ``None``
+    when the caption is empty.
+    """
+    cap = (
+        clip.caption_translation
+        if _is_non_english(clip.caption_language)
+        and clip.caption_translation
+        and clip.caption_translation.strip()
+        else (clip.caption_clean or clip.caption_text or "")
+    )
+    cap = cap.strip()
+    return cap if cap else None

@@ -1,10 +1,15 @@
 """Upload selected + downloaded clip videos to the object store.
 
-Pipeline stage. Idempotent: the bucket is authoritative — ``Clip.is_uploaded``
-is rewritten from the real post-verify state on every run, so a deleted or
-half-uploaded object self-heals on the next run.  When the storage bucket is
-unconfigured (empty string in settings), the stage is a no-op — used for
-fully-local runs that never talk to the GPU pod.
+Pipeline stage. The uploaded videos are consumed only by the remote embedder
+(pods serve ``served_remotely=True`` cases), so the whole stage is skipped when
+that path is inactive — either the embedder token is unset, or no active case
+is served remotely — as well as when the storage bucket is unconfigured.
+
+When the stage does run, idempotence is row-level and DB-trusting:
+``Clip.is_uploaded=True`` rows are taken at face value (no HEAD, no re-upload),
+and only pending rows (``is_uploaded`` False/NULL) are verified against the
+bucket and uploaded if missing/changed. This trades the old bucket-authoritative
+self-heal of externally-deleted objects for a much cheaper rerun.
 """
 
 from __future__ import annotations
@@ -20,6 +25,7 @@ from core.console import progress
 from core.database import Clip, get_session
 from core.log import StageResult, event, scope, stage
 from core.storage import get_object_store
+from modules.embeddings.cases import default_cases, remote_served_cases
 
 __all__ = ["run"]
 
@@ -108,14 +114,30 @@ def run_uploads(
     return available
 
 
+def _remote_path_active(settings, secrets) -> bool:
+    """Whether the remote embedder path that consumes uploads is live.
+
+    Inactive (stage skips) when EITHER the embedder token is unset OR no active
+    case is served remotely. "Active served-remotely cases" is the intersection
+    of ``default_cases(settings)`` with ``remote_served_cases()``.
+    """
+    if not secrets.embedder_token:
+        return False
+    active = set(default_cases(settings))
+    return bool(active.intersection(remote_served_cases()))
+
+
 @scope("upload")
 def upload_videos(settings, secrets) -> StageResult:
-    """Verify selected+downloaded clips against the bucket and upload the
-    missing/changed ones concurrently. The bucket is authoritative:
-    ``Clip.is_uploaded`` is rewritten from the real post-verify state, so a
-    deleted/half-uploaded object self-heals on the next run."""
+    """Verify pending selected+downloaded clips against the bucket and upload the
+    missing/changed ones concurrently. DB-trusting: ``Clip.is_uploaded=True``
+    rows are skipped entirely (no HEAD); only pending rows are verified, and the
+    flag is set from their real post-verify state."""
     if not settings.storage.bucket:
         event("SKIP", "bucket", stats={"reason": "unconfigured"})
+        return StageResult(done=0)
+    if not _remote_path_active(settings, secrets):
+        event("SKIP", "remote", stats={"reason": "embedder inactive"})
         return StageResult(done=0)
 
     store = get_object_store(settings, secrets)
@@ -127,7 +149,11 @@ def upload_videos(settings, secrets) -> StageResult:
     try:
         candidates = (
             session.query(Clip)
-            .filter(Clip.is_selected.is_(True), Clip.is_downloaded.is_(True))
+            .filter(
+                Clip.is_selected.is_(True),
+                Clip.is_downloaded.is_(True),
+                Clip.is_uploaded.isnot(True),
+            )
             .all()
         )
         if not candidates:
@@ -185,5 +211,8 @@ def upload_videos(settings, secrets) -> StageResult:
 
 @stage("upload")
 def run(settings: Settings, secrets: Secrets) -> StageResult:
-    """Upload selected clip videos to the object store."""
+    """Upload pending selected clip videos to the object store.
+
+    Skips entirely when the bucket is unset or the remote embedder path is
+    inactive (no token, or no active served-remotely case)."""
     return upload_videos(settings, secrets)

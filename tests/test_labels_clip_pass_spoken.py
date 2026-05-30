@@ -1,9 +1,9 @@
-"""Stage-1 generic runner — ``audio`` case coverage.
+"""Stage-1 generic runner — ``spoken`` case coverage.
 
-Asserts the audio case routes to ``run_text``, that input composition
-comes from ``modules.embeddings.text.build_audio_text``, and that the
-runner marks ``status='failed', error='no_input'`` when the case
-adapter signals no input is available.
+Asserts the spoken case routes to ``run_text``, that input composition
+comes from ``modules.embeddings.text.build_spoken_text`` (speech transcript
+only — no music), and that the runner marks ``status='failed',
+error='no_speech'`` when no speech is available.
 """
 
 from __future__ import annotations
@@ -23,15 +23,15 @@ from modules.labels.clip_pass import run_case
 
 def _labels(**overrides) -> LabelsSettings:
     base = dict(
-        case_prompts={"audio": "AUDIO_PROMPT"},
-        cluster_case_prompts={"audio": "cluster prompt"},
+        case_prompts={"spoken": "SPOKEN_PROMPT"},
+        cluster_case_prompts={"spoken": "cluster prompt"},
     )
     base.update(overrides)
     return LabelsSettings(**base)
 
 
 def _settings() -> SimpleNamespace:
-    # video_for is unused for audio, but ``run_case`` reads ``settings.paths``
+    # video_for is unused for spoken, but ``run_case`` reads ``settings.paths``
     # so we keep it present-and-safe.
     return SimpleNamespace(
         paths=SimpleNamespace(video_for=lambda cid: f"/tmp/{cid}.mp4")
@@ -49,8 +49,8 @@ def _clean_audio_json() -> str:
         {
             "observable_audio_tags": [
                 {"tag": "calm narration voice", "evidence": "speech transcript"},
-                {"tag": "midtempo lo-fi loop", "evidence": "music description"},
-                {"tag": "soft ambient room tone", "evidence": "background hum"},
+                {"tag": "personal diary topic", "evidence": "speech transcript"},
+                {"tag": "unhurried delivery", "evidence": "speech transcript"},
             ],
             "aesthetic_tags": [
                 {
@@ -59,13 +59,13 @@ def _clean_audio_json() -> str:
                     "confidence": "medium",
                 },
                 {
-                    "tag": "lo-fi domestic mood",
-                    "grounded_in": ["midtempo lo-fi loop"],
+                    "tag": "confessional tone",
+                    "grounded_in": ["personal diary topic"],
                     "confidence": "low",
                 },
                 {
-                    "tag": "muted ambient palette",
-                    "grounded_in": ["soft ambient room tone"],
+                    "tag": "slow conversational pace",
+                    "grounded_in": ["unhurried delivery"],
                     "confidence": "high",
                 },
             ],
@@ -76,18 +76,18 @@ def _clean_audio_json() -> str:
                     "confidence": "medium",
                 },
                 {
-                    "tag": "lofi creator audio palette",
-                    "grounded_in": ["lo-fi domestic mood"],
+                    "tag": "personal-diary listening register",
+                    "grounded_in": ["confessional tone"],
                     "confidence": "low",
                 },
                 {
-                    "tag": "personal-diary listening register",
-                    "grounded_in": ["muted ambient palette"],
+                    "tag": "vlog narration palette",
+                    "grounded_in": ["slow conversational pace"],
                     "confidence": "low",
                 },
             ],
             "one_sentence_audio_reading": (
-                "soft narrated voice over an unhurried lo-fi instrumental bed"
+                "soft narrated voice in an unhurried confessional register"
             ),
         }
     )
@@ -122,6 +122,7 @@ def _seed_speech_and_music(eng) -> None:
                 speech_language="en",
             )
         )
+        # A MIR row is present but MUST NOT leak into the spoken prompt.
         s.add(
             AudioMIR(
                 clip_id=1,
@@ -149,7 +150,7 @@ def _seed_silent_clip(eng) -> None:
         s.commit()
 
 
-def test_audio_happy_path_writes_row_with_required_keys():
+def test_spoken_happy_path_writes_row_with_required_keys():
     eng = _engine()
     _seed_speech_and_music(eng)
     gen = _FakeGen(response=_clean_audio_json())
@@ -159,20 +160,20 @@ def test_audio_happy_path_writes_row_with_required_keys():
             settings=_settings(),
             labels=_labels(),
             generator=gen,
-            spec=REGISTRY["audio"],
+            spec=REGISTRY["spoken"],
         )
-    # ``run_text`` is the only branch the audio case may take.
+    # ``run_text`` is the only branch the spoken case may take.
     assert gen.video_calls == []
     assert len(gen.text_calls) == 1
     prompt, _max_new = gen.text_calls[0]
-    assert prompt.startswith("AUDIO_PROMPT\n\n")
-    # Speech transcript and MIR verbalization both make it into the prompt.
+    assert prompt.startswith("SPOKEN_PROMPT\n\n")
+    # Speech transcript makes it into the prompt; music descriptors do NOT.
     assert "calm slow narration" in prompt
-    assert "Music:" in prompt and "lofi" in prompt
+    assert "Music:" not in prompt and "lofi" not in prompt
     with Session(eng) as s:
-        row = s.get(ClipLabel, (1, "audio"))
+        row = s.get(ClipLabel, (1, "spoken"))
         assert row is not None
-        assert row.label_case == "audio"
+        assert row.label_case == "spoken"
         assert row.status == "success"
         assert row.validation == "ok"
         expected = {
@@ -186,7 +187,7 @@ def test_audio_happy_path_writes_row_with_required_keys():
         assert isinstance(row.source_hash, str) and len(row.source_hash) == 64
 
 
-def test_audio_no_input_marks_failed_no_input():
+def test_spoken_no_speech_marks_failed_no_speech():
     eng = _engine()
     _seed_silent_clip(eng)
     gen = _FakeGen(response=_clean_audio_json())
@@ -196,17 +197,17 @@ def test_audio_no_input_marks_failed_no_input():
             settings=_settings(),
             labels=_labels(max_attempts=1),
             generator=gen,
-            spec=REGISTRY["audio"],
+            spec=REGISTRY["spoken"],
         )
     assert gen.text_calls == []
     with Session(eng) as s:
-        row = s.get(ClipLabel, (1, "audio"))
+        row = s.get(ClipLabel, (1, "spoken"))
         assert row is not None
         assert row.status == "failed"
-        assert row.error == "no_input"
+        assert row.error == "no_speech"
 
 
-def test_audio_does_not_call_run_with_video():
+def test_spoken_does_not_call_run_with_video():
     eng = _engine()
     _seed_speech_and_music(eng)
     gen = _FakeGen(response=_clean_audio_json())
@@ -216,6 +217,6 @@ def test_audio_does_not_call_run_with_video():
             settings=_settings(),
             labels=_labels(),
             generator=gen,
-            spec=REGISTRY["audio"],
+            spec=REGISTRY["spoken"],
         )
     assert gen.video_calls == []
