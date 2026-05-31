@@ -55,3 +55,15 @@ def test_every_case_required_keys_are_all_defined_properties(case_name):
         f"{case_name}: required keys missing from properties: {required - properties}"
     )
     assert spec.repertoire_key in schema["properties"]
+
+
+def test_cluster_schema_uses_public_label_max_chars_constant():
+    """cluster_label maxLength is the single public CLUSTER_LABEL_MAX_CHARS source.
+
+    The cap is a constant (coupled to the "MAXIMUM 40 CHARACTERS" prompt text),
+    not a config knob — so schema, HC4 and the dedup fallback share one value.
+    """
+    from modules.labels.validation import CLUSTER_LABEL_MAX_CHARS
+
+    schema = cluster_schema(REGISTRY["video"], _labels())
+    assert schema["properties"]["cluster_label"]["maxLength"] == CLUSTER_LABEL_MAX_CHARS

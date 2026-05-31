@@ -245,3 +245,18 @@ def test_run_case_video_prompt_drift_wipes_only_video_case(tmp_path):
         # Video case re-ran with the new prompt body.
         assert video_row is not None and video_row.status == "success"
     assert any(prompt == "DIFFERENT_VIDEO_PROMPT" for (_, prompt) in gen.video_calls)
+
+
+def test_run_case_rejects_non_video_spec(tmp_path):
+    """run_case is video-only; a stage-1-skipped spec must trip the assert."""
+    import pytest
+
+    eng = _engine()
+    with Session(eng) as s, pytest.raises(AssertionError):
+        run_case(
+            session=s,
+            settings=_settings(tmp_path),
+            labels=_labels(),
+            generator=object(),
+            spec=REGISTRY["spoken"],  # runs_clip_pass=False
+        )

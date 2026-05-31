@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from core.config import LabelsSettings
 from modules.labels.cases import LabelCaseSpec
-from modules.labels.validation import _CLUSTER_LABEL_MAX_CHARS
+from modules.labels.validation import CLUSTER_LABEL_MAX_CHARS
 
 _RECURRENCE = ["dominant", "frequent", "occasional"]
 _CONFIDENCE = ["high", "medium", "low"]
@@ -93,7 +93,7 @@ def cluster_schema(spec: LabelCaseSpec, labels: LabelsSettings) -> dict:
         },
     }
     props = {
-        "cluster_label": {"type": "string", "maxLength": _CLUSTER_LABEL_MAX_CHARS},
+        "cluster_label": {"type": "string", "maxLength": CLUSTER_LABEL_MAX_CHARS},
         "cluster_summary": _desc_schema(labels.cluster_summary_max_chars),
         spec.repertoire_key: {"type": "array", "items": rep_item, **array_bounds},
         "dominant_aesthetic_logic": {

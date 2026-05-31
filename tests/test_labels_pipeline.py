@@ -668,7 +668,6 @@ def _patch_dispatching(gen: _DispatchingGen):
         ),
         patch.multiple(
             ClusterLabelsGenerator,
-            run_text=_run_text,
             run_text_batch=_run_text_batch,
             unload=lambda self: None,
             reclaim_memory=lambda self: None,

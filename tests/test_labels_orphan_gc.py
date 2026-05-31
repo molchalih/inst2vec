@@ -200,3 +200,24 @@ def test_purge_orphans_no_live_clusters_deletes_all_cluster_labels() -> None:
 
         assert clusters_deleted == 1
         assert session.query(ClusterLabel).count() == 0
+
+
+def test_purge_drops_label_for_selected_but_undownloaded_clip() -> None:
+    """A selected-but-undownloaded clip is not in analysis; its stray label goes.
+
+    Locks gc to the canonical ``clip_used_in_analysis()`` predicate
+    (is_selected AND is_downloaded), matching the clip pass.
+    """
+    init_db("sqlite:///:memory:", "sqlite:///:memory:")
+    with Session(get_engine()) as session:
+        _make_user(session, user_id=1)
+        session.add(Clip(id=10, user_id=1, is_selected=True, is_downloaded=False))
+        session.add(
+            ClipLabel(clip_id=10, label_case="video", status="success", attempts=1)
+        )
+        session.commit()
+
+        purge_orphans(session)
+        session.commit()
+
+        assert session.get(ClipLabel, (10, "video")) is None

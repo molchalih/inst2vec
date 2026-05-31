@@ -113,27 +113,6 @@ class ClusterLabelsGenerator:
             )
         return self._impl
 
-    def run_text(
-        self,
-        prompt: str,
-        *,
-        max_new_tokens: int,
-        seed: int | None = None,
-        do_sample: bool = False,
-        temperature: float = 1.0,
-        top_p: float = 1.0,
-        schema: dict | None = None,
-    ) -> str:
-        return self._ensure_impl().run_text(
-            prompt,
-            max_new_tokens=max_new_tokens,
-            seed=seed,
-            do_sample=do_sample,
-            temperature=temperature,
-            top_p=top_p,
-            schema=schema,
-        )
-
     def run_text_batch(
         self,
         prompts: list[str],

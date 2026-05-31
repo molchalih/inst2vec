@@ -38,7 +38,7 @@ from core.database import (
     UserCluster,
     clip_used_in_analysis,
 )
-from core.log import event, item, scope
+from core.log import event, item, scope, warn
 from core.pipeline import Stage
 from modules.labels.cases import REGISTRY, LabelCaseSpec
 from modules.labels.cluster_render import (
@@ -56,7 +56,7 @@ from modules.labels.state import (
 )
 from modules.labels.store import bump_failure, upsert_success, upsert_terminal_failure
 from modules.labels.validation import (
-    _CLUSTER_LABEL_MAX_CHARS,
+    CLUSTER_LABEL_MAX_CHARS,
     format_failure_error,
     validate_cluster,
 )
@@ -417,15 +417,15 @@ def _avoid_clause(used_labels: list[str]) -> str:
 
 def _with_suffix(base: str, suffix: str) -> str:
     """Append ``suffix`` to ``base``, truncating the BASE (never the suffix) to
-    fit ``_CLUSTER_LABEL_MAX_CHARS``.
+    fit ``CLUSTER_LABEL_MAX_CHARS``.
 
     Slicing the whole string after concatenation would chop the disambiguating
     suffix off a near-cap base and re-collide; reserving room for the suffix
     keeps it intact so the fallback stays distinct.
     """
-    room = _CLUSTER_LABEL_MAX_CHARS - len(suffix)
+    room = CLUSTER_LABEL_MAX_CHARS - len(suffix)
     if room <= 0:
-        return suffix[:_CLUSTER_LABEL_MAX_CHARS]
+        return suffix[:CLUSTER_LABEL_MAX_CHARS]
     return f"{base[:room].rstrip()}{suffix}"
 
 
@@ -546,7 +546,11 @@ def _dedup_round(
             top_p=0.95,
             schema=schema,
         )
-    except Exception:
+    except Exception as exc:
+        # Swallowed so the deterministic suffix fallback still runs, but a
+        # systematically-failing dedup generator must not look like "no
+        # collisions" — log it.
+        warn("GET", "qwen3-cluster", err=exc, stats={"case": case, "phase": "dedup"})
         return False
     for (cid, _, cands), raw in zip(reqs, raws, strict=True):
         _apply_dedup_result(
@@ -707,6 +711,15 @@ def _run_cluster_round(
         )
         errors: list[str | None] = [None] * len(requests)
     except Exception as exc:  # whole-batch failure (e.g. OOM) → bump all
+        # One batch fault bumps EVERY cluster in the batch, not just a genuinely
+        # unlabelable one — surface it so an all-failed pass is not misread as
+        # "all clusters are genuinely unlabelable".
+        warn(
+            "GET",
+            "qwen3-cluster",
+            err=exc,
+            stats={"case": case, "clusters": len(requests)},
+        )
         raws = [None] * len(requests)
         errors = [str(exc)] * len(requests)
 

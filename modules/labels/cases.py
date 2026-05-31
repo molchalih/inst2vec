@@ -61,7 +61,7 @@ class LabelCaseSpec:
     # ── declarative ergonomics added 2026-05-28 ─────────────────────────────
     # Other label cases whose ``ClipLabel.payload`` this case consumes
     # via its ``clip_input`` adapter. Drives:
-    #   * ``_data_hash_for_text`` / cluster pass per-clip input lookup;
+    #   * cluster pass per-clip input lookup;
     #   * dependency-hash composition (fold ``stage_dependency_hash(LABELS, dep)``);
     #   * topo-ordering of cases in ``pipeline.run``.
     # Each entry must reference a key present in ``REGISTRY``.

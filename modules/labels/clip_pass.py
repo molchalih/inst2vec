@@ -25,7 +25,7 @@ from sqlalchemy.orm import Session
 
 from core import fingerprint as fp
 from core.config import LabelsSettings, Settings
-from core.database import AudioMIR, Clip, ClipLabel
+from core.database import Clip, ClipLabel, clip_used_in_analysis
 from core.log import event, item, scope
 from core.pipeline import Stage
 from modules.labels.cases import LabelCaseSpec
@@ -42,9 +42,7 @@ from modules.labels.validation import format_failure_error, validate
 def _selected_clip_ids(session: Session) -> list[int]:
     return list(
         session.execute(
-            select(Clip.id)
-            .where(Clip.is_selected.is_(True), Clip.is_downloaded.is_(True))
-            .order_by(Clip.id)
+            select(Clip.id).where(*clip_used_in_analysis()).order_by(Clip.id)
         )
         .scalars()
         .all()
@@ -60,7 +58,7 @@ def _pending_clip_ids(
             ClipLabel,
             (ClipLabel.clip_id == Clip.id) & (ClipLabel.label_case == case),
         )
-        .where(Clip.is_selected.is_(True), Clip.is_downloaded.is_(True))
+        .where(*clip_used_in_analysis())
         .order_by(Clip.id)
     ).all()
     out: list[int] = []
@@ -82,49 +80,6 @@ def _data_hash_for_video(session: Session, settings: Settings) -> str:
     return fp.hash_rows(rows)
 
 
-def _consumed_payload(
-    session: Session, *, clip_id: int, spec: LabelCaseSpec
-) -> dict | None:
-    """Stage-1 payload from the (single) label case this case consumes.
-
-    The current ``clip_input`` adapter contract takes one ``visual_payload``
-    kwarg, so cases that consume multiple upstream label cases are not yet
-    supported — assert that the spec declares zero or one such case.
-    """
-    deps = spec.consumes_label_cases
-    if not deps:
-        return None
-    assert len(deps) == 1, f"{spec.name} consumes_label_cases must be 0 or 1"
-    existing = session.get(ClipLabel, (clip_id, deps[0]))
-    return existing.payload if existing is not None else None
-
-
-def _build_text_inputs(
-    session: Session, *, spec: LabelCaseSpec
-) -> dict[int, str | None]:
-    """Call ``spec.clip_input`` exactly once per selected clip.
-
-    Returned mapping is consumed by both ``_data_hash_from_inputs`` (for the
-    fingerprint ``data`` slot) and the per-clip generation loop. ``None`` is
-    preserved verbatim so the runner can mark the row failed with
-    ``spec.none_input_error``.
-    """
-    out: dict[int, str | None] = {}
-    for cid in _selected_clip_ids(session):
-        clip = session.get(Clip, cid)
-        mir_row = session.execute(
-            select(AudioMIR).where(AudioMIR.clip_id == cid)
-        ).scalar_one_or_none()
-        visual_payload = _consumed_payload(session, clip_id=cid, spec=spec)
-        out[cid] = spec.clip_input(clip, mir_row, visual_payload)
-    return out
-
-
-def _data_hash_from_inputs(inputs: dict[int, str | None]) -> str:
-    rows = [(cid, fp.hash_text(text or "")) for cid, text in sorted(inputs.items())]
-    return fp.hash_rows(rows)
-
-
 def _dependency_hash(session: Session, *, spec: LabelCaseSpec) -> str:
     parts: list[str] = [
         fp.stage_dependency_hash(session, st, sc)
@@ -141,15 +96,9 @@ def _current_fingerprint(
     settings: Settings,
     labels: LabelsSettings,
     spec: LabelCaseSpec,
-    text_inputs: dict[int, str | None],
 ) -> fp.Fingerprint:
-    data = (
-        _data_hash_for_video(session, settings)
-        if spec.clip_uses_video
-        else _data_hash_from_inputs(text_inputs)
-    )
     return fp.Fingerprint(
-        data=data,
+        data=_data_hash_for_video(session, settings),
         config=fp.hash_text(clip_labels_config_payload(labels, case=spec.name)),
         dependency=_dependency_hash(session, spec=spec),
     )
@@ -164,21 +113,27 @@ def run_case(
     generator,
     spec: LabelCaseSpec,
 ) -> None:
-    """Generic per-case stage-1 runner. Caller owns generator lifetime."""
+    """Video-case stage-1 runner. Caller owns generator lifetime.
+
+    Only the ``video`` case reaches stage 1: it is the sole place frames are
+    reduced to text. Stage-1-skipped cases (``runs_clip_pass=False``) are
+    synthesised straight from raw signals in :mod:`modules.labels.cluster_pass`
+    and never enter this runner — ``pipeline.run`` filters them out upstream.
+    """
+    assert spec.clip_uses_video, (
+        f"clip_pass.run_case only handles the video case; got {spec.name!r}. "
+        "Stage-1-skipped cases are synthesised in cluster_pass."
+    )
     paths = settings.paths
 
     def _wipe_case(s: Session) -> None:
         s.execute(delete(ClipLabel).where(ClipLabel.label_case == spec.name))
 
-    text_inputs: dict[int, str | None] = (
-        {} if spec.clip_uses_video else _build_text_inputs(session, spec=spec)
-    )
     current = _current_fingerprint(
         session,
         settings=settings,
         labels=labels,
         spec=spec,
-        text_inputs=text_inputs,
     )
     fp.gate(
         session,
@@ -200,7 +155,7 @@ def run_case(
         )
         prompt_body = prompt_for(labels, case=spec.name)
         batch_size = max(1, int(labels.batch_size))
-        if spec.clip_uses_video and batch_size > 1:
+        if batch_size > 1:
             _process_video_batches(
                 session,
                 pending=pending,
@@ -224,7 +179,6 @@ def run_case(
                         generator=generator,
                         spec=spec,
                         paths=paths,
-                        text_inputs=text_inputs,
                     )
                     session.commit()
 
@@ -282,7 +236,6 @@ def _process_video_batches(
                 key=(cid, spec.name),
                 labels=labels,
                 spec=spec,
-                source_text=None,
             )
         session.commit()
 
@@ -392,47 +345,9 @@ def _process_one(
     generator,
     spec: LabelCaseSpec,
     paths,
-    text_inputs: dict[int, str | None],
 ) -> None:
-    if spec.clip_uses_video:
-        try:
-            raw = generator.run(paths.video_for(clip_id), prompt_body)
-        except Exception as exc:
-            bump_failure(
-                session,
-                ClipLabel,
-                key=key,
-                error=f"runtime:{exc}",
-                max_attempts=labels.max_attempts,
-            )
-            return
-        _store_result(
-            session,
-            raw=raw,
-            key=key,
-            labels=labels,
-            spec=spec,
-            source_text=None,
-        )
-        return
-
-    input_text = text_inputs.get(clip_id)
-    if input_text is None:
-        assert spec.none_input_error is not None, (
-            f"{spec.name} adapter returned None but spec.none_input_error is None"
-        )
-        bump_failure(
-            session,
-            ClipLabel,
-            key=key,
-            error=spec.none_input_error,
-            max_attempts=labels.max_attempts,
-        )
-        return
-
-    prompt = prompt_body + "\n\n" + input_text
     try:
-        raw = generator.run_text(prompt, max_new_tokens=labels.max_new_tokens)
+        raw = generator.run(paths.video_for(clip_id), prompt_body)
     except Exception as exc:
         bump_failure(
             session,
@@ -448,7 +363,6 @@ def _process_one(
         key=key,
         labels=labels,
         spec=spec,
-        source_text=input_text,
     )
 
 
@@ -459,7 +373,6 @@ def _store_result(
     key: tuple,
     labels: LabelsSettings,
     spec: LabelCaseSpec,
-    source_text: str | None,
 ) -> None:
     payload, status, warnings = validate(raw, labels, case=spec.name)
     if status == "failed":
@@ -478,9 +391,6 @@ def _store_result(
         )
         return
     assert payload is not None
-    extras: dict[str, object] = {}
-    if source_text is not None:
-        extras["source_hash"] = fp.hash_text(source_text)
     upsert_success(
         session,
         ClipLabel,
@@ -488,5 +398,4 @@ def _store_result(
         validation=status,
         payload=payload,
         warnings=warnings,
-        extras=extras or None,
     )

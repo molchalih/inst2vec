@@ -2,8 +2,8 @@
 
 Stage-1 / stage-2 fingerprints are config + dep only with respect to
 the set of selected clips / live clusters: adding a row drifts the
-data hash via ``_data_hash_for_video`` / ``_data_hash_for_text``, but
-*removing* one from the source set does not. Without an explicit
+data hash (clip-pass ``_data_hash_for_video`` / cluster-pass candidate
+payloads), but *removing* one from the source set does not. Without an explicit
 purge, dropping a user from ``data.csv`` or unselecting a clip leaves
 inert ``clip_labels`` / ``cluster_labels`` rows behind forever.
 
@@ -21,7 +21,14 @@ from __future__ import annotations
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from core.database import Clip, ClipLabel, ClusterLabel, StageState, UserCluster
+from core.database import (
+    Clip,
+    ClipLabel,
+    ClusterLabel,
+    StageState,
+    UserCluster,
+    clip_used_in_analysis,
+)
 from modules.labels.cases import REGISTRY
 from modules.labels.state import STAGE_LABELS, clip_scope_for
 
@@ -51,14 +58,12 @@ def purge_orphans(session: Session) -> tuple[int, int]:
                 )
             )
 
-    selected_ids = set(
-        session.execute(select(Clip.id).where(Clip.is_selected.is_(True)))
-        .scalars()
-        .all()
+    eligible_ids = set(
+        session.execute(select(Clip.id).where(*clip_used_in_analysis())).scalars().all()
     )
-    if selected_ids:
+    if eligible_ids:
         clip_result = session.execute(
-            delete(ClipLabel).where(ClipLabel.clip_id.notin_(selected_ids))
+            delete(ClipLabel).where(ClipLabel.clip_id.notin_(eligible_ids))
         )
     else:
         clip_result = session.execute(delete(ClipLabel))

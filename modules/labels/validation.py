@@ -17,6 +17,7 @@ share the same rule codes without case-specific branches.
 
 from __future__ import annotations
 
+import difflib
 import json
 import re
 from collections.abc import Collection
@@ -36,13 +37,6 @@ _CONNECTOR_WORDS: frozenset[str] = frozenset(
 def clip_role_keys(spec: LabelCaseSpec) -> tuple[str, str]:
     """Public alias for the (observable_*_tags, one_sentence_*_reading) pair."""
     return spec.observable_key, spec.sentence_key
-
-
-_clip_role_keys = clip_role_keys  # internal alias; keep call sites stable
-
-
-def _cluster_repertoire_key(spec: LabelCaseSpec) -> str:
-    return spec.repertoire_key
 
 
 def validate(
@@ -234,7 +228,7 @@ def _grounded_entry_ok(entry: Any) -> bool:
 
 
 def _shapes_ok(parsed: dict, spec: LabelCaseSpec) -> bool:
-    observable_key, sentence_key = _clip_role_keys(spec)
+    observable_key, sentence_key = clip_role_keys(spec)
     obs = parsed[observable_key]
     aes = parsed["aesthetic_tags"]
     com = parsed["community_signalling_tags"]
@@ -282,7 +276,7 @@ def _soft_fail_codes(
     parsed: dict, labels: LabelsSettings, spec: LabelCaseSpec
 ) -> set[str]:
     codes: set[str] = set()
-    observable_key, sentence_key = _clip_role_keys(spec)
+    observable_key, sentence_key = clip_role_keys(spec)
     obs = parsed[observable_key]
     aes = parsed["aesthetic_tags"]
     com = parsed["community_signalling_tags"]
@@ -347,8 +341,6 @@ def _fuzzy_normalize_keys(parsed: dict, required: Collection[str]) -> dict:
     these without conflating distinct fields (the required key set
     has pairwise similarity well below 0.85).
     """
-    import difflib
-
     required_set = set(required)
     out: dict = {}
     for k, v in parsed.items():
@@ -360,7 +352,15 @@ def _fuzzy_normalize_keys(parsed: dict, required: Collection[str]) -> dict:
     return out
 
 
-_CLUSTER_LABEL_MAX_CHARS = 40
+# Hard ceiling on the generated ``cluster_label``. Single public source shared
+# by the grammar (schema.py), the HC4 hard fail (below), and the deterministic
+# distinct-suffix fallback (cluster_pass.py). It is a CONSTANT, not a config
+# knob, because the per-case cluster prompts in ``config.toml`` literally tell
+# the model "MAXIMUM 40 CHARACTERS"; the cap and that prompt text must move
+# together, so exposing it as an independently-tunable setting would invite a
+# silent prompt/validator mismatch (lowering it alone makes the model keep
+# targeting 40 and HC4-reject every label in the 41-cap range).
+CLUSTER_LABEL_MAX_CHARS = 40
 
 
 def _cluster_tag_quality_codes(
@@ -377,7 +377,7 @@ def _cluster_tag_quality_codes(
     SOFT warn (SC2), and connector words a SOFT warn (SC9), in
     ``_cluster_soft_fail_codes``. Returns ``[]`` when all tags are clean.
     """
-    repertoire_key = _cluster_repertoire_key(spec)
+    repertoire_key = spec.repertoire_key
     tags: list[str] = [e["tag"] for e in parsed[repertoire_key]]
     tags += [e["tag"] for e in parsed["dominant_aesthetic_logic"]]
     tags += parsed["tool_tags"]
@@ -408,7 +408,7 @@ def validate_cluster(
     # HC4 — cluster_label length cap. Hard fail so the retry budget kicks
     # in (sampled retries with a fresh seed can produce a shorter label).
     label = parsed["cluster_label"]
-    if isinstance(label, str) and len(label) > _CLUSTER_LABEL_MAX_CHARS:
+    if isinstance(label, str) and len(label) > CLUSTER_LABEL_MAX_CHARS:
         return None, "failed", ["HC4"]
 
     quality = _cluster_tag_quality_codes(parsed, labels, spec)
@@ -461,7 +461,7 @@ def _variation_entry_ok(entry: Any) -> bool:
 
 
 def _cluster_shapes_ok(parsed: dict, spec: LabelCaseSpec) -> bool:
-    repertoire_key = _cluster_repertoire_key(spec)
+    repertoire_key = spec.repertoire_key
     if not all(
         isinstance(parsed[k], str)
         for k in ("cluster_label", "cluster_summary", "boundary_notes")
@@ -521,7 +521,7 @@ def _cluster_soft_fail_codes(
     parsed: dict, labels: LabelsSettings, spec: LabelCaseSpec
 ) -> set[str]:
     codes: set[str] = set()
-    repertoire_key = _cluster_repertoire_key(spec)
+    repertoire_key = spec.repertoire_key
     rep = parsed[repertoire_key]
     aes = parsed["dominant_aesthetic_logic"]
     tool_tags = parsed["tool_tags"]
@@ -593,4 +593,10 @@ def _cluster_soft_fail_codes(
 
 
 # Public surface — pure validators, no module-level mutable state.
-__all__ = ["clip_role_keys", "format_failure_error", "validate", "validate_cluster"]
+__all__ = [
+    "CLUSTER_LABEL_MAX_CHARS",
+    "clip_role_keys",
+    "format_failure_error",
+    "validate",
+    "validate_cluster",
+]
