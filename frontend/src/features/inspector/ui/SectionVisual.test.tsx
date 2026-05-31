@@ -83,28 +83,12 @@ describe("SectionVisual cluster mode", () => {
   });
 });
 
-describe("SectionVisual modality fallback (clip-only)", () => {
-  // Creator pane ships per-clip entries with no cluster, so the title used to
-  // fall through to "Visual" for every run. Passing modality on the props
-  // alongside `clips` keeps the heading honest for audio / music / multimodal.
-  it("uses the modality prop when no cluster is supplied", () => {
-    render(<SectionVisual index="05" clips={[]} modality="audio" />);
-    expect(screen.getByText("Audio")).toBeInTheDocument();
-  });
-
-  it("modality prop also titles the empty placeholder branch", () => {
-    render(<SectionVisual index="05" modality="music" />);
-    expect(screen.getByText("Musical")).toBeInTheDocument();
-  });
-
-  it("cluster.modality wins over the modality prop", () => {
-    render(
-      <SectionVisual
-        index="05"
-        cluster={{ ...baseLabel(), modality: "multimodal" }}
-        modality="audio"
-      />,
-    );
-    expect(screen.getByText("Combined")).toBeInTheDocument();
+describe("SectionVisual clip-only (creator) mode", () => {
+  // Creator panes ship per-clip entries with no cluster. Those entries are
+  // always the video clip-labels regardless of the active embedding case, so
+  // the heading is fixed at "Visual" — never the run's modality.
+  it("titles the per-clip list 'Visual'", () => {
+    render(<SectionVisual index="05" clips={[]} />);
+    expect(screen.getByText("Visual")).toBeInTheDocument();
   });
 });

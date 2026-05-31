@@ -3,7 +3,6 @@ import { useAtomValue, useSetAtom } from "jotai";
 import {
   activeRunAtom, creatorDetailFor, ensureCreatorDetailAtom,
 } from "@/state";
-import type { ClusterLabel, EmbeddingCase } from "@/data";
 import { tokens } from "@/ui/tokens";
 import { SectionAudience } from "../ui/SectionAudience";
 import { SectionMusical } from "../ui/SectionMusical";
@@ -13,18 +12,6 @@ import { SectionVisual } from "../ui/SectionVisual";
 import { PaneHeader } from "../ui/PaneHeader";
 import { PaneBody } from "../ui/PaneBody";
 import { PaneUnavailable } from "../ui/PaneUnavailable";
-
-// Map the embedding case keyed on the run to the modality string that drives
-// SectionVisual's section heading. Without this, the creator pane (which has
-// no cluster context) would render every per-clip section titled "Visual"
-// regardless of the active case.
-const MODALITY_FOR_CASE: Record<EmbeddingCase, ClusterLabel["modality"]> = {
-  video: "visual",
-  sandwich: "multimodal",
-  auditory: "music",
-  spoken: "audio",
-  textual: "textual",
-};
 
 type Props = { creatorId: number };
 
@@ -70,7 +57,6 @@ export const CreatorPane = ({ creatorId }: Props) => {
   }
 
   const d = slot.data;
-  const modality = MODALITY_FOR_CASE[run.meta.case];
   return (
     <PaneBody fill>
       <PaneHeader name={name} meta={meta} />
@@ -96,7 +82,7 @@ export const CreatorPane = ({ creatorId }: Props) => {
           />
           <SectionSpoken  index="03" loaded={d.speech} />
           <SectionTextual index="04" loaded={d.caption} />
-          <SectionVisual  index="05" clips={d.clips} modality={modality} />
+          <SectionVisual  index="05" clips={d.clips} />
         </>
       ) : (
         <>
@@ -104,7 +90,7 @@ export const CreatorPane = ({ creatorId }: Props) => {
           <SectionMusical  index="02" />
           <SectionSpoken   index="03" />
           <SectionTextual  index="04" />
-          <SectionVisual   index="05" clips={[]} modality={modality} />
+          <SectionVisual   index="05" clips={[]} />
         </>
       )}
     </PaneBody>

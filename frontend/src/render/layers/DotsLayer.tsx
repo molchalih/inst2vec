@@ -1,12 +1,12 @@
 import { useCallback, useMemo } from "react";
 import type { Graphics as PixiGraphics } from "pixi.js";
 import {
-  useStretchedRun, useViewport, useTransition, useIntro,
+  useStretchedRun, useViewport, useTransition, useMorphJoin, useIntro,
 } from "@/state";
 import {
-  joinUsersByCreator, interpolateUsers,
-  computeWaveDelays, waveProgress, scalePop,
-  easeOutCubic, centralityRadiusScale,
+  interpolateUsers,
+  computeWaveDelays, waveProgress, scalePop, emergeScalePop, vanishScalePop,
+  flightProgress, centralityRadiusScale,
   type JoinedUser,
 } from "@/core";
 import { tokens } from "@/ui/tokens";
@@ -46,11 +46,8 @@ const morphFrame = (
   const { flightMs, pulseMs } = tokens.motion.versionSwitch.phase3;
   const flightFrac = flightMs / (flightMs + pulseMs);
 
-  const flightProgressFor = (_i: number): number => {
-    if (phase < 2) return 0;
-    if (phase === 2) return easeOutCubic(Math.min(progress / flightFrac, 1));
-    return 1;
-  };
+  const flightProgressFor = (_i: number): number =>
+    flightProgress(phase, progress, flightFrac);
 
   const pulseProgressFor = (i: number): number => {
     if (phase < 2) return 0;
@@ -67,15 +64,27 @@ const morphFrame = (
   // each dot grow/shrink toward its new size *during* the wavefront —
   // not snap to a base scale at switch-start nor only after the entire
   // animation lands.
+  //
+  // One-sided dots mirror each other and both gate visibility on scale,
+  // never alpha:
+  //  - To-only (emerging): held alpha, scale 0 → 1 (emergeScalePop) as the
+  //    wavefront reaches their destination — pops in at full position.
+  //  - From-only (vanishing): held alpha, scale 1 → 0 (vanishScalePop) as
+  //    the wavefront reaches them, while flying fromXY → -fromXY (a
+  //    point-reflection through the origin). The dying dot crosses the
+  //    field and snaps out instead of freezing and fading. |−fromXY| ==
+  //    |fromXY|, so its wave timing is unchanged by the synthetic flight.
+  const flight = flightProgressFor(0); // uniform across dots
   const alphaById = new Map<number, number>();
   const radiusById = new Map<number, number>();
+  const posById = new Map<number, readonly [number, number]>();
+  const scaleGatedIds = new Set<number>();
   const cParams = tokens.dot.centrality;
   for (let i = 0; i < joined.length; i++) {
     const j = joined[i]!;
     const p = pulseProgressFor(i);
     const fromAlpha = sideAlpha(j.fromCluster, j.toCluster);
     const toAlpha = sideAlpha(j.toCluster, j.fromCluster);
-    alphaById.set(j.id, fromAlpha + (toAlpha - fromAlpha) * p);
 
     // Use the present-side centrality on both endpoints when one side
     // is missing — a fade-in/out dot keeps a meaningful scale.
@@ -85,18 +94,45 @@ const morphFrame = (
     const toCl = j.toCluster ?? j.fromCluster ?? -1;
     const fromScale = centralityRadiusScale(fromCl, fromC, cParams);
     const toScale = centralityRadiusScale(toCl, toC, cParams);
-    const lerpedScale = fromScale + (toScale - fromScale) * p;
-    radiusById.set(j.id, lerpedScale * scalePop(p, scalePopPeak, scalePopUpFrac));
+
+    const isEmerging = j.fromXY === null && j.toXY !== null;
+    const isVanishing = j.toXY === null && j.fromXY !== null;
+    if (isEmerging) {
+      scaleGatedIds.add(j.id);
+      alphaById.set(j.id, toAlpha);
+      radiusById.set(j.id, emergeScalePop(p, scalePopPeak, scalePopUpFrac) * toScale);
+    } else if (isVanishing) {
+      scaleGatedIds.add(j.id);
+      alphaById.set(j.id, fromAlpha);
+      radiusById.set(j.id, vanishScalePop(p, scalePopPeak, scalePopUpFrac) * fromScale);
+      const [fx, fy] = j.fromXY!;
+      posById.set(j.id, [fx + (-fx - fx) * flight, fy + (-fy - fy) * flight]);
+    } else {
+      alphaById.set(j.id, fromAlpha + (toAlpha - fromAlpha) * p);
+      const lerpedScale = fromScale + (toScale - fromScale) * p;
+      radiusById.set(j.id, lerpedScale * scalePop(p, scalePopPeak, scalePopUpFrac));
+    }
   }
   const users: DrawableUser[] = interpolateUsers(
     joined, flightProgressFor, pulseProgressFor,
     tokens.palette.cluster, tokens.palette.noise,
   )
-    .map((u) => ({
-      id: u.id, x: u.x, y: u.y, color: u.color,
-      alpha: u.alpha * (alphaById.get(u.id) ?? tokens.dot.alpha),
-      radiusScale: radiusById.get(u.id) ?? 1,
-    }));
+    .map((u) => {
+      const pos = posById.get(u.id);
+      return {
+        id: u.id,
+        x: pos ? pos[0] : u.x,
+        y: pos ? pos[1] : u.y,
+        color: u.color,
+        // Scale-gated (emerging/vanishing) dots ignore the schedule's alpha
+        // fade — the scale pop is their only visibility channel — so hold
+        // their target alpha.
+        alpha: scaleGatedIds.has(u.id)
+          ? (alphaById.get(u.id) ?? tokens.dot.alpha)
+          : u.alpha * (alphaById.get(u.id) ?? tokens.dot.alpha),
+        radiusScale: radiusById.get(u.id) ?? 1,
+      };
+    });
   return { users, alphaScale: 1, radiusScale: 1 };
 };
 
@@ -106,14 +142,10 @@ export const DotsLayer = () => {
   const intro = useIntro();
   const [viewport] = useViewport();
 
-  // joined and delayNorm depend only on the two runs in flight, not on
-  // phase/progress — caching them prevents rebuilding the join + the
-  // distance pass on every rAF tick.
-  const joined = useMemo(
-    () => transition ? joinUsersByCreator(transition.from, transition.to) : null,
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- joined depends only on the two runs in flight; the full transition object changes every rAF tick and would defeat the cache.
-    [transition?.from, transition?.to],
-  );
+  // The creator-keyed join is the shared SSOT (morphJoinAtom): identity-stable
+  // across per-frame ticks and read by TrackingLayer too, so neither layer
+  // recomputes it. delayNorm derives from it and stays cached per switch.
+  const joined = useMorphJoin();
   const delayNorm = useMemo(
     () => joined ? computeWaveDelays(joined) : null,
     [joined],

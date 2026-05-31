@@ -1,17 +1,19 @@
 import { useEffect } from "react";
-import { useAtomValue, useSetAtom } from "jotai";
+import { useAtomValue, useSetAtom, useStore } from "jotai";
 import {
-  activeRunIdAtom, ensureManifestAtom, ensureRunAtom, useIsTransitioning,
+  activeRunIdAtom, ensureManifestAtom, ensureRunAtom, prefetchRunAtom,
+  manifestAtom, runStateAtom, trackedCreatorAtom, useIsTransitioning,
 } from "@/state";
 import {
   useFitOnActiveRun, useUrlSync, useTrackViewportSize, useVersionTransition,
   useIntroAnimation, useCaseSwitchOrchestrator,
 } from "@/interaction";
-import { Stage, DotsLayer, EllipsesLayer, HoverLayer } from "@/render";
+import { Stage, DotsLayer, EllipsesLayer, HoverLayer, TrackingLayer } from "@/render";
+import { ControlDock } from "@/ui";
 import { Providers } from "./providers";
 import {
   VersionsFeature, SelectionFeature, InspectorFeature, SearchFeature,
-  HoverTooltipFeature, useCameraFocus,
+  HoverTooltipFeature, TrackingFeature, useCameraFocus,
 } from "@/features";
 
 const RunLoader = () => {
@@ -36,6 +38,30 @@ const RunLoader = () => {
       console.error("ensureRun failed", err);
     });
   }, [runId, isTransitioning, ensureRun]);
+
+  return null;
+};
+
+// Eager presence prefetch. When a creator becomes tracked, load every other
+// manifest run into the cache via prefetchRunAtom (cache-only — never drives a
+// version switch) so the presence gate converges to exact. Idempotent: cached
+// runs are skipped; the active run is already loaded.
+const TrackingPrefetch = () => {
+  const trackedCreatorId = useAtomValue(trackedCreatorAtom);
+  const manifest = useAtomValue(manifestAtom);
+  const prefetchRun = useSetAtom(prefetchRunAtom);
+  const store = useStore();
+
+  useEffect(() => {
+    if (trackedCreatorId === null || !manifest) return;
+    const cached = store.get(runStateAtom).runs;
+    for (const run of manifest.runs) {
+      if (cached.has(run.id)) continue;
+      prefetchRun(run.id).catch((err: unknown) => {
+        console.error("prefetchRun failed", err);
+      });
+    }
+  }, [trackedCreatorId, manifest, prefetchRun, store]);
 
   return null;
 };
@@ -80,6 +106,7 @@ export const AppShell = () => (
     <Routing />
     <ViewportTracker />
     <RunLoader />
+    <TrackingPrefetch />
     <Fitting />
     <Intro />
     <VersionTransition />
@@ -89,6 +116,7 @@ export const AppShell = () => (
       <Stage>
         <EllipsesLayer />
         <DotsLayer />
+        <TrackingLayer />
         <HoverLayer />
       </Stage>
       <VersionsFeature />
@@ -96,6 +124,9 @@ export const AppShell = () => (
       <SelectionFeature />
       <InspectorFeature />
       <SearchFeature />
+      <ControlDock>
+        <TrackingFeature />
+      </ControlDock>
     </main>
   </Providers>
 );

@@ -8,6 +8,7 @@ export { hoverAtom, useHoverState, type HoverState } from "./hover.atom";
 export {
   selectionAtom, selectDotAtom, useSelection, useSelectDot,
   selectClusterAtom, useSelectCluster, useClearSelection,
+  resolveDotClickAtom, useResolveDotClick,
   type Selection,
 } from "./selection.atom";
 export { routeAtom, useRoute, parseHash, serializeRoute } from "./route.atom";
@@ -16,14 +17,14 @@ export { caseAtom, displayedCaseAtom } from "./case.atom";
 export { manifestAtom, ensureManifestAtom } from "./manifest.atom";
 export { activeRunIdAtom } from "./active-run-id.atom";
 export {
-  runStateAtom, activeRunAtom, ensureRunAtom, requestedRunIdAtom,
+  runStateAtom, activeRunAtom, ensureRunAtom, prefetchRunAtom, requestedRunIdAtom,
   useActiveRun, type RunState,
 } from "./run.atom";
 export { stretchedRunAtom, useStretchedRun } from "./stretched-run.atom";
 export { hitTestAtom } from "./hit-test.atom";
 export {
-  transitionAtom, transitionDriverAtom, isTransitioningAtom,
-  useTransition, useIsTransitioning,
+  transitionAtom, transitionDriverAtom, isTransitioningAtom, morphJoinAtom,
+  useTransition, useIsTransitioning, useMorphJoin,
   type TransitionState, type TransitionPhase, type TransitionDriver,
   type PhaseDurations,
 } from "./transition.atom";
@@ -45,3 +46,10 @@ export {
   type InspectorPhase,
 } from "./inspector-phase.atom";
 export { pendingCaseAtom, isCaseSwitchInFlightAtom } from "./pending-case.atom";
+export {
+  trackingModeAtom, trackedCreatorAtom, toggleTrackingAtom, trackCreatorAtom,
+  useTrackingMode, useTrackedCreator, useToggleTracking,
+} from "./tracking.atom";
+export {
+  trackedPresenceAtom, useTrackedPresentInRun,
+} from "./tracked-presence.atom";

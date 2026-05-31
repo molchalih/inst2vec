@@ -26,6 +26,7 @@ export type { ScaleBounds } from "./viewport/pan-zoom";
 export { applyWheel, applyDrag } from "./viewport/pan-zoom";
 
 export { easeOutCubic } from "./motion/ease";
+export { sinePulse } from "./motion/pulse";
 export { hashUnit } from "./motion/hash";
 export type { IntroPhase, IntroDurations } from "./motion/intro";
 export {
@@ -41,13 +42,18 @@ export { joinUsersByCreator, joinClustersById } from "./morph/join";
 export type { InterpolatedUser, InterpolatedEllipse } from "./morph/interpolate";
 export { interpolateUsers, interpolateEllipses, lerpHex } from "./morph/interpolate";
 export { ellipseAlphaScale, ellipseSide, userAlphaSchedule } from "./morph/schedule";
-export { computeWaveDelays, waveProgress, scalePop } from "./morph/wave";
+export { flightProgress, interpolatedUserPos } from "./morph/track-pos";
+export {
+  computeWaveDelays, waveProgress, scalePop, emergeScalePop, vanishScalePop,
+} from "./morph/wave";
 
 export { formatCompact } from "./format/compact";
 export { groundingLabel, warningLabel, TAG_KIND_ORDER, type TagKind } from "./format/clip-label";
-export { clusterWarningLabel } from "./format/cluster-label";
+export { clusterWarningLabel, clusterSummaryLede } from "./format/cluster-label";
 
 export { phraseFor, type Phrase } from "./distinctiveness/phrase";
+
+export { isCreatorInRun, type CreatorPresenceRun } from "./track/presence";
 
 export type { CentralityScaleParams } from "./dot/centrality";
 export { centralityRadiusScale } from "./dot/centrality";

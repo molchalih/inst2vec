@@ -81,3 +81,12 @@ frontend/coverage/
 scripts/make_research_graphs.py
 
 **/*.quarto_ipynb
+
+# SonarScanner config + work dir (kept local, not tracked)
+sonar-project.properties
+.scannerwork/
+
+# Reporting tests — exercise the local-only (gitignored) docs/reporting
+# package, so they are kept local and out of CI.
+tests/*quarto*
+tests/test_clip_labels_example_table.py

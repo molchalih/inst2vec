@@ -24,6 +24,10 @@ const config: Config = {
         "pill-py": px(tokens.pill.paddingY),
         "tooltip-px": px(tokens.tooltip.paddingX),
         "tooltip-py": px(tokens.tooltip.paddingY),
+        "track-size": px(tokens.track.control.size),
+        "track-icon": px(tokens.track.control.iconSize),
+        "dock-offset": px(tokens.dock.offset),
+        "dock-gap": px(tokens.dock.gap),
       },
       borderRadius: {
         pill: `${tokens.pill.radius}px`,

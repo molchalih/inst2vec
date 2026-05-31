@@ -8,6 +8,7 @@ export { useEscKey } from "./useEscKey";
 export { useTween } from "./useTween";
 export { useCrossfadeSlots, type CrossfadeSlot } from "./useCrossfadeSlots";
 export { useEasedScalar } from "./useEasedScalar";
+export { useSinePulse } from "./useSinePulse";
 export { useVersionTransition } from "./useVersionTransition";
 export { useIntroAnimation } from "./useIntroAnimation";
 export { useCaseSwitchOrchestrator } from "./useCaseSwitchOrchestrator";

@@ -18,7 +18,7 @@ export type InterpolatedEllipse = {
   color: string;
 };
 
-const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
+export const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
 
 const hexToRgb = (hex: string): [number, number, number] => {
   const m = /^#([0-9a-f]{6})$/i.exec(hex.trim());

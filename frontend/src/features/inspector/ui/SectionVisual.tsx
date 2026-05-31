@@ -18,12 +18,6 @@ type Props = {
    * heading via ``cluster.modality``.
    */
   cluster?: ClusterLabel;
-  /**
-   * Fallback modality used for the section heading when no cluster is
-   * supplied (e.g. the creator pane, which only ships per-clip entries).
-   * Without it, every non-visual run would mistitle the section "Visual".
-   */
-  modality?: ClusterLabel["modality"];
 };
 
 /**
@@ -64,9 +58,13 @@ const KIND_ROWS: {
  * three labelled chip rows (obs / aes / com). For clusters, renders
  * the synthesised cluster identity. For any consumer that omits both
  * `clips` and `cluster`, renders a TODO placeholder.
+ *
+ * The heading is driven solely by ``cluster.modality``; the per-clip
+ * (creator) path always titles "Visual" because those entries are the
+ * video clip-labels regardless of the active embedding case.
  */
-export const SectionVisual = ({ index, clips, cluster, modality }: Props) => {
-  const title = titleFor(cluster?.modality ?? modality);
+export const SectionVisual = ({ index, clips, cluster }: Props) => {
+  const title = titleFor(cluster?.modality);
   if (cluster !== undefined) {
     return (
       <CollapsibleSection index={index} title={title}>
@@ -109,11 +107,7 @@ const ClusterBody = ({ cluster }: { cluster: ClusterLabel }) => {
   const warn = cluster.validation === "warn";
   return (
     <div style={clusterStack}>
-      {/* Summary */}
-      <div style={paragraphBlock}>
-        <span style={kindLabel}>summary</span>
-        <p style={paragraphText}>{cluster.summary}</p>
-      </div>
+      {/* Summary now lives in the pane header standfirst (PaneHeader lede). */}
 
       {/* Dominant repertoire (case-flattened) */}
       {cluster.repertoire.length > 0 && (

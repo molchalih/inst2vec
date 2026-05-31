@@ -3,4 +3,5 @@ export { SelectionFeature } from "./selection";
 export { InspectorFeature } from "./inspector";
 export { SearchFeature } from "./search";
 export { HoverTooltipFeature } from "./hover-tooltip";
+export { TrackingFeature } from "./tracking";
 export { useCameraFocus } from "./inspector";

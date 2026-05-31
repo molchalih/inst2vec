@@ -3,6 +3,7 @@ import { useAtomValue, useSetAtom } from "jotai";
 import {
   activeRunAtom, clusterDetailFor, ensureClusterDetailAtom,
 } from "@/state";
+import { clusterSummaryLede } from "@/core";
 import { tokens } from "@/ui/tokens";
 import { SectionAudience } from "../ui/SectionAudience";
 import { SectionMusical } from "../ui/SectionMusical";
@@ -38,17 +39,16 @@ export const ClusterPane = ({ clusterId }: Props) => {
   const total = run.clusters.reduce((s, c) => s + (c.id >= 0 ? c.size : 0), 0);
   const pct = total > 0 ? (cluster.size / total) * 100 : 0;
 
-  const baseMeta = slot.data
+  const meta = slot.data
     ? `${cluster.size.toLocaleString()} creators · ${pct.toFixed(1)}% of case · ${slot.data.activity_span_months} months active`
     : `${cluster.size.toLocaleString()} creators · ${pct.toFixed(1)}% of case`;
-  const meta = slot.data?.label?.summary
-    ? `${baseMeta} · ${slot.data.label.summary}`
-    : baseMeta;
+  const summary = slot.data?.label?.summary;
+  const lede = summary ? clusterSummaryLede(summary) : undefined;
 
   if (!detailAvailable) {
     return (
       <PaneBody>
-        <PaneHeader name={cluster.label} meta={meta} />
+        <PaneHeader name={cluster.label} meta={meta} lede={lede} />
         <PaneUnavailable />
       </PaneBody>
     );
@@ -57,7 +57,7 @@ export const ClusterPane = ({ clusterId }: Props) => {
   if (slot.error) {
     return (
       <PaneBody>
-        <PaneHeader name={cluster.label} meta={meta} />
+        <PaneHeader name={cluster.label} meta={meta} lede={lede} />
         <FetchError onRetry={() => { ensure(clusterId).catch(() => {}); }} />
       </PaneBody>
     );
@@ -66,7 +66,7 @@ export const ClusterPane = ({ clusterId }: Props) => {
   const d = slot.data;
   return (
     <PaneBody fill>
-      <PaneHeader name={cluster.label} meta={meta} />
+      <PaneHeader name={cluster.label} meta={meta} lede={lede} />
       {d ? (
         <>
           <SectionAudience

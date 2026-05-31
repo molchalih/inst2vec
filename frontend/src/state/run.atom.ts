@@ -87,4 +87,22 @@ export const ensureRunAtom = atom(null, async (get, set, runId: string) => {
   }
 });
 
+/**
+ * Cache-only run loader — the load half of ensureRunAtom with the
+ * activate/transition half removed. Fetches a run and inserts it into the
+ * cache WITHOUT touching activeRunId, requestedRunIdAtom, transitionAtom, or
+ * viewportAtom, so an eager prefetch (app/TrackingPrefetch) can fill the cache
+ * the presence gate reads without driving a version switch. Idempotent: a
+ * cache hit is a no-op.
+ */
+export const prefetchRunAtom = atom(null, async (get, set, runId: string) => {
+  if (get(runStateAtom).runs.has(runId)) return;
+  const bulk = requireBulkSource();
+  const run = await bulk.getRun(runId);
+  set(runStateAtom, (prev) => {
+    if (prev.runs.has(runId)) return prev;
+    return { ...prev, runs: new Map(prev.runs).set(runId, run) };
+  });
+});
+
 export const useActiveRun = () => useAtomValue(activeRunAtom);

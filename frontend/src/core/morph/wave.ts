@@ -75,3 +75,51 @@ export const scalePop = (
   const t = (localProgress - upFrac) / (1 - upFrac);
   return peak + (1 - peak) * t * t;
 };
+
+/**
+ * Emergence pop for dots that exist on the to-side only. Mirrors
+ * `scalePop`, but the up-leg grows from 0 (not 1) so a brand-new dot
+ * pops into existence as the wavefront reaches it: 0 → `peak` over the
+ * first `upFrac` of the window, then `peak` → 1 over the rest. Returns 0
+ * at/below 0 (not yet emerged) and 1 at/above 1 (fully settled). The
+ * caller gates visibility on this scale alone and holds alpha constant,
+ * so the appearance reads as a seamless pop rather than a fade.
+ */
+export const emergeScalePop = (
+  localProgress: number,
+  peak: number,
+  upFrac: number,
+): number => {
+  if (localProgress <= 0) return 0;
+  if (localProgress >= 1) return 1;
+  if (localProgress < upFrac) {
+    const t = localProgress / upFrac;
+    return peak * (1 - (1 - t) * (1 - t));
+  }
+  const t = (localProgress - upFrac) / (1 - upFrac);
+  return peak + (1 - peak) * t * t;
+};
+
+/**
+ * Vanish pop for dots that exist on the from-side only. The reverse of
+ * `emergeScalePop`: scale grows 1 → `peak` over the first `upFrac` of the
+ * window, then collapses `peak` → 0 over the rest, so a dying dot swells
+ * and snaps out of existence as the wavefront reaches it. Returns 1
+ * at/below 0 (not yet collapsed — still flying, fully present) and 0
+ * at/above 1 (gone). Caller holds alpha constant and lets this scale be
+ * the sole visibility channel, mirroring the emergence path.
+ */
+export const vanishScalePop = (
+  localProgress: number,
+  peak: number,
+  upFrac: number,
+): number => {
+  if (localProgress <= 0) return 1;
+  if (localProgress >= 1) return 0;
+  if (localProgress < upFrac) {
+    const t = localProgress / upFrac;
+    return 1 + (peak - 1) * (1 - (1 - t) * (1 - t));
+  }
+  const t = (localProgress - upFrac) / (1 - upFrac);
+  return peak * (1 - t * t);
+};

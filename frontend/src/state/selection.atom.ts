@@ -3,6 +3,7 @@ import { activeRunAtom } from "./run.atom";
 import { manifestAtom } from "./manifest.atom";
 import { viewportAtom } from "./viewport.atom";
 import { parseHash } from "./route.atom";
+import { trackingModeAtom, trackCreatorAtom } from "./tracking.atom";
 import type { Manifest } from "@/data";
 
 export type Selection =
@@ -78,8 +79,36 @@ export const selectClusterAtom = atom<null, [number], void>(
   },
 );
 
+/**
+ * Dot-click router. In tracking mode a non-noise dot click BOTH pins the creator
+ * (halo + presence gate) AND opens the inspector via the normal select path —
+ * so a tracking-mode click behaves exactly like a normal click (panel + camera
+ * fly) plus it sets the tracked creator. A noise dot is ignored (mirrors
+ * selectDotAtom's guard). Outside tracking mode it is a plain select. Keeping
+ * the track-vs-select decision here lets useClick stay a logic-free input bridge.
+ */
+export const resolveDotClickAtom = atom<null, [number], void>(
+  null,
+  (get, set, dotId) => {
+    if (get(trackingModeAtom)) {
+      const activeRun = get(activeRunAtom);
+      if (!activeRun) return;
+      const user = activeRun.users.find(([id]) => id === dotId);
+      if (!user) return;
+      if (user[3] < 0) return; // do not track noise dots
+      set(trackCreatorAtom, dotId);
+      set(selectDotAtom, dotId); // also open the inspector (+ camera fly)
+      return;
+    }
+    set(selectDotAtom, dotId);
+  },
+);
+
 export const useSelectDot = (): ((dotId: number) => void) =>
   useSetAtom(selectDotAtom);
+
+export const useResolveDotClick = (): ((dotId: number) => void) =>
+  useSetAtom(resolveDotClickAtom);
 
 export const useSelectCluster = (): ((clusterId: number) => void) =>
   useSetAtom(selectClusterAtom);

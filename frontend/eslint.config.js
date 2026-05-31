@@ -69,7 +69,7 @@ const layerZones = [
   { target: "./src/features", from: "./src/app" },
 ];
 
-const FEATURE_NAMES = ["versions", "selection", "inspector", "search", "hover-tooltip"];
+const FEATURE_NAMES = ["versions", "selection", "inspector", "search", "hover-tooltip", "tracking"];
 const crossFeatureZones = FEATURE_NAMES.flatMap((src) =>
   FEATURE_NAMES
     .filter((dst) => dst !== src)

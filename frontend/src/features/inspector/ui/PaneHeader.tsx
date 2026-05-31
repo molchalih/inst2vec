@@ -6,20 +6,27 @@ type PaneHeaderProps = {
   name: string;
   /** Meta line below the name. */
   meta: string;
+  /**
+   * Optional editorial standfirst rendered below the hairline as the
+   * opening line of the body. Cluster pane passes the label summary;
+   * creator pane omits it.
+   */
+  lede?: string | undefined;
 };
 
 /**
  * Pane title block: a serif display name over a mono meta line, closed
- * by a hairline. The top accent atmosphere is the panel-wide wash; this
- * just sits over it.
+ * by a hairline, optionally followed by a serif standfirst lede. The top
+ * accent atmosphere is the panel-wide wash; this just sits over it.
  */
-export const PaneHeader = ({ name, meta }: PaneHeaderProps) => {
+export const PaneHeader = ({ name, meta, lede }: PaneHeaderProps) => {
   const { header } = tokens.inspector;
   return (
     <section>
       <h3 style={nameStyle(header)}>{name}</h3>
       {meta && <div style={metaStyle(header)}>{meta}</div>}
       <div aria-hidden="true" style={ruleStyle(header)} />
+      {lede && <p style={ledeStyle(header)}>{lede}</p>}
     </section>
   );
 };
@@ -47,4 +54,18 @@ const ruleStyle = (h: typeof tokens.inspector.header): CSSProperties => ({
   marginTop: h.ruleGap,
   height: 1,
   background: tokens.ink.line,
+});
+
+const ledeStyle = (h: typeof tokens.inspector.header): CSSProperties => ({
+  margin: 0,
+  marginTop: h.lede.gapTop,
+  padding: `${h.lede.paddingY}px ${h.lede.paddingX}px`,
+  borderLeft: `${h.lede.barWidth}px solid var(--accent)`,
+  borderRadius: h.lede.radius,
+  background: h.lede.bg,
+  fontFamily: tokens.type.serif,
+  fontSize: h.lede.size,
+  lineHeight: h.lede.lineHeight,
+  letterSpacing: "0.005em",
+  color: tokens.ink.dim,
 });

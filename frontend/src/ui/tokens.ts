@@ -133,6 +133,43 @@ export const tokens = {
     paddingY: 6,
     radius: 8,
   },
+  // Right-edge control dock. An invisible, inspector-agnostic column pinned to
+  // the canvas's right edge and bottom-anchored, so controls stack upward as
+  // the chrome grows. `offset` is the gutter from the bottom/right edges
+  // (mirrors drawer.paddingX's rhythm), `gap` the vertical space between
+  // stacked items. The dock owns position; the controls it hosts are
+  // position-agnostic glyph buttons.
+  dock: {
+    offset: 16,
+    gap: 12,
+  },
+  // Point-tracking chrome. The control is a borderless floating glyph — no
+  // box; the 36px square is just an invisible touch/focus target (its place is
+  // owned by the dock). The tracked dot stays its NORMAL size — the base dot is
+  // the cluster-colour core. A soft white radial halo bleeds outward BENEATH it,
+  // and a thin white border ring (at the dot radius plus a small gap) breathes
+  // ABOVE the dots so it isn't occluded by neighbours. The halo's radius AND
+  // alpha breathe together, and the border's alpha breathes too — all on the
+  // one deliberately-continuous sine loop (tracking is a living state), calm at
+  // 1600ms and floored so the beacon never blinks out. The whole beacon (halo +
+  // border) fades in on track and out on untrack via the eased visibility.
+  track: {
+    control: { size: 36, iconSize: 18 },
+    halo: {
+      radiusPx: 26,       // crest reach of the glow past the dot (screen px)
+      falloffSteps: 3,    // concentric fills, alpha decaying toward the edge
+      alphaMax: 0.35,     // crest of the breathing alpha (intrinsically soft)
+      alphaMin: 0.12,     // trough — still a visible lit footprint
+    },
+    // Breathing white border ring around the normal-size dot, drawn above dots.
+    marker: {
+      gapPx: 3,                 // ring radius past dot.radius (screen px, compensated)
+      borderWidth: 1.75,        // ring thickness (screen px, scale-compensated)
+      borderAlphaMin: 0.45,     // trough — ring never blinks fully out
+      borderAlphaMax: 1,        // crest — full white outline
+    },
+    pulse: { periodMs: 1600 },
+  },
   palette: {
     cluster: [
       "#d2d8d9", "#969293", "#e96f51", "#80c470",
@@ -238,9 +275,15 @@ export const tokens = {
     // down the height. Reads the live `--accent` CSS var.
     wash: { topPct: 16, fadeStop: 80 },
     // Header block: serif name (forced to a display optical size for
-    // the high-contrast cut), mono meta, and a closing hairline.
+    // the high-contrast cut), mono meta, a closing hairline, and the
+    // cluster summary lede rendered as an accent callout card (left bar
+    // in the live --accent, faint tinted ground) opening the body below
+    // the rule.
     header: { nameSize: 23, nameWeight: 500, nameOpsz: 64,
-              metaSize: 11, ruleGap: 15 },
+              metaSize: 11, ruleGap: 15,
+              lede: { size: 13, lineHeight: 1.55, gapTop: 13,
+                      paddingX: 12, paddingY: 10, radius: 6, barWidth: 2,
+                      bg: "rgb(255 255 255 / 0.025)" } },
     // Indexed section heads: a mono "01" in the accent colour, an
     // em-dash, then the tracked-out uppercase label. Sections past the
     // first carry a top hairline.

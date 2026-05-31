@@ -1,4 +1,6 @@
 import { atom, useAtomValue } from "jotai";
+import { selectAtom } from "jotai/utils";
+import { joinUsersByCreator, type JoinedUser } from "@/core";
 import type { AtlasRun } from "@/data";
 import type { Transform } from "@/core";
 
@@ -47,8 +49,33 @@ export const transitionDriverAtom = atom<TransitionDriver | null>(null);
  */
 export const isTransitioningAtom = atom((get) => get(transitionAtom) !== null);
 
+/**
+ * The two runs in flight, identity-stable across per-frame phase/progress ticks.
+ * selectAtom only emits a new value when the run pair actually changes, so the
+ * derived join below rebuilds once per switch, not every rAF frame.
+ */
+const morphRunsAtom = selectAtom(
+  transitionAtom,
+  (t): { from: AtlasRun; to: AtlasRun } | null =>
+    t ? { from: t.from, to: t.to } : null,
+  (a, b) => a?.from === b?.from && a?.to === b?.to,
+);
+
+/**
+ * Creator-keyed join of the two morphing runs, shared by DotsLayer and
+ * TrackingLayer so neither recomputes it and the halo travels on exactly the
+ * same per-creator interpolation the dots use. Null when no switch is in flight.
+ */
+export const morphJoinAtom = atom<ReadonlyArray<JoinedUser> | null>((get) => {
+  const runs = get(morphRunsAtom);
+  return runs ? joinUsersByCreator(runs.from, runs.to) : null;
+});
+
 export const useTransition = (): TransitionState | null =>
   useAtomValue(transitionAtom);
+
+export const useMorphJoin = (): ReadonlyArray<JoinedUser> | null =>
+  useAtomValue(morphJoinAtom);
 
 export const useIsTransitioning = (): boolean =>
   useAtomValue(isTransitioningAtom);

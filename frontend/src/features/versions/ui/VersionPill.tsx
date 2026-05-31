@@ -1,7 +1,8 @@
 import { useAtomValue, useSetAtom } from "jotai";
 import {
-  displayedCaseAtom, isCaseSwitchInFlightAtom, pendingCaseAtom, routeAtom,
-  selectionAtom, useIsIntroPlaying, type Route,
+  caseAtom, displayedCaseAtom, isCaseSwitchInFlightAtom, pendingCaseAtom,
+  routeAtom, selectionAtom, useIsIntroPlaying, useTrackedCreator,
+  useTrackedPresentInRun, type Route,
 } from "@/state";
 import type { ManifestRun } from "@/data";
 
@@ -38,7 +39,18 @@ export const VersionPill = ({ run }: Props) => {
   const isSwitching = useAtomValue(isCaseSwitchInFlightAtom);
   const introPlaying = useIsIntroPlaying();
   const isActive = run.case === displayedCase;
-  const disabled = (isSwitching && !isActive) || introPlaying;
+  // Point-tracking presence gate: a case lacking the tracked creator is
+  // unreachable. Never disables the *committed* active pill (you're already on
+  // a present case — tracking can only start on a dot in the active run). The
+  // exemption keys on `caseAtom` (the committed route case), NOT
+  // `displayedCaseAtom`, since the latter includes a queued `pendingCase` whose
+  // target must still be presence-gated until the switch actually commits.
+  const committedCase = useAtomValue(caseAtom);
+  const trackedCreatorId = useTrackedCreator();
+  const presentHere = useTrackedPresentInRun(run.id);
+  const trackingDisablesThisCase =
+    trackedCreatorId != null && run.case !== committedCase && !presentHere;
+  const disabled = (isSwitching && !isActive) || introPlaying || trackingDisablesThisCase;
   const onClick = (): void => {
     if (isActive) return;
     if (selection === null) {
