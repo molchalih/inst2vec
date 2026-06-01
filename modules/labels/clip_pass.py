@@ -6,13 +6,13 @@ One ``run_case`` invocation handles one ``LabelCaseSpec``:
   the per-clip video file; fingerprint ``data`` slot is a stable hash of
   ``(clip_id, file_stat(video))`` per selected clip.
 - every other case: routes to ``LabelsGenerator.run_text`` with the
-  case's text adapter output prefixed by ``prompt + "\n\n"``; fingerprint
-  ``data`` slot is ``hash_rows((clip_id, source_hash))`` where
-  ``source_hash = hash_text(input_text or "")``. Cases that declare
-  ``consumes_label_cases`` additionally compose
-  ``stage_dependency_hash(LABELS, dep_case)`` into the dependency slot
-  and consume the upstream case's ``ClipLabel.payload`` as part of their
-  input.
+  case's text adapter output; fingerprint ``data`` slot is an empty-content
+  hash (``hash_text("")``) because there is no per-clip video file to stat.
+  Per-clip content drift is captured transitively through the ``dependency``
+  slot, which folds in the upstream stage seals declared by
+  ``spec.stage1_dependency_stages`` (speech / captions / MIR) and any
+  consumed label-case seals from ``spec.consumes_label_cases`` (e.g. the
+  visual case for sandwich).
 
 Case-specific behaviour flows exclusively through ``LabelCaseSpec``;
 this file does not branch on ``spec.name``.
@@ -25,11 +25,12 @@ from sqlalchemy.orm import Session
 
 from core import fingerprint as fp
 from core.config import LabelsSettings, Settings
-from core.database import Clip, ClipLabel, clip_used_in_analysis
+from core.database import AudioMIR, Clip, ClipLabel, clip_used_in_analysis
 from core.log import event, item, scope
 from core.pipeline import Stage
 from modules.labels.cases import LabelCaseSpec
 from modules.labels.prompts import prompt_for
+from modules.labels.schema import clip_schema
 from modules.labels.state import (
     STAGE_LABELS,
     clip_labels_config_payload,
@@ -80,6 +81,14 @@ def _data_hash_for_video(session: Session, settings: Settings) -> str:
     return fp.hash_rows(rows)
 
 
+def _data_hash(session: Session, *, settings: Settings, spec: LabelCaseSpec) -> str:
+    """Fingerprint ``data`` slot. Only the video case stats per-clip files;
+    text cases carry no per-clip video data, so use the empty-content hash."""
+    if spec.clip_uses_video:
+        return _data_hash_for_video(session, settings)
+    return fp.hash_text("")
+
+
 def _dependency_hash(session: Session, *, spec: LabelCaseSpec) -> str:
     parts: list[str] = [
         fp.stage_dependency_hash(session, st, sc)
@@ -98,7 +107,7 @@ def _current_fingerprint(
     spec: LabelCaseSpec,
 ) -> fp.Fingerprint:
     return fp.Fingerprint(
-        data=_data_hash_for_video(session, settings),
+        data=_data_hash(session, settings=settings, spec=spec),
         config=fp.hash_text(clip_labels_config_payload(labels, case=spec.name)),
         dependency=_dependency_hash(session, spec=spec),
     )
@@ -113,17 +122,14 @@ def run_case(
     generator,
     spec: LabelCaseSpec,
 ) -> None:
-    """Video-case stage-1 runner. Caller owns generator lifetime.
+    """Per-case stage-1 runner. Caller owns generator lifetime.
 
-    Only the ``video`` case reaches stage 1: it is the sole place frames are
-    reduced to text. Stage-1-skipped cases (``runs_clip_pass=False``) are
-    synthesised straight from raw signals in :mod:`modules.labels.cluster_pass`
-    and never enter this runner — ``pipeline.run`` filters them out upstream.
+    The ``video`` case routes each clip through ``generator.run`` with the
+    per-clip video file; the four text cases (spoken / textual / auditory /
+    sandwich) build per-clip evidence via ``spec.clip_input`` and route it
+    through ``generator.run_text``. Both paths validate and write
+    ``ClipLabel`` rows under the same fingerprint gate.
     """
-    assert spec.clip_uses_video, (
-        f"clip_pass.run_case only handles the video case; got {spec.name!r}. "
-        "Stage-1-skipped cases are synthesised in cluster_pass."
-    )
     paths = settings.paths
 
     def _wipe_case(s: Session) -> None:
@@ -154,33 +160,46 @@ def run_case(
             stats={"case": spec.name, "clips": len(pending)},
         )
         prompt_body = prompt_for(labels, case=spec.name)
-        batch_size = max(1, int(labels.batch_size))
-        if batch_size > 1:
-            _process_video_batches(
+        if spec.clip_uses_video:
+            schema = clip_schema(spec, labels)
+            batch_size = max(1, int(labels.batch_size))
+            if batch_size > 1:
+                _process_video_batches(
+                    session,
+                    pending=pending,
+                    prompt_body=prompt_body,
+                    labels=labels,
+                    generator=generator,
+                    spec=spec,
+                    paths=paths,
+                    batch_size=batch_size,
+                    schema=schema,
+                )
+            else:
+                for clip_id in pending:
+                    key = (clip_id, spec.name)
+                    with item("EXTRACT", f"{spec.name}/clip_{clip_id}"):
+                        _process_one(
+                            session,
+                            clip_id=clip_id,
+                            key=key,
+                            prompt_body=prompt_body,
+                            labels=labels,
+                            generator=generator,
+                            spec=spec,
+                            paths=paths,
+                            schema=schema,
+                        )
+                        session.commit()
+        else:
+            _process_text(
                 session,
                 pending=pending,
                 prompt_body=prompt_body,
                 labels=labels,
                 generator=generator,
                 spec=spec,
-                paths=paths,
-                batch_size=batch_size,
             )
-        else:
-            for clip_id in pending:
-                key = (clip_id, spec.name)
-                with item("EXTRACT", f"{spec.name}/clip_{clip_id}"):
-                    _process_one(
-                        session,
-                        clip_id=clip_id,
-                        key=key,
-                        prompt_body=prompt_body,
-                        labels=labels,
-                        generator=generator,
-                        spec=spec,
-                        paths=paths,
-                    )
-                    session.commit()
 
     fp.mark_complete(session, STAGE_LABELS, clip_scope_for(spec.name), current)
     session.commit()
@@ -196,20 +215,18 @@ def _process_video_batches(
     spec: LabelCaseSpec,
     paths,
     batch_size: int,
+    schema: dict,
 ) -> None:
     """Video-case batched extraction. Same prompt across a batch, one
     decoded string per clip. On a batch-wide generator exception every
     clip in the batch is marked failed; per-clip JSON-validation failures
     are isolated by ``_store_result``.
 
-    CPU/GPU pipelining: the next batch's frame decode + tokenize runs on a
-    single-slot background thread while the current batch generates on the
-    GPU. ``torchcodec`` + HF tokenizer both release the GIL, so the worker
-    progresses in parallel; the GPU side stays on the main thread to keep
-    CUDA call ordering deterministic.
+    Batches clips into chunks and calls ``_process_video_batches_sync`` for
+    each. On a batch-wide generator exception every clip in the batch is
+    marked failed; per-clip JSON-validation failures are isolated by
+    ``_store_result``.
     """
-    from concurrent.futures import ThreadPoolExecutor
-
     chunks = [pending[i : i + batch_size] for i in range(0, len(pending), batch_size)]
     if not chunks:
         return
@@ -239,35 +256,16 @@ def _process_video_batches(
             )
         session.commit()
 
-    # Prefetch path needs both halves of the split interface. Fakes/older
-    # generators that only expose ``run_many`` fall back to the synchronous
-    # in-line call (no CPU/GPU overlap, same throughput floor as before).
-    prepare = getattr(generator, "prepare_many", None)
-    generate = getattr(generator, "generate_from_inputs", None)
-    if prepare is None or generate is None:
-        _process_video_batches_sync(
-            chunks,
-            paths_for,
-            generator=generator,
-            prompt_body=prompt_body,
-            spec=spec,
-            fail_chunk=_fail_chunk,
-            store_chunk=_store_chunk,
-        )
-        return
-
-    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="labels-prep") as ex:
-        _process_video_batches_pipelined(
-            chunks,
-            paths_for,
-            ex=ex,
-            prepare=prepare,
-            generate=generate,
-            prompt_body=prompt_body,
-            spec=spec,
-            fail_chunk=_fail_chunk,
-            store_chunk=_store_chunk,
-        )
+    _process_video_batches_sync(
+        chunks,
+        paths_for,
+        generator=generator,
+        prompt_body=prompt_body,
+        spec=spec,
+        fail_chunk=_fail_chunk,
+        store_chunk=_store_chunk,
+        schema=schema,
+    )
 
 
 def _batch_log_label(spec: LabelCaseSpec, chunk: list[int]) -> str:
@@ -284,51 +282,13 @@ def _process_video_batches_sync(
     spec: LabelCaseSpec,
     fail_chunk,
     store_chunk,
+    schema: dict,
 ) -> None:
-    """Synchronous fallback for generators without the split prepare/generate
-    interface: decode + generate inline, one chunk at a time."""
+    """Decode and generate inline, one chunk at a time."""
     for chunk, video_paths in zip(chunks, paths_for, strict=True):
         with item("EXTRACT", _batch_log_label(spec, chunk)):
             try:
-                raws = generator.run_many(video_paths, prompt_body)
-            except Exception as exc:
-                fail_chunk(chunk, exc)
-                continue
-            store_chunk(chunk, raws)
-
-
-def _process_video_batches_pipelined(
-    chunks: list[list[int]],
-    paths_for: list[list],
-    *,
-    ex,
-    prepare,
-    generate,
-    prompt_body: str,
-    spec: LabelCaseSpec,
-    fail_chunk,
-    store_chunk,
-) -> None:
-    """CPU/GPU-overlapped path: prefetch the next chunk's inputs on ``ex``
-    while the current chunk generates on the GPU."""
-    prep_fut = ex.submit(prepare, paths_for[0], prompt_body)
-
-    def _prefetch_next(i: int) -> None:
-        nonlocal prep_fut
-        if i + 1 < len(chunks):
-            prep_fut = ex.submit(prepare, paths_for[i + 1], prompt_body)
-
-    for i, chunk in enumerate(chunks):
-        with item("EXTRACT", _batch_log_label(spec, chunk)):
-            try:
-                inputs = prep_fut.result()
-            except Exception as exc:
-                _prefetch_next(i)
-                fail_chunk(chunk, exc)
-                continue
-            _prefetch_next(i)
-            try:
-                raws = generate(inputs)
+                raws = generator.run_many(video_paths, prompt_body, schema=schema)
             except Exception as exc:
                 fail_chunk(chunk, exc)
                 continue
@@ -345,9 +305,10 @@ def _process_one(
     generator,
     spec: LabelCaseSpec,
     paths,
+    schema: dict,
 ) -> None:
     try:
-        raw = generator.run(paths.video_for(clip_id), prompt_body)
+        raw = generator.run(paths.video_for(clip_id), prompt_body, schema=schema)
     except Exception as exc:
         bump_failure(
             session,
@@ -364,6 +325,109 @@ def _process_one(
         labels=labels,
         spec=spec,
     )
+
+
+def _process_text(
+    session: Session,
+    *,
+    pending: list[int],
+    prompt_body: str,
+    labels: LabelsSettings,
+    generator,
+    spec: LabelCaseSpec,
+) -> None:
+    """Stage-1 text path: one ``run_text`` per clip from ``spec.clip_input``."""
+    schema = clip_schema(spec, labels)
+    mir_by_clip, visual_by_clip, dep_terminal = _text_evidence_maps(
+        session, pending=pending, spec=spec, labels=labels
+    )
+    for clip_id in pending:
+        key = (clip_id, spec.name)
+        with item("EXTRACT", f"{spec.name}/clip_{clip_id}"):
+            clip = session.get(Clip, clip_id)
+            visual_payload = (
+                visual_by_clip.get(clip_id) if spec.consumes_label_cases else None
+            )
+            if spec.consumes_label_cases and visual_payload is None:
+                if clip_id in dep_terminal:
+                    # The upstream label is terminally failed (it will not
+                    # succeed under the current fingerprint). Record a terminal
+                    # failure; it recovers only when the upstream case drifts,
+                    # which also drifts this case's dependency hash and re-runs it.
+                    upsert_terminal_failure(
+                        session,
+                        ClipLabel,
+                        key=key,
+                        error=spec.none_input_error or "missing_dependency_label",
+                        attempts=labels.max_attempts,
+                    )
+                    session.commit()
+                # else: the upstream label is still pending / retryable — leave
+                # this clip pending (write nothing) so a later run retries it
+                # once the upstream label is available.
+                continue
+            evidence = spec.clip_input(clip, mir_by_clip.get(clip_id), visual_payload)
+            if evidence is None:
+                # Legitimately-empty input (no speech / no caption / no MIR)
+                # also becomes a terminal failure row; the cluster pass ignores
+                # any non-success member when aggregating cluster labels.
+                upsert_terminal_failure(
+                    session,
+                    ClipLabel,
+                    key=key,
+                    error=spec.none_input_error or "no_input",
+                    attempts=labels.max_attempts,
+                )
+                session.commit()
+                continue
+            prompt = f"{prompt_body}\n\n{evidence}"
+            try:
+                raw = generator.run_text(
+                    prompt, max_new_tokens=labels.max_new_tokens, schema=schema
+                )
+            except Exception as exc:
+                bump_failure(
+                    session,
+                    ClipLabel,
+                    key=key,
+                    error=f"runtime:{exc}",
+                    max_attempts=labels.max_attempts,
+                )
+                session.commit()
+                continue
+            _store_result(session, raw=raw, key=key, labels=labels, spec=spec)
+            session.commit()
+
+
+def _text_evidence_maps(
+    session: Session, *, pending: list[int], spec: LabelCaseSpec, labels: LabelsSettings
+) -> tuple[dict[int, AudioMIR], dict[int, dict], set[int]]:
+    mir_by_clip = {
+        m.clip_id: m
+        for m in session.execute(select(AudioMIR).where(AudioMIR.clip_id.in_(pending)))
+        .scalars()
+        .all()
+    }
+    visual_by_clip: dict[int, dict] = {}
+    dep_terminal: set[int] = set()
+    if spec.consumes_label_cases:
+        dep_case = spec.consumes_label_cases[0]
+        rows = (
+            session.execute(
+                select(ClipLabel).where(
+                    ClipLabel.clip_id.in_(pending),
+                    ClipLabel.label_case == dep_case,
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for r in rows:
+            if r.status == "success":
+                visual_by_clip[r.clip_id] = r.payload or {}
+            elif r.status == "failed" and (r.attempts or 0) >= labels.max_attempts:
+                dep_terminal.add(r.clip_id)
+    return mir_by_clip, visual_by_clip, dep_terminal
 
 
 def _store_result(

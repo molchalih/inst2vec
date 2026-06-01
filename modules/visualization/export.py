@@ -103,15 +103,10 @@ def _render_user_clips_block(
     case-agnostic ``aesthetic_tags`` / ``community_signalling_tags``
     payload keys are stable per SPEC.
 
-    Stage-1-skipped cases (sandwich/auditory/spoken/textual) carry no
-    ``ClipLabel`` rows of their own. Their per-clip visual tag block
-    falls back to the case-agnostic video labels (same clip, same
-    frames) so the creator pane shows tags in every run, not only in
-    the video run.
+    Every case carries its own per-clip ``ClipLabel`` rows, so the join is
+    on ``label_case == case`` with no fallback.
     """
     spec = LABEL_CASE_REGISTRY[case]
-    if not spec.runs_clip_pass:
-        spec = LABEL_CASE_REGISTRY["video"]
     observable_key, sentence_key = clip_role_keys(spec)
     rows = (
         session.query(Clip, ClipLabel)

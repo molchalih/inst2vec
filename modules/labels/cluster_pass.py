@@ -5,17 +5,10 @@ per ``embedding_case`` and per cluster_id. Pure orchestration: the
 sampling, prompt building, validation and storage helpers are all in
 sibling modules.
 
-Two evidence-loading paths share the same downstream sampling / prompt
-/ validation / store machinery, dispatched by ``spec.runs_clip_pass``:
-
-* stage-1-backed cases (currently only ``video``) — join
-  ``Clip ⋈ ClipLabel`` for the case and use the validated
-  ``ClipLabel.payload`` dict as each member clip's evidence;
-* stage-1-skipped cases (sandwich, auditory, spoken, textual) — call
-  ``spec.clip_input(clip, mir_row, visual_payload)`` per member clip and
-  use the returned raw-evidence string directly. The cluster prompt for
-  these cases synthesises straight from caption / speech / MIR text
-  (plus the upstream video ``ClipLabel`` JSON for sandwich).
+Every case loads its cluster evidence from stage-1 clip labels: join
+``Clip ⋈ ClipLabel`` for the case and use the validated
+``ClipLabel.payload`` dict as each member clip's evidence, then feed the
+shared downstream sampling / prompt / validation / store machinery.
 """
 
 from __future__ import annotations
@@ -30,7 +23,6 @@ from sqlalchemy.orm import Session
 from core import fingerprint as fp
 from core.config import LabelsSettings
 from core.database import (
-    AudioMIR,
     Clip,
     ClipLabel,
     ClusterLabel,
@@ -74,20 +66,13 @@ class _ClusterMember:
 def _cluster_dependency_hash(session: Session, *, spec: LabelCaseSpec) -> str:
     """Compose the cluster fingerprint's dependency slot for ``spec``.
 
-    Stage-1-backed cases inherit upstream drift through their own ``LABELS``
-    stage state (sealed by ``clip_pass.run_case``). Stage-1-skipped cases
-    hash the raw upstream stages directly (captions / speech / MIR) plus
-    any ``consumes_label_cases`` ``LABELS`` rows (the video case for
-    sandwich). ``CLUSTER_ASSIGN`` is always included.
+    Every case inherits upstream drift through its own ``LABELS`` stage
+    state (sealed by ``clip_pass.run_case``): upstream captions / speech /
+    MIR drift is captured transitively through that stage-1 seal.
+    ``CLUSTER_ASSIGN`` is always included.
     """
     parts: list[str] = []
-    if spec.runs_clip_pass:
-        parts.append(fp.stage_dependency_hash(session, Stage.LABELS, spec.name))
-    else:
-        for st, sc in spec.stage1_dependency_stages:
-            parts.append(fp.stage_dependency_hash(session, st, sc))
-        for dep_case in spec.consumes_label_cases:
-            parts.append(fp.stage_dependency_hash(session, Stage.LABELS, dep_case))
+    parts.append(fp.stage_dependency_hash(session, Stage.LABELS, spec.name))
     parts.append(fp.stage_dependency_hash(session, Stage.CLUSTER_ASSIGN, spec.name))
     return fp.compose_hashes(*parts)
 
@@ -95,14 +80,12 @@ def _cluster_dependency_hash(session: Session, *, spec: LabelCaseSpec) -> str:
 def _candidate_payload_hash(payload: dict | str) -> str:
     """Deterministic content hash of a ``ClipCandidate.payload``.
 
-    Stage-1-skipped cases must drift the cluster fingerprint when their
-    per-clip evidence text changes — captions/speech/MIR all seal
-    config-only ``StageState`` fingerprints (their ``data`` slot is
-    ``hash_text("")``), so ``stage_dependency_hash`` does NOT notice a
-    transcript or descriptor change. Folding the payload hash into the
-    cluster fingerprint's ``data`` slot is the only place per-clip
-    content drift can land. ``dict`` payloads are sorted-key JSON
-    encoded; ``str`` payloads are hashed verbatim.
+    Every case now carries a stage-1 LABELS seal, but that seal's ``data``
+    slot is ``hash_text("")`` for the text cases, so ``stage_dependency_hash``
+    does NOT notice a transcript or descriptor change. Folding the per-clip
+    payload hash into the cluster fingerprint's ``data`` slot is the only
+    place per-clip content drift can land. ``dict`` payloads are sorted-key
+    JSON encoded; ``str`` payloads are hashed verbatim.
     """
     if isinstance(payload, str):
         return fp.hash_text(payload)
@@ -177,75 +160,6 @@ def _populate_from_stage1(
         )
 
 
-def _populate_from_raw_signals(
-    session: Session,
-    *,
-    spec: LabelCaseSpec,
-    member_by_user: dict[int, _ClusterMember],
-) -> None:
-    """Build raw per-clip evidence strings via ``spec.clip_input``.
-
-    Clips whose adapter returns ``None`` (e.g. missing video ClipLabel for
-    sandwich, no music detected for auditory) are silently dropped —
-    the same clip is dropped from every cluster the user belongs to, and
-    a cluster left with zero usable clips later fails with ``no_input``
-    in ``_prepare_request``.
-    """
-    clip_rows = (
-        session.execute(
-            select(Clip).where(
-                Clip.user_id.in_(list(member_by_user)),
-                *clip_used_in_analysis(),
-            )
-        )
-        .scalars()
-        .all()
-    )
-    if not clip_rows:
-        return
-    clip_ids = [c.id for c in clip_rows]
-    mir_by_clip: dict[int, AudioMIR] = {
-        m.clip_id: m
-        for m in (
-            session.execute(select(AudioMIR).where(AudioMIR.clip_id.in_(clip_ids)))
-            .scalars()
-            .all()
-        )
-    }
-    visual_by_clip: dict[int, dict] = {}
-    if spec.consumes_label_cases:
-        assert len(spec.consumes_label_cases) == 1, (
-            f"{spec.name} consumes_label_cases must be 0 or 1"
-        )
-        dep_case = spec.consumes_label_cases[0]
-        rows = (
-            session.execute(
-                select(ClipLabel).where(
-                    ClipLabel.clip_id.in_(clip_ids),
-                    ClipLabel.label_case == dep_case,
-                    ClipLabel.status == "success",
-                )
-            )
-            .scalars()
-            .all()
-        )
-        visual_by_clip = {r.clip_id: r.payload or {} for r in rows}
-
-    for clip in clip_rows:
-        m = member_by_user.get(clip.user_id)
-        if m is None:
-            continue
-        visual_payload = (
-            visual_by_clip.get(clip.id) if spec.consumes_label_cases else None
-        )
-        if spec.consumes_label_cases and visual_payload is None:
-            continue
-        text = spec.clip_input(clip, mir_by_clip.get(clip.id), visual_payload)
-        if text is None:
-            continue
-        m.clips.append(ClipCandidate(clip_id=clip.id, warning_count=0, payload=text))
-
-
 def _load_candidates(
     session: Session,
     *,
@@ -255,10 +169,7 @@ def _load_candidates(
     members_by_cluster, member_by_user = _collect_members(session, case=spec.name)
     if not member_by_user:
         return {}
-    if spec.runs_clip_pass:
-        _populate_from_stage1(session, case=spec.name, member_by_user=member_by_user)
-    else:
-        _populate_from_raw_signals(session, spec=spec, member_by_user=member_by_user)
+    _populate_from_stage1(session, case=spec.name, member_by_user=member_by_user)
     prompt_overhead = estimate_tokens(prompt_for_cluster(labels, case=spec.name))
     out: dict[int, list[ClipCandidate]] = {}
     for cid, members in members_by_cluster.items():

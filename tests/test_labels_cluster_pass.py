@@ -336,32 +336,39 @@ def _clean_audio_cluster_json() -> dict:
     return payload
 
 
-def test_cluster_pass_spoken_consumes_raw_speech_signals() -> None:
-    """Stage-2 for ``case='spoken'`` skips the per-clip pass and synthesises
-    directly from each member clip's raw speech transcription (and MIR, when
-    music is detected). The prompt body the generator sees must embed the
-    speech transcript and must NOT carry the video-case ``ClipLabel`` payload
-    that this branch deliberately ignores.
+def test_cluster_pass_spoken_consumes_stage1_clip_labels() -> None:
+    """Stage-2 for ``case='spoken'`` now consumes the spoken per-clip
+    ``ClipLabel`` payloads written by the stage-1 text pass (mirroring the
+    video case). Each member clip's spoken observation tag must reach the
+    cluster prompt, while the unrelated video ``ClipLabel`` for the same
+    clip must NOT — the spoken cluster pass joins on ``label_case='spoken'``.
     """
     eng = _engine()
-    speech_marker = "speechy-podcast-clip-marker"
+    spoken_marker = "spoken-observation-marker"
+    spoken_payload = {
+        "observable_audio_tags": [{"tag": spoken_marker, "evidence": "0:01"}],
+        "aesthetic_tags": [],
+        "community_signalling_tags": [],
+        "one_sentence_audio_reading": "ok",
+    }
     with Session(eng) as s:
         s.add(User(id=1, is_selected=True))
         s.add(User(id=2, is_selected=True))
         for cid, uid in [(10, 1), (11, 1), (20, 2)]:
+            s.add(Clip(id=cid, user_id=uid, is_selected=True, is_downloaded=True))
             s.add(
-                Clip(
-                    id=cid,
-                    user_id=uid,
-                    is_selected=True,
-                    is_downloaded=True,
-                    is_speech_detected=True,
-                    speech_transcription=f"hi this is {speech_marker} talking",
-                    speech_language="en",
+                ClipLabel(
+                    clip_id=cid,
+                    label_case="spoken",
+                    status="success",
+                    validation="ok",
+                    warnings=[],
+                    payload=spoken_payload,
+                    attempts=1,
                 )
             )
             # A visual ClipLabel row that MUST NOT leak into the spoken
-            # cluster prompt — the spoken case does not consume video labels.
+            # cluster prompt — the spoken cluster pass joins on label_case.
             s.add(
                 ClipLabel(
                     clip_id=cid,
@@ -404,8 +411,8 @@ def test_cluster_pass_spoken_consumes_raw_speech_signals() -> None:
 
     assert len(fake.prompts) == 1, "expected exactly one cluster prompt for spoken case"
     prompt = fake.prompts[0]
-    assert speech_marker in prompt, (
-        "spoken cluster prompt must include each member clip's speech transcript"
+    assert spoken_marker in prompt, (
+        "spoken cluster prompt must include each member clip's spoken ClipLabel"
     )
     assert "visual-only-tag" not in prompt, (
         "spoken cluster prompt must NOT include video-case clip labels"

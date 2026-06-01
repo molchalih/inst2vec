@@ -134,6 +134,12 @@ class LabelsSettings(BaseModel):
     # from the clip-pass fingerprint (see ``_LABELS_CONFIG_FIELDS`` in
     # ``modules.labels.state``). Drives ``LabelsGenerator.run_many``.
     batch_size: int = 1
+    # Clip-pass vLLM engine knobs (perf-only; excluded from the fingerprint).
+    clip_gpu_memory_utilization: float = 0.90
+    # 16384 fits a single 24 GB GPU after the 8B weights (KV cache headroom);
+    # 32768 overflows the KV budget on a 24 GB card.
+    clip_max_model_len: int = 16384
+    clip_enforce_eager: bool = True
 
     min_tags_per_kind: int = 3
     max_tags_per_kind: int = 10

@@ -1,6 +1,6 @@
 import pytest
 
-from core.config import LabelsSettings
+from core.config import LabelsSettings, _load_settings
 from modules.labels.prompts import prompt_for, prompt_for_cluster
 
 
@@ -51,3 +51,9 @@ def test_prompt_for_cluster_missing_case_raises() -> None:
         ValueError, match=r"missing labels\.cluster_case_prompts\.audio"
     ):
         prompt_for_cluster(s, case="audio")
+
+
+def test_all_cases_have_clip_prompts():
+    settings = _load_settings()
+    for case in ("video", "spoken", "textual", "auditory", "sandwich"):
+        assert prompt_for(settings.labels, case=case).strip()

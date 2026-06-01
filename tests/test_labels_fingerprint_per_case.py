@@ -60,12 +60,14 @@ class _FakeGen:
     video_calls: list = field(default_factory=list)
     text_calls: list = field(default_factory=list)
 
-    def run(self, video_path, prompt: str) -> str:
+    def run(self, video_path, prompt: str, *, schema: dict | None = None) -> str:
         self.video_calls.append((str(video_path), prompt))
         return self.response
 
-    def run_many(self, video_paths, prompt: str) -> list[str]:
-        return [self.run(vp, prompt) for vp in video_paths]
+    def run_many(
+        self, video_paths, prompt: str, *, schema: dict | None = None
+    ) -> list[str]:
+        return [self.run(vp, prompt, schema=schema) for vp in video_paths]
 
     def run_text(
         self,

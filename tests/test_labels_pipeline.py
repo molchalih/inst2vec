@@ -107,21 +107,6 @@ def _clean_json() -> str:
     )
 
 
-def _fake_prepare_many(self, video_paths, prompt):
-    """Test-shim: short-circuits the CPU prep half of the labels generator.
-
-    Returns the inputs verbatim so the paired ``_fake_generate_from_inputs``
-    can dispatch through ``self.run_many`` (the patch site's source of
-    truth), bypassing real frame decoding + tokenization in tests.
-    """
-    return (list(video_paths), prompt)
-
-
-def _fake_generate_from_inputs(self, inputs):
-    video_paths, prompt = inputs
-    return self.run_many(video_paths, prompt)
-
-
 def _patch_generator(text_or_callable):
     """Patch ``LabelsGenerator.run`` (video case) and stub ``run_text``.
 
@@ -139,12 +124,12 @@ def _patch_generator(text_or_callable):
     """
     from modules.labels.models import LabelsGenerator
 
-    def fake_run(self, video_path, prompt):
+    def fake_run(self, video_path, prompt, *, schema=None):
         if callable(text_or_callable):
             return text_or_callable(video_path, prompt)
         return text_or_callable
 
-    def fake_run_many(self, video_paths, prompt):
+    def fake_run_many(self, video_paths, prompt, *, schema=None):
         return [fake_run(self, vp, prompt) for vp in video_paths]
 
     def fake_run_text(
@@ -166,8 +151,6 @@ def _patch_generator(text_or_callable):
         LabelsGenerator,
         run=fake_run,
         run_many=fake_run_many,
-        prepare_many=_fake_prepare_many,
-        generate_from_inputs=_fake_generate_from_inputs,
         run_text=fake_run_text,
         unload=lambda self: None,
     )
@@ -201,11 +184,11 @@ def test_idempotent_rerun_makes_no_model_calls(db_engine):
     video_calls = []
     text_calls = []
 
-    def fake_run(self, video_path, prompt):
+    def fake_run(self, video_path, prompt, *, schema=None):
         video_calls.append(video_path)
         return _clean_json()
 
-    def fake_run_many(self, video_paths, prompt):
+    def fake_run_many(self, video_paths, prompt, *, schema=None):
         return [fake_run(self, vp, prompt) for vp in video_paths]
 
     def fake_run_text(
@@ -228,8 +211,6 @@ def test_idempotent_rerun_makes_no_model_calls(db_engine):
         LabelsGenerator,
         run=fake_run,
         run_many=fake_run_many,
-        prepare_many=_fake_prepare_many,
-        generate_from_inputs=_fake_generate_from_inputs,
         run_text=fake_run_text,
         unload=lambda self: None,
     ):
@@ -328,25 +309,28 @@ def test_selection_growth_adds_rows_without_wiping(db_engine):
         assert ids == [1, 2]
 
 
-def test_run_runs_stage1_for_video_only_and_skips_non_video_clip_pass(db_engine):
-    """Only the video case runs the per-clip stage-1 pass.
+def test_run_runs_stage1_for_all_cases(db_engine):
+    """Every case runs the per-clip stage-1 pass.
 
-    Non-video cases (sandwich/audio/maest) are stage-1-skipped by spec —
-    their cluster pass synthesises from raw signals directly. With no
-    ``UserCluster`` rows seeded, the cluster pass for every case finds
-    no candidates and never calls ``run_text``. The only model calls in
-    this run are the video case's stage-1 ``run`` invocations.
+    The video case routes each clip through ``run`` (one call per selected
+    clip); the four text cases route per-clip evidence through ``run_text``.
+    With the minimal seed (no speech / caption / MIR), the text-only cases'
+    adapters return ``None`` and write terminal ``failed`` rows without a
+    ``run_text`` call, while ``sandwich`` — which consumes the video
+    ClipLabel — does reach ``run_text``. Either way, every case produces a
+    ``ClipLabel`` row per selected clip. With no ``UserCluster`` rows seeded
+    the cluster pass finds no candidates.
     """
     _seed(db_engine, n_selected=2)
     s = _settings(max_attempts=1)
     video_calls = []
     text_calls = []
 
-    def fake_run(self, video_path, prompt):
+    def fake_run(self, video_path, prompt, *, schema=None):
         video_calls.append((str(video_path), prompt))
         return _clean_json()
 
-    def fake_run_many(self, video_paths, prompt):
+    def fake_run_many(self, video_paths, prompt, *, schema=None):
         return [fake_run(self, vp, prompt) for vp in video_paths]
 
     def fake_run_text(
@@ -361,7 +345,7 @@ def test_run_runs_stage1_for_video_only_and_skips_non_video_clip_pass(db_engine)
         schema=None,
     ):
         text_calls.append((prompt, max_new_tokens))
-        return _clean_json()  # validates as video-shape only
+        return _clean_json()  # video-shaped → validation failure for other cases
 
     from modules.labels.models import LabelsGenerator
 
@@ -369,8 +353,6 @@ def test_run_runs_stage1_for_video_only_and_skips_non_video_clip_pass(db_engine)
         LabelsGenerator,
         run=fake_run,
         run_many=fake_run_many,
-        prepare_many=_fake_prepare_many,
-        generate_from_inputs=_fake_generate_from_inputs,
         run_text=fake_run_text,
         unload=lambda self: None,
     ):
@@ -378,11 +360,68 @@ def test_run_runs_stage1_for_video_only_and_skips_non_video_clip_pass(db_engine)
 
         run_labels(s, _secrets())
 
-    # One ``run`` (video stage 1) per selected clip; non-video stage 1 is
-    # skipped by spec, and the cluster pass has no UserCluster rows to
-    # sample, so ``run_text`` is never reached.
+    # Video stage 1 runs once per selected clip.
     assert len(video_calls) == 2
-    assert text_calls == []
+    expected_cases = set(default_cases(s))
+    with Session(db_engine) as sess:
+        rows = sess.query(ClipLabel).all()
+        cases_present = {r.label_case for r in rows}
+        assert cases_present == expected_cases
+        # Each case produced a row per selected clip.
+        for case in expected_cases:
+            ids = sorted(r.clip_id for r in rows if r.label_case == case)
+            assert ids == [1, 2], f"case={case} ids={ids}"
+        video_rows = [r for r in rows if r.label_case == "video"]
+        assert all(r.status == "success" for r in video_rows)
+
+
+def test_spoken_clip_pass_writes_clip_label(db_engine):
+    """The spoken case runs a per-clip TEXT pass from the speech transcript."""
+    with Session(db_engine) as s:
+        s.add(User(id=1, is_selected=True))
+        s.add(
+            Clip(
+                id=1,
+                user_id=1,
+                is_selected=True,
+                is_downloaded=True,
+                is_speech_detected=True,
+                speech_transcription="a calm slow narration about home cooking",
+                speech_language="en",
+            )
+        )
+        s.commit()
+
+    settings = _settings(max_attempts=1)
+    spec = REGISTRY["spoken"]
+
+    class _SpokenGen:
+        def run_text(self, prompt, *, max_new_tokens, schema=None):
+            from modules.labels.cases import REGISTRY as _R
+
+            assert _R["spoken"].clip_prompt_key  # sanity: spoken prompt body led
+            import json as _json
+
+            return _json.dumps(_clip_payload_for_case("spoken"))
+
+    from modules.labels import clip_pass
+
+    with Session(db_engine) as sess:
+        clip_pass.run_case(
+            session=sess,
+            settings=settings,
+            labels=settings.labels,
+            generator=_SpokenGen(),
+            spec=spec,
+        )
+
+    with Session(db_engine) as sess:
+        row = sess.get(ClipLabel, (1, "spoken"))
+        assert row is not None
+        assert row.label_case == "spoken"
+        assert row.status == "success"
+        assert row.validation in ("ok", "warn")
+        assert row.payload is not None
 
 
 # ---------------------------------------------------------------------------
@@ -567,9 +606,12 @@ class _DispatchingGen:
             return None
         return json.dumps(_cluster_payload_for_case(case))
 
-    def run(self, video_path, prompt):
+    def run(self, video_path, prompt, *, schema=None):
         self.video_calls.append((str(video_path), prompt))
         return self._dispatch_clip(prompt)
+
+    def run_many(self, video_paths, prompt, *, schema=None):
+        return [self.run(vp, prompt) for vp in video_paths]
 
     def run_text(
         self,
@@ -657,12 +699,12 @@ def _patch_dispatching(gen: _DispatchingGen):
     with (
         patch.multiple(
             LabelsGenerator,
-            run=lambda self, video_path, prompt: gen.run(video_path, prompt),
-            run_many=lambda self, video_paths, prompt: [
+            run=lambda self, video_path, prompt, *, schema=None: gen.run(
+                video_path, prompt
+            ),
+            run_many=lambda self, video_paths, prompt, *, schema=None: [
                 gen.run(vp, prompt) for vp in video_paths
             ],
-            prepare_many=_fake_prepare_many,
-            generate_from_inputs=_fake_generate_from_inputs,
             run_text=_run_text,
             unload=lambda self: None,
         ),
@@ -706,13 +748,14 @@ def _full_settings(tmp_path):
     return s
 
 
-def test_full_run_writes_clip_labels_only_for_stage1_backed_cases(db_engine, tmp_path):
-    """Stage 1 only runs for cases with ``spec.runs_clip_pass=True``.
+def test_full_run_writes_clip_labels_for_all_cases(db_engine, tmp_path):
+    """Stage 1 runs for every case.
 
-    Currently only the video case opts in — sandwich/audio/maest skip
-    stage 1 and let the cluster pass synthesise from raw signals — so a
-    full pipeline run writes exactly one ``ClipLabel`` row per selected
-    clip per stage-1-backed case.
+    All five active cases run the clip pass: the video case reduces frames to text and
+    the four text cases (spoken / textual / auditory / sandwich) build
+    per-clip evidence from caption / speech / MIR (plus the video ClipLabel
+    for sandwich). A full pipeline run over a fully-populated clip writes one
+    successful ``ClipLabel`` row per selected clip per case.
     """
     _seed_full_clip(db_engine, tmp_path=tmp_path)
     settings = _full_settings(tmp_path)
@@ -722,7 +765,7 @@ def test_full_run_writes_clip_labels_only_for_stage1_backed_cases(db_engine, tmp
 
         run_labels(settings, _secrets())
 
-    expected_cases = {c for c in default_cases(settings) if REGISTRY[c].runs_clip_pass}
+    expected_cases = set(default_cases(settings))
     with Session(db_engine) as sess:
         rows = sess.query(ClipLabel).filter(ClipLabel.clip_id == 1).all()
         cases_present = {r.label_case for r in rows}
@@ -848,3 +891,219 @@ def test_vl_unloads_before_cluster_generator_loads(db_engine, monkeypatch):
     assert events.index("vl_unload") < events.index("cluster_pass")
     # Cluster generator is unloaded only after the cluster pass.
     assert events.index("cluster_pass") < events.index("cluster_unload")
+
+
+# ---------------------------------------------------------------------------
+# Sandwich dependency-failure handling (transient vs terminal)
+# ---------------------------------------------------------------------------
+
+
+def _seed_sandwich_clip(eng) -> None:
+    """Seed one user + one clip with caption + speech (no video file needed —
+    these tests drive only the ``sandwich`` clip pass directly)."""
+    with Session(eng) as s:
+        s.add(User(id=1, is_selected=True))
+        s.add(
+            Clip(
+                id=1,
+                user_id=1,
+                is_selected=True,
+                is_downloaded=True,
+                caption_clean="warm kitchen scene",
+                caption_language="en",
+                is_speech_detected=True,
+                speech_transcription="a calm slow narration",
+                speech_language="en",
+            )
+        )
+        s.commit()
+
+
+def _write_video_label(eng, *, status: str, attempts: int) -> None:
+    """Write a ``video`` ClipLabel for clip 1 in the given status/attempts."""
+    with Session(eng) as s:
+        payload = _clip_payload_for_case("video") if status == "success" else None
+        s.add(
+            ClipLabel(
+                clip_id=1,
+                label_case="video",
+                status=status,
+                validation="ok" if status == "success" else None,
+                payload=payload,
+                warnings=[] if status == "success" else None,
+                error=None if status == "success" else "runtime:boom",
+                attempts=attempts,
+            )
+        )
+        s.commit()
+
+
+def _run_sandwich(eng, settings) -> None:
+    from modules.labels import clip_pass
+
+    with Session(eng) as sess:
+        clip_pass.run_case(
+            session=sess,
+            settings=settings,
+            labels=settings.labels,
+            generator=_DispatchingGen(),
+            spec=REGISTRY["sandwich"],
+        )
+
+
+def test_sandwich_stays_pending_when_video_label_transiently_failed(db_engine):
+    """Regression: a transiently-failed video label (attempts < max) must NOT
+    make the sandwich row terminally failed — it must stay pending so a later
+    run retries it once the video label succeeds.
+    """
+    _seed_sandwich_clip(db_engine)
+    settings = _settings(max_attempts=2)
+    # Video label transiently failed: failed but attempts < max_attempts.
+    _write_video_label(db_engine, status="failed", attempts=1)
+
+    _run_sandwich(db_engine, settings)
+
+    with Session(db_engine) as sess:
+        row = sess.get(ClipLabel, (1, "sandwich"))
+        # No terminal sandwich row: either absent, or present-but-pending.
+        if row is not None:
+            assert row.status != "failed", (
+                "sandwich was permanently failed on a transient video failure"
+            )
+
+    # Now the video label succeeds on retry; the sandwich pass must recover.
+    with Session(db_engine) as sess:
+        vid = sess.get(ClipLabel, (1, "video"))
+        vid.status = "success"
+        vid.validation = "ok"
+        vid.payload = _clip_payload_for_case("video")
+        vid.warnings = []
+        vid.error = None
+        vid.attempts = 2
+        sess.commit()
+
+    _run_sandwich(db_engine, settings)
+
+    with Session(db_engine) as sess:
+        row = sess.get(ClipLabel, (1, "sandwich"))
+        assert row is not None
+        assert row.status == "success", (
+            f"sandwich did not recover: status={row.status} error={row.error!r}"
+        )
+        assert row.validation in ("ok", "warn")
+
+
+def test_sandwich_terminal_when_video_label_terminally_failed(db_engine):
+    """A terminally-failed video label (attempts >= max) justifies a terminal
+    sandwich failure row — it only recovers on a video drift, which also drifts
+    the sandwich dependency hash.
+    """
+    _seed_sandwich_clip(db_engine)
+    settings = _settings(max_attempts=2)
+    _write_video_label(db_engine, status="failed", attempts=2)
+
+    _run_sandwich(db_engine, settings)
+
+    with Session(db_engine) as sess:
+        row = sess.get(ClipLabel, (1, "sandwich"))
+        assert row is not None
+        assert row.status == "failed"
+        assert row.attempts == settings.labels.max_attempts
+
+
+# ---------------------------------------------------------------------------
+# Success-path coverage for the text cases (textual / auditory / sandwich)
+# ---------------------------------------------------------------------------
+
+
+def test_textual_clip_pass_writes_success(db_engine):
+    """The textual case writes a successful ClipLabel from a clean caption."""
+    with Session(db_engine) as s:
+        s.add(User(id=1, is_selected=True))
+        s.add(
+            Clip(
+                id=1,
+                user_id=1,
+                is_selected=True,
+                is_downloaded=True,
+                caption_clean="a warm slow-living kitchen diary entry",
+                caption_language="en",
+            )
+        )
+        s.commit()
+
+    settings = _settings(max_attempts=1)
+    from modules.labels import clip_pass
+
+    with Session(db_engine) as sess:
+        clip_pass.run_case(
+            session=sess,
+            settings=settings,
+            labels=settings.labels,
+            generator=_DispatchingGen(),
+            spec=REGISTRY["textual"],
+        )
+
+    with Session(db_engine) as sess:
+        row = sess.get(ClipLabel, (1, "textual"))
+        assert row is not None
+        assert row.label_case == "textual"
+        assert row.status == "success"
+        assert row.validation in ("ok", "warn")
+        assert row.payload is not None
+
+
+def test_auditory_clip_pass_writes_success(db_engine):
+    """The auditory case writes a successful ClipLabel from a music AudioMIR."""
+    with Session(db_engine) as s:
+        s.add(User(id=1, is_selected=True))
+        s.add(Clip(id=1, user_id=1, is_selected=True, is_downloaded=True))
+        s.commit()
+        seed_audio_mir(s, clip_id=1, is_music_detected=True)
+
+    settings = _settings(max_attempts=1)
+    from modules.labels import clip_pass
+
+    with Session(db_engine) as sess:
+        clip_pass.run_case(
+            session=sess,
+            settings=settings,
+            labels=settings.labels,
+            generator=_DispatchingGen(),
+            spec=REGISTRY["auditory"],
+        )
+
+    with Session(db_engine) as sess:
+        row = sess.get(ClipLabel, (1, "auditory"))
+        assert row is not None
+        assert row.label_case == "auditory"
+        assert row.status == "success"
+        assert row.validation in ("ok", "warn")
+        assert row.payload is not None
+
+
+def test_sandwich_clip_pass_writes_success(db_engine):
+    """The sandwich case writes a successful ClipLabel when its video
+    dependency label exists and caption/speech evidence is present."""
+    _seed_sandwich_clip(db_engine)
+    _write_video_label(db_engine, status="success", attempts=1)
+
+    settings = _settings(max_attempts=1)
+    from modules.labels import clip_pass
+
+    with Session(db_engine) as sess:
+        clip_pass.run_case(
+            session=sess,
+            settings=settings,
+            labels=settings.labels,
+            generator=_DispatchingGen(),
+            spec=REGISTRY["sandwich"],
+        )
+
+    with Session(db_engine) as sess:
+        row = sess.get(ClipLabel, (1, "sandwich"))
+        assert row is not None
+        assert row.label_case == "sandwich"
+        assert row.status == "success"
+        assert row.validation in ("ok", "warn")
+        assert row.payload is not None

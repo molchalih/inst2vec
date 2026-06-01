@@ -50,15 +50,13 @@ def run(settings: Settings, secrets: Secrets) -> None:
             session.commit()
 
         cases = tuple(case_run_order(default_cases(settings), registry=REGISTRY))
-        # Stage 1 only runs for cases that need a per-clip Qwen pass. The
-        # rephrasing cases (sandwich/auditory/spoken/textual) skip stage 1 entirely
-        # and let the cluster pass synthesise from raw caption/speech/MIR
-        # signals — for those cases ``ClipLabel`` rows are dead weight and
-        # are purged by ``purge_orphans`` above.
+        # Stage 1 runs the per-clip pass for every ordered case. The video
+        # case reduces frames to text; the four text cases (spoken / textual /
+        # auditory / sandwich) build per-clip evidence via ``spec.clip_input``
+        # and run a text pass. Topo-ordering keeps ``sandwich`` after ``video``
+        # so its dependency ClipLabel rows already exist.
         for case in cases:
             spec = REGISTRY[case]
-            if not spec.runs_clip_pass:
-                continue
             with Session(get_engine()) as session:
                 clip_pass.run_case(
                     session=session,

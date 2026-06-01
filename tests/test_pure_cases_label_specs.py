@@ -22,11 +22,6 @@ def test_modalities():
     assert REGISTRY["textual"].modality == "textual"
 
 
-def test_new_cases_skip_clip_pass():
-    for name in ("auditory", "spoken", "textual"):
-        assert REGISTRY[name].runs_clip_pass is False
-
-
 def test_dependencies():
     spoken = REGISTRY["spoken"]
     assert (Stage.SPEECH, SCOPE_SPEECH) in spoken.stage1_dependency_stages

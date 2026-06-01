@@ -32,6 +32,10 @@ RUNTIME_ALLOWLIST = {
     "cluster_gpu_memory_utilization",
     "cluster_max_model_len",
     "cluster_enforce_eager",
+    # Clip-pass vLLM engine knobs — same rationale for the 8B clip tagger.
+    "clip_gpu_memory_utilization",
+    "clip_max_model_len",
+    "clip_enforce_eager",
 }
 
 

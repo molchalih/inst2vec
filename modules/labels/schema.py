@@ -45,6 +45,46 @@ def _desc_schema(max_chars: int) -> dict:
     return {"type": "string", "maxLength": max_chars}
 
 
+def clip_schema(spec: LabelCaseSpec, labels: LabelsSettings) -> dict:
+    """Per-case JSON Schema for clip-label grammar-constrained decoding.
+
+    Encodes ONLY the hard ``validation._shapes_ok`` rules: exact key set,
+    object shapes, value types, and the ``confidence`` enum. The soft count
+    / length bounds (S1-S6) are deliberately left out so they remain
+    post-parse warnings — ``ClipLabel.warnings`` feeds the cluster-pass clip
+    ranking and must stay meaningful.
+    """
+    tag = {"type": "string"}
+    observable_item = {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["tag", "evidence"],
+        "properties": {"tag": tag, "evidence": {"type": "string"}},
+    }
+    grounded_item = {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["tag", "grounded_in", "confidence"],
+        "properties": {
+            "tag": tag,
+            "grounded_in": {"type": "array", "items": tag},
+            "confidence": {"type": "string", "enum": list(_CONFIDENCE)},
+        },
+    }
+    props = {
+        spec.observable_key: {"type": "array", "items": observable_item},
+        "aesthetic_tags": {"type": "array", "items": grounded_item},
+        "community_signalling_tags": {"type": "array", "items": grounded_item},
+        spec.sentence_key: {"type": "string"},
+    }
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": sorted(spec.clip_required_keys),
+        "properties": props,
+    }
+
+
 def cluster_schema(spec: LabelCaseSpec, labels: LabelsSettings) -> dict:
     tag = _tag_schema(labels)
     desc = _desc_schema(labels.cluster_max_sentence_chars)

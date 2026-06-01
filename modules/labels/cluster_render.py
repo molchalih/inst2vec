@@ -17,11 +17,10 @@ from typing import Protocol
 class ClipCandidate:
     """One clip's evidence, ready to be rendered into the cluster prompt.
 
-    ``payload`` is the case-shaped per-clip blob the cluster prompt consumes:
-    a ``dict`` for stage-1-backed cases (the validated ``ClipLabel.payload``)
-    or a ``str`` for stage-1-skipped cases (raw caption / speech / MIR text,
-    optionally prefixed with the upstream video ClipLabel JSON for
-    sandwich). ``json.dumps`` in ``render_prompt_body`` handles both.
+    ``payload`` is always the validated per-clip label ``dict`` (the
+    ``ClipLabel.payload`` for this case); every case carries a stage-1
+    LABELS seal now, so there is no raw-text variant. ``json.dumps`` in
+    ``render_prompt_body`` serialises it.
     """
 
     clip_id: int
