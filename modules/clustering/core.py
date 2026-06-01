@@ -1,6 +1,7 @@
 """Pure clustering logic: two-pass UMAP + HDBSCAN → ClusterResult."""
 
 from dataclasses import dataclass, field
+from dataclasses import fields as dataclass_fields
 from typing import cast
 
 import hdbscan
@@ -43,6 +44,36 @@ def resolve_hdbscan_metric(_hdbscan_metric: str | None = None) -> str:
 
 
 @dataclass
+class ClusterParams:
+    """UMAP + HDBSCAN hyperparameters for one clustering run."""
+
+    umap_n_components: int = 15
+    umap_n_neighbors: int = 15
+    umap_min_dist: float = 0.0
+    umap_metric: str = "cosine"
+    umap2d_n_neighbors: int | None = None
+    umap2d_min_dist: float | None = None
+    umap2d_metric: str | None = None
+    hdbscan_min_cluster_size: int = 15
+    hdbscan_min_samples: int | None = None
+    hdbscan_cluster_selection_method: str = "eom"
+    hdbscan_metric: str = DEFAULT_HDBSCAN_METRIC
+    hdbscan_max_cluster_frac: float = 0.0
+
+    @classmethod
+    def from_combo(
+        cls, combo: dict, *, max_cluster_frac: float = 0.0
+    ) -> "ClusterParams":
+        """Build from a grid/row dict, ignoring non-field keys (e.g. ``random_state``,
+        ``embedding_case``). ``random_state`` is passed to :func:`compute_clusters`
+        separately as a keyword-only argument."""
+        fields = {f.name for f in dataclass_fields(cls)}
+        kwargs = {k: v for k, v in combo.items() if k in fields}
+        kwargs["hdbscan_max_cluster_frac"] = max_cluster_frac
+        return cls(**kwargs)
+
+
+@dataclass
 class ClusterResult:
     labels: np.ndarray
     coords_2d: np.ndarray
@@ -72,63 +103,54 @@ def resolve_umap2d_params(
 
 def compute_clusters(
     matrix: np.ndarray,
-    umap_n_components: int = 15,
-    umap_n_neighbors: int = 15,
-    umap_min_dist: float = 0.0,
-    umap_metric: str = "cosine",
-    umap2d_n_neighbors: int | None = None,
-    umap2d_min_dist: float | None = None,
-    umap2d_metric: str | None = None,
-    hdbscan_min_cluster_size: int = 15,
-    hdbscan_min_samples: int | None = None,
-    hdbscan_cluster_selection_method: str = "eom",
-    hdbscan_metric: str = DEFAULT_HDBSCAN_METRIC,
-    hdbscan_max_cluster_frac: float = 0.0,
+    params: ClusterParams | None = None,
+    *,
     random_state: int = 42,
     return_nd_matrix: bool = False,
     umap_n_jobs: int = 1,
 ) -> ClusterResult:
-    min_required = umap_n_components + 1
+    params = params or ClusterParams()
+    min_required = params.umap_n_components + 1
     if matrix.shape[0] < min_required:
         raise ValueError(
             f"compute_clusters requires at least {min_required} rows "
-            f"(umap_n_components={umap_n_components} + 1), got {matrix.shape[0]}"
+            f"(umap_n_components={params.umap_n_components} + 1), got {matrix.shape[0]}"
         )
 
     u2_n, u2_md, u2_metric = resolve_umap2d_params(
-        umap_n_neighbors,
-        umap_min_dist,
-        umap_metric,
-        umap2d_n_neighbors,
-        umap2d_min_dist,
-        umap2d_metric,
+        params.umap_n_neighbors,
+        params.umap_min_dist,
+        params.umap_metric,
+        params.umap2d_n_neighbors,
+        params.umap2d_min_dist,
+        params.umap2d_metric,
     )
 
     # Pass 1 — reduce to n_components for clustering
     # spectral init often warns/fails on tight eigengaps (then falls back to random); skip it
     reducer_nd = UMAP(
-        n_components=umap_n_components,
-        n_neighbors=umap_n_neighbors,
-        min_dist=umap_min_dist,
-        metric=umap_metric,
+        n_components=params.umap_n_components,
+        n_neighbors=params.umap_n_neighbors,
+        min_dist=params.umap_min_dist,
+        metric=params.umap_metric,
         init="random",
         random_state=random_state,
         n_jobs=umap_n_jobs,
     )
     matrix_nd = cast(np.ndarray, reducer_nd.fit_transform(matrix))
 
-    effective_metric = resolve_hdbscan_metric(hdbscan_metric)
+    effective_metric = resolve_hdbscan_metric(params.hdbscan_metric)
     # Cap the largest cluster as a fraction of the sample (only eom honors it;
     # HDBSCAN treats max_cluster_size=0 as "no limit").
     max_cluster_size = (
-        round(hdbscan_max_cluster_frac * matrix.shape[0])
-        if hdbscan_max_cluster_frac and hdbscan_max_cluster_frac > 0.0
+        round(params.hdbscan_max_cluster_frac * matrix.shape[0])
+        if params.hdbscan_max_cluster_frac and params.hdbscan_max_cluster_frac > 0.0
         else 0
     )
     clusterer = hdbscan.HDBSCAN(
-        min_cluster_size=hdbscan_min_cluster_size,
-        min_samples=hdbscan_min_samples,
-        cluster_selection_method=hdbscan_cluster_selection_method,
+        min_cluster_size=params.hdbscan_min_cluster_size,
+        min_samples=params.hdbscan_min_samples,
+        cluster_selection_method=params.hdbscan_cluster_selection_method,
         metric=effective_metric,
         max_cluster_size=max_cluster_size,
     )

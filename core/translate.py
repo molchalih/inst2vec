@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 from core.console import log as _log
@@ -20,6 +21,15 @@ from core.lang import is_english
 from core.log import _scope_var as _log_scope_var
 from core.log import event
 from core.vendor.gemma_translate import GemmaTranslator
+
+
+@dataclass(frozen=True)
+class RowAccessors:
+    """Per-row getters/setter bridging a stage's ORM rows to the translate loop."""
+
+    get_source: Callable[[Any], str | None]
+    get_source_lang: Callable[[Any], str | None]
+    set_translation: Callable[[Any, str], None]
 
 
 def _translate_singly(
@@ -147,9 +157,7 @@ def _store_chunk(
 def translate_rows(
     rows: list[Any],
     *,
-    get_source: Callable[[Any], str | None],
-    get_source_lang: Callable[[Any], str | None],
-    set_translation: Callable[[Any, str], None],
+    accessors: RowAccessors,
     model_id: str,
     target_lang: str,
     max_chars: int,
@@ -194,7 +202,9 @@ def translate_rows(
 
     # Pre-filter: only non-empty, non-English sources reach the GPU. Skipped
     # rows are accounted for in the progress bar up front.
-    eligible, skipped = _collect_eligible(rows, get_source, get_source_lang, max_chars)
+    eligible, skipped = _collect_eligible(
+        rows, accessors.get_source, accessors.get_source_lang, max_chars
+    )
 
     width = max(batch_size, 1)
     translated = 0
@@ -222,7 +232,7 @@ def translate_rows(
             batch_ok = _store_chunk(
                 chunk,
                 results,
-                set_translation,
+                accessors.set_translation,
                 target_lang,
                 log_tag_prefix,
                 _mt_scope,

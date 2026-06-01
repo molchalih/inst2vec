@@ -18,6 +18,7 @@ from core.pipeline import Stage
 from modules.clustering.core import (
     CLUSTER_PARAM_COLS,
     DEFAULT_HDBSCAN_METRIC,
+    ClusterParams,
     compute_clusters,
     load_user_matrix,
     resolve_hdbscan_metric,
@@ -58,9 +59,9 @@ def _compute_row_scores(
     try:
         result = compute_clusters(
             matrix,
+            ClusterParams.from_combo(params, max_cluster_frac=max_cluster_frac),
+            random_state=int(params["random_state"]),
             return_nd_matrix=True,
-            hdbscan_max_cluster_frac=max_cluster_frac,
-            **params,
         )
     except ValueError:
         return "value_error"

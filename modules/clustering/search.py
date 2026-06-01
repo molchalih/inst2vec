@@ -23,6 +23,7 @@ from core.pipeline import Stage
 from modules.clustering.core import (
     CLUSTER_PARAM_COLS,
     DEFAULT_HDBSCAN_METRIC,
+    ClusterParams,
     ClusterResult,
     compute_clusters,
     load_user_matrix,
@@ -133,11 +134,12 @@ def _fit_one(
     matrix: np.ndarray, combo: dict, max_cluster_frac: float
 ) -> tuple[ClusterResult | None, float, str]:
     """Run compute_clusters for one combo. Returns (result_or_None, elapsed, err)."""
-    params = {k: v for k, v in combo.items() if k != "embedding_case"}
     t0 = time.perf_counter()
     try:
         result = compute_clusters(
-            matrix, hdbscan_max_cluster_frac=max_cluster_frac, **params
+            matrix,
+            ClusterParams.from_combo(combo, max_cluster_frac=max_cluster_frac),
+            random_state=int(combo["random_state"]),
         )
     except ValueError as exc:
         return None, time.perf_counter() - t0, str(exc)

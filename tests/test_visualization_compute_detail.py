@@ -10,6 +10,7 @@ from modules.visualization.compute import (
     ClusterMember,
     ClusterMemberClip,
     DatasetBaseline,
+    DetailKnobs,
     UserDetail,
     aggregate_boolean_share,
     aggregate_label_scores,
@@ -375,12 +376,14 @@ def test_build_user_detail_borderline_dot_includes_nearest_other():
         own_cluster_member_distances=np.array([0.1, 0.2, 0.3]),
         other_cluster_centroids={1: (3.0, 4.0)},
         other_cluster_labels={1: "Cluster 2"},
-        edge_percentile=66,
-        z_min=0.0,
-        distinctiveness_top_k=3,
-        genre_top_k=5,
-        instrument_top_k=3,
-        languages_top_k=3,
+        knobs=DetailKnobs(
+            edge_percentile=66,
+            z_min=0.0,
+            distinctiveness_top_k=3,
+            genre_top_k=5,
+            instrument_top_k=3,
+            languages_top_k=3,
+        ),
     )
     j = detail.to_json()
     assert j["user_id"] == 99
@@ -410,12 +413,14 @@ def test_build_user_detail_core_dot_no_nearest_other():
         own_cluster_member_distances=np.array([0.5, 1.0, 1.5]),
         other_cluster_centroids={1: (3.0, 4.0)},
         other_cluster_labels={1: "Cluster 2"},
-        edge_percentile=66,
-        z_min=0.0,
-        distinctiveness_top_k=3,
-        genre_top_k=5,
-        instrument_top_k=3,
-        languages_top_k=3,
+        knobs=DetailKnobs(
+            edge_percentile=66,
+            z_min=0.0,
+            distinctiveness_top_k=3,
+            genre_top_k=5,
+            instrument_top_k=3,
+            languages_top_k=3,
+        ),
     )
     j = detail.to_json()
     assert j["spatial"]["distance_from_centroid"] == pytest.approx(0.0, abs=1e-6)

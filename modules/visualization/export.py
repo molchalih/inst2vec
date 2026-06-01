@@ -51,6 +51,7 @@ from modules.visualization.cluster_label_render import (
 from modules.visualization.compute import (
     ClusterMember,
     ClusterMemberClip,
+    DetailKnobs,
     _cluster_baseline_from_members,
     build_cluster_detail,
     build_user_detail,
@@ -460,12 +461,14 @@ def _build_one_creator_detail(
         ),
         other_cluster_centroids=other_centroids,
         other_cluster_labels=other_labels,
-        edge_percentile=settings_viz.edge_percentile,
-        z_min=settings_viz.distinctiveness_z_min,
-        distinctiveness_top_k=settings_viz.distinctiveness_top_k,
-        genre_top_k=settings_viz.genre_top_k,
-        instrument_top_k=settings_viz.instrument_top_k,
-        languages_top_k=settings_viz.languages_top_k,
+        knobs=DetailKnobs(
+            edge_percentile=settings_viz.edge_percentile,
+            z_min=settings_viz.distinctiveness_z_min,
+            distinctiveness_top_k=settings_viz.distinctiveness_top_k,
+            genre_top_k=settings_viz.genre_top_k,
+            instrument_top_k=settings_viz.instrument_top_k,
+            languages_top_k=settings_viz.languages_top_k,
+        ),
     )
     payload = detail.to_json()
     payload["clips"] = _render_user_clips_block(session, u.user_id, case=case)

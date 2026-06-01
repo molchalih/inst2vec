@@ -36,6 +36,19 @@ describe("clusterSummaryLede", () => {
     );
   });
 
+  it("strips every original-accepted connector form, including malformed ones", () => {
+    // Parity guard: the decomposed connector array must match the exact set the
+    // original single alternation accepted, including the malformed spellings.
+    expect(clusterSummaryLede("The shared visual identity centerd on neon")).toBe("Neon");
+    expect(clusterSummaryLede("The shared visual identity centreed on neon")).toBe("Neon");
+    expect(clusterSummaryLede("A shared visual identity is center on neon")).toBe("Neon");
+    expect(clusterSummaryLede("A shared visual identity is centre on neon")).toBe("Neon");
+    // already-covered forms stay covered
+    expect(clusterSummaryLede("The shared visual identity centers on neon")).toBe("Neon");
+    expect(clusterSummaryLede("The shared visual identity combines neon")).toBe("Neon");
+    expect(clusterSummaryLede("A shared visual identity is built around neon")).toBe("Neon");
+  });
+
   it("passes summaries without the skeleton through untouched", () => {
     const s = "A blend of cinematic and electronic elements with a focus on mood.";
     expect(clusterSummaryLede(s)).toBe(s);

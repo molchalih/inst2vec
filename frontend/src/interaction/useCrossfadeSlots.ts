@@ -84,7 +84,7 @@ export const useCrossfadeSlots = (
     }
     slotsRef.current = next;
     setSlots(next);
-    if (rafRef.current === null) rafRef.current = requestAnimationFrame(tick);
+    rafRef.current ??= requestAnimationFrame(tick);
   }, [activeId, tick]);
 
   useEffect(

@@ -87,9 +87,11 @@ def _run(rows, translator, monkeypatch, **overrides):
 
     monkeypatch.setattr(ct, "GemmaTranslator", lambda model_id: translator)
     kwargs: dict[str, Any] = dict(
-        get_source=lambda r: r.source,
-        get_source_lang=lambda r: r.source_lang,
-        set_translation=lambda r, v: setattr(r, "translation", v),
+        accessors=ct.RowAccessors(
+            get_source=lambda r: r.source,
+            get_source_lang=lambda r: r.source_lang,
+            set_translation=lambda r, v: setattr(r, "translation", v),
+        ),
         model_id="fake",
         target_lang="en",
         max_chars=100,
@@ -193,9 +195,11 @@ def test_commits_during_processing(monkeypatch):
     def _do():
         ct.translate_rows(
             rows,
-            get_source=lambda r: r.source,
-            get_source_lang=lambda r: r.source_lang,
-            set_translation=lambda r, v: setattr(r, "translation", v),
+            accessors=ct.RowAccessors(
+                get_source=lambda r: r.source,
+                get_source_lang=lambda r: r.source_lang,
+                set_translation=lambda r, v: setattr(r, "translation", v),
+            ),
             model_id="fake",
             target_lang="en",
             max_chars=100,

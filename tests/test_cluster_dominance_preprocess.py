@@ -76,11 +76,15 @@ def test_compute_clusters_translates_frac_to_max_cluster_size(monkeypatch):
     monkeypatch.setattr(core.hdbscan, "HDBSCAN", FakeHDBSCAN)
 
     m = np.random.default_rng(1).standard_normal((40, 6)).astype(np.float32)
-    core.compute_clusters(m, umap_n_components=3, hdbscan_max_cluster_frac=0.25)
+    core.compute_clusters(
+        m, core.ClusterParams(umap_n_components=3, hdbscan_max_cluster_frac=0.25)
+    )
     assert captured["max_cluster_size"] == 10  # round(0.25 * 40)
 
     captured.clear()
-    core.compute_clusters(m, umap_n_components=3, hdbscan_max_cluster_frac=0.0)
+    core.compute_clusters(
+        m, core.ClusterParams(umap_n_components=3, hdbscan_max_cluster_frac=0.0)
+    )
     assert captured["max_cluster_size"] == 0  # disabled
 
 

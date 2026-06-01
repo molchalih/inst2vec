@@ -8,8 +8,8 @@ import { CollapsibleSection } from "./CollapsibleSection";
 type Props = {
   index: string;
   /**
-   * Per-clip label entries. Omit (along with `cluster`) to render a TODO
-   * placeholder.
+   * Per-clip label entries. Omit (along with `cluster`) to render the
+   * "not yet available" placeholder.
    */
   clips?: readonly ClipLabelEntry[];
   /**
@@ -57,7 +57,7 @@ const KIND_ROWS: {
  * a small accent-coloured index, a sentence in display weight, and
  * three labelled chip rows (obs / aes / com). For clusters, renders
  * the synthesised cluster identity. For any consumer that omits both
- * `clips` and `cluster`, renders a TODO placeholder.
+ * `clips` and `cluster`, renders a "not yet available" placeholder.
  *
  * The heading is driven solely by ``cluster.modality``; the per-clip
  * (creator) path always titles "Visual" because those entries are the
@@ -76,7 +76,7 @@ export const SectionVisual = ({ index, clips, cluster }: Props) => {
     return (
       <CollapsibleSection index={index} title={title}>
         <p style={todo}>
-          TODO: cluster-level visual aggregate (not yet produced).
+          Cluster-level visual aggregate not yet available.
         </p>
       </CollapsibleSection>
     );

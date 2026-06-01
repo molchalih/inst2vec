@@ -57,9 +57,9 @@ describe("SectionVisual cluster mode", () => {
     expect(screen.getByText(/invalid confidence/)).toBeInTheDocument();
   });
 
-  it("falls back to TODO placeholder when neither clips nor cluster provided", () => {
+  it("falls back to placeholder when neither clips nor cluster provided", () => {
     render(<SectionVisual index="05" />);
-    expect(screen.getByText(/TODO/)).toBeInTheDocument();
+    expect(screen.getByText(/not yet available/i)).toBeInTheDocument();
   });
 
   it("renders 'Visual' title when modality is visual", () => {

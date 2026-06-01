@@ -18,11 +18,38 @@ export function clusterWarningLabel(code: string): string {
 // and re-capitalise the first surviving word; summaries that don't match
 // the skeleton pass through untouched. This is a presentation-time
 // band-aid: the real fix is to stop generating the scaffolding upstream.
-const SUMMARY_LEAD_IN =
-  /^(?:the|a)\s+shared\s+\w+\s+identity\s+(?:cent(?:er|re)(?:s|ed|d)?\s+on|combines|blends|features|fuses|unites|revolves\s+around|focuses\s+on|draws\s+on|builds\s+on|brings\s+together|emphasi[sz]es|is\s+(?:cent(?:er|re)(?:ed|d)?|built)\s+(?:on|around))\s+/i;
+// The fixed skeleton head ("The/A shared <modality> identity"), followed by one
+// of a handful of connector phrases. Splitting head from connector keeps each
+// pattern's complexity well under the analyzer's threshold; the connectors are
+// listed individually rather than as one deeply-nested alternation.
+const SUMMARY_HEAD = /^(?:the|a)\s+shared\s+\w+\s+identity\s+/i;
+
+const SUMMARY_CONNECTORS = [
+  /cent(?:er|re)(?:s|ed|d)?\s+on/,
+  /combines/,
+  /blends/,
+  /features/,
+  /fuses/,
+  /unites/,
+  /revolves\s+around/,
+  /focuses\s+on/,
+  /draws\s+on/,
+  /builds\s+on/,
+  /brings\s+together/,
+  /emphasi[sz]es/,
+  /is\s+cent(?:er|re)(?:ed|d)?\s+(?:on|around)/,
+  /is\s+built\s+(?:on|around)/,
+];
+
+const SUMMARY_CONNECTOR = new RegExp(
+  String.raw`^(?:${SUMMARY_CONNECTORS.map((r) => r.source).join("|")})\s+`,
+  "i",
+);
 
 export function clusterSummaryLede(summary: string): string {
-  const stripped = summary.replace(SUMMARY_LEAD_IN, "");
-  if (stripped === summary || stripped.length === 0) return summary;
+  const head = summary.replace(SUMMARY_HEAD, "");
+  if (head === summary) return summary;
+  const stripped = head.replace(SUMMARY_CONNECTOR, "");
+  if (stripped === head || stripped.length === 0) return summary;
   return stripped.charAt(0).toUpperCase() + stripped.slice(1);
 }

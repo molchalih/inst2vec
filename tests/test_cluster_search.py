@@ -268,7 +268,7 @@ def test_run_cluster_search_inserts_rows(mem_engine, monkeypatch):
     )
     monkeypatch.setattr(
         "modules.clustering.search.compute_clusters",
-        lambda matrix, **kw: _fake_result(),
+        lambda matrix, params=None, **kw: _fake_result(),
     )
 
     from modules.clustering.search import run_cluster_search
@@ -291,7 +291,7 @@ def test_run_cluster_search_new_rows_have_passes_validation_none(
     )
     monkeypatch.setattr(
         "modules.clustering.search.compute_clusters",
-        lambda matrix, **kw: _fake_result(),
+        lambda matrix, params=None, **kw: _fake_result(),
     )
 
     from modules.clustering.search import run_cluster_search
@@ -316,7 +316,7 @@ def test_run_cluster_search_skips_no_embeddings_case(mem_engine, monkeypatch):
     monkeypatch.setattr("modules.clustering.search.load_user_matrix", fake_load)
     monkeypatch.setattr(
         "modules.clustering.search.compute_clusters",
-        lambda matrix, **kw: _fake_result(),
+        lambda matrix, params=None, **kw: _fake_result(),
     )
 
     from modules.clustering.search import run_cluster_search
@@ -338,7 +338,7 @@ def test_run_cluster_search_idempotent(mem_engine, monkeypatch):
     )
     monkeypatch.setattr(
         "modules.clustering.search.compute_clusters",
-        lambda matrix, **kw: _fake_result(),
+        lambda matrix, params=None, **kw: _fake_result(),
     )
 
     from modules.clustering.search import run_cluster_search
@@ -358,7 +358,7 @@ def test_run_cluster_search_uses_single_thread_umap_per_combo(mem_engine, monkey
     """Grid search does not enable UMAP internal threading; parallelism is only via grid workers."""
     received: list[int | None] = []
 
-    def capture_compute(matrix, **kw):
+    def capture_compute(matrix, params=None, **kw):
         received.append(kw.get("umap_n_jobs"))
         return _fake_result()
 
@@ -391,7 +391,7 @@ def test_unchanged_fingerprint_skips_recomputation(monkeypatch):
 
     monkeypatch.setattr(
         "modules.clustering.search.compute_clusters",
-        lambda matrix, **kw: _fake_result(),
+        lambda matrix, params=None, **kw: _fake_result(),
     )
 
     _seed_search_dataset()
@@ -426,7 +426,7 @@ def test_changed_embeddings_wipes_and_recomputes(monkeypatch):
 
     call_count = [0]
 
-    def counting_compute(matrix, **kw):
+    def counting_compute(matrix, params=None, **kw):
         # Return n_clusters=2 on the first call, n_clusters=3 on subsequent calls.
         n = 2 if call_count[0] == 0 else 3
         call_count[0] += 1
@@ -484,7 +484,7 @@ def test_changed_grid_config_wipes_and_recomputes(monkeypatch):
 
     monkeypatch.setattr(
         "modules.clustering.search.compute_clusters",
-        lambda matrix, **kw: _fake_result(),
+        lambda matrix, params=None, **kw: _fake_result(),
     )
 
     _seed_search_dataset()

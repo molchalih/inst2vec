@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from core.config import CaptionsSettings
 from core.database import Clip, get_engine, needs_caption_translation
 from core.log import scope
-from core.translate import translate_rows
+from core.translate import RowAccessors, translate_rows
 
 
 @scope("captions:translate")
@@ -28,9 +28,11 @@ def translate_captions(cfg: CaptionsSettings, *, engine: Engine | None = None) -
         )
         translate_rows(
             clips,
-            get_source=lambda c: c.caption_clean,
-            get_source_lang=lambda c: c.caption_language,
-            set_translation=lambda c, v: setattr(c, "caption_translation", v),
+            accessors=RowAccessors(
+                get_source=lambda c: c.caption_clean,
+                get_source_lang=lambda c: c.caption_language,
+                set_translation=lambda c, v: setattr(c, "caption_translation", v),
+            ),
             model_id=cfg.translate_model,
             target_lang=cfg.translate_target_lang,
             max_chars=cfg.translation_max_chars,

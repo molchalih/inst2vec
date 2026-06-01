@@ -87,7 +87,7 @@ def test_compute_row_scores_uses_explicit_euclidean_metrics(monkeypatch):
 
     monkeypatch.setattr(
         "modules.clustering.validation.compute_clusters",
-        lambda matrix, return_nd_matrix, **params: DummyResult(),
+        lambda matrix, params=None, **kw: DummyResult(),
     )
 
     def fake_validity_index(X, labels, metric):

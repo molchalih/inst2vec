@@ -25,6 +25,7 @@ from core.log import event, stage, warn
 from core.pipeline import Stage
 from modules.clustering.core import (
     CLUSTER_PARAM_COLS,
+    ClusterParams,
     compute_clusters,
     load_user_matrix,
 )
@@ -74,9 +75,12 @@ def _fit_user_clusters(
     if matrix.shape[0] == 0:
         return []
     t_fit = time.perf_counter()
+    combo = _best_params(best)
     try:
         result = compute_clusters(
-            matrix, hdbscan_max_cluster_frac=max_cluster_frac, **_best_params(best)
+            matrix,
+            ClusterParams.from_combo(combo, max_cluster_frac=max_cluster_frac),
+            random_state=int(combo["random_state"]),
         )
     except ValueError as exc:
         event(

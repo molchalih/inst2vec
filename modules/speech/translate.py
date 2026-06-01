@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from core.database import Clip, clip_needs_speech_translation, get_session
 from core.log import scope
-from core.translate import translate_rows
+from core.translate import RowAccessors, translate_rows
 
 
 @scope("speech")
@@ -31,9 +31,11 @@ def translate_speech(
         )
         translate_rows(
             clips,
-            get_source=lambda c: c.speech_transcription,
-            get_source_lang=lambda c: c.speech_language,
-            set_translation=lambda c, v: setattr(c, "speech_translation", v),
+            accessors=RowAccessors(
+                get_source=lambda c: c.speech_transcription,
+                get_source_lang=lambda c: c.speech_language,
+                set_translation=lambda c, v: setattr(c, "speech_translation", v),
+            ),
             model_id=translate_model,
             target_lang=translate_target_lang,
             max_chars=translation_max_chars,

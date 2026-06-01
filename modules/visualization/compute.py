@@ -595,6 +595,18 @@ def _cluster_baseline_from_members(
     )
 
 
+@dataclass(frozen=True)
+class DetailKnobs:
+    """Scoring thresholds and top-k limits for per-user detail computation."""
+
+    edge_percentile: int
+    z_min: float
+    distinctiveness_top_k: int
+    genre_top_k: int
+    instrument_top_k: int
+    languages_top_k: int
+
+
 def build_user_detail(
     *,
     user_id: int,
@@ -607,12 +619,7 @@ def build_user_detail(
     own_cluster_member_distances: np.ndarray,
     other_cluster_centroids: dict[int, tuple[float, float]],
     other_cluster_labels: dict[int, str],
-    edge_percentile: int,
-    z_min: float,
-    distinctiveness_top_k: int,
-    genre_top_k: int,
-    instrument_top_k: int,
-    languages_top_k: int,
+    knobs: DetailKnobs,
 ) -> UserDetail:
     clips = self_member.clips
     audio = {
@@ -624,17 +631,17 @@ def build_user_detail(
     mood_shares = _share_dict(clips, _MOOD_FLAGS)
     timbre_shares = _share_dict(clips, _TIMBRE_FLAGS)
     genre_top = aggregate_label_scores(
-        [p for c in clips for p in c.genre_pairs], top_k=genre_top_k
+        [p for c in clips for p in c.genre_pairs], top_k=knobs.genre_top_k
     )
     instrument_top = aggregate_label_scores(
-        [p for c in clips for p in c.instrument_pairs], top_k=instrument_top_k
+        [p for c in clips for p in c.instrument_pairs], top_k=knobs.instrument_top_k
     )
     speech = {
         "detected_share": round(
             aggregate_boolean_share([c.is_speech_detected for c in clips]), 4
         ),
         "top_langs": top_languages(
-            [c.speech_language for c in clips], top_k=languages_top_k
+            [c.speech_language for c in clips], top_k=knobs.languages_top_k
         ),
     }
     caption = {
@@ -643,7 +650,7 @@ def build_user_detail(
             4,
         ),
         "top_langs": top_languages(
-            [c.caption_language for c in clips], top_k=languages_top_k
+            [c.caption_language for c in clips], top_k=knobs.languages_top_k
         ),
     }
     posting = {
@@ -660,14 +667,14 @@ def build_user_detail(
     distinct = distinctiveness(
         cohort={**cohort_numeric, **cohort_boolean},
         baseline={**baseline.numeric, **baseline.boolean},
-        top_k=distinctiveness_top_k,
-        z_min=z_min,
+        top_k=knobs.distinctiveness_top_k,
+        z_min=knobs.z_min,
     )
 
     dist = float(np.hypot(x - own_cluster_centroid[0], y - own_cluster_centroid[1]))
     percentile = centroid_percentile(own_cluster_member_distances, dist)
     nearest_other = None
-    if percentile >= edge_percentile and other_cluster_centroids:
+    if percentile >= knobs.edge_percentile and other_cluster_centroids:
         ranked = sorted(
             (
                 (float(np.hypot(x - cx, y - cy)), cid)

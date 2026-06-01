@@ -1,8 +1,11 @@
 import { atom, useAtomValue } from "jotai";
 import { selectAtom } from "jotai/utils";
-import { joinUsersByCreator, type JoinedUser } from "@/core";
+import {
+  joinUsersByCreator,
+  type JoinedUser,
+  type Transform,
+} from "@/core";
 import type { AtlasRun } from "@/data";
-import type { Transform } from "@/core";
 
 export type TransitionPhase = 0 | 1 | 2 | 3;
 

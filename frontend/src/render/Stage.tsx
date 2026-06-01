@@ -45,7 +45,7 @@ export const Stage = ({ children }: StageProps) => {
           antialias
           resolution={resolution}
           autoDensity
-          {...(isBrowser ? { resizeTo: window } : {})}
+          {...(isBrowser ? { resizeTo: globalThis as unknown as Window } : {})}
         >
           <pixiContainer
             x={viewport.x}
