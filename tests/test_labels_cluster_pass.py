@@ -262,7 +262,8 @@ def test_cluster_pass_writes_success_row(monkeypatch) -> None:
         row = s.get(ClusterLabel, ("video", 0))
         assert row is not None
         assert row.status == "success" and row.validation == "ok"
-        assert row.payload["cluster_label"] == "soft domestic vignette"
+        # The naming pass Title-Case-normalises the provisional label.
+        assert row.payload["cluster_label"] == "Soft Domestic Vignette"
         assert isinstance(row.sampled_clip_ids, list) and len(row.sampled_clip_ids) > 0
 
 
@@ -336,32 +337,39 @@ def _clean_audio_cluster_json() -> dict:
     return payload
 
 
-def test_cluster_pass_spoken_consumes_raw_speech_signals() -> None:
-    """Stage-2 for ``case='spoken'`` skips the per-clip pass and synthesises
-    directly from each member clip's raw speech transcription (and MIR, when
-    music is detected). The prompt body the generator sees must embed the
-    speech transcript and must NOT carry the video-case ``ClipLabel`` payload
-    that this branch deliberately ignores.
+def test_cluster_pass_spoken_consumes_stage1_clip_labels() -> None:
+    """Stage-2 for ``case='spoken'`` now consumes the spoken per-clip
+    ``ClipLabel`` payloads written by the stage-1 text pass (mirroring the
+    video case). Each member clip's spoken observation tag must reach the
+    cluster prompt, while the unrelated video ``ClipLabel`` for the same
+    clip must NOT — the spoken cluster pass joins on ``label_case='spoken'``.
     """
     eng = _engine()
-    speech_marker = "speechy-podcast-clip-marker"
+    spoken_marker = "spoken-observation-marker"
+    spoken_payload = {
+        "observable_audio_tags": [{"tag": spoken_marker, "evidence": "0:01"}],
+        "aesthetic_tags": [],
+        "community_signalling_tags": [],
+        "one_sentence_audio_reading": "ok",
+    }
     with Session(eng) as s:
         s.add(User(id=1, is_selected=True))
         s.add(User(id=2, is_selected=True))
         for cid, uid in [(10, 1), (11, 1), (20, 2)]:
+            s.add(Clip(id=cid, user_id=uid, is_selected=True, is_downloaded=True))
             s.add(
-                Clip(
-                    id=cid,
-                    user_id=uid,
-                    is_selected=True,
-                    is_downloaded=True,
-                    is_speech_detected=True,
-                    speech_transcription=f"hi this is {speech_marker} talking",
-                    speech_language="en",
+                ClipLabel(
+                    clip_id=cid,
+                    label_case="spoken",
+                    status="success",
+                    validation="ok",
+                    warnings=[],
+                    payload=spoken_payload,
+                    attempts=1,
                 )
             )
             # A visual ClipLabel row that MUST NOT leak into the spoken
-            # cluster prompt — the spoken case does not consume video labels.
+            # cluster prompt — the spoken cluster pass joins on label_case.
             s.add(
                 ClipLabel(
                     clip_id=cid,
@@ -404,8 +412,8 @@ def test_cluster_pass_spoken_consumes_raw_speech_signals() -> None:
 
     assert len(fake.prompts) == 1, "expected exactly one cluster prompt for spoken case"
     prompt = fake.prompts[0]
-    assert speech_marker in prompt, (
-        "spoken cluster prompt must include each member clip's speech transcript"
+    assert spoken_marker in prompt, (
+        "spoken cluster prompt must include each member clip's spoken ClipLabel"
     )
     assert "visual-only-tag" not in prompt, (
         "spoken cluster prompt must NOT include video-case clip labels"
@@ -497,7 +505,8 @@ def test_cluster_pass_wipes_orphan_rows_when_stage_state_missing() -> None:
     with Session(eng) as s:
         row = s.get(ClusterLabel, ("video", 0))
         assert row is not None
-        assert row.payload["cluster_label"] == "soft domestic vignette"
+        # The naming pass Title-Case-normalises the provisional label.
+        assert row.payload["cluster_label"] == "Soft Domestic Vignette"
         assert "marker" not in row.payload
     # Generator was actually invoked — proves the row was treated as
     # pending, not as a pre-existing success that the gate would seal.
@@ -540,9 +549,10 @@ def _seed_n_clusters(eng, n: int) -> None:
 
 
 def test_cluster_pass_enforces_unique_labels_within_case() -> None:
-    # Generator always returns the same cluster_label; the LLM dedup rounds
-    # therefore can't disambiguate, so the deterministic fallback must still
-    # yield distinct labels for all three clusters.
+    # Per-cluster generation emits the same cluster_label for every cluster and
+    # the naming-pass model call returns cluster JSON (useless for naming), so
+    # the global naming pass cannot disambiguate via the model. The
+    # deterministic exact-uniqueness backstop must still yield distinct labels.
     eng = _engine()
     _seed_n_clusters(eng, 3)
     shared = dict(_clean_cluster_json())
@@ -558,9 +568,9 @@ def test_cluster_pass_enforces_unique_labels_within_case() -> None:
 
 
 def test_cluster_pass_dedup_preserves_suffix_for_near_cap_labels() -> None:
-    # A shared label already at the 40-char cap: slicing AFTER appending the
-    # disambiguating suffix would chop the suffix and re-collide. The fallback
-    # must reserve room for the suffix so all labels stay distinct and capped.
+    # A shared label already at the 40-char cap: the deterministic backstop must
+    # reserve room for its disambiguating token so every label stays distinct
+    # AND within the cap (never overflowing or re-colliding).
     eng = _engine()
     _seed_n_clusters(eng, 3)
     shared = dict(_clean_cluster_json())

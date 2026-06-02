@@ -14,6 +14,7 @@ from core.config import LabelsSettings
 from modules.labels.state import (
     _CLUSTER_LABELS_CONFIG_FIELDS,
     _LABELS_CONFIG_FIELDS,
+    cluster_labels_config_payload,
 )
 
 # Knobs that intentionally do NOT belong in a fingerprint config tuple.
@@ -27,11 +28,22 @@ RUNTIME_ALLOWLIST = {
     # cluster_labels_config_payload), not via the static tuples.
     "case_prompts",
     "cluster_case_prompts",
+    # Global naming-pass instructions: output-affecting, but folded into
+    # cluster_labels_config_payload (every case) rather than the static tuple.
+    "cluster_naming_prompt",
+    # Per-case output-token cap: output-affecting, but folded in per-case via
+    # clip_labels_config_payload (drifts ONLY the overridden case), so it is
+    # intentionally not in the case-agnostic static tuple.
+    "clip_max_new_tokens_overrides",
     # vLLM engine knobs — affect how the 30B is served, not the generated text
     # (decoding stays grammar-constrained + seeded).
     "cluster_gpu_memory_utilization",
     "cluster_max_model_len",
     "cluster_enforce_eager",
+    # Clip-pass vLLM engine knobs — same rationale for the 8B clip tagger.
+    "clip_gpu_memory_utilization",
+    "clip_max_model_len",
+    "clip_enforce_eager",
 }
 
 
@@ -44,3 +56,21 @@ def test_every_labels_field_is_classified():
         "Add each to a config-fields tuple in modules/labels/state.py "
         "(if it changes generated labels) or to RUNTIME_ALLOWLIST (with a reason)."
     )
+
+
+def test_cluster_naming_prompt_drifts_cluster_config_payload():
+    """``cluster_naming_prompt`` is allowlisted as folded-in (not in the static
+    tuple), so guard against silently dropping the fold: editing it MUST change
+    the per-case cluster-pass config payload, else stale labels would be served.
+    """
+    base = LabelsSettings(
+        cluster_case_prompts={"video": "x"},
+        cluster_naming_prompt="original instructions",
+    )
+    edited = LabelsSettings(
+        cluster_case_prompts={"video": "x"},
+        cluster_naming_prompt="DIFFERENT instructions",
+    )
+    assert cluster_labels_config_payload(
+        base, "video"
+    ) != cluster_labels_config_payload(edited, "video")

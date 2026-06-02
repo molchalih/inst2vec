@@ -1,11 +1,23 @@
-"""Qwen3-VL-Instruct adapter — frames + prompt → raw text.
+"""vLLM-backed Qwen3-VL-Instruct generator — video/text + prompt → raw text.
 
-Lazy-loaded singleton. Mirrors ``core/vendor/qwen3_vl_embedding.py``:
-- ``Qwen3VLInstructGenerator.load_once(model_path, ...)`` instantiates the
-  HF model + processor on first call.
-- ``.run(video_path, prompt) -> str`` returns the raw decoded model output
-  for a single video.
-- ``.unload()`` releases the model + CUDA cache.
+Lazy-loaded singleton mirroring ``core/vendor/qwen3_text.py`` but for the
+vision-language Instruct model. Runs vLLM's in-process offline ``LLM`` (no
+server, no docker) with optional structured-output JSON decoding, and exposes a
+batched ``run_many`` so the per-clip pass can tag many clips in one scheduling
+pass (vLLM's continuous batching beats the per-clip HF generate path).
+
+The HF ``AutoModelForImageTextToText`` + ``torch.inference_mode`` decode path is
+gone — vLLM ingests the checkpoint directly and batches internally, so the old
+``prepare_many`` / ``generate_from_inputs`` split is no longer needed.
+
+Structured-output API name moved across vLLM versions
+(``StructuredOutputsParams`` in vLLM >= 0.11, ``GuidedDecodingParams`` before),
+so it is resolved at load time.
+
+Note: ``qwen_vl_utils.process_vision_info``'s ``return_video_kwargs`` argument
+does not exist in all versions of the package, so we unpack its return value
+defensively (it may yield 2 or 3 values) rather than hard-depending on a
+specific signature.
 
 Excluded from ruff/ty via the ``core/vendor`` directory exclude.
 """
@@ -20,7 +32,7 @@ from typing import Optional
 
 import torch
 from huggingface_hub import snapshot_download
-from transformers import AutoModelForImageTextToText, AutoProcessor
+from transformers import AutoProcessor
 from qwen_vl_utils.vision_process import process_vision_info
 
 _NOT_LOADED = "load_once must be called first"
@@ -46,11 +58,30 @@ def _ensure_local_model(model_path: str) -> None:
     )
 
 
+def _vision_video_item(messages):
+    """Return ``(video_item, video_kwargs)`` for one video message.
+
+    vLLM's Qwen3-VL multimodal parser requires per-video METADATA: each video
+    entry in ``multi_modal_data`` must be a ``(frames, metadata)`` tuple, not a
+    bare array (a bare array yields ``metadata=None`` and the parser raises
+    "Video metadata is required but not found in mm input"). ``qwen_vl_utils``
+    produces that tuple when called with ``return_video_metadata=True``;
+    ``return_video_kwargs=True`` additionally yields processor kwargs (fps, …)
+    that we forward via ``mm_processor_kwargs``.
+    """
+    _images, videos, video_kwargs = process_vision_info(
+        messages, return_video_kwargs=True, return_video_metadata=True
+    )
+    item = videos[0] if videos else None
+    return item, (video_kwargs or None)
+
+
 @dataclass
 class _Loaded:
-    model: object
+    llm: object  # vllm.LLM
     processor: object
-    device: str
+    so_factory: object  # builds the structured-output params object from a schema
+    so_kwarg: str  # SamplingParams kwarg name for that object
 
 
 class Qwen3VLInstructGenerator:
@@ -69,32 +100,35 @@ class Qwen3VLInstructGenerator:
         frame_count: int,
         max_new_tokens: int,
         generation_seed: int,
+        gpu_memory_utilization: float = 0.90,
+        max_model_len: int = 32768,
+        enforce_eager: bool = True,
     ) -> "Qwen3VLInstructGenerator":
         if cls._loaded is None:
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-            if device == "cuda":
-                # Enable TF32 for the fp32 matmuls (norm/rotary). Cheap, no
-                # numerical surprises at this scale.
-                torch.set_float32_matmul_precision("high")
-                torch.backends.cuda.matmul.allow_tf32 = True
-                torch.backends.cudnn.allow_tf32 = True
+            import vllm.sampling_params as svp
+            from vllm import LLM
+
             _ensure_local_model(model_path)
             processor = AutoProcessor.from_pretrained(model_path)
-            # Qwen3-VL is image-text-to-text (vision-language conditional
-            # generation); AutoModelForCausalLM does not register a class
-            # for the `qwen3_vl` config in transformers>=5.8.
-            # FA2 only on CUDA + bf16/fp16; fall back to SDPA on CPU.
-            attn_impl = "flash_attention_2" if device == "cuda" else "sdpa"
-            model = (
-                AutoModelForImageTextToText.from_pretrained(
-                    model_path,
-                    dtype=torch.bfloat16 if device == "cuda" else torch.float32,
-                    attn_implementation=attn_impl,
-                )
-                .to(device)
-                .eval()
+            llm = LLM(
+                model=model_path,
+                dtype="bfloat16",
+                gpu_memory_utilization=gpu_memory_utilization,
+                max_model_len=max_model_len,
+                enforce_eager=enforce_eager,
+                limit_mm_per_prompt={"image": 0, "video": 1},
             )
-            cls._loaded = _Loaded(model=model, processor=processor, device=device)
+            if hasattr(svp, "StructuredOutputsParams"):
+                so_factory = lambda schema: svp.StructuredOutputsParams(json=schema)  # noqa: E731
+                so_kwarg = "structured_outputs"
+            else:
+                so_factory = lambda schema: svp.GuidedDecodingParams(  # noqa: E731
+                    json=schema, backend="xgrammar"
+                )
+                so_kwarg = "guided_decoding"
+            cls._loaded = _Loaded(
+                llm=llm, processor=processor, so_factory=so_factory, so_kwarg=so_kwarg
+            )
         self = cls()
         self.frame_count = frame_count
         self.max_new_tokens = max_new_tokens
@@ -105,87 +139,49 @@ class Qwen3VLInstructGenerator:
     def unload(cls) -> None:
         cls._loaded = None
         gc.collect()
+        # Best-effort vLLM distributed teardown so a later model can load.
+        try:
+            from vllm.distributed.parallel_state import (
+                destroy_distributed_environment,
+                destroy_model_parallel,
+            )
+
+            destroy_model_parallel()
+            destroy_distributed_environment()
+        except Exception:
+            pass
+        gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
     @classmethod
     def reclaim_memory(cls) -> None:
-        """Release cached allocator blocks without unloading weights.
-
-        Cluster-pass generations build up large KV caches and prefill
-        tensors. After each generation the tensors are freed but the
-        CUDA allocator holds the blocks, fragmenting VRAM over the
-        course of a per-case loop. Call between generations to give the
-        allocator back contiguous space.
-        """
+        """Release cached allocator blocks without unloading weights."""
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
-    def run_text(
-        self,
-        prompt: str,
-        *,
-        max_new_tokens: int,
-        seed: int | None = None,
-        do_sample: bool = False,
-        temperature: float = 1.0,
-        top_p: float = 1.0,
-    ) -> str:
-        """Text-only generation — no vision branch, no `process_vision_info`.
+    def _sampling(self, *, max_new_tokens, seed, do_sample, temperature, top_p, schema):
+        from vllm import SamplingParams
 
-        ``seed`` overrides the instance's default ``generation_seed``
-        for this single call. ``do_sample=True`` switches from greedy
-        to nucleus sampling — required for ``seed`` to actually affect
-        the output (greedy decoding never consults the RNG, so different
-        seeds produce identical outputs). The cluster pass uses
-        sampling so per-attempt seed variation can recover from
-        validation failures; everything else stays greedy for full
-        determinism.
-        """
-        assert self._loaded is not None, _NOT_LOADED
-        torch.manual_seed(seed if seed is not None else self.generation_seed)
-        messages = [
-            {
-                "role": "user",
-                "content": [{"type": "text", "text": prompt}],
-            }
-        ]
-        text = self._loaded.processor.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
-        )
-        inputs = self._loaded.processor(
-            text=[text],
-            padding=True,
-            return_tensors="pt",
-        ).to(self._loaded.device)
-        gen_kwargs: dict = {
-            "max_new_tokens": max_new_tokens,
-            "do_sample": do_sample,
-            # Greedy decoding on long structured JSON outputs is prone
-            # to repetition loops (the model emits near-identical array
-            # entries until ``max_new_tokens`` is hit). Block any
-            # 10-gram from appearing twice. Vision branches (``run`` /
-            # ``run_many``) keep plain greedy because their outputs are
-            # short and the n-gram block can hurt observable-tag arrays
-            # where short repeats are valid.
-            "no_repeat_ngram_size": 10,
-        }
+        ld = self._loaded
+        kwargs: dict = {"max_tokens": max_new_tokens, "seed": seed}
+        # do_sample=False -> deterministic greedy regardless of the checkpoint's
+        # generation_config defaults; sampling pins temperature/top_p.
+        kwargs["temperature"] = temperature if do_sample else 0.0
         if do_sample:
-            gen_kwargs["temperature"] = temperature
-            gen_kwargs["top_p"] = top_p
-        with torch.inference_mode():
-            out = self._loaded.model.generate(**inputs, **gen_kwargs)
-        trimmed = out[:, inputs["input_ids"].shape[1]:]
-        return self._loaded.processor.batch_decode(
-            trimmed,
-            skip_special_tokens=True,
-            clean_up_tokenization_spaces=False,
-        )[0]
+            kwargs["top_p"] = top_p
+        if schema is not None:
+            kwargs[ld.so_kwarg] = ld.so_factory(schema)
+        return SamplingParams(**kwargs)
 
-    def run(self, video_path: str, prompt: str) -> str:
-        assert self._loaded is not None, _NOT_LOADED
-        torch.manual_seed(self.generation_seed)
+    def _video_prompt(self, video_path: str, prompt: str):
+        """Build ``(chat_text, video_item, video_kwargs)`` for one request.
+
+        ``max_frames`` + ``fps=1`` caps the sampled frame budget to
+        ``frame_count`` (mirroring the prior HF behaviour). ``video_item`` is
+        the ``(frames, metadata)`` tuple vLLM's Qwen3-VL parser requires.
+        """
         messages = [
             {
                 "role": "user",
@@ -200,109 +196,102 @@ class Qwen3VLInstructGenerator:
                 ],
             }
         ]
-        text = self._loaded.processor.apply_chat_template(
+        chat_text = self._loaded.processor.apply_chat_template(
             messages, tokenize=False, add_generation_prompt=True
         )
-        images, videos = process_vision_info(messages)
-        inputs = self._loaded.processor(
-            text=[text],
-            images=images,
-            videos=videos,
-            padding=True,
-            return_tensors="pt",
-        ).to(self._loaded.device)
-        with torch.inference_mode():
-            out = self._loaded.model.generate(
-                **inputs,
-                max_new_tokens=self.max_new_tokens,
-                do_sample=False,
-            )
-        trimmed = out[:, inputs["input_ids"].shape[1]:]
-        decoded = self._loaded.processor.batch_decode(
-            trimmed,
-            skip_special_tokens=True,
-            clean_up_tokenization_spaces=False,
-        )[0]
-        return decoded
+        video_item, video_kwargs = _vision_video_item(messages)
+        return chat_text, video_item, video_kwargs
 
-    def prepare_many(self, video_paths: list[str], prompt: str):
-        """CPU-only batch prep: decode frames, tokenize, pad. Returns a
-        processor BatchFeature on CPU (or ``None`` for an empty input).
-        Split off from ``run_many`` so callers can overlap this on a
-        background thread while the GPU runs the previous batch.
+    def run(self, video_path: str, prompt: str, *, schema: dict | None = None) -> str:
+        return self.run_many([video_path], prompt, schema=schema)[0]
+
+    def run_many(
+        self, video_paths: list[str], prompt: str, *, schema: dict | None = None
+    ) -> list[str]:
+        """Batched video generation — same prompt, N video paths.
+
+        One vLLM request per video; greedy decoding (``do_sample=False``) with
+        the configured base seed. Returns decoded strings aligned with
+        ``video_paths``; vLLM returns outputs in input order.
         """
         assert self._loaded is not None, _NOT_LOADED
         if not video_paths:
-            return None
-        all_messages = [
-            [
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "video",
-                            "video": str(vp),
-                            "max_frames": self.frame_count,
-                            "fps": 1,
-                        },
-                        {"type": "text", "text": prompt},
-                    ],
-                }
-            ]
-            for vp in video_paths
-        ]
-        texts = [
-            self._loaded.processor.apply_chat_template(
-                m, tokenize=False, add_generation_prompt=True
-            )
-            for m in all_messages
-        ]
-        flat_videos = []
-        for m in all_messages:
-            _images, videos = process_vision_info(m)
-            flat_videos.append(videos[0])
-        # Decoder LMs require left-padding for batched generation so the
-        # first ``new`` token lives at column ``prefill``. Right-padding
-        # leaves padding tokens between the prefill and the generation
-        # head, corrupting the attention pattern.
-        self._loaded.processor.tokenizer.padding_side = "left"
-        return self._loaded.processor(
-            text=texts,
-            images=None,
-            videos=flat_videos,
-            padding=True,
-            return_tensors="pt",
-        )
-
-    def generate_from_inputs(self, inputs) -> list[str]:
-        """GPU half of ``run_many``. Pairs with ``prepare_many``."""
-        assert self._loaded is not None, _NOT_LOADED
-        if inputs is None:
             return []
-        torch.manual_seed(self.generation_seed)
-        inputs = inputs.to(self._loaded.device)
-        with torch.inference_mode():
-            out = self._loaded.model.generate(
-                **inputs,
-                max_new_tokens=self.max_new_tokens,
-                do_sample=False,
-            )
-        prefix = inputs["input_ids"].shape[1]
-        trimmed = out[:, prefix:]
-        decoded = self._loaded.processor.batch_decode(
-            trimmed,
-            skip_special_tokens=True,
-            clean_up_tokenization_spaces=False,
+        reqs = []
+        for vp in video_paths:
+            chat_text, video_item, video_kwargs = self._video_prompt(vp, prompt)
+            req = {"prompt": chat_text, "multi_modal_data": {"video": video_item}}
+            if video_kwargs:
+                req["mm_processor_kwargs"] = video_kwargs
+            reqs.append(req)
+        sampling = self._sampling(
+            max_new_tokens=self.max_new_tokens,
+            seed=self.generation_seed,
+            do_sample=False,
+            temperature=1.0,
+            top_p=1.0,
+            schema=schema,
         )
-        return list(decoded)
+        outputs = self._loaded.llm.generate(reqs, sampling, use_tqdm=False)
+        return [o.outputs[0].text for o in outputs]
 
-    def run_many(self, video_paths: list[str], prompt: str) -> list[str]:
-        """Batched video generation. Same prompt, N video paths.
+    def _chat_text(self, prompt: str) -> str:
+        return self._loaded.processor.apply_chat_template(
+            [{"role": "user", "content": [{"type": "text", "text": prompt}]}],
+            tokenize=False,
+            add_generation_prompt=True,
+        )
 
-        Returns the decoded strings aligned with ``video_paths``. Greedy
-        decoding (``do_sample=False``), left-padding for autoregressive
-        decoder compatibility. Output is NOT byte-identical to per-clip
-        ``run`` results — bf16 numerical noise diverges greedy paths once
-        logits get close — but JSON-schema validity is unaffected.
+    def run_text(
+        self,
+        prompt: str,
+        *,
+        max_new_tokens: int,
+        seed: int | None = None,
+        do_sample: bool = False,
+        temperature: float = 1.0,
+        top_p: float = 1.0,
+        schema: dict | None = None,
+    ) -> str:
+        return self.run_text_batch(
+            [prompt],
+            max_new_tokens=max_new_tokens,
+            seeds=[seed],
+            do_sample=do_sample,
+            temperature=temperature,
+            top_p=top_p,
+            schema=schema,
+        )[0]
+
+    def run_text_batch(
+        self,
+        prompts: list[str],
+        *,
+        max_new_tokens: int,
+        seeds: list[int | None],
+        do_sample: bool = False,
+        temperature: float = 1.0,
+        top_p: float = 1.0,
+        schema: dict | None = None,
+    ) -> list[str]:
+        """Text-only generation — one completion per prompt in a single pass.
+
+        ``seeds`` is per-prompt (``None`` -> the configured base seed). vLLM
+        returns outputs in input order.
         """
-        return self.generate_from_inputs(self.prepare_many(video_paths, prompt))
+        assert self._loaded is not None, _NOT_LOADED
+        assert len(prompts) == len(seeds), "prompts and seeds length mismatch"
+        texts = [self._chat_text(p) for p in prompts]
+        sampling = [
+            self._sampling(
+                max_new_tokens=max_new_tokens,
+                seed=(s if s is not None else self.generation_seed),
+                do_sample=do_sample,
+                temperature=temperature,
+                top_p=top_p,
+                schema=schema,
+            )
+            for s in seeds
+        ]
+        outputs = self._loaded.llm.generate(texts, sampling, use_tqdm=False)
+        return [o.outputs[0].text for o in outputs]

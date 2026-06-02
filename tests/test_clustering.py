@@ -133,6 +133,15 @@ def test_compute_clusters_large_min_cluster_size_yields_noise():
     assert result.cluster_sizes == []
 
 
+def test_compute_clusters_populates_cluster_persistence():
+    matrix = _two_cluster_matrix()
+    result = compute_clusters(matrix, _params(), random_state=0)
+    # One HDBSCAN persistence score per cluster, each a valid stability in [0, 1].
+    assert result.cluster_persistence.shape == (result.n_clusters,)
+    assert np.all(result.cluster_persistence >= 0.0)
+    assert np.all(result.cluster_persistence <= 1.0)
+
+
 def test_compute_clusters_matrix_nd_none_by_default():
     matrix = _two_cluster_matrix()
     result = compute_clusters(matrix, _params(), random_state=0)

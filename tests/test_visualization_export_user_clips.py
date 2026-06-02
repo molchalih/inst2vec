@@ -215,14 +215,11 @@ def _spoken_payload(sentence: str = "audio reading") -> dict:
     }
 
 
-def test_user_clips_block_falls_back_to_video_for_stage1_skipped_case(tmp_path):
-    """Audio is stage-1-skipped — the cluster pass synthesises directly
-    from raw signals and the pipeline writes no per-clip spoken
-    ``ClipLabel`` rows. But the per-clip visual tags describe the
-    clip's frames regardless of which embedding case is being viewed,
-    so the spoken export must surface the video ``ClipLabel`` payload
-    in the per-clip block. Any stray spoken ``ClipLabel`` row is
-    ignored — only the video reading is shown.
+def test_user_clips_block_uses_own_label_for_spoken_case(tmp_path):
+    """Every case now runs its own stage-1 per-clip pass, so the spoken
+    export surfaces the spoken ``ClipLabel`` payload directly (not the
+    video one). The unrelated video ``ClipLabel`` for the same clip is
+    ignored — the join is restricted to ``label_case == 'spoken'``.
     """
     _clear()
     _seed_one_user_one_clip("spoken", clip_id=100)
@@ -243,8 +240,8 @@ def test_user_clips_block_falls_back_to_video_for_stage1_skipped_case(tmp_path):
     clips = detail["clips"]
     assert len(clips) == 1
     assert clips[0]["clip_id"] == 100
-    assert clips[0]["sentence"] == "the video one"
-    assert clips[0]["tags"]["observable"] == [{"tag": "lamp", "evidence": "frame 1"}]
+    assert clips[0]["sentence"] == "the spoken one"
+    assert clips[0]["tags"]["observable"] == [{"tag": "kick", "evidence": "0:01"}]
 
 
 def test_user_clips_block_for_video_case_remains_unchanged(tmp_path):
@@ -269,18 +266,17 @@ def test_user_clips_block_for_video_case_remains_unchanged(tmp_path):
     assert clips[0]["tags"]["observable"] == [{"tag": "lamp", "evidence": "frame 1"}]
 
 
-def test_user_clips_block_omits_clip_with_no_video_label_for_stage1_skipped_case(
-    tmp_path,
-):
-    """For a stage-1-skipped case, the per-clip block falls back to
-    the video ``ClipLabel``. A clip with no video label at all must be
-    omitted (inner join on ``label_case``, no outer fallback to other
-    cases)."""
+def test_user_clips_block_omits_clip_with_no_label_for_case(tmp_path):
+    """The per-clip block joins on ``label_case == case`` (no fallback to
+    other cases). A clip with only a video ``ClipLabel`` and no spoken one
+    must be omitted from the spoken export."""
     _clear()
     _seed_one_user_one_clip("spoken", clip_id=100)
-    # Only a spoken ClipLabel exists; there is no video label to fall
-    # back to, so the per-case block must be empty.
-    _add_clip_label(clip_id=100, label_case="spoken", payload=_spoken_payload())
+    # Only a video ClipLabel exists; the spoken export joins on
+    # label_case='spoken', so the per-case block must be empty.
+    _add_clip_label(
+        clip_id=100, label_case="video", payload=_video_payload("the video one")
+    )
 
     export_visualization_json(
         _settings(tmp_path, default_case="spoken"), cases=("spoken",)

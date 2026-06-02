@@ -114,13 +114,41 @@ class _FakeGen:
     video_calls: list[tuple] = field(default_factory=list)
     text_calls: list[tuple] = field(default_factory=list)
 
-    def run(self, video_path, prompt: str) -> str:
+    def run(self, video_path, prompt: str, *, schema: dict | None = None) -> str:
         self.video_calls.append((str(video_path), prompt))
         return self.response
 
-    def run_text(self, prompt: str, *, max_new_tokens: int) -> str:
+    def run_many(
+        self, video_paths, prompt: str, *, schema: dict | None = None
+    ) -> list[str]:
+        return [self.run(vp, prompt, schema=schema) for vp in video_paths]
+
+    def run_text(
+        self,
+        prompt: str,
+        *,
+        max_new_tokens: int,
+        seed: int | None = None,
+        schema: dict | None = None,
+    ) -> str:
         self.text_calls.append((prompt, max_new_tokens))
         return self.response
+
+    def run_text_batch(
+        self,
+        prompts,
+        *,
+        max_new_tokens: int,
+        seeds,
+        do_sample: bool = False,
+        temperature: float = 1.0,
+        top_p: float = 1.0,
+        schema: dict | None = None,
+    ) -> list[str]:
+        return [
+            self.run_text(p, max_new_tokens=max_new_tokens, seed=s, schema=schema)
+            for p, s in zip(prompts, seeds, strict=True)
+        ]
 
 
 def test_run_case_video_uses_run_with_video_path(tmp_path):
@@ -247,16 +275,31 @@ def test_run_case_video_prompt_drift_wipes_only_video_case(tmp_path):
     assert any(prompt == "DIFFERENT_VIDEO_PROMPT" for (_, prompt) in gen.video_calls)
 
 
-def test_run_case_rejects_non_video_spec(tmp_path):
-    """run_case is video-only; a stage-1-skipped spec must trip the assert."""
-    import pytest
-
+def test_run_case_text_case_missing_signal_writes_terminal_failure(tmp_path):
+    """run_case now handles text cases. A spoken clip with no detected speech
+    has its adapter return ``None`` and lands a terminal ``no_speech`` failure
+    without ever calling the generator (which would raise if touched)."""
     eng = _engine()
-    with Session(eng) as s, pytest.raises(AssertionError):
+    _seed(eng, clip_ids=(1,))
+    labels = _labels(case_prompts={"spoken": "SPOKEN_PROMPT"})
+
+    class _Boom:
+        def run_text(self, *a, **k):
+            raise AssertionError("generator must not be called when adapter is None")
+
+        def run_text_batch(self, *a, **k):
+            raise AssertionError("generator must not be called when adapter is None")
+
+    with Session(eng) as s:
         run_case(
             session=s,
             settings=_settings(tmp_path),
-            labels=_labels(),
-            generator=object(),
-            spec=REGISTRY["spoken"],  # runs_clip_pass=False
+            labels=labels,
+            generator=_Boom(),
+            spec=REGISTRY["spoken"],
         )
+    with Session(eng) as s:
+        row = s.get(ClipLabel, (1, "spoken"))
+        assert row is not None
+        assert row.status == "failed"
+        assert row.error == "no_speech"

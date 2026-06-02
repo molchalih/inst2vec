@@ -70,6 +70,8 @@ def test_compute_clusters_translates_frac_to_max_cluster_size(monkeypatch):
 
         def fit_predict(self, m):
             self.probabilities_ = np.ones(m.shape[0], dtype=np.float32)
+            # All points → single cluster 0; persistence is indexed by label.
+            self.cluster_persistence_ = np.ones(1, dtype=np.float32)
             return np.zeros(m.shape[0], dtype=int)
 
     monkeypatch.setattr(core, "UMAP", FakeUMAP)

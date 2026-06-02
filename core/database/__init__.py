@@ -29,6 +29,7 @@ from core.database.models import (  # noqa: F401  -- re-exports for core.databas
     ClipFilterScratch,
     ClipLabel,
     ClusterLabel,
+    ClusterMetric,
     ClusterRun,
     StageState,
     User,

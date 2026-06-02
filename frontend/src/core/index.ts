@@ -48,7 +48,7 @@ export {
 } from "./morph/wave";
 
 export { formatCompact } from "./format/compact";
-export { groundingLabel, warningLabel, TAG_KIND_ORDER, type TagKind } from "./format/clip-label";
+export { groundingLabel, warningLabel, formatTag, TAG_KIND_ORDER, type TagKind } from "./format/clip-label";
 export { clusterWarningLabel, clusterSummaryLede } from "./format/cluster-label";
 
 export { phraseFor, type Phrase } from "./distinctiveness/phrase";

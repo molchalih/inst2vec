@@ -83,11 +83,23 @@ def clip_labels_config_payload(labels: LabelsSettings, case: str) -> str:
     """
     base = stable_subset_payload(labels, _LABELS_CONFIG_FIELDS)
     prompt = labels.case_prompts.get(case, "")
-    return f"{base}|case_prompts.{case}={prompt}"
+    payload = f"{base}|case_prompts.{case}={prompt}"
+    # A per-case ``max_new_tokens`` override drifts ONLY that case's fingerprint.
+    # The suffix is appended solely when an override exists for ``case`` so
+    # cases without one hash byte-identically to the pre-override payload — no
+    # spurious wipe / re-label of the other modalities. (``max_new_tokens`` in
+    # ``_LABELS_CONFIG_FIELDS`` still carries the global default for every case.)
+    override = labels.clip_max_new_tokens_overrides.get(case)
+    if override is not None:
+        payload += f"|max_new_tokens.{case}={override}"
+    return payload
 
 
 def cluster_labels_config_payload(labels: LabelsSettings, case: str) -> str:
     """Stable JSON string used as the cluster-pass config-hash input for ``case``."""
     base = stable_subset_payload(labels, _CLUSTER_LABELS_CONFIG_FIELDS)
     prompt = labels.cluster_case_prompts.get(case, "")
-    return f"{base}|cluster_case_prompts.{case}={prompt}"
+    # The global naming-pass instructions (cluster_naming_prompt) rewrite every
+    # cluster_label, so an edit must drift the fingerprint and re-label the case.
+    naming = labels.cluster_naming_prompt
+    return f"{base}|cluster_case_prompts.{case}={prompt}|cluster_naming_prompt={naming}"

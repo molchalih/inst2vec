@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react";
 import { type ClipLabelEntry, type ClusterLabel } from "@/data";
 import { tokens } from "@/ui/tokens";
-import { clusterWarningLabel, groundingLabel, warningLabel } from "@/core";
+import { clusterWarningLabel, formatTag, groundingLabel, warningLabel } from "@/core";
 import { Chip, type ChipTone } from "./primitives/Chip";
 import { CollapsibleSection } from "./CollapsibleSection";
 
@@ -116,7 +116,7 @@ const ClusterBody = ({ cluster }: { cluster: ClusterLabel }) => {
           <div style={chipWrap}>
             {cluster.repertoire.map((e) => (
               <Chip key={e.tag} tone="observable" warning={warn}>
-                <span title={`${e.recurrence} · ${e.description}`}>{e.tag}</span>
+                <span title={`${e.recurrence} · ${e.description}`}>{formatTag(e.tag)}</span>
               </Chip>
             ))}
           </div>
@@ -130,7 +130,7 @@ const ClusterBody = ({ cluster }: { cluster: ClusterLabel }) => {
           <div style={chipWrap}>
             {cluster.aesthetic_logic.map((e) => (
               <Chip key={e.tag} tone="aesthetic" warning={warn}>
-                <span title={`${groundingLabel(e.grounded_in)} · ${e.description}`}>{e.tag}</span>
+                <span title={`${groundingLabel(e.grounded_in)} · ${e.description}`}>{formatTag(e.tag)}</span>
               </Chip>
             ))}
           </div>
@@ -172,7 +172,7 @@ const ClusterBody = ({ cluster }: { cluster: ClusterLabel }) => {
           <span style={kindLabel}>tags</span>
           <p style={toolTagsRow}>
             {cluster.tool_tags.map((t) => (
-              <span key={t} style={toolTagsText}>{t}</span>
+              <span key={t} style={toolTagsText}>{formatTag(t)}</span>
             ))}
           </p>
         </div>
@@ -227,13 +227,13 @@ const ClipRow = ({ clip, order }: { clip: ClipLabelEntry; order: string }) => {
             <div key={kind} style={kindRow}>
               <span style={kindLabel}>{label}</span>
               <div style={chipWrap}>
-                {clip.tags[kind].map((entry) => (
+                {clip.tags[kind].slice(0, 5).map((entry) => (
                   <Chip
                     key={`${kind}:${entry.tag}`}
                     tone={tone}
                     warning={warn}
                   >
-                    <span title={tooltipFor(kind, entry)}>{entry.tag}</span>
+                    <span title={tooltipFor(kind, entry)}>{formatTag(entry.tag)}</span>
                   </Chip>
                 ))}
               </div>

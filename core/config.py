@@ -127,6 +127,16 @@ class LabelsSettings(BaseModel):
     model_path: str = "./models/Qwen3-VL-8B-Instruct"
     frame_count: int = 8
     max_new_tokens: int = 1200
+    # Per-case output-token cap overrides. ``max_new_tokens`` is the global
+    # default; a case listed here gets its own cap. The multimodal ``sandwich``
+    # case produces the longest output and otherwise truncates at the global
+    # cap (the JSON is cut mid-array, the bracket-balancer salvages it into a
+    # wrong-key-set ``H2`` hard fail), so it carries a higher cap. Only the
+    # text path (``run_text_batch``) honours this — the video case bakes
+    # ``max_new_tokens`` into the engine at load time; that case is not
+    # overridable here (and does not need to be). Drift is per-case isolated:
+    # see ``clip_labels_config_payload`` in ``modules.labels.state``.
+    clip_max_new_tokens_overrides: dict[str, int] = Field(default_factory=dict)
     max_attempts: int = 3
     parallelism: int = 1
     generation_seed: int = 0
@@ -134,6 +144,15 @@ class LabelsSettings(BaseModel):
     # from the clip-pass fingerprint (see ``_LABELS_CONFIG_FIELDS`` in
     # ``modules.labels.state``). Drives ``LabelsGenerator.run_many``.
     batch_size: int = 1
+    # Clip-pass vLLM engine knobs (perf-only; excluded from the fingerprint).
+    # Benchmarked throughput sweet spot on a 24 GB GPU (RTX 4090): max KV cache
+    # for vLLM concurrency drives ~40% more clips/s than the conservative
+    # 16384/0.90. 0.95 util OOMs; CUDA graphs (enforce_eager=False) trade KV for
+    # no net gain. 6144 covers the worst clip/video sequence (~2.8k tokens) with
+    # headroom — the real lever is KV (util), not max_model_len.
+    clip_gpu_memory_utilization: float = 0.93
+    clip_max_model_len: int = 6144
+    clip_enforce_eager: bool = True
 
     min_tags_per_kind: int = 3
     max_tags_per_kind: int = 10
@@ -176,10 +195,24 @@ class LabelsSettings(BaseModel):
     cluster_gpu_memory_utilization: float = 0.90
     cluster_max_model_len: int = 20480
     cluster_enforce_eager: bool = True
-    # Within-case label uniqueness: after labelling a case, colliding cluster
-    # names are regenerated (with the used names injected into the prompt) for
-    # this many rounds before a deterministic distinct-suffix fallback.
+    # Within-case label uniqueness: after labelling a case, the global naming
+    # pass (modules.labels.cluster_naming) regenerates the FULL set of labels —
+    # seeing every cluster at once so it can spread vocabulary — for this many
+    # feedback rounds before the deterministic exact-uniqueness backstop.
     cluster_dedup_max_rounds: int = 2
+    # Lead-in instructions for that global naming pass. Case-agnostic; the
+    # roster, output contract and retry feedback are appended in code. Folded
+    # into the cluster-pass config fingerprint per-case so an edit re-labels.
+    cluster_naming_prompt: str = (
+        "You assign short, distinct display names to a set of related clusters "
+        "of Instagram Reels creators. You are given every cluster at once so "
+        "you can make the names as mutually distinct as possible."
+    )
+
+    def max_new_tokens_for(self, case: str) -> int:
+        """Output-token cap for ``case``: the per-case override if set, else the
+        global ``max_new_tokens`` default."""
+        return self.clip_max_new_tokens_overrides.get(case, self.max_new_tokens)
 
     @staticmethod
     def _promote_legacy(legacy: Any, sub_table: dict) -> tuple[dict, bool]:

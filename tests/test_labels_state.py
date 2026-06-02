@@ -93,6 +93,43 @@ def test_other_case_prompt_change_does_not_affect_this_cases_payload() -> None:
     )
 
 
+def test_max_new_tokens_for_returns_override_or_global_default() -> None:
+    s = _labels(
+        max_new_tokens=1200,
+        clip_max_new_tokens_overrides={"sandwich": 2048},
+    )
+    # The overridden case sees its per-case cap; every other case falls back to
+    # the global ``max_new_tokens``.
+    assert s.max_new_tokens_for("sandwich") == 2048
+    assert s.max_new_tokens_for("video") == 1200
+    assert s.max_new_tokens_for("spoken") == 1200
+
+
+def test_max_new_tokens_override_drifts_only_the_overridden_case() -> None:
+    # Adding a per-case override is surgical: it must drift ONLY the overridden
+    # case's fingerprint so the re-label is confined to that case. The other
+    # four cases' payloads must stay byte-identical (no wipe / re-label).
+    base = _labels()
+    over = _labels(clip_max_new_tokens_overrides={"sandwich": 2048})
+    assert clip_labels_config_payload(
+        base, case="sandwich"
+    ) != clip_labels_config_payload(over, case="sandwich")
+    for case in ("video", "audio", "spoken", "textual"):
+        assert clip_labels_config_payload(
+            base, case=case
+        ) == clip_labels_config_payload(over, case=case), case
+
+
+def test_max_new_tokens_override_value_drifts_payload() -> None:
+    # Changing the override value (not just adding one) re-drifts the payload so
+    # a later cap bump still forces the affected case to re-label.
+    a = _labels(clip_max_new_tokens_overrides={"sandwich": 2048})
+    b = _labels(clip_max_new_tokens_overrides={"sandwich": 1800})
+    assert clip_labels_config_payload(a, case="sandwich") != clip_labels_config_payload(
+        b, case="sandwich"
+    )
+
+
 def test_labels_settings_includes_cluster_defaults() -> None:
     s = _labels()
     assert s.cluster_max_new_tokens == 1400

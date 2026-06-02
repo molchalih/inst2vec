@@ -71,15 +71,6 @@ class LabelCaseSpec:
     # adapter never returns ``None`` (e.g. the video case, which is short-
     # circuited before the adapter runs).
     none_input_error: str | None = None
-    # Whether this case runs the per-clip stage-1 pass (Qwen3-VL writes
-    # ``ClipLabel`` rows). The visual case (video) must, because it is the
-    # only place frames are reduced to text — the cluster pass has no other
-    # access to frame data. The text rephrasing cases (sandwich, spoken,
-    # textual, auditory) skip stage 1 and consume their raw signals
-    # (captions, speech, MIR, plus the video ClipLabel for sandwich)
-    # directly in the cluster pass. Stage-1-skipped cases keep ``clip_input`` as the
-    # adapter producing one cluster-pass per-clip text block.
-    runs_clip_pass: bool = True
 
 
 _VIDEO_CLIP_KEYS: frozenset[str] = frozenset(
@@ -182,7 +173,6 @@ SPOKEN_CASE = LabelCaseSpec(
     repertoire_key="dominant_audio_repertoire",
     consumes_label_cases=(),
     none_input_error="no_speech",
-    runs_clip_pass=False,
 )
 
 TEXTUAL_CASE = LabelCaseSpec(
@@ -200,7 +190,6 @@ TEXTUAL_CASE = LabelCaseSpec(
     repertoire_key="dominant_textual_repertoire",
     consumes_label_cases=(),
     none_input_error="no_caption",
-    runs_clip_pass=False,
 )
 
 SANDWICH_CASE = LabelCaseSpec(
@@ -218,7 +207,6 @@ SANDWICH_CASE = LabelCaseSpec(
     repertoire_key="dominant_multimodal_repertoire",
     consumes_label_cases=("video",),
     none_input_error="missing_video_label",
-    runs_clip_pass=False,
 )
 
 AUDITORY_CASE = LabelCaseSpec(
@@ -236,7 +224,6 @@ AUDITORY_CASE = LabelCaseSpec(
     repertoire_key="dominant_music_repertoire",
     consumes_label_cases=(),
     none_input_error="no_music",
-    runs_clip_pass=False,
 )
 
 REGISTRY: dict[str, LabelCaseSpec] = {

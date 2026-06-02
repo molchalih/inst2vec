@@ -10,6 +10,7 @@ from core.config import ValidationSettings
 from core.database import (
     Base,
     Clip,
+    ClusterMetric,
     ClusterRun,
     StageState,
     User,
@@ -94,7 +95,15 @@ def _clear():
     Base.metadata.create_all(get_engine())
     session = get_session()
     try:
-        for m in (UserCluster, ClusterRun, StageState, UserEmbedding, Clip, User):
+        for m in (
+            ClusterMetric,
+            UserCluster,
+            ClusterRun,
+            StageState,
+            UserEmbedding,
+            Clip,
+            User,
+        ):
             session.query(m).delete()
         session.commit()
     finally:
@@ -169,6 +178,49 @@ def test_assign_creates_user_clusters_for_best_run():
     try:
         n = session.query(UserCluster).filter_by(embedding_case="video").count()
         assert n == 30
+    finally:
+        session.close()
+
+
+def test_assign_writes_cluster_metrics_matching_user_clusters():
+    """Assign also materializes one cluster_metrics row per non-noise cluster,
+    whose n_users matches the user_clusters membership for that cluster."""
+    from core import fingerprint as fp
+
+    _clear()
+    session = get_session()
+    try:
+        _seed_case(session, "video", with_best_run=True)
+        fp.mark_complete(
+            session,
+            "cluster_validation",
+            "video",
+            fp.Fingerprint(data="d", config="c", dependency="x"),
+        )
+        session.commit()
+    finally:
+        session.close()
+
+    assign_clusters(settings=DEFAULT_SETTINGS, cases=DEFAULT_CASES)
+    session = get_session()
+    try:
+        # Membership per non-noise cluster from user_clusters.
+        membership: dict[int, int] = {}
+        for (cid,) in session.query(UserCluster.cluster_id).filter(
+            UserCluster.embedding_case == "video", UserCluster.cluster_id >= 0
+        ):
+            membership[cid] = membership.get(cid, 0) + 1
+
+        metrics = session.query(ClusterMetric).filter_by(embedding_case="video").all()
+        # Exactly one metric row per non-noise cluster.
+        assert {m.cluster_id for m in metrics} == set(membership)
+        for m in metrics:
+            assert m.n_users == membership[m.cluster_id]
+            # HDBSCAN always yields a persistence score for a formed cluster.
+            assert m.persistence is not None
+            # Aggregates of soft membership are in range.
+            assert 0.0 <= m.mean_centrality <= 1.0
+            assert 0.0 <= m.high_conf_fraction <= 1.0
     finally:
         session.close()
 

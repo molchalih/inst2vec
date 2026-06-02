@@ -5,17 +5,10 @@ per ``embedding_case`` and per cluster_id. Pure orchestration: the
 sampling, prompt building, validation and storage helpers are all in
 sibling modules.
 
-Two evidence-loading paths share the same downstream sampling / prompt
-/ validation / store machinery, dispatched by ``spec.runs_clip_pass``:
-
-* stage-1-backed cases (currently only ``video``) — join
-  ``Clip ⋈ ClipLabel`` for the case and use the validated
-  ``ClipLabel.payload`` dict as each member clip's evidence;
-* stage-1-skipped cases (sandwich, auditory, spoken, textual) — call
-  ``spec.clip_input(clip, mir_row, visual_payload)`` per member clip and
-  use the returned raw-evidence string directly. The cluster prompt for
-  these cases synthesises straight from caption / speech / MIR text
-  (plus the upstream video ``ClipLabel`` JSON for sandwich).
+Every case loads its cluster evidence from stage-1 clip labels: join
+``Clip ⋈ ClipLabel`` for the case and use the validated
+``ClipLabel.payload`` dict as each member clip's evidence, then feed the
+shared downstream sampling / prompt / validation / store machinery.
 """
 
 from __future__ import annotations
@@ -30,7 +23,6 @@ from sqlalchemy.orm import Session
 from core import fingerprint as fp
 from core.config import LabelsSettings
 from core.database import (
-    AudioMIR,
     Clip,
     ClipLabel,
     ClusterLabel,
@@ -41,6 +33,7 @@ from core.database import (
 from core.log import event, item, scope, warn
 from core.pipeline import Stage
 from modules.labels.cases import REGISTRY, LabelCaseSpec
+from modules.labels.cluster_naming import assign_distinct_labels
 from modules.labels.cluster_render import (
     ClipCandidate,
     estimate_tokens,
@@ -56,7 +49,6 @@ from modules.labels.state import (
 )
 from modules.labels.store import bump_failure, upsert_success, upsert_terminal_failure
 from modules.labels.validation import (
-    CLUSTER_LABEL_MAX_CHARS,
     format_failure_error,
     validate_cluster,
 )
@@ -74,20 +66,13 @@ class _ClusterMember:
 def _cluster_dependency_hash(session: Session, *, spec: LabelCaseSpec) -> str:
     """Compose the cluster fingerprint's dependency slot for ``spec``.
 
-    Stage-1-backed cases inherit upstream drift through their own ``LABELS``
-    stage state (sealed by ``clip_pass.run_case``). Stage-1-skipped cases
-    hash the raw upstream stages directly (captions / speech / MIR) plus
-    any ``consumes_label_cases`` ``LABELS`` rows (the video case for
-    sandwich). ``CLUSTER_ASSIGN`` is always included.
+    Every case inherits upstream drift through its own ``LABELS`` stage
+    state (sealed by ``clip_pass.run_case``): upstream captions / speech /
+    MIR drift is captured transitively through that stage-1 seal.
+    ``CLUSTER_ASSIGN`` is always included.
     """
     parts: list[str] = []
-    if spec.runs_clip_pass:
-        parts.append(fp.stage_dependency_hash(session, Stage.LABELS, spec.name))
-    else:
-        for st, sc in spec.stage1_dependency_stages:
-            parts.append(fp.stage_dependency_hash(session, st, sc))
-        for dep_case in spec.consumes_label_cases:
-            parts.append(fp.stage_dependency_hash(session, Stage.LABELS, dep_case))
+    parts.append(fp.stage_dependency_hash(session, Stage.LABELS, spec.name))
     parts.append(fp.stage_dependency_hash(session, Stage.CLUSTER_ASSIGN, spec.name))
     return fp.compose_hashes(*parts)
 
@@ -95,14 +80,12 @@ def _cluster_dependency_hash(session: Session, *, spec: LabelCaseSpec) -> str:
 def _candidate_payload_hash(payload: dict | str) -> str:
     """Deterministic content hash of a ``ClipCandidate.payload``.
 
-    Stage-1-skipped cases must drift the cluster fingerprint when their
-    per-clip evidence text changes — captions/speech/MIR all seal
-    config-only ``StageState`` fingerprints (their ``data`` slot is
-    ``hash_text("")``), so ``stage_dependency_hash`` does NOT notice a
-    transcript or descriptor change. Folding the payload hash into the
-    cluster fingerprint's ``data`` slot is the only place per-clip
-    content drift can land. ``dict`` payloads are sorted-key JSON
-    encoded; ``str`` payloads are hashed verbatim.
+    Every case now carries a stage-1 LABELS seal, but that seal's ``data``
+    slot is ``hash_text("")`` for the text cases, so ``stage_dependency_hash``
+    does NOT notice a transcript or descriptor change. Folding the per-clip
+    payload hash into the cluster fingerprint's ``data`` slot is the only
+    place per-clip content drift can land. ``dict`` payloads are sorted-key
+    JSON encoded; ``str`` payloads are hashed verbatim.
     """
     if isinstance(payload, str):
         return fp.hash_text(payload)
@@ -177,75 +160,6 @@ def _populate_from_stage1(
         )
 
 
-def _populate_from_raw_signals(
-    session: Session,
-    *,
-    spec: LabelCaseSpec,
-    member_by_user: dict[int, _ClusterMember],
-) -> None:
-    """Build raw per-clip evidence strings via ``spec.clip_input``.
-
-    Clips whose adapter returns ``None`` (e.g. missing video ClipLabel for
-    sandwich, no music detected for auditory) are silently dropped —
-    the same clip is dropped from every cluster the user belongs to, and
-    a cluster left with zero usable clips later fails with ``no_input``
-    in ``_prepare_request``.
-    """
-    clip_rows = (
-        session.execute(
-            select(Clip).where(
-                Clip.user_id.in_(list(member_by_user)),
-                *clip_used_in_analysis(),
-            )
-        )
-        .scalars()
-        .all()
-    )
-    if not clip_rows:
-        return
-    clip_ids = [c.id for c in clip_rows]
-    mir_by_clip: dict[int, AudioMIR] = {
-        m.clip_id: m
-        for m in (
-            session.execute(select(AudioMIR).where(AudioMIR.clip_id.in_(clip_ids)))
-            .scalars()
-            .all()
-        )
-    }
-    visual_by_clip: dict[int, dict] = {}
-    if spec.consumes_label_cases:
-        assert len(spec.consumes_label_cases) == 1, (
-            f"{spec.name} consumes_label_cases must be 0 or 1"
-        )
-        dep_case = spec.consumes_label_cases[0]
-        rows = (
-            session.execute(
-                select(ClipLabel).where(
-                    ClipLabel.clip_id.in_(clip_ids),
-                    ClipLabel.label_case == dep_case,
-                    ClipLabel.status == "success",
-                )
-            )
-            .scalars()
-            .all()
-        )
-        visual_by_clip = {r.clip_id: r.payload or {} for r in rows}
-
-    for clip in clip_rows:
-        m = member_by_user.get(clip.user_id)
-        if m is None:
-            continue
-        visual_payload = (
-            visual_by_clip.get(clip.id) if spec.consumes_label_cases else None
-        )
-        if spec.consumes_label_cases and visual_payload is None:
-            continue
-        text = spec.clip_input(clip, mir_by_clip.get(clip.id), visual_payload)
-        if text is None:
-            continue
-        m.clips.append(ClipCandidate(clip_id=clip.id, warning_count=0, payload=text))
-
-
 def _load_candidates(
     session: Session,
     *,
@@ -255,10 +169,7 @@ def _load_candidates(
     members_by_cluster, member_by_user = _collect_members(session, case=spec.name)
     if not member_by_user:
         return {}
-    if spec.runs_clip_pass:
-        _populate_from_stage1(session, case=spec.name, member_by_user=member_by_user)
-    else:
-        _populate_from_raw_signals(session, spec=spec, member_by_user=member_by_user)
+    _populate_from_stage1(session, case=spec.name, member_by_user=member_by_user)
     prompt_overhead = estimate_tokens(prompt_for_cluster(labels, case=spec.name))
     out: dict[int, list[ClipCandidate]] = {}
     for cid, members in members_by_cluster.items():
@@ -374,248 +285,6 @@ def _store_result(
     row = session.get(ClusterLabel, key)
     assert row is not None
     row.sampled_clip_ids = [c.clip_id for c in req.candidates]
-
-
-def _norm_label(s: str) -> str:
-    return " ".join(s.strip().lower().split())
-
-
-def _success_label_by_cid(session: Session, case: str) -> dict[int, str]:
-    rows = (
-        session.execute(
-            select(ClusterLabel).where(
-                ClusterLabel.embedding_case == case,
-                ClusterLabel.status == "success",
-            )
-        )
-        .scalars()
-        .all()
-    )
-    return {r.cluster_id: (r.payload or {}).get("cluster_label", "") for r in rows}
-
-
-def _duplicate_extra_cids(label_by_cid: dict[int, str]) -> list[int]:
-    """Cluster ids colliding on a normalized label, minus the lowest id per group."""
-    groups: dict[str, list[int]] = defaultdict(list)
-    for cid, lab in label_by_cid.items():
-        groups[_norm_label(lab)].append(cid)
-    extras: list[int] = []
-    for ids in groups.values():
-        if len(ids) > 1:
-            extras.extend(sorted(ids)[1:])
-    return sorted(extras)
-
-
-def _avoid_clause(used_labels: list[str]) -> str:
-    listing = "; ".join(sorted(used_labels))
-    return (
-        "\n\nUNIQUENESS: other clusters in this run already use the names below. "
-        "Choose a DISTINCT, more specific cluster_label; do NOT reuse any of "
-        f"these: {listing}."
-    )
-
-
-def _with_suffix(base: str, suffix: str) -> str:
-    """Append ``suffix`` to ``base``, truncating the BASE (never the suffix) to
-    fit ``CLUSTER_LABEL_MAX_CHARS``.
-
-    Slicing the whole string after concatenation would chop the disambiguating
-    suffix off a near-cap base and re-collide; reserving room for the suffix
-    keeps it intact so the fallback stays distinct.
-    """
-    room = CLUSTER_LABEL_MAX_CHARS - len(suffix)
-    if room <= 0:
-        return suffix[:CLUSTER_LABEL_MAX_CHARS]
-    return f"{base[:room].rstrip()}{suffix}"
-
-
-def _deterministic_distinct_label(
-    row: ClusterLabel, taken: set[str], repertoire_key: str
-) -> str:
-    """Guaranteed-unique fallback: append the dominant tag, else the cluster id."""
-    payload = row.payload or {}
-    base = payload.get("cluster_label") or "Cluster"
-    rep = payload.get(repertoire_key) or []
-    id_label = _with_suffix(base, f" ({row.cluster_id})")
-    candidates: list[str] = []
-    if rep and isinstance(rep[0], dict) and rep[0].get("tag"):
-        candidates.append(_with_suffix(base, f" — {rep[0]['tag']}"))
-    candidates.append(id_label)
-    for cand in candidates:
-        if _norm_label(cand) not in taken:
-            return cand
-    # The cluster id is unique to this row, so the id suffix (kept intact by
-    # _with_suffix) yields a label no other cluster can have produced.
-    return id_label
-
-
-def _disambiguate_duplicate_labels(
-    session: Session,
-    *,
-    case: str,
-    labels: LabelsSettings,
-    generator,
-    schema: dict,
-    candidates_per_cluster: dict[int, list[ClipCandidate]],
-) -> None:
-    """Ensure cluster_labels are unique within ``case``.
-
-    Clusters are labelled in isolation, so similar clusters can collide on a
-    generic name. After per-case generation completes, regenerate the colliding
-    clusters (keeping the lowest id of each group) with the already-used names
-    injected into the prompt, for up to ``cluster_dedup_max_rounds`` rounds; any
-    residual collision is resolved by a deterministic distinct suffix so
-    uniqueness is guaranteed.
-    """
-    repertoire_key = REGISTRY[case].repertoire_key
-    for round_i in range(labels.cluster_dedup_max_rounds):
-        if not _dedup_round(
-            session,
-            case=case,
-            labels=labels,
-            generator=generator,
-            schema=schema,
-            candidates_per_cluster=candidates_per_cluster,
-            round_i=round_i,
-        ):
-            break
-
-    _resolve_residual_collisions(session, case=case, repertoire_key=repertoire_key)
-
-
-def _build_dedup_requests(
-    *,
-    case: str,
-    labels: LabelsSettings,
-    extras: list[int],
-    avoid: list[str],
-    candidates_per_cluster: dict[int, list[ClipCandidate]],
-) -> list[tuple[int, str, list[ClipCandidate]]]:
-    reqs: list[tuple[int, str, list[ClipCandidate]]] = []
-    for cid in extras:
-        cands = candidates_per_cluster.get(cid, [])
-        if not cands:
-            continue
-        prompt = (
-            prompt_for_cluster(labels, case=case)
-            + "\n\n"
-            + render_prompt_body(cands)
-            + _avoid_clause(avoid)
-        )
-        reqs.append((cid, prompt, cands))
-    return reqs
-
-
-def _dedup_round(
-    session: Session,
-    *,
-    case: str,
-    labels: LabelsSettings,
-    generator,
-    schema: dict,
-    candidates_per_cluster: dict[int, list[ClipCandidate]],
-    round_i: int,
-) -> bool:
-    """Run one regeneration round. Returns ``True`` to continue looping,
-    ``False`` to stop (nothing to do, no requests, or generator failure)."""
-    label_by_cid = _success_label_by_cid(session, case)
-    extras = _duplicate_extra_cids(label_by_cid)
-    if not extras:
-        return False
-    used = {_norm_label(v) for v in label_by_cid.values()}
-    avoid = sorted(set(label_by_cid.values()))
-    reqs = _build_dedup_requests(
-        case=case,
-        labels=labels,
-        extras=extras,
-        avoid=avoid,
-        candidates_per_cluster=candidates_per_cluster,
-    )
-    if not reqs:
-        return False
-    # Dedicated seed space past the per-attempt range; higher temperature
-    # to push the regenerated names away from the colliding originals.
-    seed = labels.generation_seed + labels.cluster_max_attempts + 1 + round_i
-    try:
-        raws = generator.run_text_batch(
-            [p for _, p, _ in reqs],
-            max_new_tokens=labels.cluster_max_new_tokens,
-            seeds=[seed] * len(reqs),
-            do_sample=True,
-            temperature=0.9,
-            top_p=0.95,
-            schema=schema,
-        )
-    except Exception as exc:
-        # Swallowed so the deterministic suffix fallback still runs, but a
-        # systematically-failing dedup generator must not look like "no
-        # collisions" — log it.
-        warn("GET", "qwen3-cluster", err=exc, stats={"case": case, "phase": "dedup"})
-        return False
-    for (cid, _, cands), raw in zip(reqs, raws, strict=True):
-        _apply_dedup_result(
-            session,
-            case=case,
-            labels=labels,
-            cid=cid,
-            cands=cands,
-            raw=raw,
-            seed=seed,
-            used=used,
-        )
-    generator.reclaim_memory()
-    return True
-
-
-def _apply_dedup_result(
-    session: Session,
-    *,
-    case: str,
-    labels: LabelsSettings,
-    cid: int,
-    cands: list[ClipCandidate],
-    raw: str,
-    seed: int,
-    used: set[str],
-) -> None:
-    """Validate a regenerated label and persist it if it is a new unique name."""
-    payload, status, _warnings = validate_cluster(raw, labels, case=case)
-    if payload is None:
-        return
-    new_norm = _norm_label(payload.get("cluster_label", ""))
-    if not new_norm or new_norm in used:
-        return
-    with item("WRITE", f"{case}/{cid}"):
-        upsert_success(
-            session,
-            ClusterLabel,
-            key=(case, cid),
-            validation=status,
-            payload=payload,
-            warnings=_warnings,
-            generation_seed=seed,
-        )
-        row = session.get(ClusterLabel, (case, cid))
-        row.sampled_clip_ids = [c.clip_id for c in cands]
-        session.commit()
-    used.add(new_norm)
-
-
-def _resolve_residual_collisions(
-    session: Session, *, case: str, repertoire_key: str
-) -> None:
-    """Deterministic fallback for any collisions left after regeneration."""
-    label_by_cid = _success_label_by_cid(session, case)
-    extras = _duplicate_extra_cids(label_by_cid)
-    if not extras:
-        return
-    taken = {_norm_label(v) for cid, v in label_by_cid.items() if cid not in extras}
-    for cid in extras:
-        row = session.get(ClusterLabel, (case, cid))
-        new = _deterministic_distinct_label(row, taken, repertoire_key)
-        row.payload = {**(row.payload or {}), "cluster_label": new}
-        taken.add(_norm_label(new))
-    session.commit()
 
 
 def _pending_cluster_ids(
@@ -787,15 +456,9 @@ def _run_case(
             candidates_per_cluster=candidates_per_cluster,
         )
 
-    # Enforce within-case label uniqueness before sealing.
-    _disambiguate_duplicate_labels(
-        session,
-        case=case,
-        labels=labels,
-        generator=generator,
-        schema=schema,
-        candidates_per_cluster=candidates_per_cluster,
-    )
+    # Global naming pass: rewrite every cluster_label into a lexically-distinct,
+    # length-consistent name now that all clusters in the case are labelled.
+    assign_distinct_labels(session, case=case, labels=labels, generator=generator)
 
     fp.mark_complete(session, STAGE_CLUSTER_LABELS, cluster_scope_for(case), current)
     session.commit()

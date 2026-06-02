@@ -357,6 +357,37 @@ class ClusterRun(Base):
     )
 
 
+class ClusterMetric(Base):
+    """Per-cluster quality metrics for the selected (champion) clustering.
+
+    Written by the assign stage from the champion ``ClusterResult`` — one row
+    per non-noise cluster, per case. ``persistence`` (HDBSCAN-native stability)
+    and ``dbcv`` (per-cluster density validity) need the in-memory clusterer and
+    pass-1 UMAP matrix, so they are computed here and persisted rather than
+    re-derived at report time. ``mean_centrality`` / ``high_conf_fraction`` are
+    aggregates of ``user_clusters.centrality`` materialized for convenience.
+    """
+
+    __tablename__ = "cluster_metrics"
+
+    embedding_case: Mapped[str] = mapped_column(String, primary_key=True)
+    cluster_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    n_users: Mapped[int] = mapped_column(Integer, nullable=False)
+    mean_centrality: Mapped[float | None] = mapped_column(Float, nullable=True)
+    high_conf_fraction: Mapped[float | None] = mapped_column(Float, nullable=True)
+    persistence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    dbcv: Mapped[float | None] = mapped_column(Float, nullable=True)
+    created_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
 class Visualization(Base):
     __tablename__ = "visualizations"
 

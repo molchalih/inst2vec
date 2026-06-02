@@ -19,3 +19,13 @@ export function groundingLabel(grounded: readonly string[]): string {
 export function warningLabel(code: string): string {
   return KNOWN_WARNINGS[code] ?? code;
 }
+
+/**
+ * Display a label tag as a readable phrase. The clip-tagger occasionally emits
+ * snake_cased tags (e.g. ``playful_intellectualism``); show underscores as
+ * spaces. (The durable fix is upstream in the labelling stage; this keeps the
+ * UI clean meanwhile.)
+ */
+export function formatTag(tag: string): string {
+  return tag.replaceAll("_", " ");
+}

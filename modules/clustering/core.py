@@ -83,6 +83,12 @@ class ClusterResult:
     # 0 = noise. Density-based, lives in matrix_nd space (not coords_2d).
     centralities: np.ndarray = field(default_factory=lambda: np.empty(0, np.float32))
     cluster_sizes: list[int] = field(default_factory=list)
+    # HDBSCAN-native per-cluster stability ("persistence"), indexed by cluster
+    # label 0..n_clusters-1: how long the cluster survives in the condensed
+    # tree. The native answer to "how real is this cluster".
+    cluster_persistence: np.ndarray = field(
+        default_factory=lambda: np.empty(0, np.float32)
+    )
     matrix_nd: np.ndarray | None = None
 
 
@@ -156,6 +162,7 @@ def compute_clusters(
     )
     labels = clusterer.fit_predict(matrix_nd)
     centralities = np.asarray(clusterer.probabilities_, dtype=np.float32)
+    cluster_persistence = np.asarray(clusterer.cluster_persistence_, dtype=np.float32)
 
     # Pass 2 — independent 2D reduction from the original matrix (not matrix_nd)
     reducer_2d = UMAP(
@@ -184,6 +191,7 @@ def compute_clusters(
         noise_ratio=noise_ratio,
         centralities=centralities,
         cluster_sizes=cluster_sizes,
+        cluster_persistence=cluster_persistence,
         matrix_nd=matrix_nd.astype(np.float32) if return_nd_matrix else None,
     )
 

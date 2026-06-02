@@ -34,3 +34,14 @@ def prompt_for_cluster(labels: LabelsSettings, *, case: str) -> str:
     except KeyError as exc:
         raise ValueError(f"missing labels.cluster_case_prompts.{case}") from exc
     return body.strip()
+
+
+def naming_prompt_for(labels: LabelsSettings, *, case: str) -> str:
+    """Lead-in instructions for the global cluster-label naming pass.
+
+    Case-agnostic: the naming pass coordinates labels across all clusters of a
+    case from their summaries, so the same instruction body applies to every
+    modality. ``case`` is accepted for call-site symmetry with the other prompt
+    selectors and to leave room for a future per-case override.
+    """
+    return labels.cluster_naming_prompt.strip()

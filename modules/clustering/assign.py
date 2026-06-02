@@ -16,6 +16,7 @@ import time
 from core import fingerprint as fp
 from core.config import Settings, ValidationSettings
 from core.database import (
+    ClusterMetric,
     ClusterRun,
     StageState,
     UserCluster,
@@ -29,13 +30,16 @@ from modules.clustering.core import (
     compute_clusters,
     load_user_matrix,
 )
+from modules.clustering.metrics import compute_cluster_metrics
 from modules.clustering.results import select_best_cluster_run
 
 STAGE = Stage.CLUSTER_ASSIGN
 # Bump when assign-stage logic changes in a way the data/dependency
 # fingerprints would not detect (e.g., how labels are derived from
 # compute_clusters output).
-_CONFIG_IDENTITY = "assign=v2"
+# v3: also emit per-cluster ClusterMetric rows (persistence / DBCV / centrality
+# aggregates) — a re-run must repopulate the new cluster_metrics table.
+_CONFIG_IDENTITY = "assign=v3"
 
 
 def _best_params(best: ClusterRun) -> dict:
@@ -67,20 +71,40 @@ def _fingerprint(session, case: str, settings: ValidationSettings) -> fp.Fingerp
     )
 
 
+def _metric_rows(case: str, result) -> list[ClusterMetric]:
+    """One ClusterMetric row per non-noise cluster of the champion result."""
+    return [
+        ClusterMetric(
+            embedding_case=case,
+            cluster_id=m.cluster_id,
+            n_users=m.n_users,
+            mean_centrality=m.mean_centrality,
+            high_conf_fraction=m.high_conf_fraction,
+            persistence=m.persistence,
+            dbcv=m.dbcv,
+        )
+        for m in compute_cluster_metrics(result)
+    ]
+
+
 def _fit_user_clusters(
     case: str, best: ClusterRun, max_cluster_frac: float, preprocess: str
-) -> list[UserCluster]:
-    """Run the champion's params on the user matrix; emit a UserCluster row per user."""
+) -> tuple[list[UserCluster], list[ClusterMetric]]:
+    """Run the champion's params on the user matrix; emit a UserCluster row per
+    user plus a ClusterMetric row per non-noise cluster."""
     matrix, user_ids = load_user_matrix(case, preprocess=preprocess)
     if matrix.shape[0] == 0:
-        return []
+        return [], []
     t_fit = time.perf_counter()
     combo = _best_params(best)
     try:
+        # return_nd_matrix=True so per-cluster DBCV can be computed in the same
+        # pass-1 UMAP space HDBSCAN clustered in.
         result = compute_clusters(
             matrix,
             ClusterParams.from_combo(combo, max_cluster_frac=max_cluster_frac),
             random_state=int(combo["random_state"]),
+            return_nd_matrix=True,
         )
     except ValueError as exc:
         event(
@@ -89,7 +113,7 @@ def _fit_user_clusters(
             result="ERR",
             stats={"time": time.perf_counter() - t_fit, "err": str(exc)},
         )
-        return []
+        return [], []
     event(
         "EXTRACT",
         "champion",
@@ -101,7 +125,7 @@ def _fit_user_clusters(
     )
     centralities = result.centralities
     has_centrality = centralities.size == len(user_ids)
-    return [
+    user_rows = [
         UserCluster(
             user_id=user_ids[i],
             embedding_case=case,
@@ -112,14 +136,23 @@ def _fit_user_clusters(
         )
         for i in range(len(user_ids))
     ]
+    return user_rows, _metric_rows(case, result)
 
 
-def _seal(case: str, current: fp.Fingerprint, rows: list[UserCluster]) -> None:
+def _seal(
+    case: str,
+    current: fp.Fingerprint,
+    rows: list[UserCluster],
+    metrics: list[ClusterMetric],
+) -> None:
     session = get_session()
     try:
         session.query(UserCluster).filter_by(embedding_case=case).delete()
+        session.query(ClusterMetric).filter_by(embedding_case=case).delete()
         if rows:
             session.bulk_save_objects(rows)
+        if metrics:
+            session.bulk_save_objects(metrics)
         fp.mark_complete(session, STAGE, case, current)
         session.commit()
     finally:
@@ -162,13 +195,17 @@ def _assign_case(
         return
 
     warn("SCAN", "fingerprint", stats={"diff": diff})
-    rows = (
+    rows, metrics = (
         _fit_user_clusters(case, best, max_cluster_frac, preprocess)
         if best is not None
-        else []
+        else ([], [])
     )
-    _seal(case, current, rows)
-    event("WRITE", "user_clusters", stats={"rows": len(rows)})
+    _seal(case, current, rows, metrics)
+    event(
+        "WRITE",
+        "user_clusters",
+        stats={"rows": len(rows), "cluster_metrics": len(metrics)},
+    )
 
 
 @stage("clustering:assign")

@@ -84,6 +84,17 @@ def test_default_config_toml_loads_all_default_case_prompts() -> None:
         assert cl[case].strip(), f"cluster_case_prompts.{case} is empty"
 
 
+def test_default_config_toml_caps_sandwich_above_global() -> None:
+    # The shipped config gives the multimodal sandwich case a higher output cap
+    # so its longest JSON does not truncate into an H2 hard fail; every other
+    # case must fall back to the global default.
+    settings = _load_settings()
+    labels = settings.labels
+    assert labels.max_new_tokens_for("sandwich") > labels.max_new_tokens
+    for case in ("video", "spoken", "textual", "auditory"):
+        assert labels.max_new_tokens_for(case) == labels.max_new_tokens, case
+
+
 def test_video_case_prompt_matches_legacy_prompt_text() -> None:
     """The shipped ``case_prompts.video`` text must be the byte-identical
     body of the previous flat ``labels.prompt`` (SPEC §5.6 — no semantic
