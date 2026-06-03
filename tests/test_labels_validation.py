@@ -253,11 +253,6 @@ def test_parse_recovers_fenced_block_with_trailing_comma() -> None:
     assert _parse(raw) == {"a": 1, "b": 2}
 
 
-# ---------------------------------------------------------------------------
-# Cluster validator tests
-# ---------------------------------------------------------------------------
-
-
 def _clean_cluster_payload() -> dict:
     return {
         "cluster_label": "soft domestic vignette",
@@ -470,11 +465,6 @@ def test_cluster_multiple_warnings_are_sorted() -> None:
     assert status == "warn"
     assert warnings == sorted(warnings)
     assert {"SC1", "SC7"}.issubset(set(warnings))
-
-
-# ---------------------------------------------------------------------------
-# Per-case validator coverage (spoken / auditory / sandwich / textual)
-# ---------------------------------------------------------------------------
 
 
 def _retarget_clip_payload(

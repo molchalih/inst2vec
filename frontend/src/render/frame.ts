@@ -1,5 +1,5 @@
 import {
-  colorForCluster, introStagger, introDotAlpha,
+  colorForCluster, introStagger,
   centralityRadiusScale,
   type Vec2, type IntroPhase,
 } from "@/core";
@@ -72,15 +72,22 @@ export const runToIntroDotsFrame = (
   const flightProgress = phase < 1 ? 0 : flightProgressForPhase1;
   const users: DrawableUser[] = run.users.map(([id, x, y, clusterId, _hd, centrality]) => {
     const p = introStagger(flightProgress, id, maxStaggerFrac);
-    const baseAlpha = clusterId < 0 ? tokens.noise.alpha : tokens.dot.alpha;
     return {
       id,
       x: centerWorld.x + (x - centerWorld.x) * p,
       y: centerWorld.y + (y - centerWorld.y) * p,
       color: colorForCluster(clusterId, tokens.palette.cluster, tokens.palette.noise),
-      alpha: introDotAlpha(phase, progress, baseAlpha),
+      alpha: clusterId < 0 ? tokens.noise.alpha : tokens.dot.alpha,
       radiusScale: centralityRadiusScale(clusterId, centrality, tokens.dot.centrality),
     };
   });
-  return { users, alphaScale: 1, radiusScale: 1 };
+  // Fade the whole stacked blob as ONE group, not per dot. During the fade
+  // phase every dot overlaps at the centre; per-dot alpha accumulates across
+  // the ~hundreds of stacked circles and saturates to opaque almost
+  // immediately, so a per-dot ramp is invisible. `alphaScale` is the group-
+  // opacity signal; drawDots realizes it as a post-composite AlphaFilter (a
+  // plain layer `g.alpha` would fold back into per-fragment alpha and saturate
+  // just the same). Full opacity once the dots start flying out (phase >= 1).
+  const alphaScale = phase === 0 ? progress : 1;
+  return { users, alphaScale, radiusScale: 1 };
 };

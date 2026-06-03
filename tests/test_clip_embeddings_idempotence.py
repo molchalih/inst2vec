@@ -45,8 +45,6 @@ from core.database import (
 from modules.embeddings import cases as cases_mod
 from modules.embeddings.runner import embed_clip_embeddings
 
-# ── fake provider ────────────────────────────────────────────────────────────
-
 
 class _TorchLikeArray:
     """Minimal duck-type for a torch tensor, good enough for to_bytes()."""
@@ -120,9 +118,6 @@ def stub_providers(monkeypatch, tmp_path):
     return tmp_path
 
 
-# ── settings stub ────────────────────────────────────────────────────────────
-
-
 @dataclass
 class _PathsStub:
     video_dir: str
@@ -172,9 +167,6 @@ def _settings(tmp_path) -> _SettingsStub:
     )
 
 
-# ── fixtures ─────────────────────────────────────────────────────────────────
-
-
 @pytest.fixture
 def db_session():
     Base.metadata.create_all(get_engine())
@@ -214,9 +206,6 @@ def _seed(
         if defaults["is_downloaded"]:
             _seed_video_file(settings, defaults["id"])
     session.commit()
-
-
-# ── tests ────────────────────────────────────────────────────────────────────
 
 
 def test_first_run_embeds_all_default_cases(db_session, stub_providers, tmp_path):

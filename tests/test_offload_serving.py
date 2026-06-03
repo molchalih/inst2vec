@@ -1,6 +1,6 @@
 """Decomposing offload: main DB → normalised serving tables.
 
-The offload calls the version-6 builders, decomposes each payload dict into
+The offload calls the version-7 builders, decomposes each payload dict into
 ``serving_*`` rows, and writes them idempotently (delete-then-insert per
 run). These tests assert row counts/ordering match the builder payloads,
 re-running is stable, and dropping a case prunes its rows.

@@ -1,6 +1,9 @@
-import { clusterDetailSchema } from "../schemas/cluster-detail.schema";
+import {
+  clustersDetailBundleSchema,
+  clusterLabelFileSchema,
+} from "../schemas/cluster-detail.schema";
 import { creatorDetailSchema } from "../schemas/creator-detail.schema";
-import type { ClusterDetail } from "../schemas/cluster-detail.schema";
+import type { ClusterDetail, ClusterLabel } from "../schemas/cluster-detail.schema";
 import type { CreatorDetail } from "../schemas/creator-detail.schema";
 import { type ApiClient, type CreatorSummary, ApiUnavailableError } from "./ApiClient";
 
@@ -35,10 +38,26 @@ export class StaticApiClient implements ApiClient {
     }
   }
 
-  async getClusterDetail(id: number): Promise<ClusterDetail> {
+  async getClustersDetail(): Promise<ClusterDetail[]> {
     const runId = this.requireRunId();
-    const raw = await this.fetchJson(`${this.baseUrl}runs/${runId}/clusters/${id}.json`);
-    return clusterDetailSchema.parse(raw);
+    const raw = await this.fetchJson(
+      `${this.baseUrl}runs/${runId}/clusters-detail.json`,
+    );
+    return clustersDetailBundleSchema.parse(raw).clusters;
+  }
+
+  async getClusterLabel(id: number): Promise<ClusterLabel | null> {
+    const runId = this.requireRunId();
+    try {
+      const raw = await this.fetchJson(
+        `${this.baseUrl}runs/${runId}/clusters/${id}.label.json`,
+      );
+      return clusterLabelFileSchema.parse(raw).label;
+    } catch (err) {
+      // No label file → the cluster simply has no tags.
+      if (err instanceof AssetNotFoundError) return null;
+      throw err;
+    }
   }
 
   async getCreatorDetail(id: number): Promise<CreatorDetail> {

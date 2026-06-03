@@ -1,4 +1,4 @@
-"""Reconstruct version-6 payload dicts from normalised serving rows.
+"""Reconstruct version-7 payload dicts from normalised serving rows.
 
 The round-trip inverse of ``core.database.serving_decompose``: each function
 rebuilds one payload dict, ordering child collections by ``ord`` and gating
@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
+from core.contract import SCHEMA_VERSION
 from core.database.serving_models import (
     ServingCluster,
     ServingClusterDetail,
@@ -36,13 +37,13 @@ from core.database.serving_models import (
     ServingWeightedTag,
 )
 from modules.visualization.contract import (
-    ClusterDetailModel,
+    ClusterLabelFileModel,
+    ClustersDetailBundleModel,
     ClustersFileModel,
     CreatorDetailModel,
     ManifestModel,
     UsersFileModel,
 )
-from modules.visualization.schema import SCHEMA_VERSION
 
 
 def reconstruct_manifest(session: Session) -> dict:
@@ -279,9 +280,13 @@ def _cluster_label_block(session: Session, run_id: str, cluster_id: int) -> dict
     }
 
 
-def reconstruct_cluster_detail(
-    session: Session, run_id: str, cluster_id: int
-) -> dict | None:
+def _cluster_main_detail(session: Session, run_id: str, cluster_id: int) -> dict | None:
+    """One cluster's main detail (no label block) — the bundle's element shape.
+
+    ``label_modality`` is read from the label table so the viewer can place the
+    tag skeleton without fetching the deferred label file; it is None when the
+    cluster has no label row.
+    """
     d = session.get(ServingClusterDetail, {"run_id": run_id, "cluster_id": cluster_id})
     if d is None:
         return None
@@ -291,8 +296,10 @@ def reconstruct_cluster_detail(
         .order_by(ServingClusterNearest.ord)
         .all()
     )
-    payload = {
-        "version": SCHEMA_VERSION,
+    label_row = session.get(
+        ServingClusterLabel, {"run_id": run_id, "cluster_id": cluster_id}
+    )
+    return {
         "cluster_id": cluster_id,
         "size": d.size,
         "ellipse": {
@@ -332,11 +339,39 @@ def reconstruct_cluster_detail(
                 for r in nearest
             ],
         },
+        "label_modality": label_row.modality if label_row is not None else None,
     }
+
+
+def reconstruct_clusters_detail_bundle(session: Session, run_id: str) -> dict:
+    """``runs/<id>/clusters-detail.json`` — every cluster's main detail."""
+    _require_run(session, run_id)
+    rows = (
+        session.query(ServingClusterDetail)
+        .filter_by(run_id=run_id)
+        .order_by(ServingClusterDetail.cluster_id)
+        .all()
+    )
+    clusters = [
+        m
+        for d in rows
+        if (m := _cluster_main_detail(session, run_id, d.cluster_id)) is not None
+    ]
+    payload = {"version": SCHEMA_VERSION, "run_id": run_id, "clusters": clusters}
+    ClustersDetailBundleModel.model_validate(payload)
+    return payload
+
+
+def reconstruct_cluster_label(
+    session: Session, run_id: str, cluster_id: int
+) -> dict | None:
+    """``runs/<id>/clusters/<id>.label.json`` — the deferred tag block, or None
+    (→ API 404) when the cluster has no label."""
     label = _cluster_label_block(session, run_id, cluster_id)
-    if label is not None:
-        payload["label"] = label
-    ClusterDetailModel.model_validate(payload)
+    if label is None:
+        return None
+    payload = {"version": SCHEMA_VERSION, "cluster_id": cluster_id, "label": label}
+    ClusterLabelFileModel.model_validate(payload)
     return payload
 
 

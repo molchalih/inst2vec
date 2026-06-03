@@ -18,11 +18,6 @@ from dataclasses import dataclass
 _log = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# CUDA availability
-# ---------------------------------------------------------------------------
-
-
 def cuda_available() -> bool:
     """Return True when a CUDA-capable GPU is present and torch reports it."""
     try:
@@ -31,11 +26,6 @@ def cuda_available() -> bool:
         return torch.cuda.is_available()
     except ImportError:
         return False
-
-
-# ---------------------------------------------------------------------------
-# VramStats
-# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -62,11 +52,6 @@ class VramStats:
             f"proc_alloc={self.proc_alloc_gb:.1f} "
             f"proc_peak={self.proc_peak_gb:.1f} GB"
         )
-
-
-# ---------------------------------------------------------------------------
-# Public helpers
-# ---------------------------------------------------------------------------
 
 
 def vram_stats() -> VramStats | None:

@@ -323,10 +323,6 @@ def _norm(s: str) -> str:
     return " ".join(s.strip().lower().split())
 
 
-# ---------------------------------------------------------------------------
-# Cluster validator
-# ---------------------------------------------------------------------------
-
 _RECURRENCES: frozenset[str] = frozenset({"dominant", "frequent", "occasional"})
 
 
@@ -592,7 +588,6 @@ def _cluster_soft_fail_codes(
     return codes
 
 
-# Public surface — pure validators, no module-level mutable state.
 __all__ = [
     "CLUSTER_LABEL_MAX_CHARS",
     "clip_role_keys",

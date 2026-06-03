@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+from core.contract import SCHEMA_VERSION
 from core.database import (
     AudioMIR,
     Base,
@@ -29,7 +30,6 @@ from modules.visualization.export import (
     _genre_only_pairs,
     export_visualization_json,
 )
-from modules.visualization.schema import SCHEMA_VERSION
 
 
 def _clear() -> None:
@@ -205,9 +205,6 @@ def _settings(tmp_path: Path, default_case: str = "video") -> SimpleNamespace:
     )
 
 
-# ── Bulk JSON pass ────────────────────────────────────────────────────────
-
-
 def test_export_writes_manifest_users_clusters_for_exposed_case(tmp_path):
     _clear()
     _seed_visualization("video", "Visual", n_users=6, n_clusters=2)
@@ -330,9 +327,6 @@ def test_export_empty_case_writes_degenerate_bounds(tmp_path):
     assert users["bounds"] == {"minX": -1.0, "maxX": 1.0, "minY": -1.0, "maxY": 1.0}
 
 
-# ── Per-entity detail pass + MIR aggregation helpers ──────────────────────
-
-
 def test_genre_only_pairs_reduces_flattened_labels_to_leaf():
     # MIR flattens ``Parent---Child`` to ``Parent Child``; the viewer shows
     # only the leaf, including for multi-word parents.
@@ -351,15 +345,21 @@ def test_per_entity_files_written_with_correct_ids(tmp_path):
     _seed_case_with_mir("video", n_users=4)
     export_visualization_json(_settings(tmp_path), cases=("video",))
 
-    cluster_dir = tmp_path / "runs" / "video" / "clusters"
     user_dir = tmp_path / "runs" / "video" / "users"
-    assert {p.stem for p in cluster_dir.glob("*.json")} == {"0", "1"}
     assert {p.stem for p in user_dir.glob("*.json")} == {"0", "1", "2", "3"}
 
-    sample = json.loads((cluster_dir / "0.json").read_text())
-    assert sample["version"] == SCHEMA_VERSION
-    assert sample["cluster_id"] == 0
+    # Cluster main detail ships as one per-run bundle (no per-cluster <id>.json).
+    bundle = json.loads(
+        (tmp_path / "runs" / "video" / "clusters-detail.json").read_text()
+    )
+    assert bundle["version"] == SCHEMA_VERSION
+    assert bundle["run_id"] == "video"
+    assert {c["cluster_id"] for c in bundle["clusters"]} == {0, 1}
+    sample = next(c for c in bundle["clusters"] if c["cluster_id"] == 0)
     assert sample["follower_bucket"].endswith("k")
+    assert "version" not in sample
+    assert "label" not in sample
+    assert "label_modality" in sample
 
 
 def test_bulk_rows_carry_has_detail_flags(tmp_path):
@@ -523,9 +523,10 @@ def test_non_mir_user_contributes_to_cluster_aggregates(tmp_path):
         session.close()
 
     export_visualization_json(_settings(tmp_path), cases=("video",))
-    cluster_detail = json.loads(
-        (tmp_path / "runs" / "video" / "clusters" / "0.json").read_text()
+    bundle = json.loads(
+        (tmp_path / "runs" / "video" / "clusters-detail.json").read_text()
     )
+    cluster_detail = next(c for c in bundle["clusters"] if c["cluster_id"] == 0)
     # User 77 has 500k followers which falls in a non-zero follower bucket;
     # earlier behavior dropped this user from members entirely.
     assert cluster_detail["follower_bucket"] != "<1k"

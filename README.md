@@ -7,7 +7,7 @@
   </picture>
 </p>
 
-`inst2vec` turns a CSV of Instagram usernames into a flat **user → cluster** table and ships an interactive **atlas viewer** — a static, pannable 2D map where every dot is a creator, colored by cluster and sized by how central they are inside it.
+`inst2vec` turns a CSV of Instagram usernames into a flat **user → cluster** table and ships an interactive **atlas viewer** — a static, pannable 2D map where every dot is a creator, coloured by cluster and sized by how central they are inside it. It parses Reels accounts, embeds each clip across video, audio, speech, and caption modalities, averages those into a per-creator vector, and clusters creators by content similarity to surface the platform's visual and cultural vernaculars.
 
 **Concepts:** `Semantic map` · `Latent representations` · `Unsupervised clustering` · `Platform vernaculars`
 
@@ -15,28 +15,29 @@
   <img src="https://img.shields.io/badge/uv-%23DE5FE9.svg?style=for-the-badge&logo=uv&logoColor=white" alt="uv">
   <img src="https://img.shields.io/badge/Bun-%23000000.svg?style=for-the-badge&logo=bun&logoColor=white" alt="Bun">
   <img src="https://img.shields.io/badge/vite-%23646CFF.svg?style=for-the-badge&logo=vite&logoColor=white" alt="Vite">
-  <img src="https://img.shields.io/badge/Qwen-6950EF?style=for-the-badge&logo=qwen&logoColor=white" alt="Qwen">
   <a href="./LICENSE"><img src="https://img.shields.io/github/license/molchalih/inst2vec?style=for-the-badge" alt="Licence"></a>
 </p>
+
+## Documentation
+
+The [`documentation/`](documentation/) hub is the single source of truth:
+
+- **Architecture** — [overview](documentation/architecture/overview.md) · [pipeline](documentation/architecture/pipeline.md) · [data model](documentation/architecture/data-model.md) · [frontend](documentation/architecture/frontend.md)
+- **Guides** — [setup](documentation/guides/setup.md) · [serving](documentation/guides/serving.md) · [conventions](documentation/guides/conventions.md)
 
 ## Quickstart
 
 ```bash
 cp .env.example .env             # fill HIKER_API_KEY, HUGGINGFACE_TOKEN, …
-
 uv sync --no-dev --group gpu     # GPU pipeline deps
 uv run --env-file .env main.py   # run the pipeline
 ```
 
-Alternative:
-
-```bash
-scripts/start.sh                # sync GPU deps + run the pipeline
-```
+Or `scripts/start.sh` to sync GPU deps and run in one step. See [`documentation/guides/setup.md`](documentation/guides/setup.md) for the full setup, environment variables, and model files.
 
 ## Pipeline
 
-Stages run top-to-bottom from `main.py`. Each one is a single public `run()` per subpackage, idempotent, sealed by fingerprint.
+Stages run top-to-bottom from `main.py`. Each is one public `run()` per subpackage, idempotent and sealed by a fingerprint so reruns only redo what changed.
 
 | # | Stage | What it does |
 |---|-------|--------------|
@@ -53,6 +54,12 @@ Stages run top-to-bottom from `main.py`. Each one is a single public `run()` per
 | 11 | **Visual labels** | Two-pass Qwen3-VL labelling of clips and clusters. |
 | 12 | **Visualization** | Per-case 2D layouts, cluster ellipses, atlas rows for the frontend viewer. |
 
+The full per-stage reference — inputs, outputs, and entry points — lives in [`documentation/architecture/pipeline.md`](documentation/architecture/pipeline.md).
+
+## Privacy by design
+
+Two databases keep personal data isolated: the **main DB** holds anonymous integer-keyed rows only, while a separate **identity DB** maps Instagram handles to internal IDs. Nothing that ships to the viewer can leak a handle, by construction. See [`documentation/architecture/data-model.md`](documentation/architecture/data-model.md).
+
 ## Layout
 
 | Path | Role |
@@ -60,8 +67,8 @@ Stages run top-to-bottom from `main.py`. Each one is a single public `run()` per
 | `core/` | Cross-cutting infra: config, **two-DB** schema (anon main + PII identity), ffmpeg, fingerprint, logging, vendored model wrappers. |
 | `modules/<stage>/` | One subpackage per pipeline stage; `run(settings, secrets)` entry point. |
 | `services/atlas_api/` | Read-only FastAPI service over the serving DB for the frontend viewer. |
-| `scripts/` | Orchestration only — `start.sh`, `publish_visualization.py`, `analyze.py`, `cluster_analysis/`. |
-| `docs/` | Quarto paper + paper-facing tables/plots in `docs/reporting/`. |
+| `scripts/` | Orchestration only — `start.sh`, `publish_visualization.py`, `offload_serving.py`. |
+| `docs/` | Project logos (`docs/assets/`). The Quarto research paper is kept local-only. |
 | `frontend/` | Static atlas viewer (Vite + Bun). See [`frontend/README.md`](frontend/README.md). |
 
 ## Configuration
@@ -72,6 +79,10 @@ Stages run top-to-bottom from `main.py`. Each one is a single public `run()` per
 | `.env` | Secrets — `HIKER_API_KEY`, `HUGGINGFACE_TOKEN`, `DATABASE_URL`, `IDENTITY_DB_URL`, `SERVING_DATABASE_URL`. | `Secrets` (Pydantic) |
 
 Each stage takes a typed slice of both.
+
+## Contributing
+
+Help is welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## License
 

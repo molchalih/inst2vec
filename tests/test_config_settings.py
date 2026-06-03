@@ -13,8 +13,6 @@ from pydantic import ValidationError
 
 from core.config import EmbeddingsSettings, SearchSettings
 
-# ── Embeddings: local batch knob ─────────────────────────────────────────
-
 
 def _embeddings(**overrides) -> EmbeddingsSettings:
     base = dict(
@@ -34,9 +32,6 @@ def test_embeddings_batch_size_default():
 def test_embeddings_batch_size_must_be_positive():
     with pytest.raises(ValidationError):
         _embeddings(embed_batch_size=0)
-
-
-# ── SearchSettings: hdbscan_min_samples axis ─────────────────────────────
 
 
 def _search(**overrides) -> SearchSettings:

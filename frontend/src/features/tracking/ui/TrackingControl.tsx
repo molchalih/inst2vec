@@ -25,7 +25,7 @@ export const TrackingControl = () => {
       disabled={disabled}
       className={[
         "pointer-events-auto",
-        "w-track-size h-track-size",
+        "w-dock-control h-dock-control",
         "grid place-items-center",
         "transition duration-medium ease-motion-out",
         "focus-visible:outline focus-visible:outline-2 focus-visible:outline-fg-default/60",
@@ -36,7 +36,7 @@ export const TrackingControl = () => {
       ].join(" ")}
     >
       <svg
-        className="w-track-icon h-track-icon"
+        className="w-dock-icon h-dock-icon"
         viewBox="0 0 24 24"
         fill="none"
         stroke="currentColor"

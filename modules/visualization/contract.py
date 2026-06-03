@@ -1,4 +1,4 @@
-"""Pydantic mirror of the version-6 frontend JSON contract.
+"""Pydantic mirror of the version-7 frontend JSON contract.
 
 Mirrors the Zod schemas in ``frontend/src/data/schemas/*.ts`` field-for-field
 (``extra="forbid"`` so any drift surfaces). These models validate every
@@ -13,19 +13,21 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from modules.visualization.schema import SCHEMA_VERSION
+from core.contract import SCHEMA_VERSION
 
 # Literal needs a static value; assert it tracks the single-source constant so
 # a schema bump trips here loudly rather than silently accepting stale payloads.
-assert SCHEMA_VERSION == 6, "bump the _VERSION literal when SCHEMA_VERSION changes"
-_VERSION = Literal[6]
+assert SCHEMA_VERSION == 7, "bump the _VERSION literal when SCHEMA_VERSION changes"
+_VERSION = Literal[7]
+
+# Cluster-label modality, surfaced on the lightweight main-detail payload so the
+# viewer can place the tag skeleton (and decide whether to fetch a label at all)
+# without downloading the heavy label block. None when the cluster has no label.
+_LABEL_MODALITY = Literal["visual", "audio", "music", "multimodal", "textual"]
 
 
 class _Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
-
-
-# ── manifest.json ─────────────────────────────────────────────────────────
 
 
 class ManifestRunModel(_Strict):
@@ -40,9 +42,6 @@ class ManifestModel(_Strict):
     version: _VERSION
     default_run_id: str
     runs: list[ManifestRunModel] = Field(min_length=1)
-
-
-# ── runs/<id>/users.json ────────────────────────────────────────────────────
 
 
 class BoundsModel(_Strict):
@@ -63,9 +62,6 @@ class UsersFileModel(_Strict):
     users: list[UserTuple]
 
 
-# ── runs/<id>/clusters.json ─────────────────────────────────────────────────
-
-
 class ClusterEntryModel(_Strict):
     id: int
     label: str
@@ -82,9 +78,6 @@ class ClustersFileModel(_Strict):
     version: _VERSION
     run_id: str
     clusters: list[ClusterEntryModel]
-
-
-# ── shared detail blocks ────────────────────────────────────────────────────
 
 
 class AudioScoresModel(_Strict):
@@ -160,9 +153,6 @@ class NearestClusterModel(_Strict):
     distance: float
 
 
-# ── cluster label block (optional) ──────────────────────────────────────────
-
-
 class RepertoireEntryModel(_Strict):
     tag: str
     description: str
@@ -201,16 +191,19 @@ class ClusterLabelModel(_Strict):
     warnings: list[str]
 
 
-# ── runs/<id>/clusters/<id>.json ────────────────────────────────────────────
-
-
 class SpatialClusterModel(_Strict):
     compactness: float
     nearest_clusters: list[NearestClusterModel]
 
 
-class ClusterDetailModel(_Strict):
-    version: _VERSION
+class ClusterMainDetailModel(_Strict):
+    """One cluster's main detail — everything except the heavy ``label`` block.
+
+    Shipped eagerly in the per-run ``clusters-detail.json`` bundle. ``label``
+    moved to its own per-cluster file (fetched on selection); ``label_modality``
+    stays here so the viewer knows where the tags belong while they load.
+    """
+
     cluster_id: int
     size: int = Field(ge=0)
     ellipse: EllipseModel
@@ -226,10 +219,24 @@ class ClusterDetailModel(_Strict):
     activity_span_months: int
     distinctiveness: list[DistinctivenessEntryModel]
     spatial: SpatialClusterModel
-    label: ClusterLabelModel | None = None
+    label_modality: _LABEL_MODALITY | None = None
 
 
-# ── runs/<id>/users/<id>.json ───────────────────────────────────────────────
+class ClustersDetailBundleModel(_Strict):
+    """``runs/<id>/clusters-detail.json`` — every cluster's main detail, one
+    fetch per run."""
+
+    version: _VERSION
+    run_id: str
+    clusters: list[ClusterMainDetailModel]
+
+
+class ClusterLabelFileModel(_Strict):
+    """``runs/<id>/clusters/<id>.label.json`` — the deferred tag block."""
+
+    version: _VERSION
+    cluster_id: int
+    label: ClusterLabelModel
 
 
 class NearestOtherClusterModel(_Strict):

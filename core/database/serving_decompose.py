@@ -1,4 +1,4 @@
-"""Decompose version-6 payload dicts into normalised serving rows.
+"""Decompose version-7 payload dicts into normalised serving rows.
 
 The exact inverse of the atlas API's reconstruction layer. The offload calls
 ``decompose_run`` with the builder's ``CasePayloadBundle`` and gets back every
@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from core.contract import SCHEMA_VERSION
 from core.database.serving_models import (
     ServingCluster,
     ServingClusterDetail,
@@ -35,7 +36,6 @@ from core.database.serving_models import (
     ServingUserDetail,
     ServingWeightedTag,
 )
-from modules.visualization.schema import SCHEMA_VERSION
 
 
 def _weighted_tags(
@@ -220,9 +220,6 @@ def _cluster_detail_rows(run_id: str, cluster_id: int, detail: dict) -> list[Any
                 distance=e["distance"],
             )
         )
-    label = detail.get("label")
-    if label is not None:
-        rows += _cluster_label_rows(run_id, cluster_id, label)
     return rows
 
 
@@ -400,6 +397,10 @@ def decompose_run(bundle, *, is_default: bool, manifest_ord: int) -> list[Any]:
         )
     for cluster_id, detail in bundle.cluster_details.items():
         rows += _cluster_detail_rows(run_id, cluster_id, detail)
+    # Label blocks decompose from their own bundle map (the main detail no longer
+    # carries the heavy label); reconstruct re-attaches modality via this table.
+    for cluster_id, label in bundle.cluster_labels.items():
+        rows += _cluster_label_rows(run_id, cluster_id, label)
     for user_id, detail in bundle.creator_details.items():
         rows += _user_detail_rows(run_id, user_id, detail)
     return rows

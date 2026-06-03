@@ -140,9 +140,6 @@ def test_fetch_file_no_partial_on_write_failure(tmp_path, monkeypatch):
     assert not target.exists()
 
 
-# ============== Integration Tests (download_files) ==============
-
-
 @pytest.fixture
 def isolated_db(tmp_path):
     """Point the global engine at a fresh per-test DB, restore after."""

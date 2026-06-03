@@ -3,7 +3,7 @@
     uv run python -m services.atlas_api
 
 Reads the serving DB at ``SERVING_DATABASE_URL`` (required) and serves the
-version-6 contract. ``ATLAS_API_TOKEN`` optionally gates every endpoint behind
+version-7 contract. ``ATLAS_API_TOKEN`` optionally gates every endpoint behind
 a Bearer token; ``ATLAS_API_CORS_ORIGIN`` restricts browser access to the Pages
 origin. Host/port come from ``ATLAS_API_HOST`` / ``ATLAS_API_PORT``.
 """

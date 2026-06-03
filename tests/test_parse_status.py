@@ -15,8 +15,6 @@ from core.database import (
 )
 from core.database import engine as engine_mod
 
-# ── fetch_profiles tests ──────────────────────────────────────────
-
 
 def _make_identity_engine():
     from sqlalchemy import create_engine

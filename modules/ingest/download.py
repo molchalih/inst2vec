@@ -253,10 +253,8 @@ def download_files(
     try:
         users = session.query(User).filter(User.is_selected.is_(True)).all()
 
-        # 1. Resolve work items
         jobs = _resolve_jobs(users, paths, retry_failed=retry_failed)
 
-        # 2. Mark URL-less clips as terminal failures and commit immediately
         _mark_missing_url_terminal(session, jobs.clips_missing_url)
 
         total_jobs = (
@@ -279,7 +277,6 @@ def download_files(
             },
         )
 
-        # 3. Dispatch all work to the pool
         video_failed = 0
         committed_since = 0
 

@@ -71,9 +71,6 @@ def _insert_run(session, **kwargs):
     return row
 
 
-# --- _compute_row_scores ---
-
-
 def test_compute_row_scores_uses_explicit_euclidean_metrics(monkeypatch):
     captured = {}
 
@@ -134,9 +131,6 @@ def test_compute_row_scores_uses_explicit_euclidean_metrics(monkeypatch):
     }
 
 
-# --- Plateau neighbor logic ---
-
-
 def test_find_param_neighbors_one_step_difference():
     from modules.clustering.validation import _find_param_neighbors
 
@@ -179,9 +173,6 @@ def test_find_param_neighbors_categorical_any_other_value():
         result_ids = {r.id for r in result}
         assert neighbor.id in result_ids
         assert non_neighbor.id not in result_ids
-
-
-# --- Orchestration ---
 
 
 def test_validate_clustering_phase_order(monkeypatch):
@@ -249,9 +240,6 @@ def test_validate_clustering_phase_order(monkeypatch):
     assert ("compute_updates", "video") in video_seq, (
         f"_compute_updates was not called for video; sequence={video_seq}"
     )
-
-
-# --- New tests for Task 3 semantics ---
 
 
 def test_passes_validation_none_means_pending():
@@ -337,7 +325,6 @@ def test_list_best_candidate_rows_filters_by_passes_validation():
         session.close()
 
 
-# ── fingerprint integration tests ────────────────────────────────────────────
 # These tests use the conftest-initialised in-memory DB so fingerprint
 # StageState rows land in the same engine as ClusterRun rows.
 

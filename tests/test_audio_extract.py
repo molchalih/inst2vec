@@ -76,9 +76,6 @@ def test_re_extracts_when_video_newer(sample_mp4_with_audio, tmp_path):
     assert out.stat().st_mtime_ns > first_mtime
 
 
-# ── stage tests ──────────────────────────────────────────────────────────────
-
-
 @dataclass
 class _PathsStub:
     video_dir: str
@@ -217,9 +214,6 @@ def test_extract_audio_stage_dispatches_through_thread_pool(
     assert all((audio_dir / f"{cid}.mp3").exists() for cid in (1, 2, 3))
 
 
-# ── has_audio_stream tests ───────────────────────────────────────────────────
-
-
 def test_has_audio_stream_true_when_video_has_audio(sample_mp4_with_audio):
     assert has_audio_stream(str(sample_mp4_with_audio)) is True
 
@@ -231,9 +225,6 @@ def test_has_audio_stream_false_when_video_is_silent(sample_mp4_no_audio):
 def test_has_audio_stream_false_when_file_missing(tmp_path):
     missing = tmp_path / "does_not_exist.mp4"
     assert has_audio_stream(str(missing)) is False
-
-
-# ── no-audio-stream skip regression ──────────────────────────────────────────
 
 
 def test_stage_skips_clips_without_audio_stream_and_seals(

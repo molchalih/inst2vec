@@ -63,10 +63,14 @@ export const selectDotAtom = atom<null, [number], void>(
       : { kind: "cluster", clusterId };
 
     // Pin the current viewport into viewportAtom before flipping
-    // selection. visibleRectAtom shrinks the instant selection becomes
-    // non-null (panel inset), which would otherwise re-derive
-    // fittedViewportAtom and snap the camera in the same commit.
-    set(viewportAtom, get(viewportAtom));
+    // selection — but only when opening from no selection.
+    // visibleRectAtom shrinks the instant selection becomes non-null
+    // (panel inset), which would otherwise re-derive fittedViewportAtom
+    // and snap the camera in the same commit. When a selection is
+    // already open the rect doesn't change, so re-pinning would only
+    // re-clamp the live (intentionally out-of-band) focus override and
+    // teleport the camera before useCameraFocus eases it back.
+    if (get(selectionAtom) === null) set(viewportAtom, get(viewportAtom));
     set(selectionAtom, next);
   },
 );
@@ -74,7 +78,8 @@ export const selectDotAtom = atom<null, [number], void>(
 export const selectClusterAtom = atom<null, [number], void>(
   null,
   (get, set, clusterId) => {
-    set(viewportAtom, get(viewportAtom));  // pin
+    // Pin only across the null→selected inset; see selectDotAtom.
+    if (get(selectionAtom) === null) set(viewportAtom, get(viewportAtom));
     set(selectionAtom, { kind: "cluster", clusterId });
   },
 );

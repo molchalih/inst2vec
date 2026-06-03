@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from core.contract import SCHEMA_VERSION
 from modules.visualization.compute import (
     ClusterDetail,
     ClusterMember,
@@ -24,7 +25,6 @@ from modules.visualization.compute import (
     parse_label_score_csv,
     top_languages,
 )
-from modules.visualization.schema import SCHEMA_VERSION
 
 
 @pytest.mark.parametrize(

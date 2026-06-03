@@ -26,9 +26,6 @@ def _capture(fn) -> str:
     return buf.getvalue()
 
 
-# ---------- format snapshots ----------
-
-
 def test_log_minimal_emits_canonical_line() -> None:
     from core.console import log
 
@@ -76,9 +73,6 @@ def test_log_stats_preserve_insertion_order() -> None:
     assert "embed:video" in out
 
 
-# ---------- time/size humanization ----------
-
-
 @pytest.mark.parametrize(
     "seconds, expected",
     [
@@ -111,9 +105,6 @@ def test_format_size(n_bytes: int, expected: str) -> None:
     assert _format_size(n_bytes) == expected
 
 
-# ---------- error path ----------
-
-
 def test_log_err_emits_indented_err_line() -> None:
     from core.console import log
 
@@ -132,9 +123,6 @@ def test_log_err_emits_indented_err_line() -> None:
     assert "err: quota exceeded" in out
 
 
-# ---------- verb validation ----------
-
-
 def test_log_delete_verb_accepted() -> None:
     from core.console import log
 
@@ -149,9 +137,6 @@ def test_log_rejects_unknown_verb() -> None:
         log("hiker", "FOO", "x", "ok")
 
 
-# ---------- highlighter regex ----------
-
-
 def test_highlighter_regex_matches_canonical_form() -> None:
     import re
 
@@ -164,9 +149,6 @@ def test_highlighter_regex_matches_canonical_form() -> None:
     assert m.group("target") == "user_by_id/1"
     assert m.group("result") == "200"
     assert m.group("stats") == "time=0.42s, size=1.2KB"
-
-
-# ---------- pipeline lifecycle ----------
 
 
 def test_pipeline_advances_one_tick_per_phase() -> None:
@@ -197,9 +179,6 @@ def test_progress_inside_pipeline_creates_stage_task() -> None:
             advance(5)
             assert c._stage_progress.tasks[0].completed == 5
         assert len(c._stage_progress.tasks) == 0
-
-
-# ---------- dedup behaviour ----------
 
 
 def test_log_consecutive_same_second_dedupes_time(monkeypatch) -> None:

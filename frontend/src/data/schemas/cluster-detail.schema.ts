@@ -125,8 +125,14 @@ export const clusterLabelSchema = z.object({
 
 export type ClusterLabel = z.infer<typeof clusterLabelSchema>;
 
+/**
+ * One cluster's main detail — everything except the heavy `label` block,
+ * which now ships in its own per-cluster file. Carries `label_modality` so the
+ * viewer can place the tag skeleton (and decide whether to fetch a label at
+ * all) without downloading the label. Version-less: the enclosing
+ * `clusters-detail.json` bundle owns the single version field.
+ */
 export const clusterDetailSchema = z.object({
-  version: z.literal(SCHEMA_VERSION),
   cluster_id: z.number().int(),
   size: z.number().int().nonnegative(),
   ellipse: ellipseSchema,
@@ -142,10 +148,34 @@ export const clusterDetailSchema = z.object({
   activity_span_months: z.number().int(),
   distinctiveness: z.array(distinctivenessEntrySchema),
   spatial: spatialClusterSchema,
-  label: clusterLabelSchema.optional(),
+  label_modality: clusterLabelSchema.shape.modality.nullable(),
 }).strict();
 
 export type ClusterDetail = z.infer<typeof clusterDetailSchema>;
+
+/**
+ * `runs/<run>/clusters-detail.json` — every cluster's main detail, fetched once
+ * per run (eagerly, on run load / pill switch).
+ */
+export const clustersDetailBundleSchema = z.object({
+  version: z.literal(SCHEMA_VERSION),
+  run_id: z.string(),
+  clusters: z.array(clusterDetailSchema),
+}).strict();
+
+export type ClustersDetailBundle = z.infer<typeof clustersDetailBundleSchema>;
+
+/**
+ * `runs/<run>/clusters/<id>.label.json` — the deferred tag block, fetched on
+ * cluster selection.
+ */
+export const clusterLabelFileSchema = z.object({
+  version: z.literal(SCHEMA_VERSION),
+  cluster_id: z.number().int(),
+  label: clusterLabelSchema,
+}).strict();
+
+export type ClusterLabelFile = z.infer<typeof clusterLabelFileSchema>;
 export type AudioScores = z.infer<typeof audioScoresSchema>;
 export type MoodShares = z.infer<typeof moodSharesSchema>;
 export type TimbreShares = z.infer<typeof timbreSharesSchema>;

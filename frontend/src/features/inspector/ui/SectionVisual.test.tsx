@@ -36,25 +36,32 @@ describe("SectionVisual cluster mode", () => {
 
   it("renders taste signalling and visibility orientation labels", () => {
     render(<SectionVisual index="05" cluster={baseLabel()} />);
-    // "homecore" appears in taste_signalling.label and tool_tags — use getAllByText
-    expect(screen.getAllByText("homecore").length).toBeGreaterThan(0);
+    // "homecore" is the taste_signalling label
+    expect(screen.getByText("homecore")).toBeInTheDocument();
     // "ordinariness" is the visibility_orientation label
     expect(screen.getByText("ordinariness")).toBeInTheDocument();
   });
 
-  it("renders tool_tags as a passive row", () => {
-    render(<SectionVisual index="05" cluster={baseLabel()} />);
-    // "homecore" also appears as taste_signalling label, so use getAllByText
-    expect(screen.getAllByText("homecore").length).toBeGreaterThan(0);
-    expect(screen.getByText("warm-palette")).toBeInTheDocument();
-  });
-
-  it("renders warning line in warn mode with translated codes", () => {
+  it("does not surface tool tags or a warning line", () => {
     const v = baseLabel();
     v.validation = "warn";
     v.warnings = ["invalid_confidence"];
     render(<SectionVisual index="05" cluster={v} />);
-    expect(screen.getByText(/invalid confidence/)).toBeInTheDocument();
+    expect(screen.queryByText("warm-palette")).not.toBeInTheDocument();
+    expect(screen.queryByText(/invalid confidence/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/⚠/)).not.toBeInTheDocument();
+  });
+
+  it("caps a tag category at five chips", () => {
+    const v = baseLabel();
+    v.repertoire = Array.from({ length: 8 }, (_, i) => ({
+      tag: `rep${i}`,
+      description: "d",
+      recurrence: "dominant" as const,
+    }));
+    render(<SectionVisual index="05" cluster={v} />);
+    expect(screen.getByText("rep4")).toBeInTheDocument();
+    expect(screen.queryByText("rep5")).not.toBeInTheDocument();
   });
 
   it("falls back to placeholder when neither clips nor cluster provided", () => {

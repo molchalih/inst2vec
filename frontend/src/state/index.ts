@@ -31,14 +31,18 @@ export {
 export { setBulkSource } from "./bulk-singleton";
 export { setApiClient, requireApiClient } from "./api-singleton";
 export {
-  clusterDetailMapAtom, clusterDetailFor, ensureClusterDetailAtom,
+  clusterDetailBundleAtom, clusterDetailFor, ensureClusterBundleAtom,
 } from "./cluster-detail.atom";
+export {
+  clusterLabelMapAtom, clusterLabelFor, ensureClusterLabelAtom,
+} from "./cluster-label.atom";
 export {
   creatorDetailMapAtom, creatorDetailFor, ensureCreatorDetailAtom,
 } from "./creator-detail.atom";
 export {
   introAtom, introDriverAtom, introPlayedAtom, isIntroPlayingAtom,
-  useIntro, useIsIntroPlaying,
+  chromeRevealedAtom,
+  useIntro, useIsIntroPlaying, useIsChromeRevealed, useIntroPlayed,
   type IntroState, type IntroDriver,
 } from "./intro.atom";
 export {

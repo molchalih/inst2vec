@@ -2,32 +2,33 @@ import { atom, type Atom } from "jotai";
 import type { ClusterDetail } from "@/data";
 import { requireApiClient } from "./api-singleton";
 import { activeRunIdAtom } from "./active-run-id.atom";
+import { runStateAtom } from "./run.atom";
 
-// Cache entries are keyed by `${runId}:${id}` so that switching runs
-// doesn't surface stale detail data for a colliding cluster id.
-const keyFor = (runId: string, id: number): string => `${runId}:${id}`;
-
-type Map_ = {
-  details: Map<string, ClusterDetail>;
+/**
+ * Eager cluster main-detail cache, one entry per run.
+ *
+ * The per-run `clusters-detail.json` bundle is fetched once (on run load and on
+ * pill switch) and cached keyed by runId. Switching runs never surfaces stale
+ * detail for a colliding cluster id because the cache is run-scoped. The heavy
+ * label/tags live in a separate per-cluster file — see `cluster-label.atom`.
+ */
+type BundleState = {
+  byRun: Map<string, Map<number, ClusterDetail>>;
   loading: Set<string>;
   errors: Map<string, Error>;
 };
 
-export const clusterDetailMapAtom = atom<Map_>({
-  details: new Map<string, ClusterDetail>(),
+export const clusterDetailBundleAtom = atom<BundleState>({
+  byRun: new Map<string, Map<number, ClusterDetail>>(),
   loading: new Set<string>(),
   errors: new Map<string, Error>(),
 });
 
 type Slot = { data?: ClusterDetail; loading?: boolean; error?: Error };
 
-// Memoized per-id atom: consumers call `clusterDetailFor(id)` on every
-// render and must get back the same Atom instance. Returning a fresh
-// derived atom each call would make `useAtomValue` re-subscribe and
-// resnapshot every render — and since the derive function returns a
-// brand-new Slot object each time, that resnapshot loops React.
-// The runId is read inside the derive, so the same atom resolves to the
-// right slot after a run switch without invalidating the cache.
+// Memoized per-id selector atom (same instance per id across renders, mirroring
+// the creator-detail pattern): the runId is read inside the derive so the same
+// atom resolves to the right run's bundle after a switch.
 const detailAtomCache = new Map<number, Atom<Slot>>();
 export const clusterDetailFor = (id: number): Atom<Slot> => {
   const cached = detailAtomCache.get(id);
@@ -35,12 +36,14 @@ export const clusterDetailFor = (id: number): Atom<Slot> => {
   const a = atom<Slot>((get) => {
     const runId = get(activeRunIdAtom);
     if (!runId) return {};
-    const k = keyFor(runId, id);
-    const m = get(clusterDetailMapAtom);
-    const data = m.details.get(k);
-    if (data) return { data };
-    if (m.loading.has(k)) return { loading: true };
-    const error = m.errors.get(k);
+    const s = get(clusterDetailBundleAtom);
+    const m = s.byRun.get(runId);
+    if (m) {
+      const data = m.get(id);
+      return data ? { data } : {};
+    }
+    if (s.loading.has(runId)) return { loading: true };
+    const error = s.errors.get(runId);
     if (error) return { error };
     return {};
   });
@@ -48,33 +51,43 @@ export const clusterDetailFor = (id: number): Atom<Slot> => {
   return a;
 };
 
-export const ensureClusterDetailAtom = atom(null, async (get, set, id: number) => {
+/**
+ * Fetch the active run's main-detail bundle into the cache if absent. Idempotent
+ * (a cache hit or in-flight request is a no-op). Driven eagerly by the app-level
+ * prefetch so detail is present the instant a cluster is clicked.
+ */
+export const ensureClusterBundleAtom = atom(null, async (get, set) => {
   const runId = get(activeRunIdAtom);
   if (!runId) return;
-  const k = keyFor(runId, id);
-  const m = get(clusterDetailMapAtom);
-  if (m.details.has(k) || m.loading.has(k)) return;
-  set(clusterDetailMapAtom, (prev) => {
-    const errors = new Map(prev.errors);
-    errors.delete(k);
+  // The API client resolves the *committed* run (`runStateAtom.activeRunId`),
+  // which lags `activeRunIdAtom` until the bulk run loads. Fetching in that
+  // window throws "no active runId" and caches the error. Bail until the
+  // committed run has caught up so the fetch always targets a live run.
+  if (get(runStateAtom).activeRunId !== runId) return;
+  const s = get(clusterDetailBundleAtom);
+  if (s.byRun.has(runId) || s.loading.has(runId)) return;
+  set(clusterDetailBundleAtom, (prev) => {
     const loading = new Set(prev.loading);
-    loading.add(k);
+    loading.add(runId);
+    const errors = new Map(prev.errors);
+    errors.delete(runId);
     return { ...prev, loading, errors };
   });
   try {
-    const detail = await requireApiClient().getClusterDetail(id);
-    set(clusterDetailMapAtom, (prev) => {
-      const details = new Map(prev.details).set(k, detail);
+    const clusters = await requireApiClient().getClustersDetail();
+    set(clusterDetailBundleAtom, (prev) => {
+      const byRun = new Map(prev.byRun);
+      byRun.set(runId, new Map(clusters.map((c) => [c.cluster_id, c])));
       const loading = new Set(prev.loading);
-      loading.delete(k);
-      return { ...prev, details, loading };
+      loading.delete(runId);
+      return { ...prev, byRun, loading };
     });
   } catch (err) {
-    set(clusterDetailMapAtom, (prev) => {
+    set(clusterDetailBundleAtom, (prev) => {
       const loading = new Set(prev.loading);
-      loading.delete(k);
+      loading.delete(runId);
       const errors = new Map(prev.errors).set(
-        k,
+        runId,
         err instanceof Error ? err : new Error(String(err)),
       );
       return { ...prev, loading, errors };

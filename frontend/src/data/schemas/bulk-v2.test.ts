@@ -5,13 +5,13 @@ import { clustersFileSchema } from "./clusters.schema";
 import { manifestSchema } from "./manifest.schema";
 
 describe("bulk schema", () => {
-  it("SCHEMA_VERSION is 6", () => {
-    expect(SCHEMA_VERSION).toBe(6);
+  it("SCHEMA_VERSION is 7", () => {
+    expect(SCHEMA_VERSION).toBe(7);
   });
 
   it("users tuple carries has_detail and a trailing centrality in [0, 1]", () => {
     const parsed = usersFileSchema.parse({
-      version: 6,
+      version: 7,
       run_id: "video-1",
       bounds: { minX: 0, maxX: 1, minY: 0, maxY: 1 },
       users: [[42, 0.1, 0.2, 7, true, 0.83]],
@@ -21,7 +21,7 @@ describe("bulk schema", () => {
 
   it("users tuple rejects the v2 5-wide payload (missing centrality)", () => {
     const r = usersFileSchema.safeParse({
-      version: 6,
+      version: 7,
       run_id: "video-1",
       bounds: { minX: 0, maxX: 1, minY: 0, maxY: 1 },
       users: [[42, 0.1, 0.2, 7, true]],
@@ -31,7 +31,7 @@ describe("bulk schema", () => {
 
   it("users tuple rejects centrality outside [0, 1]", () => {
     const r = usersFileSchema.safeParse({
-      version: 6,
+      version: 7,
       run_id: "video-1",
       bounds: { minX: 0, maxX: 1, minY: 0, maxY: 1 },
       users: [[42, 0.1, 0.2, 7, true, 1.5]],
@@ -41,7 +41,7 @@ describe("bulk schema", () => {
 
   it("clusters object carries has_detail", () => {
     const parsed = clustersFileSchema.parse({
-      version: 6,
+      version: 7,
       run_id: "video-1",
       clusters: [
         { id: 0, label: "A", cx: 0, cy: 0, rx: 1, ry: 1, angle: 0, size: 1, has_detail: true },
@@ -52,7 +52,7 @@ describe("bulk schema", () => {
 
   it("manifest run carries details_available", () => {
     const parsed = manifestSchema.parse({
-      version: 6,
+      version: 7,
       default_run_id: "video-1",
       runs: [{ id: "video-1", case: "video", label: "v", size: 1, details_available: true }],
     });

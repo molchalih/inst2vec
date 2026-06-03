@@ -1,6 +1,6 @@
 """Read-only FastAPI service over the serving database.
 
-Reconstructs the version-6 frontend contract (manifest + per-run users/clusters
+Reconstructs the version-7 frontend contract (manifest + per-run users/clusters
 + per-id creator/cluster details) from the normalised ``serving_*`` tables and
 serves it byte-identically to what ``modules.visualization.export`` writes to
 disk. Reads ONLY the serving DB — never the pipeline main or identity DBs.

@@ -155,11 +155,6 @@ def overlap_report(labels_by_cid: dict[int, str]) -> OverlapReport:
     )
 
 
-# ---------------------------------------------------------------------------
-# Roster + prompt
-# ---------------------------------------------------------------------------
-
-
 @dataclass(frozen=True)
 class RosterEntry:
     cluster_id: int
@@ -325,11 +320,6 @@ def _loads(text: str) -> object:
         return None
 
 
-# ---------------------------------------------------------------------------
-# Deterministic exact-uniqueness backstop
-# ---------------------------------------------------------------------------
-
-
 def _title(word: str) -> str:
     return word[:1].upper() + word[1:] if word else word
 
@@ -359,11 +349,6 @@ def _disambiguate(label: str, tags: list[str], taken: set[str]) -> str:
         if _norm(candidate) not in taken:
             return candidate
         n += 1
-
-
-# ---------------------------------------------------------------------------
-# Deterministic lexical-diversity guarantee
-# ---------------------------------------------------------------------------
 
 
 def phrase_to_label(phrase: str) -> str | None:
@@ -523,11 +508,6 @@ def _disambiguate_lexical(
     # Truly degenerate: guaranteed-unique ordinal suffix (mathematical last
     # resort; unreachable for clusters with >= 2 usable tag words).
     return _disambiguate(label, candidate_tags, taken)
-
-
-# ---------------------------------------------------------------------------
-# Orchestration
-# ---------------------------------------------------------------------------
 
 
 def _success_rows(session: Session, case: str) -> list[ClusterLabel]:

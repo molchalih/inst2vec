@@ -112,9 +112,18 @@ describe("runToIntroDotsFrame", () => {
     expect(f.users[1]).toMatchObject({ x: 3, y: 4 });
   });
 
-  it("fades dot alpha in during the fade phase", () => {
+  it("fades the layer in via group alphaScale during the fade phase (dots at full per-dot alpha)", () => {
     const run = makeRun([[0, 1, 2, 0, false, 0.5]], []);
     const mid = runToIntroDotsFrame(run, center, 0, 0.5);
-    expect(mid.users[0]!.alpha).toBeCloseTo(tokens.dot.alpha * 0.5, 5);
+    // Group fade, not per-dot: every dot keeps its full token alpha and the
+    // whole layer ramps via alphaScale (so stacked dots don't saturate).
+    expect(mid.alphaScale).toBeCloseTo(0.5, 5);
+    expect(mid.users[0]!.alpha).toBeCloseTo(tokens.dot.alpha, 5);
+  });
+
+  it("holds the layer at full alpha (alphaScale 1) once dots start flying out", () => {
+    const run = makeRun([[0, 1, 2, 0, false, 0.5]], []);
+    expect(runToIntroDotsFrame(run, center, 1, 0.5).alphaScale).toBe(1);
+    expect(runToIntroDotsFrame(run, center, 2, 1).alphaScale).toBe(1);
   });
 });

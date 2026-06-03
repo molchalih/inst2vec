@@ -76,9 +76,6 @@ class EmbeddingCaseSpec:
     backbone: str = ""
 
 
-# ── provider factories ───────────────────────────────────────────────────────
-
-
 def qwen_provider(settings, *, with_frames: bool) -> Provider:
     if with_frames:
         return LocalQwenProvider(
@@ -106,9 +103,6 @@ _QWEN_TEXT = _make_qwen_factory(with_frames=False, name="qwen_provider_text")
 _QWEN_FACTORIES = {_QWEN_VIDEO, _QWEN_TEXT}
 
 
-# ── payload builders ─────────────────────────────────────────────────────────
-
-
 def _video_payload(clip, text, video_path, audio_path, fps, max_frames) -> dict:
     return {"video": video_path, "fps": fps, "max_frames": max_frames}
 
@@ -128,9 +122,6 @@ def _spoken_payload(clip, text, video_path, audio_path, fps, max_frames) -> dict
 
 def _textual_payload(clip, text, video_path, audio_path, fps, max_frames) -> dict:
     return {"text": text, "instruction": TEXTUAL_INSTRUCTION}
-
-
-# ── registry ─────────────────────────────────────────────────────────────────
 
 
 VIDEO_CASE = EmbeddingCaseSpec(

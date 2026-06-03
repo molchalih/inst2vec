@@ -142,9 +142,6 @@ def _add_cluster_label(
         session.close()
 
 
-# ── Test 1 ────────────────────────────────────────────────────────────────────
-
-
 def test_clusters_json_falls_back_to_placeholder_without_label(tmp_path):
     """When no ClusterLabel row exists, clusters.json uses VisualizationCluster.label."""
     _clear()
@@ -156,9 +153,6 @@ def test_clusters_json_falls_back_to_placeholder_without_label(tmp_path):
     labels = {c["id"]: c["label"] for c in clusters["clusters"]}
     assert labels[0] == "Cluster 1"
     assert labels[1] == "Cluster 2"
-
-
-# ── Test 2 ────────────────────────────────────────────────────────────────────
 
 
 def test_clusters_json_uses_generated_label_when_success(tmp_path):
@@ -192,36 +186,42 @@ def test_clusters_json_uses_generated_label_when_success(tmp_path):
     assert label_by_id[0] == "Ambient Architects"
     assert label_by_id[1] == "Cluster 2"
 
-    # detail file: cluster 0 has label block
-    detail = json.loads(
-        (tmp_path / "runs" / "video" / "clusters" / "0.json").read_text()
+    # label file: cluster 0 ships its deferred label block separately
+    label_file = json.loads(
+        (tmp_path / "runs" / "video" / "clusters" / "0.label.json").read_text()
     )
-    assert "label" in detail
-    label = detail["label"]
+    assert label_file["cluster_id"] == 0
+    label = label_file["label"]
     assert label["label"] == "Ambient Architects"
     assert label["summary"] == "Creators who favour soft, layered soundscapes."
     assert label["repertoire"] == ["mist", "bloom"]
     assert label["validation"] == "ok"
     assert label["warnings"] == []
 
-
-# ── Test 3 ────────────────────────────────────────────────────────────────────
+    # the eager bundle surfaces only the modality so the viewer can place the
+    # tag skeleton without the heavy label.
+    bundle = json.loads(
+        (tmp_path / "runs" / "video" / "clusters-detail.json").read_text()
+    )
+    main0 = next(c for c in bundle["clusters"] if c["cluster_id"] == 0)
+    assert main0["label_modality"] == "visual"
+    assert "label" not in main0
 
 
 def test_cluster_detail_omits_label_when_no_label_row(tmp_path):
-    """When no ClusterLabel row exists, cluster detail file has no ``label`` key."""
+    """No ClusterLabel row → no per-cluster label file, and the bundle's
+    ``label_modality`` is null."""
     _clear()
     _seed("video", n_clusters=2)
 
     export_visualization_json(_settings(tmp_path), cases=("video",))
 
-    detail = json.loads(
-        (tmp_path / "runs" / "video" / "clusters" / "0.json").read_text()
+    assert not (tmp_path / "runs" / "video" / "clusters" / "0.label.json").exists()
+    bundle = json.loads(
+        (tmp_path / "runs" / "video" / "clusters-detail.json").read_text()
     )
-    assert "label" not in detail
-
-
-# ── Test 4 ────────────────────────────────────────────────────────────────────
+    main0 = next(c for c in bundle["clusters"] if c["cluster_id"] == 0)
+    assert main0["label_modality"] is None
 
 
 def test_cluster_warning_codes_translated_in_label_block(tmp_path):
@@ -242,17 +242,13 @@ def test_cluster_warning_codes_translated_in_label_block(tmp_path):
 
     export_visualization_json(_settings(tmp_path), cases=("video",))
 
-    detail = json.loads(
-        (tmp_path / "runs" / "video" / "clusters" / "0.json").read_text()
+    label_file = json.loads(
+        (tmp_path / "runs" / "video" / "clusters" / "0.label.json").read_text()
     )
-    assert "label" in detail
-    label = detail["label"]
+    label = label_file["label"]
     assert label["validation"] == "warn"
     assert "tag_count_out_of_range" in label["warnings"]
     assert "invalid_confidence" in label["warnings"]
-
-
-# ── Phase E1 tests ────────────────────────────────────────────────────────────
 
 
 def _success_payload(repertoire_key: str) -> dict:
@@ -296,11 +292,11 @@ def test_export_writes_label_block_not_visual_block(tmp_path):
 
     export_visualization_json(_settings(tmp_path), cases=("video",))
 
-    detail = json.loads(
-        (tmp_path / "runs" / "video" / "clusters" / "0.json").read_text()
+    label_file = json.loads(
+        (tmp_path / "runs" / "video" / "clusters" / "0.label.json").read_text()
     )
-    assert "label" in detail
-    assert "visual" not in detail
+    assert "label" in label_file
+    assert "visual" not in label_file
 
 
 def test_export_label_block_has_modality_field_matching_case(tmp_path):
@@ -318,10 +314,10 @@ def test_export_label_block_has_modality_field_matching_case(tmp_path):
 
     export_visualization_json(_settings(tmp_path), cases=("video",))
 
-    detail = json.loads(
-        (tmp_path / "runs" / "video" / "clusters" / "0.json").read_text()
+    label_file = json.loads(
+        (tmp_path / "runs" / "video" / "clusters" / "0.label.json").read_text()
     )
-    assert detail["label"]["modality"] == "visual"
+    assert label_file["label"]["modality"] == "visual"
 
 
 def test_export_label_block_flattens_repertoire_field(tmp_path):
@@ -341,17 +337,17 @@ def test_export_label_block_flattens_repertoire_field(tmp_path):
 
     export_visualization_json(_settings(tmp_path), cases=("video",))
 
-    detail = json.loads(
-        (tmp_path / "runs" / "video" / "clusters" / "0.json").read_text()
+    label_file = json.loads(
+        (tmp_path / "runs" / "video" / "clusters" / "0.label.json").read_text()
     )
-    label = detail["label"]
+    label = label_file["label"]
     assert "repertoire" in label
     assert "dominant_visual_repertoire" not in label
     assert label["repertoire"][0]["tag"] == "thing"
 
 
-def test_export_schema_version_is_6(tmp_path):
-    """Phase E1: SCHEMA_VERSION is pinned at 6."""
+def test_export_schema_version_is_7(tmp_path):
+    """SCHEMA_VERSION is pinned at 7 (the label-split bump)."""
     _clear()
     _seed("video", n_clusters=2)
 
@@ -360,6 +356,10 @@ def test_export_schema_version_is_6(tmp_path):
     clusters = json.loads((tmp_path / "runs" / "video" / "clusters.json").read_text())
     users = json.loads((tmp_path / "runs" / "video" / "users.json").read_text())
     manifest = json.loads((tmp_path / "manifest.json").read_text())
-    assert clusters["version"] == 6
-    assert users["version"] == 6
-    assert manifest["version"] == 6
+    bundle = json.loads(
+        (tmp_path / "runs" / "video" / "clusters-detail.json").read_text()
+    )
+    assert clusters["version"] == 7
+    assert users["version"] == 7
+    assert manifest["version"] == 7
+    assert bundle["version"] == 7

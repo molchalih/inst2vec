@@ -1,7 +1,7 @@
-import { useCallback, useMemo } from "react";
-import type { Graphics as PixiGraphics } from "pixi.js";
+import { useCallback, useMemo, useRef } from "react";
+import { AlphaFilter, type Graphics as PixiGraphics } from "pixi.js";
 import {
-  useStretchedRun, useViewport, useTransition, useMorphJoin, useIntro,
+  useStretchedRun, useViewport, useTransition, useMorphJoin, useIntro, useIntroPlayed,
 } from "@/state";
 import {
   interpolateUsers,
@@ -136,10 +136,15 @@ const morphFrame = (
   return { users, alphaScale: 1, radiusScale: 1 };
 };
 
+// Empty frame: nothing drawn. Used before the entrance fade owns the dots so
+// the static full-alpha frame never flashes on first load.
+const HIDDEN_DOTS_FRAME: DotsFrame = { users: [], alphaScale: 1, radiusScale: 1 };
+
 export const DotsLayer = () => {
   const run = useStretchedRun();
   const transition = useTransition();
   const intro = useIntro();
+  const introPlayed = useIntroPlayed();
   const [viewport] = useViewport();
 
   // The creator-keyed join is the shared SSOT (morphJoinAtom): identity-stable
@@ -158,11 +163,23 @@ export const DotsLayer = () => {
     if (intro) {
       return runToIntroDotsFrame(run, intro.centerWorld, intro.phase, intro.progress);
     }
+    // Before the entrance has run, keep the dots hidden: the run can load (and
+    // the viewport can still be measuring) a render or two before the intro
+    // seeds, and the static frame would flash every dot at full alpha. Once the
+    // intro has played (or was skipped for reduced-motion / a deep link) the
+    // settled static frame shows.
+    if (!introPlayed) return HIDDEN_DOTS_FRAME;
     return runToDotsFrame(run);
-  }, [run, transition, joined, delayNorm, intro]);
+  }, [run, transition, joined, delayNorm, intro, introPlayed]);
+
+  // One persistent AlphaFilter realizes the intro group fade (see drawDots).
+  // Held in a ref so it survives re-renders; drawDots attaches it only while
+  // alphaScale < 1 and mutates its alpha per frame.
+  const groupFade = useRef<AlphaFilter | null>(null);
+  groupFade.current ??= new AlphaFilter();
 
   const draw = useCallback(
-    (g: PixiGraphics) => { drawDots(g, frame, viewport); },
+    (g: PixiGraphics) => { drawDots(g, frame, viewport, groupFade.current); },
     [frame, viewport],
   );
 

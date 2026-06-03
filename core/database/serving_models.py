@@ -1,7 +1,7 @@
 """Serving-database schema (read-optimised, normalised).
 
 The serving DB is a separate store: the offload script (``scripts/
-offload_serving.py``) decomposes the version-6 frontend payloads into these
+offload_serving.py``) decomposes the version-7 frontend payloads into these
 normalised tables, and the atlas API (``services/atlas_api``) reconstructs the
 exact payloads from them. It carries only already-anonymised, already-shipped
 fields — never PII.

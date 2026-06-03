@@ -286,7 +286,6 @@ def classify_speech(
             if outcome is False:
                 continue
             if outcome is True:
-                # Resolved as silent/no-audio: commit on cadence.
                 if i % commit_every == 0:
                     session.commit()
                 continue

@@ -65,8 +65,6 @@ def test_user_cluster_columns():
     assert UserCluster.__tablename__ == "user_clusters"
 
 
-# Tests for compute_clusters()
-
 _RNG = np.random.default_rng(0)
 
 

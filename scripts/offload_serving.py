@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Offload the version-6 frontend contract into the normalised serving DB.
+"""Offload the version-7 frontend contract into the normalised serving DB.
 
 Reads the pipeline main DB (via ``modules.visualization.export``'s payload
 builders), decomposes each exposed case's payloads into ``serving_*`` rows, and

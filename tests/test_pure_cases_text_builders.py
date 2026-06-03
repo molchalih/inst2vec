@@ -22,9 +22,6 @@ def _clip(**kw):
     return SimpleNamespace(**base)
 
 
-# ── spoken (speech transcript only) ──────────────────────────────────────────
-
-
 def test_spoken_english_uses_transcription():
     clip = _clip(
         is_speech_detected=True,
@@ -60,9 +57,6 @@ def test_spoken_ignores_mir_row():
     )
     sentinel_mir = object()
     assert build_spoken_text(clip, sentinel_mir) == "hi"
-
-
-# ── textual (caption only) ───────────────────────────────────────────────────
 
 
 def test_textual_english_uses_caption_clean():

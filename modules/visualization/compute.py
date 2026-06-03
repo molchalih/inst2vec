@@ -12,8 +12,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from core.contract import SCHEMA_VERSION
 from core.database import UserCluster, VisualizationCluster, VisualizationUser
-from modules.visualization.schema import SCHEMA_VERSION
 
 # Edges follow a 1–1.5–2–2.5–3–4–5–7 progression per decade, formatted with
 # k/M suffixes. Used only for the follower_bucket field in detail payloads.

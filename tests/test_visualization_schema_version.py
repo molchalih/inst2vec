@@ -10,11 +10,11 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from modules.visualization.schema import SCHEMA_VERSION
+from core.contract import SCHEMA_VERSION
 
 
 def test_schema_version_is_pinned() -> None:
-    assert SCHEMA_VERSION == 6
+    assert SCHEMA_VERSION == 7
 
 
 def test_frontend_schema_version_matches_backend() -> None:

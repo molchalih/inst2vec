@@ -227,11 +227,6 @@ def test_video_prompt_drift_wipes_only_video_rows(tmp_path):
         assert video_row.status == "success"
 
 
-# ---------------------------------------------------------------------------
-# Phase F2 — per-case CLUSTER drift isolation (end-to-end via pipeline.run)
-# ---------------------------------------------------------------------------
-
-
 def _shared_engine(monkeypatch):
     """Build the shared in-memory engine that ``get_engine()`` returns."""
     eng = create_engine("sqlite:///:memory:")

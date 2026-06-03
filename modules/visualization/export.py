@@ -9,7 +9,7 @@ Stale run directories and manifests from previous exports are pruned so
 the on-disk tree always reflects the current DB / case set.
 
 No fingerprint: always runs after the DB-write stage. A schema bump
-(see schema.py SCHEMA_VERSION) thus rewrites every file on the next
+(see core/contract.py SCHEMA_VERSION) thus rewrites every file on the next
 pipeline call with no DB change.
 """
 
@@ -27,6 +27,7 @@ import numpy as np
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from core.contract import SCHEMA_VERSION
 from core.database import (
     AudioMIR,
     Clip,
@@ -56,7 +57,6 @@ from modules.visualization.compute import (
     build_cluster_detail,
     build_user_detail,
 )
-from modules.visualization.schema import SCHEMA_VERSION
 
 # Placeholder thumbnail served for every clip for now: we deliberately do NOT
 # emit real per-clip thumbnail URLs into the published payload. Swap back to the
@@ -353,13 +353,23 @@ def _build_cluster_detail_payloads(
     member_by_user: dict[int, ClusterMember],
     members_by_cluster: dict[int, list[int]],
     cluster_label_rows: dict[int, ClusterLabel],
-) -> dict[int, dict]:
-    """Per-cluster detail dicts keyed by cluster_id (exporter emission order)."""
+) -> tuple[dict[int, dict], dict[int, dict]]:
+    """Build per-cluster payloads, split into the eager main detail and the
+    deferred label block.
+
+    Returns ``(main_by_id, label_by_id)``, both keyed by cluster_id in exporter
+    emission order. ``main_by_id`` is the version-less, label-less detail (it
+    ships in the per-run ``clusters-detail.json`` bundle) carrying only
+    ``label_modality`` so the viewer can place the tag skeleton. ``label_by_id``
+    holds the heavy label block for every cluster that has one — these become
+    the per-cluster ``<id>.label.json`` files fetched on selection.
+    """
     baseline = _cluster_baseline_from_members(list(member_by_user.values()))
     centroids = {c.cluster_id: (c.cx, c.cy) for c in cluster_rows}
     labels = {c.cluster_id: c.label for c in cluster_rows}
 
-    out: dict[int, dict] = {}
+    main_by_id: dict[int, dict] = {}
+    label_by_id: dict[int, dict] = {}
     for c in cluster_rows:
         member_ids = members_by_cluster.get(c.cluster_id, [])
         members = [member_by_user[uid] for uid in member_ids if uid in member_by_user]
@@ -378,22 +388,24 @@ def _build_cluster_detail_payloads(
             instrument_top_k=settings_viz.instrument_top_k,
             languages_top_k=settings_viz.languages_top_k,
         )
-        cluster_payload = detail.to_json()
-        # The frontend's clusterDetailSchema reserves the ``label`` key for
-        # the case-agnostic label block (Phase E). ``detail.to_json()`` writes
-        # the cluster's display-label string there; we overwrite it with the
-        # block when available, and drop the key entirely otherwise so the
-        # Zod schema's ``label?: ClusterLabel`` shape parses.
+        # ``detail.to_json()`` carries a per-file ``version`` and writes the
+        # cluster's display-label string under ``label``. The main-detail bundle
+        # owns the single ``version``, and the label block lives in its own file,
+        # so strip both here and surface only the modality of the deferred label.
+        main_payload = detail.to_json()
+        main_payload.pop("version", None)
+        main_payload.pop("label", None)
         label_block = render_label_block(
             cluster_label_rows.get(c.cluster_id),
             spec=LABEL_CASE_REGISTRY[case],
         )
+        main_payload["label_modality"] = (
+            label_block["modality"] if label_block is not None else None
+        )
+        main_by_id[c.cluster_id] = main_payload
         if label_block is not None:
-            cluster_payload["label"] = label_block
-        else:
-            cluster_payload.pop("label", None)
-        out[c.cluster_id] = cluster_payload
-    return out
+            label_by_id[c.cluster_id] = label_block
+    return main_by_id, label_by_id
 
 
 def _centroid_distances_by_cluster(
@@ -512,14 +524,16 @@ def _build_creator_detail_payloads(
 
 @dataclass(frozen=True)
 class CasePayloadBundle:
-    """Every version-6 payload for one run/case, built once from the DB.
+    """Every version-7 payload for one run/case, built once from the DB.
 
     The single producer of payload shape shared by the file exporter and the
     serving offload: ``manifest_entry`` + ``users`` + ``clusters`` are the bulk
-    files; ``cluster_details`` / ``creator_details`` are keyed by id in the
-    exporter's emission order (clusters by cluster_id, users by user_id). A
-    user/cluster id is present in the details dict iff the exporter writes its
-    file, so the keyset is the source of ``has_detail``.
+    files; ``cluster_details`` / ``cluster_labels`` / ``creator_details`` are
+    keyed by id in the exporter's emission order (clusters by cluster_id, users
+    by user_id). ``cluster_details`` holds the eager main detail for every
+    cluster (its keyset is the source of cluster ``has_detail``);
+    ``cluster_labels`` holds the deferred label block only for clusters that
+    have one.
     """
 
     case: str
@@ -527,13 +541,14 @@ class CasePayloadBundle:
     users: dict
     clusters: dict
     cluster_details: dict[int, dict]
+    cluster_labels: dict[int, dict]
     creator_details: dict[int, dict]
 
 
 def build_case_payloads(
     session: Session, *, settings_viz, case: str
 ) -> CasePayloadBundle | None:
-    """Build all version-6 payloads for one case, or None if it has no row."""
+    """Build all version-7 payloads for one case, or None if it has no row."""
     viz = session.get(Visualization, case)
     if viz is None:
         return None
@@ -556,7 +571,7 @@ def build_case_payloads(
         .filter(ClusterLabel.embedding_case == case)
         .all()
     }
-    cluster_details = _build_cluster_detail_payloads(
+    cluster_details, cluster_labels = _build_cluster_detail_payloads(
         settings_viz=settings_viz,
         case=case,
         cluster_rows=clusters,
@@ -628,6 +643,7 @@ def build_case_payloads(
         users=users_payload,
         clusters=clusters_payload,
         cluster_details=cluster_details,
+        cluster_labels=cluster_labels,
         creator_details=creator_details,
     )
 
@@ -641,18 +657,57 @@ def build_manifest_payload(default_case: str, entries: list[dict]) -> dict:
     }
 
 
+def _prune_cluster_dir(dir_path: Path, keep_label_ids: set[int]) -> None:
+    """Keep only the current ``<id>.label.json`` files in the clusters dir.
+
+    Removes legacy v6 ``<id>.json`` per-cluster detail files (now replaced by
+    the per-run ``clusters-detail.json`` bundle) and any ``<id>.label.json``
+    whose cluster no longer has a label.
+    """
+    if not dir_path.exists():
+        return
+    for child in dir_path.iterdir():
+        if not child.is_file() or child.suffix != ".json":
+            continue
+        if child.name.endswith(".label.json"):
+            try:
+                cid = int(child.name[: -len(".label.json")])
+            except ValueError:
+                child.unlink()
+                continue
+            if cid not in keep_label_ids:
+                child.unlink()
+        else:
+            # Legacy per-cluster detail file (or any non-label .json) — drop it.
+            child.unlink()
+
+
 def _write_case_bundle(bundle: CasePayloadBundle, export_dir: Path) -> None:
-    """Write one case's detail + bulk files; prune stale per-entity files."""
+    """Write one case's bulk files, the eager cluster-detail bundle, the
+    deferred per-cluster label files, and the per-creator detail files; prune
+    stale per-entity files."""
     case = bundle.case
-    for cluster_id, payload in bundle.cluster_details.items():
+    clusters_dir = export_dir / "runs" / case / "clusters"
+    # Eager main detail for every cluster, one file per run.
+    detail_bundle = {
+        "version": SCHEMA_VERSION,
+        "run_id": case,
+        "clusters": [
+            bundle.cluster_details[cid] for cid in sorted(bundle.cluster_details)
+        ],
+    }
+    _write_json(export_dir / "runs" / case / "clusters-detail.json", detail_bundle)
+    # Deferred label block, one file per cluster that has a label.
+    for cluster_id, label in bundle.cluster_labels.items():
         _write_json(
-            export_dir / "runs" / case / "clusters" / f"{cluster_id}.json", payload
+            clusters_dir / f"{cluster_id}.label.json",
+            {"version": SCHEMA_VERSION, "cluster_id": cluster_id, "label": label},
         )
     for user_id, payload in bundle.creator_details.items():
         _write_json(export_dir / "runs" / case / "users" / f"{user_id}.json", payload)
-    _prune_stale_entity_files(
-        export_dir / "runs" / case / "clusters", set(bundle.cluster_details)
-    )
+    # Stale per-cluster detail files from the pre-split (v6) layout, plus label
+    # files for clusters that lost their label, are pruned here.
+    _prune_cluster_dir(clusters_dir, set(bundle.cluster_labels))
     _prune_stale_entity_files(
         export_dir / "runs" / case / "users", set(bundle.creator_details)
     )

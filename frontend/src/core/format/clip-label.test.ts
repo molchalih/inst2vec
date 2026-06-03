@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   groundingLabel,
-  warningLabel,
   TAG_KIND_ORDER,
+  MAX_TAGS_PER_CATEGORY,
 } from "./clip-label";
 
 describe("clip-label formatting", () => {
@@ -15,16 +15,11 @@ describe("clip-label formatting", () => {
     expect(groundingLabel([])).toBe("");
   });
 
-  it("returns the known-warning string for mapped codes", () => {
-    expect(warningLabel("tag_count_out_of_range"))
-      .toBe("tag count out of range");
-  });
-
-  it("falls back to the raw code when unknown", () => {
-    expect(warningLabel("X9")).toBe("X9");
-  });
-
   it("orders kinds observable → aesthetic → community", () => {
     expect(TAG_KIND_ORDER).toEqual(["observable", "aesthetic", "community"]);
+  });
+
+  it("caps each descriptive category at five tags", () => {
+    expect(MAX_TAGS_PER_CATEGORY).toBe(5);
   });
 });

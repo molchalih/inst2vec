@@ -54,24 +54,6 @@ logs/
 scripts/cluster_analysis/
 tests/cluster_analysis/
 
-# Local-only state
-.claude/
-.clone
-.remember/
-.superpowers/
-**CLAUDE.md
-**AGENT.md
-**AGENTS.md
-TODO.md
-REVIEW.md
-REVIEW_ANSWERED.md
-REVIEW_TODO.md
-docs/superpowers/
-
-# Frontend AI-workflow files (architecture rules, stage briefs, feature contracts)
-frontend/docs/*.md
-frontend/src/features/*/README.md
-
 # Frontend build artefacts
 frontend/node_modules/
 frontend/dist/
@@ -90,3 +72,4 @@ sonar-project.properties
 # package, so they are kept local and out of CI.
 tests/*quarto*
 tests/test_clip_labels_example_table.py
+tests/reporting/

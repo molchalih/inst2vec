@@ -4,8 +4,6 @@ Provides decorators (@stage, @scope), a per-item context manager (item), and
 two one-shot helpers (event, warn). All five read the active scope from a
 ContextVar set by the decorators. Calling item/event/warn outside any scope
 raises RuntimeError — strict by design so drift surfaces in tests, not in logs.
-
-See docs/superpowers/specs/2026-05-25-logging-refactor-design.md for design.
 """
 
 from __future__ import annotations
@@ -99,7 +97,6 @@ def _check_scope(s: str) -> None:
         raise ValueError(f"invalid scope {s!r}; must match {_SCOPE_RE.pattern}")
 
 
-# Implementations land in subsequent tasks.
 @contextmanager
 def item(verb: Verb, target: str) -> Iterator[ItemContext]:
     _check_verb(verb)

@@ -1,7 +1,7 @@
 import { useCallback, useMemo } from "react";
 import type { Graphics as PixiGraphics } from "pixi.js";
 import {
-  useStretchedRun, useViewport, useTransition, useIntro,
+  useStretchedRun, useViewport, useTransition, useIntro, useIntroPlayed,
 } from "@/state";
 import {
   joinClustersById, interpolateEllipses,
@@ -15,6 +15,7 @@ export const EllipsesLayer = () => {
   const run = useStretchedRun();
   const transition = useTransition();
   const intro = useIntro();
+  const introPlayed = useIntroPlayed();
   const [viewport] = useViewport();
 
   const frame = useMemo<EllipsesFrame>(() => {
@@ -37,8 +38,12 @@ export const EllipsesLayer = () => {
     if (intro) {
       return { ...base, alphaScale: introEllipseAlpha(intro.phase, intro.progress) };
     }
+    // Match DotsLayer: ellipses stay hidden until the entrance has run, so they
+    // never flash at full alpha in the gap before the intro seeds (they're
+    // meant to fade in only once the dots land, during settle).
+    if (!introPlayed) return { ...base, alphaScale: 0 };
     return base;
-  }, [run, transition, intro]);
+  }, [run, transition, intro, introPlayed]);
 
   const draw = useCallback(
     (g: PixiGraphics) => { drawEllipses(g, frame, viewport); },

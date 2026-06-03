@@ -16,8 +16,12 @@ export type {
   ApiClient, CreatorDetail, CreatorSummary,
 } from "./api/ApiClient";
 export { ApiUnavailableError } from "./api/ApiClient";
-export type { ClusterDetail, ClusterLabel } from "./schemas/cluster-detail.schema";
-export { clusterDetailSchema } from "./schemas/cluster-detail.schema";
+export type {
+  ClusterDetail, ClusterLabel, ClustersDetailBundle, ClusterLabelFile,
+} from "./schemas/cluster-detail.schema";
+export {
+  clusterDetailSchema, clustersDetailBundleSchema, clusterLabelFileSchema,
+} from "./schemas/cluster-detail.schema";
 export { creatorDetailSchema } from "./schemas/creator-detail.schema";
 export { clipLabelEntrySchema } from "./schemas/clip-label.schema";
 export type { ClipLabelEntry, GroundedTag, ObservableTag } from "./schemas/clip-label.schema";

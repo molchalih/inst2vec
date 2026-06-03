@@ -41,16 +41,7 @@ from rich.theme import Theme
 
 from core.log_types import Result, Verb
 
-# ---------------------------------------------------------------------------
-# Verb vocabulary (closed set, 11) — types imported from core.log_types
-# ---------------------------------------------------------------------------
-
 _VERBS: frozenset[str] = frozenset(get_args(Verb))
-
-
-# ---------------------------------------------------------------------------
-# Highlighter
-# ---------------------------------------------------------------------------
 
 _WORKER_REGEX = (
     r"^(?P<verb>[A-Z]+)\s+"
@@ -77,10 +68,6 @@ _THEME_OK = Theme(
         "log.scope": Style.parse("dim"),
     }
 )
-
-# ---------------------------------------------------------------------------
-# Console + shared progress group
-# ---------------------------------------------------------------------------
 
 _console = Console(theme=_THEME_OK, highlighter=_WorkerHighlighter())
 
@@ -112,11 +99,6 @@ _live: Live | None = None
 _pipeline_task_id: TaskID | None = None
 
 
-# ---------------------------------------------------------------------------
-# Render state (dedup)
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class _RenderState:
     last_time: str = field(default="")
@@ -124,11 +106,6 @@ class _RenderState:
 
 
 _render_state = _RenderState()
-
-
-# ---------------------------------------------------------------------------
-# Stats formatters
-# ---------------------------------------------------------------------------
 
 
 def _format_time(seconds: float) -> str:
@@ -166,11 +143,6 @@ def _format_stats(stats: Mapping[str, Any]) -> str:
         else:
             parts.append(f"{key}={value}")
     return ", ".join(parts)
-
-
-# ---------------------------------------------------------------------------
-# Render helpers
-# ---------------------------------------------------------------------------
 
 
 def _render_log(scope: str, body: str, *, is_err: bool = False) -> None:
@@ -215,11 +187,6 @@ def _render_log(scope: str, body: str, *, is_err: bool = False) -> None:
 
     _render_state.last_time = time_prefix
     _render_state.last_scope = scope
-
-
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
 
 
 def _maybe_advance_phase() -> None:

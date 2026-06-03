@@ -68,6 +68,10 @@ export const tokens = {
     medium: 220,
     slow: 420,
     easeOut: "cubic-bezier(0.22, 1, 0.36, 1)",
+    // Slow chrome entrance. A symmetric ease-in-out (S-curve) so the long
+    // slide reads as deliberate the whole way — motion is spread across the
+    // window rather than front-loaded into a snap that finishes early.
+    easeChrome: "cubic-bezier(0.65, 0, 0.35, 1)",
     versionSwitch: {
       phase1: 900,  // camera eases from user's pan/zoom to fit-of-from-run
       phase2: 400,  // cluster ellipses fade out (from-side dissolves)
@@ -104,10 +108,20 @@ export const tokens = {
     // ellipses fade in (settleMs). Fires once per load; never on a
     // version switch. See interaction/useIntroAnimation.ts.
     intro: {
-      fadeMs: 1250,
+      fadeMs: 500,
       flightMs: 2000,
       settleMs: 750,
       maxStaggerFrac: 0.4,
+    },
+    // Chrome entrance. The dock buttons and the version drawer are absent
+    // on load and stay hidden through the intro flight; once it settles
+    // (or is skipped) they slide in together on this one slow beat (eased by
+    // `easeChrome`). The dock offsets each glyph by `staggerMs` so they
+    // arrive one by one; the drawer slides as a single unit on the same
+    // `slideMs`.
+    chrome: {
+      slideMs: 1250,
+      staggerMs: 210,
     },
   },
   drawer: {
@@ -137,15 +151,21 @@ export const tokens = {
   // the canvas's right edge and bottom-anchored, so controls stack upward as
   // the chrome grows. `offset` is the gutter from the bottom/right edges
   // (mirrors drawer.paddingX's rhythm), `gap` the vertical space between
-  // stacked items. The dock owns position; the controls it hosts are
-  // position-agnostic glyph buttons.
+  // stacked items. `control` is the shared glyph sizing every hosted button
+  // uses (the square is an invisible touch/focus target; the icon is the
+  // visible glyph). `revealX` is the horizontal travel each glyph slides
+  // through on the chrome entrance. The dock owns position; the controls it
+  // hosts are position-agnostic glyph buttons.
   dock: {
     offset: 16,
     gap: 12,
+    control: { size: 40, iconSize: 20 },
+    revealX: 18,
   },
   // Point-tracking chrome. The control is a borderless floating glyph — no
-  // box; the 36px square is just an invisible touch/focus target (its place is
-  // owned by the dock). The tracked dot stays its NORMAL size — the base dot is
+  // box; it borrows the dock's shared `control` sizing (an invisible
+  // touch/focus square owned by the dock). The tracked dot stays its NORMAL
+  // size — the base dot is
   // the cluster-colour core. A soft white radial halo bleeds outward BENEATH it,
   // and a thin white border ring (at the dot radius plus a small gap) breathes
   // ABOVE the dots so it isn't occluded by neighbours. The halo's radius AND
@@ -154,7 +174,6 @@ export const tokens = {
   // 1600ms and floored so the beacon never blinks out. The whole beacon (halo +
   // border) fades in on track and out on untrack via the eased visibility.
   track: {
-    control: { size: 36, iconSize: 18 },
     halo: {
       radiusPx: 26,       // crest reach of the glow past the dot (screen px)
       falloffSteps: 3,    // concentric fills, alpha decaying toward the edge

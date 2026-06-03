@@ -491,10 +491,6 @@ def test_spoken_clip_pass_writes_clip_label(db_engine):
         assert row.payload is not None
 
 
-# ---------------------------------------------------------------------------
-# Phase F1 — end-to-end pipeline coverage
-# ---------------------------------------------------------------------------
-
 # Distinguishing tokens for the per-case clip stage-1 prompts. The case
 # adapter prepends the case's prompt body (which contains the case's unique
 # ``observable_*_tags`` key) before the input text, so the stub generator
@@ -961,11 +957,6 @@ def test_vl_unloads_before_cluster_generator_loads(db_engine, monkeypatch):
     assert events.index("cluster_pass") < events.index("cluster_unload")
 
 
-# ---------------------------------------------------------------------------
-# Sandwich dependency-failure handling (transient vs terminal)
-# ---------------------------------------------------------------------------
-
-
 def _seed_sandwich_clip(eng) -> None:
     """Seed one user + one clip with caption + speech (no video file needed —
     these tests drive only the ``sandwich`` clip pass directly)."""
@@ -1077,11 +1068,6 @@ def test_sandwich_terminal_when_video_label_terminally_failed(db_engine):
         assert row is not None
         assert row.status == "failed"
         assert row.attempts == settings.labels.max_attempts
-
-
-# ---------------------------------------------------------------------------
-# Success-path coverage for the text cases (textual / auditory / sandwich)
-# ---------------------------------------------------------------------------
 
 
 def test_textual_clip_pass_writes_success(db_engine):

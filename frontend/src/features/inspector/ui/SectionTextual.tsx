@@ -1,21 +1,40 @@
 import type { CSSProperties } from "react";
 import { tokens } from "@/ui/tokens";
-import type { LangShare } from "@/data";
+import type { ClusterLabel, LangShare } from "@/data";
+import { ClusterTagBody } from "./ClusterTagBody";
+import { ClusterTagSkeleton } from "./ClusterTagSkeleton";
 import { LangRow } from "./primitives/LangRow";
 import { Skeleton } from "./primitives/Skeleton";
 import { CollapsibleSection } from "./CollapsibleSection";
 
 type Loaded = { detected_share?: number | undefined; top_langs: LangShare[] };
-type Props = { index: string; loaded?: Loaded };
+type Props = {
+  index: string;
+  loaded?: Loaded;
+  /**
+   * Cluster-level descriptive label block for the textual case. Present
+   * only on the textual-case run; renders the dominant repertoire /
+   * aesthetic tags beneath the language distribution, mirroring the
+   * Visual section's cluster body. Narrowed to the textual modality:
+   * `ClusterPane` only routes the textual-case label block here, so
+   * mis-routing another modality is a compile error rather than a
+   * silent UI mismatch.
+   */
+  label?: (ClusterLabel & { modality: "textual" }) | undefined;
+  /** The deferred label for this (textual) cluster is still loading. */
+  labelLoading?: boolean;
+};
 
 /**
  * Caption section: a headline metric ("captions on N% of clips") and
  * per-language bar rows. `top_langs[*].share` is normalized over
  * captioned clips only, so it cannot stand in for `detected_share`;
  * when the field is absent (older fixtures) the headline is skipped
- * rather than rendered as a misleading 0%.
+ * rather than rendered as a misleading 0%. When the active run is the
+ * textual case, a `label` block follows with the cluster's descriptive
+ * tags.
  */
-export const SectionTextual = ({ index, loaded }: Props) => (
+export const SectionTextual = ({ index, loaded, label, labelLoading }: Props) => (
   <CollapsibleSection index={index} title="Textual">
     {loaded ? (
       <>
@@ -36,6 +55,17 @@ export const SectionTextual = ({ index, loaded }: Props) => (
             ))
           )}
         </div>
+        {label ? (
+          <>
+            <Subhead>Tags</Subhead>
+            <ClusterTagBody cluster={label} />
+          </>
+        ) : labelLoading ? (
+          <>
+            <Subhead>Tags</Subhead>
+            <ClusterTagSkeleton />
+          </>
+        ) : null}
       </>
     ) : (
       <>
@@ -48,6 +78,20 @@ export const SectionTextual = ({ index, loaded }: Props) => (
     )}
   </CollapsibleSection>
 );
+
+const Subhead = ({ children }: { children: string }) => (
+  <div style={subhead}>{children}</div>
+);
+
+const subhead: CSSProperties = {
+  fontSize: 9,
+  letterSpacing: "0.18em",
+  textTransform: "uppercase",
+  color: tokens.ink.faint,
+  fontFamily: tokens.type.mono,
+  marginTop: 14,
+  marginBottom: 6,
+};
 
 const headline: CSSProperties = {
   display: "flex",

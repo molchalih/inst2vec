@@ -9,8 +9,6 @@ import numpy as np
 
 from core.database import Base, ClusterRun, get_engine, get_session
 
-# ── preprocess_matrix ─────────────────────────────────────────────────────────
-
 
 def test_preprocess_none_is_identity():
     from modules.clustering.core import preprocess_matrix
@@ -46,9 +44,6 @@ def test_preprocess_standardize_handles_zero_variance_column():
     out = preprocess_matrix(m, "standardize")
     assert np.all(np.isfinite(out))  # no divide-by-zero blowup
     assert np.allclose(out[:, 1], 0.0)
-
-
-# ── compute_clusters max_cluster_frac → HDBSCAN max_cluster_size ────────────────
 
 
 def test_compute_clusters_translates_frac_to_max_cluster_size(monkeypatch):
@@ -88,9 +83,6 @@ def test_compute_clusters_translates_frac_to_max_cluster_size(monkeypatch):
         m, core.ClusterParams(umap_n_components=3, hdbscan_max_cluster_frac=0.0)
     )
     assert captured["max_cluster_size"] == 0  # disabled
-
-
-# ── validation dominance guard ─────────────────────────────────────────────────
 
 
 def _seed_run(session, case, **over):

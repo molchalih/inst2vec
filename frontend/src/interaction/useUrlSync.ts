@@ -14,7 +14,6 @@ export const useUrlSync = (): void => {
   const [route, setRoute] = useAtom(routeAtom);
   const [selection, setSelection] = useAtom(selectionAtom);
 
-  // selection → route: write cluster= or user= into route.
   useEffect(() => {
     if (selection === null) {
       setRoute((r) => {
@@ -30,7 +29,6 @@ export const useUrlSync = (): void => {
     }
   }, [selection, setRoute]);
 
-  // route → URL hash.
   useEffect(() => {
     const next = serializeRoute(route);
     if (globalThis.location.hash === next) return;
@@ -38,7 +36,6 @@ export const useUrlSync = (): void => {
     globalThis.history.replaceState(null, "", url);
   }, [route]);
 
-  // URL hashchange → route + selection.
   useEffect(() => {
     const onHashChange = (): void => {
       const parsed = parseHash(globalThis.location.hash);

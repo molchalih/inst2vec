@@ -1,4 +1,4 @@
-"""Read-only FastAPI app serving the version-6 contract from the serving DB.
+"""Read-only FastAPI app serving the version-7 contract from the serving DB.
 
 An app factory with an optional Bearer-token dependency (D7) and CORS
 restricted to the Pages origin.
@@ -98,12 +98,20 @@ def build_app(
             raise HTTPException(status_code=404, detail="creator not found")
         return _json(payload)
 
-    @app.get("/runs/{run_id}/clusters/{cluster_id}.json", responses=not_found)
-    def cluster_detail(run_id: str, cluster_id: int, _: auth_dep) -> Response:
+    @app.get("/runs/{run_id}/clusters-detail.json", responses=not_found)
+    def clusters_detail(run_id: str, _: auth_dep) -> Response:
         with session_factory() as s:
-            payload = reconstruct.reconstruct_cluster_detail(s, run_id, cluster_id)
+            try:
+                return _json(reconstruct.reconstruct_clusters_detail_bundle(s, run_id))
+            except KeyError as exc:
+                raise HTTPException(status_code=404, detail="run not found") from exc
+
+    @app.get("/runs/{run_id}/clusters/{cluster_id}.label.json", responses=not_found)
+    def cluster_label(run_id: str, cluster_id: int, _: auth_dep) -> Response:
+        with session_factory() as s:
+            payload = reconstruct.reconstruct_cluster_label(s, run_id, cluster_id)
         if payload is None:
-            raise HTTPException(status_code=404, detail="cluster not found")
+            raise HTTPException(status_code=404, detail="cluster label not found")
         return _json(payload)
 
     return app

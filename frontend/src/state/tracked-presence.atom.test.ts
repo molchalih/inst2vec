@@ -7,7 +7,7 @@ import { runStateAtom } from "./run.atom";
 import type { AtlasRun, Manifest } from "@/data";
 
 const manifest = (runIds: [string, ...string[]]): Manifest => ({
-  version: 6,
+  version: 7,
   default_run_id: runIds[0],
   runs: runIds.map((id) => ({
     id, case: "video", label: id, size: 1, details_available: true,

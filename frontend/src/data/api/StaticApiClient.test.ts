@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { StaticApiClient, AssetNotFoundError } from "./StaticApiClient";
 import { ApiUnavailableError } from "./ApiClient";
+import { SCHEMA_VERSION } from "../schemas/version";
 
 const ok = (body: unknown) =>
   Promise.resolve(new Response(JSON.stringify(body), { status: 200 }));
@@ -8,8 +9,7 @@ const ok = (body: unknown) =>
 const notFound = () =>
   Promise.resolve(new Response("missing", { status: 404 }));
 
-const clusterDetailFixture = {
-  version: 6,
+const mainDetail = {
   cluster_id: 7,
   size: 1,
   ellipse: { cx: 0, cy: 0, rx: 1, ry: 1, angle: 0 },
@@ -25,10 +25,36 @@ const clusterDetailFixture = {
   activity_span_months: 1,
   distinctiveness: [],
   spatial: { compactness: 0, nearest_clusters: [] },
+  label_modality: "visual",
+};
+
+const clustersDetailBundle = {
+  version: SCHEMA_VERSION,
+  run_id: "video-1",
+  clusters: [mainDetail],
+};
+
+const clusterLabelFile = {
+  version: SCHEMA_VERSION,
+  cluster_id: 7,
+  label: {
+    label: "soft domestic",
+    summary: "kitchen scenes",
+    modality: "visual",
+    repertoire: [],
+    aesthetic_logic: [],
+    taste_signalling: { label: "homecore", description: "d", confidence: "medium" },
+    visibility_orientation: { label: "ordinary", description: "d", confidence: "low" },
+    internal_variations: [],
+    boundary_notes: "",
+    tool_tags: [],
+    validation: "ok",
+    warnings: [],
+  },
 };
 
 const creatorDetailFixture = {
-  version: 6,
+  version: SCHEMA_VERSION,
   user_id: 42,
   cluster_id: 7,
   x: 0, y: 0,
@@ -62,12 +88,28 @@ describe("StaticApiClient", () => {
     expect(() => new StaticApiClient("/data", () => "video-1")).toThrow();
   });
 
-  it("getClusterDetail: fetches and validates", async () => {
-    globalThis.fetch = vi.fn(() => ok(clusterDetailFixture)) as never;
+  it("getClustersDetail: fetches the per-run bundle and returns its clusters", async () => {
+    globalThis.fetch = vi.fn(() => ok(clustersDetailBundle)) as never;
     const c = new StaticApiClient("/data/", () => "video-1");
-    const detail = await c.getClusterDetail(7);
-    expect(detail.cluster_id).toBe(7);
-    expect(globalThis.fetch).toHaveBeenCalledWith("/data/runs/video-1/clusters/7.json");
+    const clusters = await c.getClustersDetail();
+    expect(clusters).toHaveLength(1);
+    expect(clusters[0]!.cluster_id).toBe(7);
+    expect(clusters[0]!.label_modality).toBe("visual");
+    expect(globalThis.fetch).toHaveBeenCalledWith("/data/runs/video-1/clusters-detail.json");
+  });
+
+  it("getClusterLabel: fetches the per-cluster label file and returns the block", async () => {
+    globalThis.fetch = vi.fn(() => ok(clusterLabelFile)) as never;
+    const c = new StaticApiClient("/data/", () => "video-1");
+    const label = await c.getClusterLabel(7);
+    expect(label?.label).toBe("soft domestic");
+    expect(globalThis.fetch).toHaveBeenCalledWith("/data/runs/video-1/clusters/7.label.json");
+  });
+
+  it("getClusterLabel: returns null when the label file is absent (404)", async () => {
+    globalThis.fetch = vi.fn(notFound) as never;
+    const c = new StaticApiClient("/data/", () => "video-1");
+    expect(await c.getClusterLabel(7)).toBeNull();
   });
 
   it("getCreatorDetail: fetches and validates", async () => {
@@ -78,11 +120,11 @@ describe("StaticApiClient", () => {
     expect(globalThis.fetch).toHaveBeenCalledWith("/data/runs/video-1/users/42.json");
   });
 
-  it("throws AssetNotFoundError on 404 so callers can fall back gracefully", async () => {
+  it("throws AssetNotFoundError on 404 for creator detail and the bundle", async () => {
     globalThis.fetch = vi.fn(notFound) as never;
     const c = new StaticApiClient("/data/", () => "video-1");
     await expect(c.getCreatorDetail(42)).rejects.toBeInstanceOf(AssetNotFoundError);
-    await expect(c.getClusterDetail(7)).rejects.toBeInstanceOf(AssetNotFoundError);
+    await expect(c.getClustersDetail()).rejects.toBeInstanceOf(AssetNotFoundError);
   });
 
   it("live-only methods throw ApiUnavailableError", async () => {

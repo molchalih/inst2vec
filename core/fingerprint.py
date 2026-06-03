@@ -48,9 +48,6 @@ class Fingerprint:
     dependency: str
 
 
-# ── hashing utilities (stages decide what to feed in) ────────────────────────
-
-
 def hash_rows(rows: Iterable[tuple[Any, ...]]) -> str:
     """Stable SHA-256 over an iterable of tuples.
 
@@ -109,9 +106,6 @@ def row_diff(desired: dict[int, str], stored: dict[int, str | None]) -> set[int]
     separately if removal is required.
     """
     return {key for key, want in desired.items() if stored.get(key) != want}
-
-
-# ── compare + store ──────────────────────────────────────────────────────────
 
 
 def is_stale(session: Session, stage: str, scope: str, current: Fingerprint) -> bool:

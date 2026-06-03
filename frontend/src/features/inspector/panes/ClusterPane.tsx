@@ -1,9 +1,12 @@
 import { useEffect } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
 import {
-  activeRunAtom, clusterDetailFor, ensureClusterDetailAtom,
+  activeRunAtom,
+  clusterDetailFor, ensureClusterBundleAtom,
+  clusterLabelFor, ensureClusterLabelAtom,
 } from "@/state";
 import { clusterSummaryLede } from "@/core";
+import type { ClusterLabel } from "@/data";
 import { tokens } from "@/ui/tokens";
 import { SectionAudience } from "../ui/SectionAudience";
 import { SectionMusical } from "../ui/SectionMusical";
@@ -14,24 +17,50 @@ import { PaneHeader } from "../ui/PaneHeader";
 import { PaneBody } from "../ui/PaneBody";
 import { PaneUnavailable } from "../ui/PaneUnavailable";
 
+// `ClusterLabel.modality` is a union-typed field, not a discriminated
+// union, so TS won't narrow the whole label to a modality literal from a
+// bare `=== "audio"` check. This guard performs the runtime check and
+// returns the narrowed type, so the per-modality Section props (which
+// accept only their own modality) catch any mis-routing at compile time.
+const labelForModality = <M extends ClusterLabel["modality"]>(
+  label: ClusterLabel | undefined,
+  modality: M,
+): (ClusterLabel & { modality: M }) | undefined =>
+  label?.modality === modality
+    ? (label as ClusterLabel & { modality: M })
+    : undefined;
+
+// Modalities whose tags render in the Visual section (everything but the two
+// language-distribution sections, Spoken=audio and Textual=textual).
+const isVisualModality = (
+  m: ClusterLabel["modality"] | null,
+): m is "visual" | "music" | "multimodal" =>
+  m === "visual" || m === "music" || m === "multimodal";
+
 type Props = { clusterId: number };
 
 export const ClusterPane = ({ clusterId }: Props) => {
   const run = useAtomValue(activeRunAtom);
   const slot = useAtomValue(clusterDetailFor(clusterId));
-  const ensure = useSetAtom(ensureClusterDetailAtom);
+  const labelSlot = useAtomValue(clusterLabelFor(clusterId));
+  const ensureBundle = useSetAtom(ensureClusterBundleAtom);
+  const ensureLabel = useSetAtom(ensureClusterLabelAtom);
 
-  // Static fixtures only ship runs/{runId}/clusters/{id}.json when the
-  // run's details_available is true and the cluster's has_detail is
-  // true. Fetching otherwise is a guaranteed 404, which would replace
-  // the pane with the FetchError UI; skip the load and render the
-  // basic-metadata fallback instead.
+  // Static fixtures only carry detail for clusters whose has_detail is true.
   const cluster = run?.clusters.find((c) => c.id === clusterId);
   const detailAvailable = !!run?.meta.details_available && !!cluster?.has_detail;
+
+  const d = slot.data;
+  // The heavy label (tags + summary) is deferred: fetch it on selection, but
+  // only once the main detail tells us the cluster actually has one. Re-fire on
+  // the committed-run id so a case switch that lands a new run reloads the label
+  // (ensureClusterLabelAtom no-ops until the committed run catches up).
+  const committedRunId = run?.meta.id ?? null;
+  const labelModality = d?.label_modality ?? null;
   useEffect(() => {
-    if (!detailAvailable) return;
-    ensure(clusterId).catch(() => {});
-  }, [clusterId, ensure, detailAvailable]);
+    if (labelModality === null) return;
+    ensureLabel(clusterId).catch(() => {});
+  }, [clusterId, labelModality, committedRunId, ensureLabel]);
 
   if (!run) return null;
   if (!cluster) return null;
@@ -39,11 +68,19 @@ export const ClusterPane = ({ clusterId }: Props) => {
   const total = run.clusters.reduce((s, c) => s + (c.id >= 0 ? c.size : 0), 0);
   const pct = total > 0 ? (cluster.size / total) * 100 : 0;
 
-  const meta = slot.data
-    ? `${cluster.size.toLocaleString()} creators · ${pct.toFixed(1)}% of case · ${slot.data.activity_span_months} months active`
+  const meta = d
+    ? `${cluster.size.toLocaleString()} creators · ${pct.toFixed(1)}% of case · ${d.activity_span_months} months active`
     : `${cluster.size.toLocaleString()} creators · ${pct.toFixed(1)}% of case`;
-  const summary = slot.data?.label?.summary;
-  const lede = summary ? clusterSummaryLede(summary) : undefined;
+  // `labelSlot.label` is present (possibly `null`, meaning "loaded, no tags")
+  // once resolved; absent while pending. Keep the null-vs-pending distinction so
+  // a tagless cluster doesn't sit on the skeleton forever.
+  const labelLoaded = labelSlot.label !== undefined;
+  const label = labelSlot.label ?? undefined;
+  const lede = label?.summary ? clusterSummaryLede(label.summary) : undefined;
+  // The label is still in flight: the cluster has one, but it's neither loaded
+  // (incl. loaded-null) nor errored yet.
+  const labelLoading = labelModality !== null && !labelLoaded && !labelSlot.error;
+  const visualModality = isVisualModality(labelModality) ? labelModality : undefined;
 
   if (!detailAvailable) {
     return (
@@ -58,12 +95,11 @@ export const ClusterPane = ({ clusterId }: Props) => {
     return (
       <PaneBody>
         <PaneHeader name={cluster.label} meta={meta} lede={lede} />
-        <FetchError onRetry={() => { ensure(clusterId).catch(() => {}); }} />
+        <FetchError onRetry={() => { ensureBundle().catch(() => {}); }} />
       </PaneBody>
     );
   }
 
-  const d = slot.data;
   return (
     <PaneBody fill>
       <PaneHeader name={cluster.label} meta={meta} lede={lede} />
@@ -87,11 +123,27 @@ export const ClusterPane = ({ clusterId }: Props) => {
               distinctiveness: d.distinctiveness,
             }}
           />
-          <SectionSpoken  index="03" loaded={d.speech} />
-          <SectionTextual index="04" loaded={d.caption} />
-          {d.label
-            ? <SectionVisual index="05" cluster={d.label} />
-            : <SectionVisual index="05" />}
+          <SectionSpoken
+            index="03"
+            loaded={d.speech}
+            label={labelForModality(label, "audio")}
+            labelLoading={labelModality === "audio" && labelLoading}
+          />
+          <SectionTextual
+            index="04"
+            loaded={d.caption}
+            label={labelForModality(label, "textual")}
+            labelLoading={labelModality === "textual" && labelLoading}
+          />
+          {/* Audio/textual tags render in their own sections above; the Visual
+              section carries visual / music / multimodal tags (and their
+              loading skeleton). */}
+          <SectionVisual
+            index="05"
+            cluster={visualModality ? label : undefined}
+            clusterLoading={visualModality !== undefined && labelLoading}
+            modality={visualModality}
+          />
         </>
       ) : (
         <>

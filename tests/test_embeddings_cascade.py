@@ -67,8 +67,6 @@ from modules.embeddings import cases as cases_mod
 from modules.embeddings.runner import embed_clip_embeddings
 from modules.embeddings.users import embed_user_embeddings
 
-# ── fake provider ─────────────────────────────────────────────────────────────
-
 
 class _TorchLikeArray:
     """Minimal duck-type for a torch tensor, good enough for to_bytes()."""
@@ -111,9 +109,6 @@ def _fake_factory(_settings):
     return _FakeProvider()
 
 
-# ── settings stub ─────────────────────────────────────────────────────────────
-
-
 @dataclass
 class _PathsStub:
     video_dir: str
@@ -151,9 +146,6 @@ class _SettingsStub:
     paths: _PathsStub
     embeddings: _EmbeddingsStub
     mir: _MirStub
-
-
-# ── fixtures ──────────────────────────────────────────────────────────────────
 
 
 @pytest.fixture
@@ -199,9 +191,6 @@ def stub_providers(monkeypatch):
     monkeypatch.setattr(runner_mod, "CASE_REGISTRY", new_registry)
     monkeypatch.setattr(sampling_mod, "adaptive_sampling", lambda *a, **kw: (1.0, 8))
     monkeypatch.setattr(runner_mod, "adaptive_sampling", lambda *a, **kw: (1.0, 8))
-
-
-# ── helpers ───────────────────────────────────────────────────────────────────
 
 
 def _settings(tmp_path) -> _SettingsStub:
@@ -250,9 +239,6 @@ def _bump_spoken_clip_embedding_ts(session) -> None:
         {"ts": future},
     )
     session.commit()
-
-
-# ── test ──────────────────────────────────────────────────────────────────────
 
 
 def test_spoken_instruction_change_cascades_only_to_spoken(

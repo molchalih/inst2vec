@@ -1,4 +1,4 @@
-"""Reconstruction layer: serving rows → version-6 payload dicts.
+"""Reconstruction layer: serving rows → version-7 payload dicts.
 
 Round-trip inverse of the offload's decompose: for a seeded main DB, the
 reconstructed dicts must deep-equal the builder payloads (the single shape
@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import pytest
 
+from core.contract import SCHEMA_VERSION
 from core.database import get_serving_session, get_session, init_serving_db
 from modules.visualization import export as export_mod
 from services.atlas_api import reconstruct
@@ -69,28 +70,44 @@ def test_reconstruct_creator_detail_matches_builder(tmp_path):
             assert reconstruct.reconstruct_creator_detail(s, "video", uid) == expected
 
 
-def test_reconstruct_cluster_detail_matches_builder(tmp_path):
+def test_reconstruct_cluster_detail_bundle_matches_builder(tmp_path):
+    _setup(tmp_path)
+    bundle = _bundle(tmp_path)
+    expected = {
+        "version": SCHEMA_VERSION,
+        "run_id": "video",
+        "clusters": [
+            bundle.cluster_details[cid] for cid in sorted(bundle.cluster_details)
+        ],
+    }
+    with get_serving_session() as s:
+        assert reconstruct.reconstruct_clusters_detail_bundle(s, "video") == expected
+
+
+def test_reconstruct_cluster_label_matches_builder(tmp_path):
     _setup(tmp_path)
     bundle = _bundle(tmp_path)
     with get_serving_session() as s:
-        for cid, expected in bundle.cluster_details.items():
-            assert reconstruct.reconstruct_cluster_detail(s, "video", cid) == expected
+        for cid, label in bundle.cluster_labels.items():
+            assert reconstruct.reconstruct_cluster_label(s, "video", cid) == {
+                "version": SCHEMA_VERSION,
+                "cluster_id": cid,
+                "label": label,
+            }
 
 
 def test_reconstruct_missing_detail_returns_none(tmp_path):
     _setup(tmp_path)
     with get_serving_session() as s:
         assert reconstruct.reconstruct_creator_detail(s, "video", 999999) is None
-        assert reconstruct.reconstruct_cluster_detail(s, "video", 999999) is None
+        # No label row (the synthetic seed has none) → label endpoint is None.
+        assert reconstruct.reconstruct_cluster_label(s, "video", 999999) is None
 
 
 def test_reconstruct_unknown_run_users_raises(tmp_path):
     _setup(tmp_path)
     with get_serving_session() as s, pytest.raises(KeyError):
         reconstruct.reconstruct_users(s, "nope")
-
-
-# ── Shipped-fixture round-trip (rich label block + grounded clips + nearest) ──
 
 
 def test_shipped_details_round_trip_byte_identical(tmp_path):
@@ -106,6 +123,7 @@ def test_shipped_details_round_trip_byte_identical(tmp_path):
     from core.database import ServingRun
     from core.database.serving_decompose import (
         _cluster_detail_rows,
+        _cluster_label_rows,
         _user_detail_rows,
     )
     from services.atlas_api.serialize import to_bytes
@@ -118,15 +136,14 @@ def test_shipped_details_round_trip_byte_identical(tmp_path):
         )
     init_serving_db(f"sqlite:///{tmp_path / 'serving.db'}")
 
-    cluster_files = sorted(
-        glob.glob(str(data / "runs" / "video" / "clusters" / "*.json"))
+    bundle_path = data / "runs" / "video" / "clusters-detail.json"
+    label_files = sorted(
+        glob.glob(str(data / "runs" / "video" / "clusters" / "*.label.json"))
     )
     user_files = sorted(glob.glob(str(data / "runs" / "video" / "users" / "*.json")))
-    assert cluster_files and user_files
+    assert bundle_path.exists() and label_files and user_files
 
     with get_serving_session() as s:
-        # A ServingRun row is required so _require_run-style lookups would pass;
-        # detail reconstructors only need the detail rows, but add it for realism.
         s.add(
             ServingRun(
                 run_id="video",
@@ -136,15 +153,20 @@ def test_shipped_details_round_trip_byte_identical(tmp_path):
                 details_available=True,
                 manifest_ord=0,
                 is_default=True,
-                schema_version=6,
+                schema_version=7,
             )
         )
-        cluster_expected: dict[int, bytes] = {}
-        for f in cluster_files:
+        # Cluster main detail: decompose every entry in the per-run bundle.
+        bundle_doc = json.loads(bundle_path.read_text())
+        for main in bundle_doc["clusters"]:
+            s.add_all(_cluster_detail_rows("video", main["cluster_id"], main))
+        # Cluster labels: decompose each deferred per-cluster label file.
+        label_expected: dict[int, bytes] = {}
+        for f in label_files:
             d = json.loads(Path(f).read_text())
             cid = d["cluster_id"]
-            cluster_expected[cid] = Path(f).read_bytes()
-            s.add_all(_cluster_detail_rows("video", cid, d))
+            label_expected[cid] = Path(f).read_bytes()
+            s.add_all(_cluster_label_rows("video", cid, d["label"]))
         user_expected: dict[int, bytes] = {}
         for f in user_files:
             d = json.loads(Path(f).read_text())
@@ -154,9 +176,13 @@ def test_shipped_details_round_trip_byte_identical(tmp_path):
         s.commit()
 
     with get_serving_session() as s:
-        for cid, expected in cluster_expected.items():
-            got = reconstruct.reconstruct_cluster_detail(s, "video", cid)
-            assert to_bytes(got) == expected, f"cluster {cid}"
+        # The reconstructed bundle is byte-identical to the shipped file.
+        assert to_bytes(reconstruct.reconstruct_clusters_detail_bundle(s, "video")) == (
+            bundle_path.read_bytes()
+        )
+        for cid, expected in label_expected.items():
+            got = reconstruct.reconstruct_cluster_label(s, "video", cid)
+            assert to_bytes(got) == expected, f"cluster label {cid}"
         for uid, expected in user_expected.items():
             got = reconstruct.reconstruct_creator_detail(s, "video", uid)
             assert to_bytes(got) == expected, f"user {uid}"

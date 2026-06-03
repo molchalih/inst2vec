@@ -132,7 +132,6 @@ def compute_clusters(
         params.umap2d_metric,
     )
 
-    # Pass 1 — reduce to n_components for clustering
     # spectral init often warns/fails on tight eigengaps (then falls back to random); skip it
     reducer_nd = UMAP(
         n_components=params.umap_n_components,

@@ -155,9 +155,6 @@ def test_init_db_calls_sweep_orphans(monkeypatch, tmp_path) -> None:
     assert calls == ["called"]
 
 
-# ── allocate_*_identity transactional safety ────────────────────────────
-
-
 def test_allocate_clip_identity_rolls_back_on_exception() -> None:
     _ensure_schemas()
     _clear_tables()

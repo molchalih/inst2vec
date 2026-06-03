@@ -1,8 +1,10 @@
 import { useEffect } from "react";
 import { useAtomValue, useSetAtom, useStore } from "jotai";
 import {
-  activeRunIdAtom, ensureManifestAtom, ensureRunAtom, prefetchRunAtom,
+  activeRunIdAtom, activeRunAtom, ensureManifestAtom, ensureRunAtom, prefetchRunAtom,
+  ensureClusterBundleAtom,
   manifestAtom, runStateAtom, trackedCreatorAtom, useIsTransitioning,
+  useIsChromeRevealed,
 } from "@/state";
 import {
   useFitOnActiveRun, useUrlSync, useTrackViewportSize, useVersionTransition,
@@ -13,7 +15,7 @@ import { ControlDock } from "@/ui";
 import { Providers } from "./providers";
 import {
   VersionsFeature, SelectionFeature, InspectorFeature, SearchFeature,
-  HoverTooltipFeature, TrackingFeature, useCameraFocus,
+  HoverTooltipFeature, TrackingFeature, DocsLinkFeature, useCameraFocus,
 } from "@/features";
 
 const RunLoader = () => {
@@ -66,6 +68,28 @@ const TrackingPrefetch = () => {
   return null;
 };
 
+// Eager cluster main-detail prefetch. Keys off the *committed* run
+// (`activeRunAtom`), not the intended `activeRunIdAtom`: the API client resolves
+// the committed run, so firing before the bulk run commits would fetch against a
+// not-yet-active run and error. On first run load and on every pill switch the
+// committed run id changes, warming the active run's `clusters-detail` bundle so
+// clicking a cluster shows everything-but-tags instantly. Non-blocking: the dots
+// paint regardless; failures are logged, never surfaced. Tags stay deferred —
+// they load per-cluster on selection (see ClusterPane).
+const ClusterDetailPrefetch = () => {
+  const committedRunId = useAtomValue(activeRunAtom)?.meta.id ?? null;
+  const ensureBundle = useSetAtom(ensureClusterBundleAtom);
+
+  useEffect(() => {
+    if (!committedRunId) return;
+    ensureBundle().catch((err: unknown) => {
+      console.error("ensureClusterBundle failed", err);
+    });
+  }, [committedRunId, ensureBundle]);
+
+  return null;
+};
+
 const Routing = () => {
   useUrlSync();
   return null;
@@ -101,12 +125,26 @@ const CaseSwitchOrchestrator = () => {
   return null;
 };
 
+// Hosts the right-edge glyph controls and gates their one-time entrance on the
+// chrome-reveal signal (intro flight settled). Order is dock order: tracking
+// pins the bottom corner, the paper link stacks above it.
+const Dock = () => {
+  const revealed = useIsChromeRevealed();
+  return (
+    <ControlDock revealed={revealed}>
+      <TrackingFeature />
+      <DocsLinkFeature />
+    </ControlDock>
+  );
+};
+
 export const AppShell = () => (
   <Providers>
     <Routing />
     <ViewportTracker />
     <RunLoader />
     <TrackingPrefetch />
+    <ClusterDetailPrefetch />
     <Fitting />
     <Intro />
     <VersionTransition />
@@ -124,9 +162,7 @@ export const AppShell = () => (
       <SelectionFeature />
       <InspectorFeature />
       <SearchFeature />
-      <ControlDock>
-        <TrackingFeature />
-      </ControlDock>
+      <Dock />
     </main>
   </Providers>
 );

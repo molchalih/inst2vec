@@ -2,14 +2,14 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { HttpApiClient } from "./HttpApiClient";
 import { AssetNotFoundError } from "./StaticApiClient";
 import { ApiUnavailableError } from "./ApiClient";
+import { SCHEMA_VERSION } from "../schemas/version";
 
 const ok = (body: unknown) =>
   Promise.resolve(new Response(JSON.stringify(body), { status: 200 }));
 const notFound = () =>
   Promise.resolve(new Response("missing", { status: 404 }));
 
-const clusterDetailFixture = {
-  version: 6,
+const mainDetail = {
   cluster_id: 7,
   size: 1,
   ellipse: { cx: 0, cy: 0, rx: 1, ry: 1, angle: 0 },
@@ -25,10 +25,36 @@ const clusterDetailFixture = {
   activity_span_months: 1,
   distinctiveness: [],
   spatial: { compactness: 0, nearest_clusters: [] },
+  label_modality: null,
+};
+
+const clustersDetailBundle = {
+  version: SCHEMA_VERSION,
+  run_id: "video",
+  clusters: [mainDetail],
+};
+
+const clusterLabelFile = {
+  version: SCHEMA_VERSION,
+  cluster_id: 7,
+  label: {
+    label: "soft domestic",
+    summary: "kitchen scenes",
+    modality: "visual",
+    repertoire: [],
+    aesthetic_logic: [],
+    taste_signalling: { label: "homecore", description: "d", confidence: "medium" },
+    visibility_orientation: { label: "ordinary", description: "d", confidence: "low" },
+    internal_variations: [],
+    boundary_notes: "",
+    tool_tags: [],
+    validation: "ok",
+    warnings: [],
+  },
 };
 
 const creatorDetailFixture = {
-  version: 6,
+  version: SCHEMA_VERSION,
   user_id: 42,
   cluster_id: 7,
   x: 0, y: 0,
@@ -57,12 +83,26 @@ describe("HttpApiClient", () => {
     expect(() => new HttpApiClient("https://api", () => "video")).toThrow();
   });
 
-  it("getClusterDetail: GETs per-run clusters/<id>.json and validates", async () => {
-    globalThis.fetch = vi.fn(() => ok(clusterDetailFixture)) as never;
+  it("getClustersDetail: GETs per-run clusters-detail.json and validates", async () => {
+    globalThis.fetch = vi.fn(() => ok(clustersDetailBundle)) as never;
     const c = new HttpApiClient("https://api/", () => "video");
-    const detail = await c.getClusterDetail(7);
-    expect(detail.cluster_id).toBe(7);
-    expect(globalThis.fetch).toHaveBeenCalledWith("https://api/runs/video/clusters/7.json");
+    const clusters = await c.getClustersDetail();
+    expect(clusters[0]!.cluster_id).toBe(7);
+    expect(globalThis.fetch).toHaveBeenCalledWith("https://api/runs/video/clusters-detail.json");
+  });
+
+  it("getClusterLabel: GETs per-cluster label file and validates", async () => {
+    globalThis.fetch = vi.fn(() => ok(clusterLabelFile)) as never;
+    const c = new HttpApiClient("https://api/", () => "video");
+    const label = await c.getClusterLabel(7);
+    expect(label?.modality).toBe("visual");
+    expect(globalThis.fetch).toHaveBeenCalledWith("https://api/runs/video/clusters/7.label.json");
+  });
+
+  it("getClusterLabel: returns null on 404", async () => {
+    globalThis.fetch = vi.fn(notFound) as never;
+    const c = new HttpApiClient("https://api/", () => "video");
+    expect(await c.getClusterLabel(7)).toBeNull();
   });
 
   it("getCreatorDetail: GETs per-run users/<id>.json and validates", async () => {
@@ -73,11 +113,11 @@ describe("HttpApiClient", () => {
     expect(globalThis.fetch).toHaveBeenCalledWith("https://api/runs/video/users/42.json");
   });
 
-  it("maps 404 to AssetNotFoundError", async () => {
+  it("maps 404 to AssetNotFoundError for creator detail and the bundle", async () => {
     globalThis.fetch = vi.fn(notFound) as never;
     const c = new HttpApiClient("https://api/", () => "video");
     await expect(c.getCreatorDetail(42)).rejects.toBeInstanceOf(AssetNotFoundError);
-    await expect(c.getClusterDetail(7)).rejects.toBeInstanceOf(AssetNotFoundError);
+    await expect(c.getClustersDetail()).rejects.toBeInstanceOf(AssetNotFoundError);
   });
 
   it("live-only methods reject with ApiUnavailableError", async () => {

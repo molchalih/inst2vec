@@ -56,8 +56,14 @@ export const useIntroAnimation = (): void => {
       fitted,
     );
     sizeAtSeedRef.current = size;
+    // Seed the driver AND paint the alpha-0 first frame in the SAME commit as
+    // setPlayed. Otherwise there is a render where the intro is "played" but no
+    // frame is set yet, and the dot/ellipse layers fall through to the static
+    // full-alpha frame — a one-frame flash before the fade. The drive effect
+    // below re-asserts this frame (idempotently) when it picks up the driver.
     setDriver({ startTime: performance.now(), centerWorld });
-  }, [run, size, store, setPlayed, setDriver]);
+    setIntro({ phase: 0, progress: 0, centerWorld });
+  }, [run, size, store, setPlayed, setDriver, setIntro]);
 
   // Bail on mid-intro resize: the seeded centerWorld and the run's
   // stretched targets are stale at the new size. Clearing hands the
@@ -70,7 +76,6 @@ export const useIntroAnimation = (): void => {
     setDriver(null);
   }, [size, driver, setIntro, setDriver]);
 
-  // Drive the rAF timeline whenever a driver exists.
   useLayoutEffect(() => {
     if (!driver) return;
     const durations = {

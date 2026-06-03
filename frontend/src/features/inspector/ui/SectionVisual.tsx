@@ -1,8 +1,10 @@
 import type { CSSProperties } from "react";
 import { type ClipLabelEntry, type ClusterLabel } from "@/data";
 import { tokens } from "@/ui/tokens";
-import { clusterWarningLabel, formatTag, groundingLabel, warningLabel } from "@/core";
+import { MAX_TAGS_PER_CATEGORY, formatTag, groundingLabel } from "@/core";
 import { Chip, type ChipTone } from "./primitives/Chip";
+import { ClusterTagBody } from "./ClusterTagBody";
+import { ClusterTagSkeleton } from "./ClusterTagSkeleton";
 import { CollapsibleSection } from "./CollapsibleSection";
 
 type Props = {
@@ -17,7 +19,17 @@ type Props = {
    * cluster body instead of the per-clip list and drives the section
    * heading via ``cluster.modality``.
    */
-  cluster?: ClusterLabel;
+  cluster?: ClusterLabel | undefined;
+  /**
+   * The deferred cluster label (visual / music / multimodal) is still loading —
+   * render a tag skeleton in the cluster body's place.
+   */
+  clusterLoading?: boolean | undefined;
+  /**
+   * Heading hint used while `cluster` is still loading, so the title reads
+   * "Combined" / "Musical" / "Visual" before the label arrives.
+   */
+  modality?: ClusterLabel["modality"] | undefined;
 };
 
 /**
@@ -63,12 +75,19 @@ const KIND_ROWS: {
  * (creator) path always titles "Visual" because those entries are the
  * video clip-labels regardless of the active embedding case.
  */
-export const SectionVisual = ({ index, clips, cluster }: Props) => {
-  const title = titleFor(cluster?.modality);
+export const SectionVisual = ({ index, clips, cluster, clusterLoading, modality }: Props) => {
+  const title = titleFor(cluster?.modality ?? modality);
   if (cluster !== undefined) {
     return (
       <CollapsibleSection index={index} title={title}>
-        <ClusterBody cluster={cluster} />
+        <ClusterTagBody cluster={cluster} />
+      </CollapsibleSection>
+    );
+  }
+  if (clusterLoading) {
+    return (
+      <CollapsibleSection index={index} title={title}>
+        <ClusterTagSkeleton />
       </CollapsibleSection>
     );
   }
@@ -99,120 +118,6 @@ export const SectionVisual = ({ index, clips, cluster }: Props) => {
   );
 };
 
-// ---------------------------------------------------------------------------
-// Cluster body
-// ---------------------------------------------------------------------------
-
-const ClusterBody = ({ cluster }: { cluster: ClusterLabel }) => {
-  const warn = cluster.validation === "warn";
-  return (
-    <div style={clusterStack}>
-      {/* Summary now lives in the pane header standfirst (PaneHeader lede). */}
-
-      {/* Dominant repertoire (case-flattened) */}
-      {cluster.repertoire.length > 0 && (
-        <div style={clusterKindRow}>
-          <span style={kindLabel}>rep</span>
-          <div style={chipWrap}>
-            {cluster.repertoire.map((e) => (
-              <Chip key={e.tag} tone="observable" warning={warn}>
-                <span title={`${e.recurrence} · ${e.description}`}>{formatTag(e.tag)}</span>
-              </Chip>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Dominant aesthetic logic */}
-      {cluster.aesthetic_logic.length > 0 && (
-        <div style={clusterKindRow}>
-          <span style={kindLabel}>aes</span>
-          <div style={chipWrap}>
-            {cluster.aesthetic_logic.map((e) => (
-              <Chip key={e.tag} tone="aesthetic" warning={warn}>
-                <span title={`${groundingLabel(e.grounded_in)} · ${e.description}`}>{formatTag(e.tag)}</span>
-              </Chip>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Taste signalling */}
-      <CautiousBlock label="taste" block={cluster.taste_signalling} warn={warn} />
-
-      {/* Visibility orientation */}
-      <CautiousBlock label="visibility" block={cluster.visibility_orientation} warn={warn} />
-
-      {/* Internal variations */}
-      {cluster.internal_variations.length > 0 && (
-        <div style={clusterKindRow}>
-          <span style={kindLabel}>variations</span>
-          <ul style={variationList}>
-            {cluster.internal_variations.map((v) => (
-              <li key={v.variation} style={variationItem}>
-                <span style={variationName}>{v.variation}</span>
-                <span style={variationDesc}>{v.description}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {/* Boundary notes */}
-      {cluster.boundary_notes && (
-        <div style={paragraphBlock}>
-          <span style={kindLabel}>boundary</span>
-          <p style={paragraphText}>{cluster.boundary_notes}</p>
-        </div>
-      )}
-
-      {/* Tool tags */}
-      {cluster.tool_tags.length > 0 && (
-        <div style={clusterKindRow}>
-          <span style={kindLabel}>tags</span>
-          <p style={toolTagsRow}>
-            {cluster.tool_tags.map((t) => (
-              <span key={t} style={toolTagsText}>{formatTag(t)}</span>
-            ))}
-          </p>
-        </div>
-      )}
-
-      {/* Warn line */}
-      {warn && cluster.warnings.length > 0 && (
-        <p style={warnLine}>
-          ⚠ {cluster.warnings.map(clusterWarningLabel).join(" · ")}
-        </p>
-      )}
-    </div>
-  );
-};
-
-const CautiousBlock = ({
-  label,
-  block,
-  warn,
-}: {
-  label: string;
-  block: { label: string; description: string; confidence: string };
-  warn: boolean;
-}) => (
-  <div style={clusterKindRow}>
-    <span style={kindLabel}>{label}</span>
-    <div style={cautiousBody}>
-      <div style={cautiousHead}>
-        <span style={cautiousName(warn)}>{block.label}</span>
-        <span style={cautiousConfidence}>{block.confidence}</span>
-      </div>
-      <p style={paragraphText}>{block.description}</p>
-    </div>
-  </div>
-);
-
-// ---------------------------------------------------------------------------
-// Clip body (unchanged)
-// ---------------------------------------------------------------------------
-
 const ClipRow = ({ clip, order }: { clip: ClipLabelEntry; order: string }) => {
   const warn = clip.validation === "warn";
   return (
@@ -227,7 +132,7 @@ const ClipRow = ({ clip, order }: { clip: ClipLabelEntry; order: string }) => {
             <div key={kind} style={kindRow}>
               <span style={kindLabel}>{label}</span>
               <div style={chipWrap}>
-                {clip.tags[kind].slice(0, 5).map((entry) => (
+                {clip.tags[kind].slice(0, MAX_TAGS_PER_CATEGORY).map((entry) => (
                   <Chip
                     key={`${kind}:${entry.tag}`}
                     tone={tone}
@@ -241,11 +146,6 @@ const ClipRow = ({ clip, order }: { clip: ClipLabelEntry; order: string }) => {
           ),
         )}
       </div>
-      {clip.warnings.length > 0 && (
-        <p style={warnLine}>
-          ⚠ {clip.warnings.map(warningLabel).join(" · ")}
-        </p>
-      )}
     </li>
   );
 };
@@ -276,10 +176,6 @@ function tooltipFor(
   const g = entry as ClipLabelEntry["tags"]["aesthetic"][number];
   return `${groundingLabel(g.grounded_in)} · confidence ${g.confidence}`;
 }
-
-// ---------------------------------------------------------------------------
-// Shared styles
-// ---------------------------------------------------------------------------
 
 const list: CSSProperties = {
   listStyle: "none",
@@ -341,13 +237,6 @@ const kindRow: CSSProperties = {
   alignItems: "flex-start",
 };
 
-const clusterKindRow: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "68px 1fr",
-  gap: 8,
-  alignItems: "flex-start",
-};
-
 const kindLabel: CSSProperties = {
   fontFamily: tokens.type.mono,
   fontSize: 9,
@@ -361,14 +250,6 @@ const chipWrap: CSSProperties = {
   display: "flex",
   flexWrap: "wrap",
   gap: 5,
-};
-
-const warnLine: CSSProperties = {
-  margin: "10px 0 0",
-  fontSize: 10,
-  color: tokens.inspector.tagChip.warningOutline,
-  fontFamily: tokens.type.mono,
-  letterSpacing: "0.02em",
 };
 
 const todo: CSSProperties = {
@@ -386,99 +267,4 @@ const emptyMsg: CSSProperties = {
   color: tokens.ink.faint,
   margin: 0,
   fontStyle: "italic",
-};
-
-// ---------------------------------------------------------------------------
-// Cluster-specific styles
-// ---------------------------------------------------------------------------
-
-const clusterStack: CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: 8,
-};
-
-const paragraphBlock: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "68px 1fr",
-  gap: 8,
-  alignItems: "flex-start",
-};
-
-const paragraphText: CSSProperties = {
-  margin: 0,
-  fontSize: 12,
-  lineHeight: 1.5,
-  color: tokens.ink.default,
-};
-
-const variationList: CSSProperties = {
-  listStyle: "none",
-  padding: 0,
-  margin: 0,
-  display: "flex",
-  flexDirection: "column",
-  gap: 4,
-};
-
-const variationItem: CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: 1,
-};
-
-const variationName: CSSProperties = {
-  fontFamily: tokens.type.mono,
-  fontSize: 10,
-  color: tokens.ink.bright,
-  letterSpacing: "0.03em",
-};
-
-const variationDesc: CSSProperties = {
-  fontSize: 11,
-  color: tokens.ink.muted,
-  lineHeight: 1.4,
-};
-
-// cautiousRow reuses clusterKindRow geometry (defined above)
-
-const cautiousBody: CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: 3,
-};
-
-const cautiousHead: CSSProperties = {
-  display: "flex",
-  alignItems: "baseline",
-  gap: 6,
-};
-
-const cautiousName = (warn: boolean): CSSProperties => ({
-  fontSize: 12,
-  fontFamily: tokens.type.mono,
-  color: warn ? tokens.inspector.tagChip.warningOutline : tokens.ink.bright,
-  letterSpacing: "0.02em",
-});
-
-const cautiousConfidence: CSSProperties = {
-  fontSize: 9,
-  fontFamily: tokens.type.mono,
-  color: tokens.ink.faint,
-  letterSpacing: "0.08em",
-  textTransform: "uppercase",
-};
-
-const toolTagsRow: CSSProperties = {
-  margin: 0,
-  display: "flex",
-  flexWrap: "wrap",
-  gap: 5,
-};
-
-const toolTagsText: CSSProperties = {
-  fontFamily: tokens.type.mono,
-  fontSize: 10,
-  color: tokens.ink.muted,
-  letterSpacing: "0.03em",
 };

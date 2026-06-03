@@ -379,7 +379,6 @@ def test_run_cluster_search_uses_single_thread_umap_per_combo(mem_engine, monkey
     assert received, "compute_clusters should have been called"
 
 
-# ── fingerprint integration tests ────────────────────────────────────────────
 # These tests use the conftest-initialised in-memory DB (not mem_engine) so
 # fingerprint StageState rows land in the same engine as ClusterRun rows.
 

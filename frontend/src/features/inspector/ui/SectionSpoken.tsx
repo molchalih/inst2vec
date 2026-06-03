@@ -1,19 +1,40 @@
 import type { CSSProperties } from "react";
 import { tokens } from "@/ui/tokens";
-import type { LangShare } from "@/data";
+import type { ClusterLabel, LangShare } from "@/data";
+import { ClusterTagBody } from "./ClusterTagBody";
+import { ClusterTagSkeleton } from "./ClusterTagSkeleton";
 import { LangRow } from "./primitives/LangRow";
 import { Skeleton } from "./primitives/Skeleton";
 import { CollapsibleSection } from "./CollapsibleSection";
 
 type Loaded = { detected_share: number; top_langs: LangShare[] };
-type Props = { index: string; loaded?: Loaded };
+type Props = {
+  index: string;
+  loaded?: Loaded;
+  /**
+   * Cluster-level descriptive label block for the spoken (audio) case.
+   * Present only on the spoken-case run; renders the dominant
+   * repertoire / aesthetic tags beneath the language distribution,
+   * mirroring the Visual section's cluster body. Narrowed to the audio
+   * modality: `ClusterPane` only routes the spoken-case label block
+   * here, so mis-routing another modality is a compile error rather
+   * than a silent UI mismatch.
+   */
+  label?: (ClusterLabel & { modality: "audio" }) | undefined;
+  /**
+   * The deferred label for this (audio) cluster is still loading — show a tag
+   * skeleton in its place. Mutually exclusive with `label` in practice.
+   */
+  labelLoading?: boolean;
+};
 
 /**
  * Speech section: a headline metric ("speech detected in N%") and a
  * stack of per-language bar rows, each carrying the ISO code, a share
- * bar, and a percentage.
+ * bar, and a percentage. When the active run is the spoken case, a
+ * `label` block follows with the cluster's descriptive tags.
  */
-export const SectionSpoken = ({ index, loaded }: Props) => (
+export const SectionSpoken = ({ index, loaded, label, labelLoading }: Props) => (
   <CollapsibleSection index={index} title="Spoken">
     {loaded ? (
       <>
@@ -32,6 +53,17 @@ export const SectionSpoken = ({ index, loaded }: Props) => (
             ))
           )}
         </div>
+        {label ? (
+          <>
+            <Subhead>Tags</Subhead>
+            <ClusterTagBody cluster={label} />
+          </>
+        ) : labelLoading ? (
+          <>
+            <Subhead>Tags</Subhead>
+            <ClusterTagSkeleton />
+          </>
+        ) : null}
       </>
     ) : (
       <>
@@ -44,6 +76,20 @@ export const SectionSpoken = ({ index, loaded }: Props) => (
     )}
   </CollapsibleSection>
 );
+
+const Subhead = ({ children }: { children: string }) => (
+  <div style={subhead}>{children}</div>
+);
+
+const subhead: CSSProperties = {
+  fontSize: 9,
+  letterSpacing: "0.18em",
+  textTransform: "uppercase",
+  color: tokens.ink.faint,
+  fontFamily: tokens.type.mono,
+  marginTop: 14,
+  marginBottom: 6,
+};
 
 const headline: CSSProperties = {
   display: "flex",

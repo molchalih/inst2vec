@@ -71,6 +71,7 @@ Issues = "https://github.com/molchalih/inst2vec/issues"
 [dependency-groups]
 dev = [
     "autoflake>=2.3.3",
+    "import-linter>=2.0",
     "pytest>=9.0.3",
     "radon>=6.0.1",
     "ruff>=0.15.12",
@@ -137,3 +138,20 @@ exclude = ["core/vendor"]
 
 [tool.ty.analysis]
 replace-imports-with-any = ["sqlalchemy.*", "sqlalchemy.orm.*"]
+
+[tool.importlinter]
+root_packages = ["core", "modules", "services", "scripts"]
+
+# The backend is a one-way stack: scripts orchestrate services + modules + core,
+# services read modules + core, modules build on core, and core depends on
+# nothing internal. Stages within modules/ form a DAG (late stages import early
+# ones) and are intentionally NOT constrained here.
+[[tool.importlinter.contracts]]
+name = "Pipeline layering: core < modules < services < scripts"
+type = "layers"
+layers = [
+    "scripts",
+    "services",
+    "modules",
+    "core",
+]

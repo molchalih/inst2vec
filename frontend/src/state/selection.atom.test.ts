@@ -5,7 +5,7 @@ import {
 } from "./selection.atom";
 import { runStateAtom } from "./run.atom";
 import { manifestAtom } from "./manifest.atom";
-import { viewportAtom } from "./viewport.atom";
+import { viewportAtom, focusViewportAtom } from "./viewport.atom";
 import { viewportSizeAtom } from "./viewport-size.atom";
 import type { AtlasRun, Manifest } from "@/data";
 
@@ -21,7 +21,7 @@ const runWith = (hasDetail: boolean): AtlasRun => ({
 });
 
 const manifestWith = (details: boolean): Manifest => ({
-  version: 6,
+  version: 7,
   default_run_id: "video-1",
   runs: [{ id: "video-1", case: "video", label: "v", size: 2, details_available: details }],
 });
@@ -92,5 +92,45 @@ describe("selection.atom — selectClusterAtom", () => {
     store.set(selectClusterAtom, 9);
     expect(store.get(selectionAtom)).toEqual({ kind: "cluster", clusterId: 9 });
     expect(store.get(viewportAtom)).toEqual(before);
+  });
+});
+
+// Regression: re-selecting while a selection is already open must not
+// re-run the pin. The pin clamps via the viewportAtom write path; the
+// live focus override is a raw, intentionally out-of-band transform
+// (peripheral dot/cluster centred in the inset rect), so re-clamping it
+// teleports the camera before useCameraFocus eases it back.
+describe("selection.atom — re-select keeps the focus override raw", () => {
+  // An out-of-band focus transform: same (in-band) scale, but panned far
+  // enough that clampPanZoom would pull it back if the pin ran.
+  const outOfBand = (store: ReturnType<typeof createStore>) => {
+    const fit = store.get(viewportAtom);
+    return { x: fit.x + 100_000, y: fit.y + 100_000, scale: fit.scale };
+  };
+
+  it("selectDot: leaves an out-of-band override untouched on re-click", () => {
+    const store = createStore();
+    seed(store, true);
+    store.set(viewportSizeAtom, { width: 1000, height: 1000 });
+    store.set(selectDotAtom, 1); // first selection (panel insets, pin runs)
+    const focus = outOfBand(store);
+    store.set(focusViewportAtom, focus); // camera lands a raw peripheral focus
+    expect(store.get(viewportAtom)).toEqual(focus);
+
+    store.set(selectDotAtom, 1); // re-click the same dot
+    expect(store.get(viewportAtom)).toEqual(focus); // no clamp teleport
+  });
+
+  it("selectCluster: leaves an out-of-band override untouched on re-click", () => {
+    const store = createStore();
+    seed(store, true);
+    store.set(viewportSizeAtom, { width: 1000, height: 1000 });
+    store.set(selectClusterAtom, 9);
+    const focus = outOfBand(store);
+    store.set(focusViewportAtom, focus);
+    expect(store.get(viewportAtom)).toEqual(focus);
+
+    store.set(selectClusterAtom, 9);
+    expect(store.get(viewportAtom)).toEqual(focus);
   });
 });

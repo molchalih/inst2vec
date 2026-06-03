@@ -1,4 +1,4 @@
-"""Backend Pydantic mirrors validate the shipped version-6 fixtures.
+"""Backend Pydantic mirrors validate the shipped version-7 fixtures.
 
 These mirror the frontend Zod schemas (``frontend/src/data/schemas/*.ts``).
 Parsing the actually-shipped JSON tree under ``frontend/public/data`` proves
@@ -15,7 +15,8 @@ import pytest
 from pydantic import ValidationError
 
 from modules.visualization.contract import (
-    ClusterDetailModel,
+    ClusterLabelFileModel,
+    ClustersDetailBundleModel,
     ClustersFileModel,
     CreatorDetailModel,
     ManifestModel,
@@ -49,14 +50,14 @@ _RUN_IDS = sorted(
 
 def test_manifest_fixture_parses():
     m = ManifestModel.model_validate(_load(_DATA / "manifest.json"))
-    assert m.version == 6
+    assert m.version == 7
     assert m.runs
 
 
 @pytest.mark.parametrize("run_id", _RUN_IDS)
 def test_users_clusters_fixtures_parse(run_id):
     users = UsersFileModel.model_validate(_load(_DATA / "runs" / run_id / "users.json"))
-    assert users.version == 6
+    assert users.version == 7
     assert users.run_id == run_id
     # 6-tuple arity.
     assert all(len(u) == 6 for u in users.users)
@@ -64,7 +65,7 @@ def test_users_clusters_fixtures_parse(run_id):
     clusters = ClustersFileModel.model_validate(
         _load(_DATA / "runs" / run_id / "clusters.json")
     )
-    assert clusters.version == 6
+    assert clusters.version == 7
 
 
 def test_all_creator_details_parse():
@@ -75,12 +76,22 @@ def test_all_creator_details_parse():
         CreatorDetailModel.model_validate(_load(f))
 
 
-def test_all_cluster_details_parse():
+@pytest.mark.parametrize("run_id", _RUN_IDS)
+def test_cluster_detail_bundle_parses(run_id):
+    bundle = ClustersDetailBundleModel.model_validate(
+        _load(_DATA / "runs" / run_id / "clusters-detail.json")
+    )
+    assert bundle.version == 7
+    assert bundle.run_id == run_id
+    assert bundle.clusters
+
+
+def test_all_cluster_label_files_parse():
     cluster_dir = _DATA / "runs" / "video" / "clusters"
-    files = sorted(cluster_dir.glob("*.json"))
+    files = sorted(cluster_dir.glob("*.label.json"))
     assert files
     for f in files:
-        ClusterDetailModel.model_validate(_load(f))
+        ClusterLabelFileModel.model_validate(_load(f))
 
 
 def test_mirror_forbids_extra_keys():

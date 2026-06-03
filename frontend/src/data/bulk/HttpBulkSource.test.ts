@@ -5,7 +5,7 @@ const ok = (body: unknown) =>
   Promise.resolve(new Response(JSON.stringify(body), { status: 200 }));
 
 const manifestFixture = {
-  version: 6,
+  version: 7,
   default_run_id: "video",
   runs: [
     { id: "video", case: "video", label: "Visual", size: 2, details_available: true },
@@ -13,7 +13,7 @@ const manifestFixture = {
 };
 
 const usersFixture = {
-  version: 6,
+  version: 7,
   run_id: "video",
   bounds: { minX: 0, maxX: 1, minY: 0, maxY: 1 },
   users: [
@@ -23,7 +23,7 @@ const usersFixture = {
 };
 
 const clustersFixture = {
-  version: 6,
+  version: 7,
   run_id: "video",
   clusters: [
     { id: 0, label: "Cluster 1", cx: 0, cy: 0, rx: 1, ry: 1, angle: 0, size: 1, has_detail: true },

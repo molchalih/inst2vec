@@ -49,9 +49,6 @@ _EMPTY_UPDATE: dict = {
 }
 
 
-# ── scoring ───────────────────────────────────────────────────────────────────
-
-
 def _compute_row_scores(
     matrix: np.ndarray, params: dict, max_cluster_frac: float = 0.0
 ) -> ScoreOutcome:
@@ -99,9 +96,6 @@ def _compute_row_scores(
     return dbcv, sil
 
 
-# ── plateau ───────────────────────────────────────────────────────────────────
-
-
 def _adjacent_numeric(vals: list, tv, cv) -> bool:
     """True if *tv* and *cv* are neighbours in the sorted distinct-value list."""
     if tv not in vals or cv not in vals:
@@ -143,9 +137,6 @@ def _find_param_neighbors(target, candidates: list) -> list:
     ]
 
 
-# ── fingerprint ───────────────────────────────────────────────────────────────
-
-
 def _fingerprint(session, case: str, settings) -> fp.Fingerprint:
     rows = (
         session.query(
@@ -173,9 +164,6 @@ def _fingerprint(session, case: str, settings) -> fp.Fingerprint:
     )
     dependency = fp.stage_dependency_hash(session, Stage.CLUSTER_SEARCH, case)
     return fp.Fingerprint(data=data, config=config, dependency=dependency)
-
-
-# ── phase orchestration ──────────────────────────────────────────────────────
 
 
 def _load_snapshots(case: str) -> list[SimpleNamespace]:
@@ -323,9 +311,6 @@ def _compute_updates(
     n_pass = sum(1 for u in updates.values() if u["passes_validation"])
     event("WRITE", "filter", stats={"pass": n_pass, "fail": len(updates) - n_pass})
     return updates
-
-
-# ── entry point ──────────────────────────────────────────────────────────────
 
 
 def _check_fingerprint(case: str, settings) -> tuple[fp.Fingerprint, bool, str]:

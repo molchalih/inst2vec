@@ -11,7 +11,7 @@ import type { ApiClient, AtlasRun, CreatorDetail, Manifest } from "@/data";
 import { ApiUnavailableError, AssetNotFoundError } from "@/data";
 
 const manifest = (defaultRunId: string, runIds: string[]): Manifest => ({
-  version: 6,
+  version: 7,
   default_run_id: defaultRunId,
   runs: runIds.map((id) => ({
     id, case: "video", label: id, size: 1, details_available: true,
@@ -32,7 +32,7 @@ const defer = <T>(): Deferred<T> => {
 };
 
 const fakeDetail = (id: number): CreatorDetail => ({
-  version: 6, user_id: id, cluster_id: 1, x: 0, y: 0, n_clips: 1,
+  version: 7, user_id: id, cluster_id: 1, x: 0, y: 0, n_clips: 1,
   audio: { approachability: 0.5, engagement: 0.5, danceability: 0.5 },
   mood_shares: { happy: 0, sad: 0, relaxed: 0, aggressive: 0, party: 0 },
   timbre_shares: { acoustic: 0, electronic: 0, instrumental: 0, female_voice: 0, bright: 0, tonal: 0 },
@@ -57,7 +57,8 @@ class ProgrammableApi implements ApiClient {
     this.pending.set(id, d);
     return d.promise;
   }
-  getClusterDetail(): never { throw new Error("not used"); }
+  getClustersDetail(): Promise<never[]> { return Promise.resolve([]); }
+  getClusterLabel(): Promise<null> { return Promise.resolve(null); }
   searchCreators(): Promise<never> { return Promise.reject(new ApiUnavailableError("searchCreators")); }
   getEdges(): Promise<never> { return Promise.reject(new ApiUnavailableError("getEdges")); }
   getReels(): Promise<never> { return Promise.reject(new ApiUnavailableError("getReels")); }

@@ -63,9 +63,6 @@ def test_is_repeated_output_empty_or_none():
     assert is_repeated_output(None) is False
 
 
-# ── is_too_short ─────────────────────────────────────────────────────────────
-
-
 def test_is_too_short_handles_none_and_empty():
     from modules.speech.state import is_too_short
 
@@ -79,9 +76,6 @@ def test_is_too_short_strips_whitespace_before_measuring():
     assert is_too_short("   you   ", min_chars=5) is True
     assert is_too_short("hello", min_chars=5) is False
     assert is_too_short("hello!", min_chars=5) is False
-
-
-# ── has_low_letter_ratio ─────────────────────────────────────────────────────
 
 
 def test_has_low_letter_ratio_flags_punctuation_only():

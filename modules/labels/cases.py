@@ -58,7 +58,6 @@ class LabelCaseSpec:
     observable_key: str
     sentence_key: str
     repertoire_key: str
-    # ── declarative ergonomics added 2026-05-28 ─────────────────────────────
     # Other label cases whose ``ClipLabel.payload`` this case consumes
     # via its ``clip_input`` adapter. Drives:
     #   * cluster pass per-clip input lookup;

@@ -1,6 +1,6 @@
 """Pure payload builders in modules.visualization.export.
 
-The builders are the single producer of the version-6 payload shapes: the
+The builders are the single producer of the version-7 payload shapes: the
 file exporter writes their output, the offload decomposes it, and the API
 reconstructs it. These tests pin the dict shapes the builders emit so the
 offload/reconstruct round-trip has a stable contract to round-trip against.
@@ -8,9 +8,9 @@ offload/reconstruct round-trip has a stable contract to round-trip against.
 
 from __future__ import annotations
 
+from core.contract import SCHEMA_VERSION
 from core.database import get_session
 from modules.visualization import export as export_mod
-from modules.visualization.schema import SCHEMA_VERSION
 from tests.test_visualization_export import (
     _clear,
     _seed_case_with_mir,
@@ -78,9 +78,14 @@ def test_build_detail_payloads_validate_against_compute_shape(tmp_path):
     assert sample_creator["version"] == SCHEMA_VERSION
     assert "clips" in sample_creator
     assert "spatial" in sample_creator
+    # Cluster main detail is version-less (the per-run bundle owns the version)
+    # and label-less (the heavy label moved to its own per-cluster map); it
+    # carries only the modality so the viewer can place the tag skeleton.
     sample_cluster = next(iter(bundle.cluster_details.values()))
-    assert sample_cluster["version"] == SCHEMA_VERSION
+    assert "version" not in sample_cluster
+    assert "label" not in sample_cluster
     assert "spatial" in sample_cluster
+    assert "label_modality" in sample_cluster
 
 
 def test_export_still_writes_identical_files(tmp_path):

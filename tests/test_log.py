@@ -104,11 +104,6 @@ def test_item_stats_merge_on_multiple_calls(
     assert captured[0][4]["text"] == 180
 
 
-# ---------------------------------------------------------------------------
-# T4: event()
-# ---------------------------------------------------------------------------
-
-
 def test_event_logs_one_shot_with_active_scope(
     captured: list[tuple[Any, ...]],
 ) -> None:
@@ -128,11 +123,6 @@ def test_event_default_result_is_ok(
 def test_event_outside_scope_raises() -> None:
     with pytest.raises(RuntimeError, match="no active scope"):
         cl.event("SCAN", "users")
-
-
-# ---------------------------------------------------------------------------
-# T5: warn()
-# ---------------------------------------------------------------------------
 
 
 def test_warn_renders_as_warn_result_with_err_repr(
@@ -163,11 +153,6 @@ def test_warn_accepts_string_err(
 def test_warn_outside_scope_raises() -> None:
     with pytest.raises(RuntimeError, match="no active scope"):
         cl.warn("SCAN", "topup")
-
-
-# ---------------------------------------------------------------------------
-# T6: @scope decorator
-# ---------------------------------------------------------------------------
 
 
 def test_scope_literal_sets_contextvar_for_function_body(
@@ -220,11 +205,6 @@ def test_scope_invalid_literal_raises() -> None:
 
         @cl.scope("Embed Video")  # uppercase + space
         def inner() -> None: ...
-
-
-# ---------------------------------------------------------------------------
-# T7: @stage decorator
-# ---------------------------------------------------------------------------
 
 
 def test_stage_emits_seal_with_time_on_clean_exit(
@@ -293,11 +273,6 @@ def test_stage_invalid_name_raises() -> None:
         def run() -> None: ...
 
 
-# ---------------------------------------------------------------------------
-# T8: Strictness guards
-# ---------------------------------------------------------------------------
-
-
 def test_item_outside_scope_raises() -> None:
     with (
         pytest.raises(RuntimeError, match="no active scope"),
@@ -323,11 +298,6 @@ def test_event_invalid_result_raises() -> None:
     cl._scope_var.set("mir")
     with pytest.raises(ValueError, match="unknown result"):
         cl.event("SCAN", "clips", result="stale")  # type: ignore[arg-type]
-
-
-# ---------------------------------------------------------------------------
-# T9: Integration smoke (real renderer, no monkeypatch)
-# ---------------------------------------------------------------------------
 
 
 def test_real_renderer_smoke(capsys: pytest.CaptureFixture[str]) -> None:

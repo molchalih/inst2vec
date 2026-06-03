@@ -71,9 +71,6 @@ def _mir(**kwargs) -> SimpleNamespace:
     return SimpleNamespace(**defaults)
 
 
-# ── verbalize_mir ─────────────────────────────────────────────────────────────
-
-
 def test_verbalize_mir_happy_path_full_string():
     mir = _mir(
         genre_labels="Electronic House, Pop Synthpop, Rock Indie",
@@ -191,9 +188,6 @@ def test_verbalize_mir_returns_empty_when_nothing_to_emit():
     assert verbalize_mir(_mir()) == ""
 
 
-# ── build_sandwich_text ───────────────────────────────────────────────────────
-
-
 def test_sandwich_caption_only_when_no_speech_no_music():
     clip = _clip(caption_clean="hello world", is_speech_detected=False)
     out = build_sandwich_text(clip, None)
@@ -256,9 +250,6 @@ def test_sandwich_joins_caption_speech_music_with_pipe():
     assert parts[0] == "cap"
     assert parts[1] == "speech"
     assert parts[2].startswith("Music:")
-
-
-# ── build_audio_text ──────────────────────────────────────────────────────────
 
 
 def test_audio_returns_none_when_no_speech_no_music():

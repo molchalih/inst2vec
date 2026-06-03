@@ -43,3 +43,23 @@ export const isIntroPlayingAtom = atom((get) => get(introAtom) !== null);
 export const useIntro = (): IntroState => useAtomValue(introAtom);
 
 export const useIsIntroPlaying = (): boolean => useAtomValue(isIntroPlayingAtom);
+
+/** Whether the one-time entrance has been seeded (true for its whole life
+ *  after first load, including the skip paths). Render layers read it to keep
+ *  dots/ellipses hidden until the fade owns them — never flashing the static
+ *  full-alpha frame in the gap between the run loading and the intro seeding. */
+export const useIntroPlayed = (): boolean => useAtomValue(introPlayedAtom);
+
+/**
+ * Chrome entrance gate. True once the one-time intro flight has settled
+ * (`introPlayed` flipped, no frame in flight) — also true immediately when
+ * the intro is skipped for reduced-motion or a deep-link selection, since
+ * `introPlayed` flips without a driver. The dock buttons and version drawer
+ * stay absent until this turns true, then slide in. Stays a stable boolean
+ * across the per-frame intro writes so consumers don't re-render mid-flight.
+ */
+export const chromeRevealedAtom = atom(
+  (get) => get(introPlayedAtom) && get(introAtom) === null,
+);
+
+export const useIsChromeRevealed = (): boolean => useAtomValue(chromeRevealedAtom);

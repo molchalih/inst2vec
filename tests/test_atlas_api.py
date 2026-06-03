@@ -47,7 +47,7 @@ def test_manifest_endpoint(tmp_path):
     r = client.get("/manifest.json")
     assert r.status_code == 200
     body = r.json()
-    assert body["version"] == 6
+    assert body["version"] == 7
     assert body["runs"][0]["case"] == "video"
 
 
@@ -66,13 +66,18 @@ def test_unknown_run_404(tmp_path):
 def test_detail_endpoints(tmp_path):
     client = _client(tmp_path)
     assert client.get("/runs/video/users/0.json").status_code == 200
-    assert client.get("/runs/video/clusters/0.json").status_code == 200
+    # Cluster main detail ships as one per-run bundle.
+    assert client.get("/runs/video/clusters-detail.json").status_code == 200
 
 
 def test_missing_detail_404(tmp_path):
     client = _client(tmp_path)
     assert client.get("/runs/video/users/999999.json").status_code == 404
-    assert client.get("/runs/video/clusters/999999.json").status_code == 404
+    # The synthetic seed has no cluster labels → every label endpoint 404s.
+    assert client.get("/runs/video/clusters/999999.label.json").status_code == 404
+    assert client.get("/runs/video/clusters/0.label.json").status_code == 404
+    # The bundle 404s only for an unknown run.
+    assert client.get("/runs/nope/clusters-detail.json").status_code == 404
 
 
 def test_token_gates_endpoints(tmp_path):
@@ -150,10 +155,20 @@ def test_golden_byte_equality_all_endpoints(tmp_path):
         assert client.get(f"/runs/video/users/{uid}.json").content == _file_bytes(
             "runs", "video", "users", f"{uid}.json"
         )
-    for cid in cluster_ids:
-        assert client.get(f"/runs/video/clusters/{cid}.json").content == _file_bytes(
-            "runs", "video", "clusters", f"{cid}.json"
+    # Cluster main detail: one per-run bundle, byte-identical to the file.
+    assert client.get("/runs/video/clusters-detail.json").content == _file_bytes(
+        "runs", "video", "clusters-detail.json"
+    )
+    # Deferred label files, byte-identical to the API label endpoint (none for
+    # the synthetic seed, which has no ClusterLabel rows).
+    label_dir = export_dir / "runs" / "video" / "clusters"
+    for f in sorted(label_dir.glob("*.label.json")):
+        cid = int(f.name[: -len(".label.json")])
+        assert (
+            client.get(f"/runs/video/clusters/{cid}.label.json").content
+            == f.read_bytes()
         )
+    assert cluster_ids  # exporter wrote main detail for these
 
     # Sanity: the exporter's own files load as valid JSON (catch empty reads).
-    assert json.loads(_file_bytes("manifest.json"))["version"] == 6
+    assert json.loads(_file_bytes("manifest.json"))["version"] == 7

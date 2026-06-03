@@ -16,8 +16,6 @@ from core.fingerprint import (
 )
 from core.log import scope as _scope
 
-# ── hash_rows / hash_text ────────────────────────────────────────────────────
-
 
 def test_hash_rows_empty_is_stable():
     assert hash_rows([]) == hash_rows([])
@@ -58,9 +56,6 @@ def test_hash_text_deterministic():
 def test_hash_text_empty_is_stable():
     assert hash_text("") == hash_text("")
     assert len(hash_text("")) == 64
-
-
-# ── is_stale / mark_complete / describe_diff ─────────────────────────────────
 
 
 @pytest.fixture
@@ -130,9 +125,6 @@ def test_describe_diff_lists_changed_fields(fresh_state):
     fresh_state.commit()
     diff = describe_diff(fresh_state, "stg", "scp", Fingerprint("d2", "c1", "x2"))
     assert diff == "data+dependency"
-
-
-# ── stage_dependency_hash ────────────────────────────────────────────────────
 
 
 def test_stage_dependency_hash_returns_empty_text_hash_when_absent(fresh_state):
@@ -226,9 +218,6 @@ def test_file_stat_for_hash_existing_returns_size_and_mtime(tmp_path):
     p.write_bytes(b"hello")
     s = p.stat()
     assert file_stat_for_hash(str(p)) == (s.st_size, s.st_mtime_ns)
-
-
-# ── gate ─────────────────────────────────────────────────────────────────────
 
 
 # gate() uses event() which requires an active scope via ContextVar;
@@ -460,9 +449,6 @@ def test_gate_data_drift_triggers_when_flag_set(fresh_state):
     assert called["n"] == 1
 
 
-# ── stable_subset_payload ─────────────────────────────────────────────────────
-
-
 def test_stable_subset_payload_orders_fields_deterministically():
     from core.fingerprint import stable_subset_payload
 
@@ -494,9 +480,6 @@ def test_stable_subset_payload_serializes_unknown_types_via_str():
 
     out = stable_subset_payload(M(), ("p",))
     assert json.loads(out) == {"p": "/tmp/x"}
-
-
-# ── compose_hashes ───────────────────────────────────────────────────────────
 
 
 def test_compose_hashes_is_order_sensitive() -> None:

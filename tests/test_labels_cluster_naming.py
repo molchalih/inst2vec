@@ -32,10 +32,6 @@ from modules.labels.cluster_naming import (
 from modules.labels.cluster_pass import run_all_cases
 from modules.labels.validation import CLUSTER_LABEL_MAX_CHARS
 
-# --------------------------------------------------------------------------- #
-# Pure helpers                                                                 #
-# --------------------------------------------------------------------------- #
-
 
 def test_valid_label_accepts_title_case_two_to_three_words():
     assert valid_label("Cinematic Stillness")
@@ -237,11 +233,6 @@ def test_build_naming_prompt_includes_roster_rules_and_feedback():
     assert "aesthetic" in prompt  # banned-words listing
     assert "OVERUSED words" in prompt
     assert "cluster_id" in prompt  # output contract
-
-
-# --------------------------------------------------------------------------- #
-# Integration through run_all_cases                                            #
-# --------------------------------------------------------------------------- #
 
 
 def _labels(**overrides) -> LabelsSettings:
