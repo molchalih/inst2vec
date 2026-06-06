@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no"
+    />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#0b0b0f" />
+    <title>triage — odd one out</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&family=Martian+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      /* Paint-blocking base — CSS variables + root layout present on the first
+         frame, before the JS bundle and Tailwind utilities load. Values mirror
+         tokens.ts; channel form enables Tailwind <alpha-value> substitution. */
+      :root {
+        color-scheme: dark;
+        --bg-canvas: 11 11 15;
+        --bg-surface: 21 21 28;
+        --bg-raised: 29 29 39;
+        --fg-default: 244 241 234;
+        --fg-muted: 154 151 143;
+        --fg-faint: 95 93 88;
+        --accent: 255 59 31;
+        --affirm: 55 224 196;
+      }
+      html,
+      body,
+      #root {
+        height: 100%;
+        margin: 0;
+        background: rgb(var(--bg-canvas));
+        color: rgb(var(--fg-default));
+        overflow: hidden;
+        overscroll-behavior: none;
+      }
+      body {
+        -webkit-tap-highlight-color: transparent;
+        -webkit-font-smoothing: antialiased;
+        text-rendering: optimizeLegibility;
+        /* No text/element selection or long-press callout — this is a touch app,
+           not a document; holding a reel must never pop a blue selection box. */
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-touch-callout: none;
+      }
+      /* Faint film-grain wash over the whole canvas for tactile depth. */
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        pointer-events: none;
+        opacity: 0.04;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <!-- Telegram Mini App SDK: populates window.Telegram.WebApp when launched
+         from inside Telegram. Harmless (unused) in a normal browser. -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

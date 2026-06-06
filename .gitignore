@@ -6,6 +6,12 @@
 /data/
 !frontend/public/data/
 
+# Swipe-anchor app-store runtime DB + activity log (never commit runtime state)
+swipe_anchor/backend/data/
+*.db
+*.db-wal
+*.db-shm
+
 # Model weights & checkpoints
 models/
 checkpoints/
@@ -58,6 +64,9 @@ tests/cluster_analysis/
 frontend/node_modules/
 frontend/dist/
 frontend/coverage/
+swipe_anchor/frontend/node_modules/
+swipe_anchor/frontend/dist/
+swipe_anchor/frontend/coverage/
 
 # One-off research graph generator (scratch)
 scripts/make_research_graphs.py

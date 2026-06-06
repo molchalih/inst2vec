@@ -1,0 +1,57 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Decisive cross-out slash that stamps across a crossed card. */
+@keyframes triage-stamp {
+  0% {
+    transform: scale(1.4) rotate(var(--slash-deg, -18deg));
+    opacity: 0;
+  }
+  60% {
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1) rotate(var(--slash-deg, -18deg));
+    opacity: 1;
+  }
+}
+
+/* Staggered card entrance on each new comparison. */
+@keyframes triage-card-in {
+  from {
+    transform: translateY(14px) scale(0.985);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+/* The constellation reward pulse after a judgment lands. */
+@keyframes triage-pulse {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.triage-scroll {
+  overflow-y: auto;
+  scrollbar-width: none;
+  overscroll-behavior: contain;
+}
+.triage-scroll::-webkit-scrollbar {
+  display: none;
+}
