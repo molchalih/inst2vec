@@ -5,10 +5,12 @@ name: Deploy serving API
 # self-hosted runner registered on that box with the `inst2vec-serving`
 # label, so no inbound SSH is required.
 #
-# The compose bundle (deploy/Dockerfile, deploy/docker-compose.yml,
-# deploy/.env, deploy/data/main.db) is NOT in git — it lives untracked in
-# the deploy dir (INST2VEC_DIR) and survives `git reset --hard` (which only
-# touches tracked files). The API *source* (services/atlas_api, the
+# Runtime configuration and data (deploy/docker-compose.yml, deploy/.env,
+# deploy/data/main.db) are NOT in git — they live untracked in the deploy
+# dir (INST2VEC_DIR) and survive `git reset --hard` (which only touches
+# tracked files). deploy/Dockerfile is tracked, so remove a stale untracked
+# copy left by older runner checkouts before switching branches. The API
+# source (services/atlas_api, the
 # visualization/export contract, core/database) IS tracked, so updating the
 # clone and rebuilding the image picks up code changes.
 #
@@ -53,6 +55,12 @@ jobs:
           # Explicit refspec so this works even on a single-branch clone (the box
           # was cloned -b integration, so origin/main may not exist yet).
           git fetch --prune origin "+refs/heads/${REF}:refs/remotes/origin/${REF}"
+          # Dockerfile became tracked after the runner was first provisioned.
+          # An older untracked copy would otherwise make checkout abort; leave
+          # all runtime-only deploy files (compose config, .env, data) intact.
+          if ! git ls-files --error-unmatch deploy/Dockerfile >/dev/null 2>&1; then
+            rm -f deploy/Dockerfile
+          fi
           git checkout -B "$REF" "origin/$REF"
           git reset --hard "origin/$REF"   # tracked files only; deploy/ is untracked and preserved
           cd deploy
